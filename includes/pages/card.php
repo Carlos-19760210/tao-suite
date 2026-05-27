@@ -1,0 +1,1101 @@
+<?php
+if ( ! defined( 'ABSPATH' ) ) exit;
+
+function tao_crm_page_card() {
+    $card_id = sanitize_text_field( $_GET['id'] ?? '' );
+    if ( ! $card_id ) { echo '<p>Card inválido.</p>'; return; }
+
+    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&limit=1" );
+    if ( ! $rc['ok'] || empty( $rc['data'] ) ) { echo '<p>Card não encontrado.</p>'; return; }
+    $card = $rc['data'][0];
+
+    // Pós Vendas: verifica se este card veio de um handoff de cliente com pedido em andamento
+    $card_meta      = json_decode( $card['meta'] ?? '{}', true ) ?: [];
+    $pv_card_id     = $card_meta['pos_vendas_card_id'] ?? null;
+    $pv_card_info   = null;
+    if ( $pv_card_id ) {
+        $rpv = tao_crm_api( "/crm_cards?id=eq.$pv_card_id&select=id,titulo,estagio_id,pipeline_id&limit=1" );
+        if ( $rpv['ok'] && ! empty( $rpv['data'] ) ) {
+            $pv_card_info = $rpv['data'][0];
+            // Busca nome do estágio
+            $rpve = tao_crm_api( "/crm_estagios?id=eq.{$pv_card_info['estagio_id']}&select=nome,cor&limit=1" );
+            if ( $rpve['ok'] && ! empty( $rpve['data'] ) ) {
+                $pv_card_info['estagio_nome'] = $rpve['data'][0]['nome'];
+                $pv_card_info['estagio_cor']  = $rpve['data'][0]['cor'] ?? '#6366f1';
+            }
+        }
+    }
+
+    // Atendentes só podem ver seus próprios cards
+    if ( ! tao_crm_is_gestor( $card['workspace_id'] ?? '' ) ) {
+        $uid = get_current_user_id();
+        if ( intval( $card['responsavel_id'] ?? 0 ) !== $uid && ! empty( $card['responsavel_id'] ) ) {
+            echo '<div class="wrap"><div class="notice notice-error"><p>Acesso negado — este card não está atribuído a você.</p></div></div>';
+            return;
+        }
+    }
+
+    $re       = tao_crm_api( "/crm_estagios?pipeline_id=eq.{$card['pipeline_id']}&order=ordem.asc" );
+    $estagios = $re['ok'] ? ( $re['data'] ?? [] ) : [];
+
+    $rm   = tao_crm_api( "/crm_mensagens?card_id=eq.$card_id&order=enviado_em.asc&limit=200" );
+    $msgs = $rm['ok'] ? ( $rm['data'] ?? [] ) : [];
+
+    // Campos: definição do estágio atual + outros estágios com valores preenchidos
+    $rce          = tao_crm_api( "/crm_campos_estagio?estagio_id=eq.{$card['estagio_id']}&order=ordem.asc" );
+    $campos_estagio = $rce['ok'] ? ( $rce['data'] ?? [] ) : [];
+
+    $campos_ids_atuais = array_column( $campos_estagio, 'campo_id' );
+
+    // Definições dos campos do estágio atual
+    $campos_def = [];
+    if ( ! empty( $campos_ids_atuais ) ) {
+        $rcd = tao_crm_api( '/crm_campos_definicao?id=in.(' . implode( ',', $campos_ids_atuais ) . ')' );
+        foreach ( ( $rcd['ok'] ? ( $rcd['data'] ?? [] ) : [] ) as $d ) {
+            $campos_def[ $d['id'] ] = $d;
+        }
+    }
+
+    // Todos os valores preenchidos neste card
+    $rv = tao_crm_api( "/crm_cards_valores?card_id=eq.$card_id" );
+    $valores = [];
+    foreach ( ( $rv['ok'] ? ( $rv['data'] ?? [] ) : [] ) as $v ) {
+        $valores[ $v['campo_id'] ] = $v['valor'];
+    }
+
+    // Campos de outros estágios que têm valor preenchido
+    $outros_campo_ids = array_diff( array_keys( $valores ), $campos_ids_atuais );
+    $campos_outros_def = [];
+    if ( ! empty( $outros_campo_ids ) ) {
+        $rco = tao_crm_api( '/crm_campos_definicao?id=in.(' . implode( ',', $outros_campo_ids ) . ')' );
+        foreach ( ( $rco['ok'] ? ( $rco['data'] ?? [] ) : [] ) as $d ) {
+            $campos_outros_def[ $d['id'] ] = $d;
+        }
+    }
+
+    // Dados do contato (email, CPF)
+    $contato_extra = [];
+    if ( ! empty( $card['contato_id'] ) ) {
+        $rc_ct = tao_crm_api( "/crm_contatos?id=eq.{$card['contato_id']}&select=email,cpf,cep,logradouro,numero,complemento,bairro,cidade,classificacao,observacoes&limit=1" );
+        if ( $rc_ct['ok'] && ! empty( $rc_ct['data'] ) ) {
+            $contato_extra = $rc_ct['data'][0];
+        }
+    }
+
+    // Tags do workspace e tags do card
+    $rts      = tao_crm_api( "/crm_tags?workspace_id=eq.{$card['workspace_id']}&order=nome.asc" );
+    $all_tags = $rts['ok'] ? ( $rts['data'] ?? [] ) : [];
+    $rct      = tao_crm_api( "/crm_cards_tags?card_id=eq.$card_id&select=tag_id" );
+    $card_tag_ids = array_column( $rct['ok'] ? ( $rct['data'] ?? [] ) : [], 'tag_id' );
+
+    // Lembretes do card
+    $rlm      = tao_crm_api( "/crm_lembretes?card_id=eq.$card_id&order=data_hora.asc&limit=50" );
+    $lembretes = $rlm['ok'] ? ( $rlm['data'] ?? [] ) : [];
+
+    // Histórico de movimentações
+    $rh       = tao_crm_api( "/crm_cards_historico?card_id=eq.$card_id&order=criado_em.asc&limit=30" );
+    $historico = $rh['ok'] ? ( $rh['data'] ?? [] ) : [];
+
+    // Histórico de atendimentos anteriores do mesmo contato (outros cards)
+    $cards_anteriores = [];
+    if ( ! empty( $card['contato_whatsapp'] ) ) {
+        $rca = tao_crm_api( "/crm_cards?workspace_id=eq.{$card['workspace_id']}&contato_whatsapp=eq.{$card['contato_whatsapp']}&id=neq.$card_id&select=id,titulo,contato_nome,criado_em,fechado,status,pipeline_id&order=criado_em.desc&limit=10" );
+        $cards_anteriores = $rca['ok'] ? ( $rca['data'] ?? [] ) : [];
+    }
+
+    // Pipelines para nome no histórico de atendimentos
+    $pipelines_map = [];
+    if ( ! empty( $cards_anteriores ) ) {
+        $rpl_all = tao_crm_api( "/crm_pipelines?workspace_id=eq.{$card['workspace_id']}&select=id,nome" );
+        foreach ( $rpl_all['ok'] ? ( $rpl_all['data'] ?? [] ) : [] as $p ) {
+            $pipelines_map[ $p['id'] ] = $p['nome'];
+        }
+    }
+
+    // Verifica se este card é do pipeline de Pós Vendas
+    $is_pos_vendas = ( $card['pipeline_id'] === get_option( 'tao_crm_pos_vendas_pipeline_' . $card['workspace_id'], '' ) );
+
+    // Mapas de ids → nomes para historico
+    $estagios_map = [];
+    foreach ( $estagios as $e ) { $estagios_map[ $e['id'] ] = $e['nome']; }
+
+    // Responsáveis WP
+    $wp_users = get_users( [ 'fields' => [ 'ID', 'display_name' ] ] );
+
+    // Estágio atual
+    $estagio_atual = null;
+    foreach ( $estagios as $e ) {
+        if ( $e['id'] === $card['estagio_id'] ) { $estagio_atual = $e; break; }
+    }
+
+    $kanban_url = tao_crm_url( [ 'pipeline_id' => $card['pipeline_id'] ] );
+
+    ?>
+    <div class="wrap tao-crm-wrap">
+
+        <div class="tao-crm-topbar">
+            <a href="<?php echo esc_url( $kanban_url ); ?>" class="tao-crm-back">&#8592; Voltar ao Kanban</a>
+            <?php if ( ! empty( $card['atendimento_humano'] ) ) : ?>
+            <span class="tao-crm-handoff-badge">🙋 Em atendimento humano</span>
+            <?php endif; ?>
+            <?php if ( ! empty( $card['fechado'] ) ) : ?>
+            <span class="tao-crm-fechado-badge">🔒 Card fechado — próxima mensagem do cliente abrirá novo card</span>
+            <?php if ( ! empty( $card['fechado'] ) && tao_crm_is_gestor( $card['workspace_id'] ) ) : ?>
+<button type="button" id="crm-reabrir-btn" class="button" style="margin-left:8px;color:#16a34a;border-color:#16a34a">
+    &#x21BA; Reabrir card
+</button>
+            <?php endif; ?>
+            <?php else : ?>
+            <div class="tao-crm-fechar-actions">
+                <button class="button tao-crm-btn-ganho" id="tao-crm-btn-ganho">&#x2705; Fechar Neg&oacute;cio</button>
+                <button class="button tao-crm-btn-perdido" id="tao-crm-btn-perdido">&#x274C; Neg&oacute;cio Perdido</button>
+            </div>
+            <?php endif; ?>
+        <?php if ( tao_crm_is_gestor( $card['workspace_id'] ?? '' ) && empty( $card['fechado'] ) ) : ?>
+        <?php if ( ! empty( $card['atendimento_humano'] ) ) : ?>
+        <button type="button" id="crm-devolver-chatbot-btn" class="button" style="margin-left:8px;color:#7c3aed;border-color:#7c3aed" title="Devolve o cliente ao chatbot sem fechar o card">
+            &#x1F916; Devolver ao chatbot
+        </button>
+        <?php endif; ?>
+        <?php if ( $is_pos_vendas ) : ?>
+        <button type="button" id="crm-fechar-pv-btn" class="button" style="margin-left:8px;color:#16a34a;border-color:#16a34a" title="Marca o pedido como entregue e fecha o card">
+            &#x2705; Pedido entregue
+        </button>
+        <?php endif; ?>
+        <button type="button" id="crm-transfer-btn" class="button" style="margin-left:8px">
+            &#x1F500; Transferir
+        </button>
+        <!-- Modal de transferência -->
+        <div id="crm-transfer-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center">
+            <div style="background:#fff;border-radius:12px;padding:24px;width:400px;max-width:90vw">
+                <h3 style="margin:0 0 16px">Transferir card</h3>
+                <label style="display:block;margin-bottom:10px;font-size:13px">Atendente
+                    <select id="crm-transfer-user" style="width:100%;margin-top:4px">
+                        <?php foreach ( get_users(['fields'=>['ID','display_name']]) as $u ) : ?>
+                        <option value="<?php echo esc_attr($u->ID); ?>"><?php echo esc_html($u->display_name); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+                <label style="display:block;margin-bottom:16px;font-size:13px">Mensagem interna (opcional)
+                    <textarea id="crm-transfer-msg" rows="3" style="width:100%;margin-top:4px;border:1px solid #cbd5e1;border-radius:4px;padding:8px;font-size:13px" placeholder="Ex: Cliente pediu para falar com voc&#234; sobre or&#231;amento"></textarea>
+                </label>
+                <div style="display:flex;gap:8px">
+                    <button class="button button-primary" id="crm-transfer-confirm">Transferir</button>
+                    <button class="button" id="crm-transfer-cancel">Cancelar</button>
+                    <span id="crm-transfer-status" style="font-size:12px"></span>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
+        </div>
+
+        <div class="tao-crm-card-layout">
+
+            <!-- Painel esquerdo -->
+            <div class="tao-crm-card-info">
+
+                <div class="card-info-header">
+                    <h2 id="tao-crm-card-title-display"><?php echo esc_html( $card['titulo'] ?: $card['contato_nome'] ); ?></h2>
+                    <?php if ( $estagio_atual ) : ?>
+                    <span class="card-stage-badge" style="background:<?php echo esc_attr( $estagio_atual['cor'] ?? '#6366f1' ); ?>">
+                        <?php echo esc_html( $estagio_atual['nome'] ); ?>
+                    </span>
+                    <?php endif; ?>
+                    <?php if ( empty( $card['fechado'] ) ) : ?>
+                    <button class="tao-crm-edit-btn" id="tao-crm-edit-info-btn" title="Editar dados do contato">✏</button>
+                    <?php endif; ?>
+                </div>
+
+                <div class="card-info-body">
+                    <div class="info-row">
+                        <span class="info-label">Contato</span>
+                        <span class="info-value" id="tao-crm-contato-nome-display"><?php echo esc_html( $card['contato_nome'] ); ?></span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">WhatsApp</span>
+                        <span class="info-value" id="tao-crm-contato-whats-display">
+                            <?php echo esc_html( tao_crm_format_phone( $card['contato_whatsapp'] ) ); ?>
+                            <?php if ( function_exists( 'tao_crm_is_lid_num' ) && tao_crm_is_lid_num( $card['contato_whatsapp'] ) ) : ?>
+                            <span title="N&uacute;mero de dispositivo WhatsApp (@lid). Edite para inserir o telefone real." style="cursor:help;color:#e67e22;font-size:11px;margin-left:4px">&#x26A0; ID dispositivo</span>
+                            <?php endif; ?>
+                        </span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Criado em</span>
+                        <span class="info-value"><?php echo esc_html( tao_crm_brt( $card['criado_em'], 'd/m/Y H:i' ) ); ?></span>
+                    </div>
+
+                    <!-- Responsável -->
+                    <div class="info-row" style="align-items:center">
+                        <span class="info-label">Responsável</span>
+                        <select id="tao-crm-responsavel" class="info-select" style="max-width:150px;font-size:12px">
+                            <option value="">— Ninguém —</option>
+                            <?php foreach ( $wp_users as $u ) : ?>
+                            <option value="<?php echo esc_attr( $u->ID ); ?>"
+                                <?php selected( intval( $card['responsavel_id'] ?? 0 ), $u->ID ); ?>>
+                                <?php echo esc_html( $u->display_name ); ?>
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <!-- Valor de oportunidade -->
+                    <div class="info-row crm-info-row" style="align-items:center;gap:6px">
+                        <span class="info-label">Valor (R$)</span>
+                        <input type="number" id="crm-valor-oportunidade" step="0.01" min="0"
+                               value="<?php echo esc_attr( $card['valor_oportunidade'] ?? '' ); ?>"
+                               placeholder="0,00"
+                               style="width:110px;font-size:12px;padding:3px 6px;border:1px solid #d1d5db;border-radius:4px">
+                        <button class="button button-small" id="crm-valor-save" style="font-size:11px">Salvar</button>
+                        <span id="crm-valor-status" style="font-size:11px;color:#16a34a;display:none">✔ salvo</span>
+                    </div>
+
+                    <!-- Etiquetas (Tags) -->
+                    <?php if ( ! empty( $all_tags ) ) : ?>
+                    <div class="info-row crm-section-tags" style="flex-direction:column;align-items:flex-start;gap:6px">
+                        <span class="info-label">Etiquetas</span>
+                        <div id="crm-card-tags-display" style="display:flex;flex-wrap:wrap;gap:4px">
+                            <?php foreach ( $all_tags as $tag ) :
+                                if ( ! in_array( $tag['id'], $card_tag_ids ) ) continue;
+                                $tc = esc_attr( $tag['cor'] ?? '#6366f1' );
+                            ?>
+                            <span class="crm-tag-pill"
+                                  style="background:<?php echo $tc; ?>20;color:<?php echo $tc; ?>;border:1px solid <?php echo $tc; ?>40;padding:2px 8px;border-radius:12px;font-size:11px">
+                                <?php echo esc_html( $tag['nome'] ); ?>
+                            </span>
+                            <?php endforeach; ?>
+                        </div>
+                        <button type="button" id="crm-tags-edit-btn" class="button button-small" style="font-size:11px">+ Editar</button>
+                        <div id="crm-tags-picker" style="display:none;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:10px;margin-top:4px;min-width:200px">
+                            <?php foreach ( $all_tags as $tag ) :
+                                $tc  = esc_attr( $tag['cor'] ?? '#6366f1' );
+                                $chk = in_array( $tag['id'], $card_tag_ids ) ? 'checked' : '';
+                            ?>
+                            <label style="display:flex;align-items:center;gap:6px;margin-bottom:6px;cursor:pointer;font-size:12px">
+                                <input type="checkbox" class="crm-tag-checkbox"
+                                       value="<?php echo esc_attr( $tag['id'] ); ?>" <?php echo $chk; ?>>
+                                <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:<?php echo $tc; ?>;flex-shrink:0"></span>
+                                <?php echo esc_html( $tag['nome'] ); ?>
+                            </label>
+                            <?php endforeach; ?>
+                            <div style="margin-top:8px;display:flex;gap:6px">
+                                <button type="button" id="crm-tags-save" class="button button-primary button-small" style="font-size:11px">Salvar</button>
+                                <button type="button" id="crm-tags-cancel" class="button button-small" style="font-size:11px">Cancelar</button>
+                            </div>
+                            <span id="crm-tags-status" style="display:none;font-size:11px;color:#16a34a;margin-top:4px">✔ salvo</span>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+                </div>
+
+                <!-- Painel: Pós Vendas (se card veio de handoff de cliente com pedido em andamento) -->
+                <?php if ( $pv_card_info ) :
+                    $pv_url = tao_crm_url( [ 'action' => 'card', 'id' => $pv_card_info['id'] ] );
+                    $pv_cor = esc_attr( $pv_card_info['estagio_cor'] ?? '#6366f1' );
+                ?>
+                <div class="card-pv-panel" style="margin-bottom:16px;padding:12px 14px;background:#fef9ec;border:1px solid #f0c04b;border-radius:8px">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                        <span style="font-size:16px">&#x1F4E6;</span>
+                        <strong style="font-size:13px;color:#92400e">Cliente com pedido em Pós Vendas</strong>
+                    </div>
+                    <div style="font-size:12px;color:#78350f;margin-bottom:8px">
+                        <strong>Pedido:</strong> <?php echo esc_html( $pv_card_info['titulo'] ); ?><br>
+                        <?php if ( ! empty( $pv_card_info['estagio_nome'] ) ) : ?>
+                        <strong>Fase:</strong>
+                        <span style="background:<?php echo $pv_cor; ?>20;color:<?php echo $pv_cor; ?>;border:1px solid <?php echo $pv_cor; ?>40;border-radius:10px;padding:1px 7px;font-size:11px">
+                            <?php echo esc_html( $pv_card_info['estagio_nome'] ); ?>
+                        </span>
+                        <?php endif; ?>
+                    </div>
+                    <a href="<?php echo esc_url( $pv_url ); ?>" class="button button-small" style="font-size:11px">
+                        &#x1F517; Ver pedido em Pós Vendas
+                    </a>
+                </div>
+                <?php endif; ?>
+
+                <!-- Campos do estágio atual -->
+                <?php if ( ! empty( $campos_estagio ) ) : ?>
+                <div class="card-campos-section">
+                    <h3 class="campos-title">&#x1F4CB; Campos &mdash; <?php echo esc_html( $estagio_atual['nome'] ?? 'Est&aacute;gio atual' ); ?></h3>
+                    <?php foreach ( $campos_estagio as $ce ) :
+                        $def = $campos_def[ $ce['campo_id'] ] ?? null;
+                        if ( ! $def ) continue;
+                        $val = $valores[ $ce['campo_id'] ] ?? '';
+                        $obg = ! empty( $ce['obrigatorio'] );
+                    ?>
+                    <div class="campo-item<?php echo $obg && $val === '' ? ' campo-missing' : ''; ?>"
+                         data-campo-id="<?php echo esc_attr( $def['id'] ); ?>">
+                        <label class="campo-label">
+                            <?php echo esc_html( $def['nome'] ); ?>
+                            <?php if ( $obg ) : ?><span class="campo-required" title="Obrigatório">*</span><?php endif; ?>
+                        </label>
+                        <?php echo tao_crm_render_campo_input( $def, $val, $card_id ); ?>
+                        <span class="campo-saved" style="display:none">✔ salvo</span>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+                <?php endif; ?>
+
+                <!-- Campos de outros estágios com valores -->
+                <?php if ( ! empty( $campos_outros_def ) ) : ?>
+                <div class="card-campos-outros">
+                    <details>
+                        <summary class="campos-outros-toggle">
+                            Dados de outras fases (<?php echo count( $campos_outros_def ); ?>)
+                        </summary>
+                        <?php foreach ( $campos_outros_def as $cid => $def ) :
+                            $val = $valores[ $cid ] ?? '';
+                        ?>
+                        <div class="campo-item campo-readonly" data-campo-id="<?php echo esc_attr( $cid ); ?>">
+                            <label class="campo-label"><?php echo esc_html( $def['nome'] ); ?></label>
+                            <?php echo tao_crm_render_campo_input( $def, $val, $card_id ); ?>
+                            <span class="campo-saved" style="display:none">✔ salvo</span>
+                        </div>
+                        <?php endforeach; ?>
+                    </details>
+                </div>
+                <?php endif; ?>
+
+                <!-- Lembretes -->
+                <div class="crm-section-lembretes" style="margin-bottom:20px">
+                    <h4 style="margin-bottom:10px;font-size:13px;font-weight:700">🔔 Lembretes</h4>
+                    <div id="crm-lembretes-list">
+                        <?php if ( empty( $lembretes ) ) : ?>
+                        <p style="font-size:12px;color:#94a3b8">Nenhum lembrete ainda.</p>
+                        <?php else : foreach ( $lembretes as $lem ) :
+                            $lem_id   = esc_attr( $lem['id'] );
+                            $lem_comp = ! empty( $lem['completado'] );
+                            $lem_data = ! empty( $lem['data_hora'] ) ? tao_crm_brt( $lem['data_hora'], 'd/m/Y H:i' ) : '—';
+                        ?>
+                        <div class="crm-lembrete-item <?php echo $lem_comp ? 'lembrete-completado' : ''; ?>"
+                             data-lembrete-id="<?php echo $lem_id; ?>"
+                             style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid #f1f5f9;font-size:12px">
+                            <input type="checkbox" class="crm-lem-check" data-id="<?php echo $lem_id; ?>"
+                                   <?php echo $lem_comp ? 'checked' : ''; ?> title="Marcar como concluído">
+                            <div style="flex:1">
+                                <div style="font-weight:600;<?php echo $lem_comp ? 'text-decoration:line-through;color:#94a3b8' : ''; ?>">
+                                    <?php echo esc_html( $lem['titulo'] ?? '' ); ?>
+                                </div>
+                                <div style="color:#64748b"><?php echo esc_html( $lem_data ); ?></div>
+                                <?php if ( ! empty( $lem['descricao'] ) ) : ?>
+                                <div style="color:#94a3b8;font-size:11px"><?php echo esc_html( $lem['descricao'] ); ?></div>
+                                <?php endif; ?>
+                            </div>
+                            <button type="button" class="crm-lem-delete" data-id="<?php echo $lem_id; ?>"
+                                    style="background:none;border:none;cursor:pointer;color:#ef4444;font-size:14px;padding:0 2px"
+                                    title="Excluir lembrete">✕</button>
+                        </div>
+                        <?php endforeach; endif; ?>
+                    </div>
+                    <div class="crm-lembrete-form" style="margin-top:12px;display:flex;flex-direction:column;gap:6px">
+                        <input type="text" id="crm-lem-titulo" placeholder="Ex: Ligar amanhã de manhã"
+                               style="font-size:12px;padding:5px 8px;border:1px solid #d1d5db;border-radius:4px">
+                        <input type="datetime-local" id="crm-lem-data"
+                               style="font-size:12px;padding:5px 8px;border:1px solid #d1d5db;border-radius:4px">
+                        <textarea id="crm-lem-desc" rows="2" placeholder="Observação (opcional)"
+                                  style="font-size:12px;padding:5px 8px;border:1px solid #d1d5db;border-radius:4px;resize:vertical"></textarea>
+                        <button type="button" class="button button-small" id="crm-lem-add" style="font-size:12px;align-self:flex-start">+ Adicionar lembrete</button>
+                        <span id="crm-lem-status" style="display:none;font-size:11px;color:#16a34a">✔ lembrete adicionado</span>
+                    </div>
+                </div>
+
+                <!-- PATCH: Comentários Internos -->
+                <div class="crm-section-comentarios" style="margin-bottom:20px">
+                    <label style="display:block;font-size:13px;font-weight:700;margin-bottom:8px">&#x1F4DD; Notas internas</label>
+                    <div id="crm-comentarios-list"><!-- preenchido via JS --></div>
+                    <form id="crm-coment-form" style="margin-top:10px;display:flex;gap:8px">
+                        <textarea id="crm-coment-texto" rows="2" placeholder="Nota interna (só a equipe vê)..."
+                            style="flex:1;border:1px solid #cbd5e1;border-radius:4px;padding:6px 8px;font-size:13px;resize:vertical"></textarea>
+                        <button type="submit" class="button button-primary" style="height:fit-content;align-self:flex-end">Salvar</button>
+                    </form>
+                </div>
+
+                <!-- Mover estágio -->
+                <div class="card-move-stage">
+                    <label>Mover para estágio</label>
+                    <select id="tao-crm-move-stage">
+                        <?php foreach ( $estagios as $e ) : ?>
+                        <option value="<?php echo esc_attr( $e['id'] ); ?>"
+                            <?php selected( $e['id'], $card['estagio_id'] ); ?>>
+                            <?php echo esc_html( $e['nome'] ); ?>
+                        </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <button class="button button-primary" id="tao-crm-btn-move">Mover</button>
+                    <span id="tao-crm-move-status"></span>
+                </div>
+
+                <!-- Histórico de movimentações (collapsible) -->
+                <div class="card-history crm-section-historico">
+                    <h3 style="cursor:pointer;user-select:none" onclick="(function(){var d=document.getElementById('crm-historico-body');var t=document.getElementById('hist-toggle');if(d.style.display==='none'){d.style.display='block';t.textContent='▲';}else{d.style.display='none';t.textContent='▼';}})()">
+                        📋 Histórico <span id="hist-toggle" style="font-size:12px;color:#94a3b8">▼</span>
+                    </h3>
+                    <div id="crm-historico-body" style="display:none">
+                        <?php if ( empty( $historico ) ) : ?>
+                            <p class="no-history">Nenhuma movimentação ainda.</p>
+                        <?php else : foreach ( $historico as $h ) :
+                            $de   = $estagios_map[ $h['de_estagio_id']   ?? '' ] ?? '—';
+                            $para = $estagios_map[ $h['para_estagio_id'] ?? '' ] ?? '—';
+                        ?>
+                        <div class="history-item">
+                            <span class="history-arrow"><?php echo esc_html( $de ); ?> → <?php echo esc_html( $para ); ?></span>
+                            <span class="history-date"><?php echo esc_html( tao_crm_brt( $h['criado_em'], 'd/m H:i' ) ); ?></span>
+                            <?php if ( ! empty( $h['motivo'] ) ) : ?>
+                            <span class="history-motivo"><?php echo esc_html( $h['motivo'] ); ?></span>
+                            <?php endif; ?>
+                        </div>
+                        <?php endforeach; endif; ?>
+                    </div>
+                </div>
+
+                <!-- Histórico de atendimentos anteriores do mesmo contato -->
+                <?php if ( ! empty( $cards_anteriores ) ) : ?>
+                <div class="card-history crm-section-atendimentos-ant" style="margin-top:12px">
+                    <h3 style="cursor:pointer;user-select:none" onclick="(function(){var d=document.getElementById('crm-ant-body');var t=document.getElementById('crm-ant-toggle');if(d.style.display==='none'){d.style.display='block';t.textContent='▲';}else{d.style.display='none';t.textContent='▼';}})()">
+                        &#x1F4D6; Atendimentos anteriores (<?php echo count( $cards_anteriores ); ?>) <span id="crm-ant-toggle" style="font-size:12px;color:#94a3b8">▼</span>
+                    </h3>
+                    <div id="crm-ant-body" style="display:none">
+                        <?php foreach ( $cards_anteriores as $ca ) :
+                            $ca_url    = tao_crm_url( [ 'action' => 'card', 'id' => $ca['id'] ] );
+                            $ca_status = ! empty( $ca['fechado'] ) ? ( $ca['status'] ?? 'fechado' ) : 'aberto';
+                            $ca_cor    = $ca_status === 'ganho' ? '#16a34a' : ( $ca_status === 'perdido' ? '#dc2626' : '#6366f1' );
+                            $ca_pl     = $pipelines_map[ $ca['pipeline_id'] ] ?? '';
+                        ?>
+                        <div style="padding:6px 0;border-bottom:1px solid #f1f5f9;font-size:12px">
+                            <a href="<?php echo esc_url( $ca_url ); ?>" style="font-weight:600;color:#1e293b;text-decoration:none">
+                                <?php echo esc_html( $ca['titulo'] ?: $ca['contato_nome'] ); ?>
+                            </a>
+                            <span style="background:<?php echo esc_attr( $ca_cor ); ?>20;color:<?php echo esc_attr( $ca_cor ); ?>;border-radius:8px;padding:1px 6px;font-size:10px;margin-left:4px"><?php echo esc_html( $ca_status ); ?></span>
+                            <?php if ( $ca_pl ) : ?><span style="color:#94a3b8;margin-left:4px"><?php echo esc_html( $ca_pl ); ?></span><?php endif; ?>
+                            <span style="color:#94a3b8;float:right"><?php echo esc_html( tao_crm_brt( $ca['criado_em'], 'd/m/Y' ) ); ?></span>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+                <?php endif; ?>
+
+            </div>
+
+            <!-- Painel direito: chat -->
+            <div class="tao-crm-chat-panel">
+
+                <div class="chat-header">
+                    <span class="chat-contact">💬 <?php echo esc_html( $card['contato_nome'] ); ?></span>
+                    <span class="chat-number"><?php echo esc_html( tao_crm_format_phone( $card['contato_whatsapp'] ) ); ?></span>
+                </div>
+
+                <div class="chat-messages" id="tao-crm-messages">
+                    <?php foreach ( $msgs as $msg ) : ?>
+                    <?php echo tao_crm_render_message( $msg ); ?>
+                    <?php endforeach; ?>
+                </div>
+
+                <div class="chat-input-area">
+                    <?php if ( empty( $card['fechado'] ) ) : ?>
+                    <div class="chat-template-bar">
+                        <select id="tao-crm-template-select">
+                            <option value="">&#x1F4DD; Inserir template...</option>
+                        </select>
+                    </div>
+                    <?php endif; ?>
+                    <div id="tao-crm-file-preview" style="display:none">
+                        <span id="tao-crm-file-name"></span>
+                        <button type="button" id="tao-crm-file-clear" title="Remover arquivo">✕</button>
+                    </div>
+                    <textarea id="tao-crm-msg-input"
+                              placeholder="Digite uma mensagem... (Ctrl+Enter para enviar)"
+                              rows="3"></textarea>
+                    <div class="chat-input-btns">
+                        <?php if ( empty( $card['fechado'] ) ) : ?>
+                        <label class="button tao-crm-attach-label" id="tao-crm-attach-wrap" title="Enviar anexo (imagem, vídeo, áudio, documento)">
+                            📎
+                            <input type="file" id="tao-crm-file-input"
+                                   accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.txt"
+                                   style="display:none">
+                        </label>
+                        <button class="button" id="tao-crm-nota-toggle" title="Alternar para modo nota interna">📝</button>
+                        <button class="button button-primary" id="tao-crm-send-btn">Enviar ▶</button>
+                        <?php else : ?>
+                        <span style="color:#94a3b8;font-size:12px;padding:6px 0">Card encerrado — respostas desabilitadas</span>
+                        <?php endif; ?>
+                    </div>
+                    <?php if ( empty( $card['fechado'] ) ) : ?>
+                    <!-- PATCH: Agendar mensagem -->
+                    <div id="crm-agendar-wrap" style="margin-top:8px">
+                        <button type="button" id="crm-agendar-btn" class="button" style="font-size:12px">&#x23F0; Agendar mensagem</button>
+                        <div id="crm-agendar-form" style="display:none;margin-top:8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:12px">
+                            <div style="display:flex;flex-direction:column;gap:8px">
+                                <textarea id="crm-agendar-texto" rows="3" placeholder="Mensagem a enviar..."
+                                    style="border:1px solid #cbd5e1;border-radius:4px;padding:6px 8px;font-size:13px"></textarea>
+                                <input type="datetime-local" id="crm-agendar-quando"
+                                    style="border:1px solid #cbd5e1;border-radius:4px;padding:6px 8px;font-size:13px">
+                                <div style="display:flex;gap:8px">
+                                    <button type="button" id="crm-agendar-salvar" class="button button-primary">Agendar</button>
+                                    <button type="button" id="crm-agendar-cancelar" class="button">Cancelar</button>
+                                    <span id="crm-agendar-status" style="font-size:12px;align-self:center"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- Modal: Editar dados do contato -->
+    <div id="tao-crm-edit-modal" class="tao-crm-modal" style="display:none">
+        <div class="tao-crm-modal-content" style="max-width:520px">
+            <div class="tao-crm-modal-header">
+                <h2>✏ Editar dados do card</h2>
+                <button class="tao-crm-modal-close" onclick="document.getElementById('tao-crm-edit-modal').style.display='none'">✕</button>
+            </div>
+            <form id="tao-crm-edit-form">
+                <div style="padding:16px 20px;display:flex;flex-direction:column;gap:10px;max-height:70vh;overflow-y:auto">
+    <label style="font-size:13px;font-weight:600">Título do card
+        <input type="text" id="tao-crm-edit-titulo" class="regular-text"
+               value="<?php echo esc_attr( $card['titulo'] ); ?>"
+               style="width:100%;margin-top:4px">
+    </label>
+    <label style="font-size:13px;font-weight:600">Nome do contato
+        <input type="text" id="tao-crm-edit-nome" class="regular-text"
+               value="<?php echo esc_attr( $card['contato_nome'] ); ?>"
+               style="width:100%;margin-top:4px">
+    </label>
+    <label style="font-size:13px;font-weight:600">WhatsApp
+        <input type="text" id="tao-crm-edit-whats" class="regular-text"
+               value="<?php echo esc_attr( $card['contato_whatsapp'] ); ?>"
+               placeholder="55119..." style="width:100%;margin-top:4px">
+        <?php if ( function_exists( 'tao_crm_is_lid_num' ) && tao_crm_is_lid_num( $card['contato_whatsapp'] ) ) : ?>
+        <span style="font-size:11px;color:#e67e22;font-weight:400;display:block;margin-top:3px">
+            &#x26A0; ID de dispositivo WhatsApp. Digite o n&uacute;mero real (ex: 5511994604521) e salve para vincular automaticamente.
+        </span>
+        <?php endif; ?>
+    </label>
+    <label style="font-size:13px;font-weight:600">E-mail
+        <input type="email" id="tao-crm-edit-email" class="regular-text"
+               value="<?php echo esc_attr( $contato_extra['email'] ?? '' ); ?>"
+               placeholder="email@exemplo.com" style="width:100%;margin-top:4px">
+    </label>
+    <label style="font-size:13px;font-weight:600">CPF
+        <input type="text" id="tao-crm-edit-cpf" class="regular-text"
+               value="<?php echo esc_attr( $contato_extra['cpf'] ?? '' ); ?>"
+               placeholder="000.000.000-00" style="width:100%;margin-top:4px">
+    </label>
+    <div style="border-top:1px solid #e2e0dc;padding-top:10px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#6b7280">Endereço</div>
+    <div style="display:flex;gap:8px">
+        <label style="font-size:13px;font-weight:600;flex:0 0 130px">CEP
+            <input type="text" id="tao-crm-edit-cep" class="regular-text"
+                   value="<?php echo esc_attr( $contato_extra['cep'] ?? '' ); ?>"
+                   placeholder="00000-000" maxlength="9" style="width:100%;margin-top:4px">
+        </label>
+        <label style="font-size:13px;font-weight:600;flex:0 0 90px">Número
+            <input type="text" id="tao-crm-edit-numero" class="regular-text"
+                   value="<?php echo esc_attr( $contato_extra['numero'] ?? '' ); ?>"
+                   placeholder="123" style="width:100%;margin-top:4px">
+        </label>
+    </div>
+    <label style="font-size:13px;font-weight:600">Logradouro
+        <input type="text" id="tao-crm-edit-logradouro" class="regular-text"
+               value="<?php echo esc_attr( $contato_extra['logradouro'] ?? '' ); ?>"
+               placeholder="Rua, Av, Travessa..." style="width:100%;margin-top:4px">
+    </label>
+    <label style="font-size:13px;font-weight:600">Complemento
+        <input type="text" id="tao-crm-edit-complemento" class="regular-text"
+               value="<?php echo esc_attr( $contato_extra['complemento'] ?? '' ); ?>"
+               placeholder="Apto, Bloco..." style="width:100%;margin-top:4px">
+    </label>
+    <div style="display:flex;gap:8px">
+        <label style="font-size:13px;font-weight:600;flex:1">Bairro
+            <input type="text" id="tao-crm-edit-bairro" class="regular-text"
+                   value="<?php echo esc_attr( $contato_extra['bairro'] ?? '' ); ?>"
+                   style="width:100%;margin-top:4px">
+        </label>
+        <label style="font-size:13px;font-weight:600;flex:1">Cidade
+            <input type="text" id="tao-crm-edit-cidade" class="regular-text"
+                   value="<?php echo esc_attr( $contato_extra['cidade'] ?? '' ); ?>"
+                   style="width:100%;margin-top:4px">
+        </label>
+    </div>
+    <div style="border-top:1px solid #e2e0dc;padding-top:10px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#6b7280">Outros</div>
+    <label style="font-size:13px;font-weight:600">Classificação
+        <select id="tao-crm-edit-classificacao" style="width:100%;margin-top:4px">
+            <option value="">— sem classificação —</option>
+            <?php foreach ( ['Excelente','Bom','Regular','Ruim','Inadimplente'] as $cls ) : ?>
+            <option value="<?php echo esc_attr($cls); ?>" <?php selected( ($contato_extra['classificacao'] ?? ''), $cls ); ?>><?php echo esc_html($cls); ?></option>
+            <?php endforeach; ?>
+        </select>
+    </label>
+    <label style="font-size:13px;font-weight:600">Observação
+        <textarea id="tao-crm-edit-observacao" rows="3" placeholder="Observações sobre o cliente..." style="width:100%;margin-top:4px"><?php echo esc_textarea( $contato_extra['observacoes'] ?? '' ); ?></textarea>
+    </label>
+                </div>
+                <div class="tao-crm-modal-footer">
+                    <button type="button" class="button" onclick="document.getElementById('tao-crm-edit-modal').style.display='none'">Cancelar</button>
+                    <button type="submit" class="button button-primary" id="tao-crm-edit-btn">Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Fechar Card -->
+    <div id="tao-crm-fechar-modal" class="tao-crm-modal" style="display:none">
+        <div class="tao-crm-modal-content" style="max-width:440px">
+            <div class="tao-crm-modal-header">
+                <h2 id="tao-crm-fechar-titulo">Fechar Negócio</h2>
+                <button class="tao-crm-modal-close" onclick="document.getElementById('tao-crm-fechar-modal').style.display='none'">✕</button>
+            </div>
+            <form id="tao-crm-fechar-form">
+                <input type="hidden" id="tao-crm-fechar-tipo" value="">
+                <div style="padding:16px 20px">
+                    <p id="tao-crm-fechar-desc" style="color:#64748b;margin-bottom:14px;font-size:13px"></p>
+                    <label style="display:block;font-weight:600;margin-bottom:6px;font-size:13px">Motivo</label>
+                    <select id="tao-crm-fechar-motivo" style="width:100%;font-size:13px;padding:6px 8px;border:1px solid #d1d5db;border-radius:4px">
+                        <!-- Opções preenchidas pelo JS conforme ganho/perdido -->
+                    </select>
+                    <div id="tao-crm-fechar-outro-wrap" style="display:none;margin-top:8px">
+                        <input type="text" id="tao-crm-fechar-outro"
+                               style="width:100%;font-size:13px;padding:6px 8px;border:1px solid #d1d5db;border-radius:4px"
+                               placeholder="Descreva o motivo...">
+                    </div>
+                </div>
+                <div class="tao-crm-modal-footer">
+                    <button type="button" class="button" onclick="document.getElementById('tao-crm-fechar-modal').style.display='none'">Voltar</button>
+                    <button type="submit" class="button button-primary" id="tao-crm-fechar-btn">Confirmar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: campos obrigatórios faltando -->
+    <div id="tao-crm-campos-modal" class="tao-crm-modal" style="display:none">
+        <div class="tao-crm-modal-content" style="max-width:400px">
+            <div class="tao-crm-modal-header">
+                <h2>&#x26A0; Campos obrigat&oacute;rios</h2>
+                <button class="tao-crm-modal-close" onclick="document.getElementById('tao-crm-campos-modal').style.display='none'">✕</button>
+            </div>
+            <div style="padding:16px 20px">
+                <p id="tao-crm-campos-modal-msg"></p>
+                <ul id="tao-crm-campos-modal-list" style="margin:8px 0 0 16px;color:#dc2626"></ul>
+            </div>
+            <div class="tao-crm-modal-footer">
+                <button class="button button-primary" onclick="document.getElementById('tao-crm-campos-modal').style.display='none'">Entendido</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    var taoCrmCardId       = <?php echo wp_json_encode( $card_id ); ?>;
+    var taoCrmLastMsg      = <?php echo wp_json_encode( end( $msgs ) ? end( $msgs )['enviado_em'] : '' ); ?>;
+    var taoCrmCurrentStage = <?php echo wp_json_encode( $card['estagio_id'] ); ?>;
+    var taoCrmWorkspaceId  = <?php echo wp_json_encode( $card['workspace_id'] ); ?>;
+    var taoCrmKanbanUrl    = <?php echo wp_json_encode( function_exists( 'cbpm_url' ) ? cbpm_url( 'crm-kanban', [ 'workspace_id' => $card['workspace_id'], 'pipeline_id' => $card['pipeline_id'] ] ) : '' ); ?>;
+    var taoCrmCardTagIds   = <?php echo wp_json_encode( $card_tag_ids ); ?>;
+    var taoCrmAllTags      = <?php echo wp_json_encode( $all_tags ); ?>;
+    var taoCrmLembretes    = <?php echo wp_json_encode( $lembretes ); ?>;
+
+    // ── Valor de oportunidade ─────────────────────────────────────────────
+    document.addEventListener('DOMContentLoaded', function() {
+
+        // Salvar valor de oportunidade
+        var valorSaveBtn = document.getElementById('crm-valor-save');
+        if ( valorSaveBtn ) {
+            valorSaveBtn.addEventListener('click', function() {
+                var val = document.getElementById('crm-valor-oportunidade').value;
+                var st  = document.getElementById('crm-valor-status');
+                fetch( ajaxurl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({
+                        action: 'tao_crm_update_card',
+                        card_id: taoCrmCardId,
+                        field: 'valor_oportunidade',
+                        value: val,
+                        _wpnonce: taoCrmNonce
+                    })
+                }).then(function(r){ return r.json(); }).then(function(d) {
+                    if ( d.ok ) {
+                        st.style.display = 'inline';
+                        setTimeout(function(){ st.style.display = 'none'; }, 2000);
+                    } else {
+                        alert('Erro ao salvar valor.');
+                    }
+                });
+            });
+        }
+
+        // ── Etiquetas (tags) ─────────────────────────────────────────────
+        var tagsEditBtn  = document.getElementById('crm-tags-edit-btn');
+        var tagsPicker   = document.getElementById('crm-tags-picker');
+        var tagsSaveBtn  = document.getElementById('crm-tags-save');
+        var tagsCancelBtn = document.getElementById('crm-tags-cancel');
+        var tagsStatus   = document.getElementById('crm-tags-status');
+
+        if ( tagsEditBtn && tagsPicker ) {
+            tagsEditBtn.addEventListener('click', function() {
+                tagsPicker.style.display = tagsPicker.style.display === 'none' ? 'block' : 'none';
+            });
+            if ( tagsCancelBtn ) {
+                tagsCancelBtn.addEventListener('click', function() {
+                    tagsPicker.style.display = 'none';
+                });
+            }
+            if ( tagsSaveBtn ) {
+                tagsSaveBtn.addEventListener('click', function() {
+                    var checked = Array.from( document.querySelectorAll('.crm-tag-checkbox:checked') ).map(function(cb){ return cb.value; });
+                    fetch( ajaxurl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: new URLSearchParams({
+                            action: 'tao_crm_set_card_tags',
+                            card_id: taoCrmCardId,
+                            tag_ids: JSON.stringify( checked ),
+                            _wpnonce: taoCrmNonce
+                        })
+                    }).then(function(r){ return r.json(); }).then(function(d) {
+                        if ( d.ok ) {
+                            // Atualizar pills no display
+                            var display = document.getElementById('crm-card-tags-display');
+                            if ( display ) {
+                                display.innerHTML = '';
+                                taoCrmAllTags.forEach(function(tag) {
+                                    if ( checked.indexOf( String(tag.id) ) === -1 ) return;
+                                    var tc = tag.cor || '#6366f1';
+                                    var pill = document.createElement('span');
+                                    pill.className = 'crm-tag-pill';
+                                    pill.style.cssText = 'background:' + tc + '20;color:' + tc + ';border:1px solid ' + tc + '40;padding:2px 8px;border-radius:12px;font-size:11px';
+                                    pill.textContent = tag.nome;
+                                    display.appendChild( pill );
+                                });
+                            }
+                            tagsStatus.style.display = 'inline';
+                            setTimeout(function(){ tagsStatus.style.display = 'none'; tagsPicker.style.display = 'none'; }, 1500);
+                        } else {
+                            alert('Erro ao salvar etiquetas.');
+                        }
+                    });
+                });
+            }
+        }
+
+        // ── Lembretes ────────────────────────────────────────────────────
+        // Marcar lembrete como concluído
+        document.querySelectorAll('.crm-lem-check').forEach(function(cb) {
+            cb.addEventListener('change', function() {
+                var lid = this.dataset.id;
+                fetch( ajaxurl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({
+                        action: 'tao_crm_update_lembrete',
+                        lembrete_id: lid,
+                        completado: this.checked ? '1' : '0',
+                        _wpnonce: taoCrmNonce
+                    })
+                });
+                var item = this.closest('.crm-lembrete-item');
+                if ( item ) {
+                    if ( this.checked ) item.classList.add('lembrete-completado');
+                    else item.classList.remove('lembrete-completado');
+                }
+            });
+        });
+
+        // Excluir lembrete
+        document.querySelectorAll('.crm-lem-delete').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                if ( ! confirm('Excluir este lembrete?') ) return;
+                var lid = this.dataset.id;
+                fetch( ajaxurl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({
+                        action: 'tao_crm_delete_lembrete',
+                        lembrete_id: lid,
+                        _wpnonce: taoCrmNonce
+                    })
+                }).then(function(r){ return r.json(); }).then(function(d) {
+                    if ( d.ok ) {
+                        var item = document.querySelector('.crm-lembrete-item[data-lembrete-id="' + lid + '"]');
+                        if ( item ) item.remove();
+                    }
+                });
+            });
+        });
+
+        // Adicionar lembrete
+        var lemAddBtn = document.getElementById('crm-lem-add');
+        if ( lemAddBtn ) {
+            lemAddBtn.addEventListener('click', function() {
+                var titulo = document.getElementById('crm-lem-titulo').value.trim();
+                var data   = document.getElementById('crm-lem-data').value;
+                var desc   = document.getElementById('crm-lem-desc').value.trim();
+                var st     = document.getElementById('crm-lem-status');
+                if ( ! titulo ) { alert('Informe o título do lembrete.'); return; }
+                fetch( ajaxurl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({
+                        action: 'tao_crm_add_lembrete',
+                        card_id: taoCrmCardId,
+                        titulo: titulo,
+                        data_hora: data,
+                        descricao: desc,
+                        _wpnonce: taoCrmNonce
+                    })
+                }).then(function(r){ return r.json(); }).then(function(d) {
+                    if ( d.ok ) {
+                        st.style.display = 'inline';
+                        setTimeout(function(){ st.style.display = 'none'; }, 2000);
+                        document.getElementById('crm-lem-titulo').value = '';
+                        document.getElementById('crm-lem-data').value   = '';
+                        document.getElementById('crm-lem-desc').value   = '';
+                        // Adicionar item à lista sem recarregar a página
+                        var list = document.getElementById('crm-lembretes-list');
+                        var noItem = list.querySelector('p');
+                        if ( noItem ) noItem.remove();
+                        var div = document.createElement('div');
+                        div.className = 'crm-lembrete-item';
+                        div.dataset.lembreteId = d.id;
+                        div.style.cssText = 'display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid #f1f5f9;font-size:12px';
+                        div.innerHTML = '<input type="checkbox" class="crm-lem-check" data-id="' + d.id + '">'
+                            + '<div style="flex:1"><div style="font-weight:600">' + titulo + '</div>'
+                            + '<div style="color:#64748b">' + ( data ? data.replace('T',' ') : '—' ) + '</div>'
+                            + ( desc ? '<div style="color:#94a3b8;font-size:11px">' + desc + '</div>' : '' )
+                            + '</div>'
+                            + '<button type="button" class="crm-lem-delete" data-id="' + d.id + '" style="background:none;border:none;cursor:pointer;color:#ef4444;font-size:14px;padding:0 2px">✕</button>';
+                        list.appendChild( div );
+                    } else {
+                        alert('Erro ao adicionar lembrete.');
+                    }
+                });
+            });
+        }
+
+        // Transfer modal
+        document.getElementById('crm-transfer-btn') && document.getElementById('crm-transfer-btn').addEventListener('click', function(){
+            document.getElementById('crm-transfer-modal').style.display = 'flex';
+        });
+        document.getElementById('crm-transfer-cancel') && document.getElementById('crm-transfer-cancel').addEventListener('click', function(){
+            document.getElementById('crm-transfer-modal').style.display = 'none';
+        });
+        (function(){
+            var confirmBtn = document.getElementById('crm-transfer-confirm');
+            if (!confirmBtn) return;
+            confirmBtn.addEventListener('click', function(){
+                var uid = document.getElementById('crm-transfer-user').value;
+                var msg = document.getElementById('crm-transfer-msg').value.trim();
+                var btn = this;
+                btn.disabled = true; btn.textContent = 'Transferindo...';
+                var params = new URLSearchParams({
+                    action: 'tao_crm_transferir_card',
+                    _wpnonce: taoCrm ? taoCrm.nonce : taoCrmNonce,
+                    card_id: taoCrmCardId,
+                    novo_responsavel_id: uid,
+                    mensagem_interna: msg
+                });
+                fetch(ajaxurl, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                    body: params
+                }).then(function(r){ return r.json(); }).then(function(r){
+                    btn.disabled = false; btn.textContent = 'Transferir';
+                    var st = document.getElementById('crm-transfer-status');
+                    if (r.success) {
+                        st.style.color = 'green';
+                        st.textContent = '✔ Transferido para ' + (r.data && r.data.responsavel_nome ? r.data.responsavel_nome : '');
+                        setTimeout(function(){
+                            document.getElementById('crm-transfer-modal').style.display = 'none';
+                            location.reload();
+                        }, 1500);
+                    } else {
+                        st.style.color = 'red';
+                        st.textContent = '✘ ' + (r.data || 'Erro');
+                    }
+                }).catch(function(){
+                    btn.disabled = false; btn.textContent = 'Transferir';
+                    document.getElementById('crm-transfer-status').textContent = 'Erro de rede';
+                });
+            });
+        })();
+
+        // ── Comentários internos ──────────────────────────────────────────
+        function taoCrmLoadComentarios() {
+            crmPost({action:'tao_crm_get_comentarios', nonce:taoCrm.nonce, card_id:taoCrmCardId}, function(r){
+                if (!r.success) return;
+                var list = document.getElementById('crm-comentarios-list');
+                if (!r.data || !r.data.length) { list.innerHTML='<p style="font-size:12px;color:#94a3b8">Nenhuma nota ainda.</p>'; return; }
+                list.innerHTML = r.data.map(function(c){
+                    var d = new Date(c.criado_em); var ds = d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+                    return '<div class="crm-coment-item" data-id="'+c.id+'">'
+                        +'<div style="font-size:12px;color:#64748b;margin-bottom:3px"><strong>'+escHtml(c.autor_nome||'Equipe')+'</strong> · '+ds
+                        +(c.can_delete ? ' <button class="crm-coment-del button-link" data-id="'+c.id+'" style="color:#dc2626;font-size:11px;margin-left:6px">excluir</button>' : '')
+                        +'</div>'
+                        +'<div style="font-size:13px;white-space:pre-wrap">'+escHtml(c.conteudo)+'</div>'
+                        +'</div>';
+                }).join('');
+            });
+        }
+        taoCrmLoadComentarios();
+
+        document.getElementById('crm-coment-form').addEventListener('submit', function(e){
+            e.preventDefault();
+            var txt = document.getElementById('crm-coment-texto').value.trim();
+            if (!txt) return;
+            crmPost({action:'tao_crm_save_comentario', nonce:taoCrm.nonce, card_id:taoCrmCardId, conteudo:txt}, function(r){
+                if (r.success) { document.getElementById('crm-coment-texto').value=''; taoCrmLoadComentarios(); }
+            });
+        });
+
+        document.addEventListener('click', function(e){
+            if (e.target.classList.contains('crm-coment-del')) {
+                if (!confirm('Excluir nota?')) return;
+                crmPost({action:'tao_crm_delete_comentario', nonce:taoCrm.nonce, id:e.target.dataset.id}, function(r){
+                    if (r.success) taoCrmLoadComentarios();
+                });
+            }
+        });
+
+        // ── Devolver ao chatbot ───────────────────────────────────────────
+        var devolverBtn = document.getElementById('crm-devolver-chatbot-btn');
+        if (devolverBtn) {
+            devolverBtn.addEventListener('click', function(){
+                if (!confirm('Devolver este cliente ao chatbot? O atendimento humano será encerrado e o TAO voltará a responder.')) return;
+                crmPost({action:'tao_crm_devolver_chatbot', nonce:taoCrm.nonce, card_id:taoCrmCardId}, function(r){
+                    if (r.success) location.reload();
+                    else alert('Erro: ' + (r.data||'Não foi possível devolver ao chatbot'));
+                });
+            });
+        }
+
+        // ── Fechar Pós Vendas (pedido entregue) ──────────────────────────
+        var fecharPvBtn = document.getElementById('crm-fechar-pv-btn');
+        if (fecharPvBtn) {
+            fecharPvBtn.addEventListener('click', function(){
+                if (!confirm('Confirmar que o pedido foi entregue? O card será fechado.')) return;
+                crmPost({action:'tao_crm_fechar_card', nonce:taoCrm.nonce, card_id:taoCrmCardId, tipo:'ganho', motivo:'Pedido entregue'}, function(r){
+                    if (r.success) { alert('Pedido marcado como entregue!'); location.reload(); }
+                    else alert('Erro: ' + (r.data||'Não foi possível fechar'));
+                });
+            });
+        }
+
+        // ── Reabrir card ──────────────────────────────────────────────────
+        var reabrirBtn = document.getElementById('crm-reabrir-btn');
+        if (reabrirBtn) {
+            reabrirBtn.addEventListener('click', function(){
+                if (!confirm('Reabrir este card?')) return;
+                crmPost({action:'tao_crm_reabrir_card', nonce:taoCrm.nonce, card_id:taoCrmCardId}, function(r){
+                    if (r.success) location.reload();
+                    else alert('Erro: ' + (r.data||'Não foi possível reabrir'));
+                });
+            });
+        }
+
+        // ── Agendar mensagem ──────────────────────────────────────────────
+        var agendarBtn = document.getElementById('crm-agendar-btn');
+        if (agendarBtn) {
+            agendarBtn.addEventListener('click', function(){
+                document.getElementById('crm-agendar-form').style.display = 'block';
+            });
+            document.getElementById('crm-agendar-cancelar').addEventListener('click', function(){
+                document.getElementById('crm-agendar-form').style.display = 'none';
+            });
+            document.getElementById('crm-agendar-salvar').addEventListener('click', function(){
+                var txt    = document.getElementById('crm-agendar-texto').value.trim();
+                var quando = document.getElementById('crm-agendar-quando').value;
+                var st     = document.getElementById('crm-agendar-status');
+                if (!txt || !quando) { st.textContent='Preencha mensagem e data/hora'; st.style.color='red'; return; }
+                crmPost({action:'tao_crm_save_msg_agendada', nonce:taoCrm.nonce, card_id:taoCrmCardId, conteudo:txt, agendado_para:quando}, function(r){
+                    if (r.success) {
+                        st.style.color='green'; st.textContent='✔ Agendada!';
+                        setTimeout(function(){ document.getElementById('crm-agendar-form').style.display='none'; st.textContent=''; }, 2000);
+                    } else { st.style.color='red'; st.textContent='Erro: '+(r.data||''); }
+                });
+            });
+        }
+
+    }); // DOMContentLoaded
+    </script>
+    <?php
+}
+
+// ─── RENDER CAMPO INPUT ───────────────────────────────────────────────────────
+
+function tao_crm_render_campo_input( $def, $val, $card_id ) {
+    $id    = esc_attr( $def['id'] );
+    $tipo  = $def['tipo'] ?? 'text';
+    $val_e = esc_attr( $val );
+    $attrs = "class='campo-input' data-campo-id='$id' data-card-id='" . esc_attr( $card_id ) . "'";
+
+    if ( $tipo === 'textarea' ) {
+        return "<textarea $attrs rows='3'>" . esc_textarea( $val ) . "</textarea>";
+    }
+    if ( $tipo === 'boolean' ) {
+        $chk = $val === '1' || $val === 'true' ? 'checked' : '';
+        return "<label class='campo-bool'><input type='checkbox' $attrs $chk value='1'> Sim</label>";
+    }
+    if ( $tipo === 'select' ) {
+        $opcoes = $def['opcoes'] ?? [];
+        if ( is_string( $opcoes ) ) $opcoes = json_decode( $opcoes, true ) ?? [];
+        $html = "<select $attrs>";
+        $html .= "<option value=''>— Selecione —</option>";
+        foreach ( (array) $opcoes as $op ) {
+            $op_e = esc_attr( $op );
+            $sel  = selected( $val, $op, false );
+            $html .= "<option value='$op_e' $sel>" . esc_html( $op ) . "</option>";
+        }
+        $html .= "</select>";
+        return $html;
+    }
+    $type_map = [ 'number' => 'number', 'date' => 'date', 'phone' => 'tel', 'email' => 'email' ];
+    $input_type = $type_map[ $tipo ] ?? 'text';
+    return "<input type='$input_type' $attrs value='$val_e'>";
+}
+
+// ─── RENDER MESSAGE ───────────────────────────────────────────────────────────
+
+function tao_crm_render_message( $msg ) {
+    $dir   = $msg['direcao'] === 'out' ? 'out' : 'in';
+    $nome  = esc_html( $msg['remetente_nome'] ?? ( $dir === 'out' ? 'Atendente' : 'Cliente' ) );
+    $hora  = esc_html( tao_crm_brt( $msg['enviado_em'], 'H:i' ) );
+    $texto = esc_html( $msg['conteudo'] ?? '' );
+    $tipo  = $msg['tipo'] ?? 'text';
+    $midia = esc_url( $msg['midia_url'] ?? '' );
+
+    if ( $tipo === 'text' ) {
+        $conteudo = nl2br( $texto );
+    } elseif ( $tipo === 'image' && $midia ) {
+        $conteudo = "<img src='$midia' class='chat-img' alt='imagem'>";
+    } elseif ( $tipo === 'audio' && $midia ) {
+        $conteudo = "<audio controls src='$midia'></audio>";
+    } elseif ( $tipo === 'document' && $midia ) {
+        $conteudo = "<a href='$midia' target='_blank' class='chat-doc'>📄 " . esc_html( basename( $midia ) ) . "</a>";
+    } else {
+        $conteudo = $texto ?: '<em>[mídia]</em>';
+    }
+
+    // Delivery ticks para mensagens enviadas (out)
+    $tick = '';
+    if ( $dir === 'out' ) {
+        $se = $msg['status_entrega'] ?? null;
+        if ( $se === 'read' )          $tick = '<span class="msg-tick msg-tick-read" title="Lida">✓✓</span>';
+        elseif ( $se === 'delivered' ) $tick = '<span class="msg-tick msg-tick-delivered" title="Entregue">✓✓</span>';
+        elseif ( $se === 'sent' )      $tick = '<span class="msg-tick msg-tick-sent" title="Enviada">✓</span>';
+        else                           $tick = '<span class="msg-tick msg-tick-pending" title="Aguardando">⏱</span>';
+    }
+
+    return "
+    <div class='chat-msg $dir'>
+        <div class='msg-bubble'>
+            <div class='msg-content'>$conteudo</div>
+            <div class='msg-meta'>
+                <span class='msg-sender'>$nome</span>
+                <span class='msg-time'>$hora</span>$tick
+            </div>
+        </div>
+    </div>";
+}

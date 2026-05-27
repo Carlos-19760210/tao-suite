@@ -1,0 +1,1776 @@
+/* ─── LAYOUT BASE ─────────────────────────────────────────────────────────── */
+.tao-crm-wrap { max-width: 100%; padding: 16px 0; }
+
+.tao-crm-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+.tao-crm-title { margin: 0; font-size: 20px; font-weight: 600; }
+.tao-crm-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    color: #2271b1;
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.4;
+    box-shadow: 0 1px 2px rgba(0,0,0,.06);
+    transition: background .15s, border-color .15s;
+}
+.tao-crm-back:hover {
+    background: #f0f6fc;
+    border-color: #2271b1;
+    color: #135e96;
+    text-decoration: none;
+}
+
+/* ─── PIPELINE TABS ──────────────────────────────────────────────────────── */
+.tao-crm-pipeline-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 16px;
+    border-bottom: 2px solid #e2e8f0;
+}
+.tao-crm-tab {
+    padding: 8px 16px;
+    text-decoration: none;
+    color: #64748b;
+    border-radius: 4px 4px 0 0;
+    font-size: 13px;
+    font-weight: 500;
+    border: 1px solid transparent;
+    border-bottom: none;
+    margin-bottom: -2px;
+}
+.tao-crm-tab.active {
+    background: #fff;
+    color: #2271b1;
+    border-color: #e2e8f0;
+    border-bottom-color: #fff;
+}
+.tao-crm-tab:hover { background: #f1f5f9; }
+
+/* ─── KANBAN BOARD ───────────────────────────────────────────────────────── */
+.tao-crm-board-wrap {
+    position: relative;
+}
+.tao-scroll-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 20;
+    opacity: 0;
+    transition: opacity .2s ease;
+    background: rgba(21,44,66,.85);
+    color: #fff;
+    border: none;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    cursor: pointer;
+    font-size: 20px;
+    line-height: 40px;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,.3);
+    pointer-events: none;
+    padding: 0;
+}
+.tao-crm-board-wrap:hover .tao-scroll-btn {
+    opacity: 1;
+    pointer-events: auto;
+}
+.tao-scroll-btn.tao-scroll-left  { left: -20px; }
+.tao-scroll-btn.tao-scroll-right { right: -20px; }
+.tao-scroll-btn:hover { background: rgba(21,44,66,1); }
+
+.tao-crm-board {
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    padding-bottom: 16px;
+    height: calc(100vh - 180px);
+    align-items: stretch;
+}
+
+.tao-crm-column {
+    flex: 0 0 260px;
+    background: #f8fafc;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 200px;
+}
+
+.tao-crm-column-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-radius: 8px 8px 0 0;
+    border-top: 3px solid #6366f1;
+    background: #fff;
+}
+.stage-name  { font-weight: 600; font-size: 13px; color: #1e293b; }
+.stage-count {
+    background: #e2e8f0;
+    color: #64748b;
+    border-radius: 10px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.tao-crm-column.stage-won .tao-crm-column-header { border-top-color: #10b981; }
+.tao-crm-column.stage-lost .tao-crm-column-header { border-top-color: #ef4444; }
+
+.tao-crm-cards-list {
+    padding: 8px;
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 60px;
+}
+
+.tao-crm-cards-list.drag-over {
+    background: #eff6ff;
+    border-radius: 0 0 8px 8px;
+}
+
+/* ─── CARD ───────────────────────────────────────────────────────────────── */
+.tao-crm-card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: box-shadow 0.15s, transform 0.1s;
+    user-select: none;
+}
+.tao-crm-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); transform: translateY(-1px); }
+.tao-crm-card.dragging { opacity: 0.4; }
+
+.card-title  { font-weight: 600; font-size: 13px; color: #1e293b; margin-bottom: 4px; }
+.card-meta   { font-size: 11px; color: #64748b; margin-bottom: 4px; }
+.card-footer { display: flex; justify-content: flex-end; }
+.card-date   { font-size: 10px; color: #94a3b8; }
+
+/* ─── MODAL ──────────────────────────────────────────────────────────────── */
+.tao-crm-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.tao-crm-modal-content {
+    background: #fff;
+    border-radius: 8px;
+    width: 480px;
+    max-width: 95vw;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+.tao-crm-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid #e2e8f0;
+}
+.tao-crm-modal-header h2 { margin: 0; font-size: 16px; }
+.tao-crm-modal-close {
+    background: none;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    color: #64748b;
+    line-height: 1;
+}
+.tao-crm-field {
+    padding: 12px 20px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.tao-crm-field label { font-size: 12px; font-weight: 600; color: #475569; }
+.tao-crm-field input,
+.tao-crm-field select {
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 8px 10px;
+    font-size: 13px;
+    width: 100%;
+}
+.tao-crm-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 16px 20px;
+    border-top: 1px solid #e2e8f0;
+    margin-top: 12px;
+}
+
+/* ─── CARD DETAIL LAYOUT ─────────────────────────────────────────────────── */
+.tao-crm-card-layout {
+    display: flex;
+    gap: 20px;
+    height: calc(100vh - 160px);
+    min-height: 500px;
+}
+
+.tao-crm-card-info {
+    flex: 0 0 300px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+.card-info-header {
+    padding: 16px;
+    border-bottom: 1px solid #f1f5f9;
+}
+.card-info-header h2 { margin: 0 0 8px; font-size: 16px; }
+
+.card-stage-badge {
+    display: inline-block;
+    color: #fff;
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.card-info-body { padding: 12px 16px; }
+.info-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px solid #f8fafc;
+    font-size: 13px;
+}
+.info-label { color: #64748b; font-weight: 500; }
+.info-value { color: #1e293b; text-align: right; max-width: 180px; word-break: break-all; }
+
+.card-move-stage {
+    padding: 12px 16px;
+    border-top: 1px solid #e2e8f0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.card-move-stage label { font-size: 12px; font-weight: 600; color: #475569; }
+.card-move-stage select { width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 4px; }
+#tao-crm-move-status { font-size: 12px; }
+
+.card-history {
+    padding: 12px 16px;
+    border-top: 1px solid #e2e8f0;
+    flex: 1;
+}
+.card-history h3 { font-size: 13px; margin: 0 0 8px; color: #475569; }
+.history-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: 11px;
+    border-bottom: 1px solid #f8fafc;
+    color: #64748b;
+}
+.history-arrow { flex: 1; }
+.history-date  { color: #94a3b8; }
+.no-history    { font-size: 12px; color: #94a3b8; }
+
+/* ─── CHAT PANEL ─────────────────────────────────────────────────────────── */
+.tao-crm-chat-panel {
+    flex: 1;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.chat-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
+}
+.chat-contact { font-weight: 600; font-size: 14px; }
+.chat-number  { font-size: 12px; color: #64748b; }
+
+.chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: #f0f4f8;
+}
+
+.chat-msg { display: flex; }
+.chat-msg.out { justify-content: flex-end; }
+.chat-msg.in  { justify-content: flex-start; }
+
+.msg-bubble {
+    max-width: 70%;
+    border-radius: 12px;
+    padding: 8px 12px;
+    font-size: 13px;
+    line-height: 1.5;
+}
+.chat-msg.out .msg-bubble {
+    background: #dcf8c6;
+    border-bottom-right-radius: 2px;
+}
+.chat-msg.in .msg-bubble {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-bottom-left-radius: 2px;
+}
+
+.msg-content { word-break: break-word; }
+.msg-meta {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 4px;
+}
+.msg-sender { font-size: 10px; color: #64748b; }
+.msg-time   { font-size: 10px; color: #94a3b8; }
+
+
+/* ── Settings: sidebar layout ─────────────────────────────────────────────── */
+.crm-settings-page { max-width: none !important; margin: 0 !important; padding: 0 !important; }
+
+.crm-settings-layout {
+  display: flex;
+  min-height: calc(100vh - 46px);
+  background: #f8fafc;
+  align-items: stretch;
+}
+
+.crm-settings-sidebar {
+  width: 214px;
+  min-width: 214px;
+  background: #fff;
+  border-right: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 32px;
+  height: calc(100vh - 32px);
+  overflow-y: auto;
+  flex-shrink: 0;
+  scrollbar-width: thin;
+  scrollbar-color: #e2e8f0 transparent;
+}
+
+.crm-sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 14px;
+  border-bottom: 1px solid #f1f5f9;
+  flex-shrink: 0;
+}
+.crm-sidebar-logo-icon { width: 28px; height: 28px; flex-shrink: 0; border-radius: 6px; }
+.crm-sidebar-brand    { font-size: 13px; font-weight: 700; color: #1e293b; line-height: 1.3; }
+.crm-sidebar-subtitle { font-size: 11px; color: #94a3b8; line-height: 1.2; }
+
+.crm-sidebar-ws-wrap {
+  padding: 10px 10px 8px;
+  border-bottom: 1px solid #f1f5f9;
+  flex-shrink: 0;
+}
+
+.crm-sidebar-ws-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: #475569;
+  font-size: 12.5px;
+  text-decoration: none !important;
+  margin-bottom: 2px;
+  transition: background 0.12s, color 0.12s;
+  overflow: hidden;
+}
+.crm-sidebar-ws-item:hover  { background: #f1f5f9; color: #1e293b; }
+.crm-sidebar-ws-item.active { background: #eff6ff; color: #2563eb; font-weight: 500; }
+.crm-ws-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #cbd5e1; flex-shrink: 0; transition: background 0.12s;
+}
+.crm-sidebar-ws-item.active .crm-ws-dot { background: #2563eb; }
+
+.crm-sidebar-ws-add {
+  display: block;
+  padding: 4px 8px;
+  font-size: 11.5px;
+  color: #94a3b8;
+  text-decoration: none !important;
+  border-radius: 6px;
+  margin-top: 3px;
+}
+.crm-sidebar-ws-add:hover { color: #2563eb; }
+
+.crm-sidebar-nav {
+  flex: 1;
+  padding: 4px 10px 24px;
+  overflow-y: auto;
+}
+
+.crm-nav-group-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  padding: 14px 6px 5px;
+  user-select: none;
+}
+
+.crm-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 8px;
+  border-radius: 7px;
+  color: #475569;
+  font-size: 13px;
+  text-decoration: none !important;
+  margin-bottom: 1px;
+  transition: background 0.12s, color 0.12s;
+  line-height: 1;
+}
+.crm-nav-item:hover  { background: #f1f5f9; color: #1e293b; }
+.crm-nav-item.active { background: #eff6ff; color: #2563eb; font-weight: 500; }
+.crm-nav-item svg    { width: 16px; height: 16px; flex-shrink: 0; opacity: 0.5; transition: opacity 0.12s; }
+.crm-nav-item:hover svg, .crm-nav-item.active svg { opacity: 1; }
+
+/* Main content */
+.crm-settings-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.crm-settings-topbar {
+  padding: 20px 28px 0;
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
+  flex-shrink: 0;
+}
+
+.crm-settings-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: #94a3b8;
+  margin-bottom: 10px;
+}
+.crm-bc-active { color: #374151; font-weight: 500; }
+
+.crm-settings-page-title {
+  font-size: 20px !important;
+  font-weight: 700 !important;
+  color: #1e293b !important;
+  margin: 0 0 18px !important;
+  padding: 0 !important;
+  line-height: 1.2 !important;
+}
+
+.crm-settings-main .tao-crm-settings-section {
+  margin: 20px 28px;
+}
+
+/* Supress old horizontal nav when inside sidebar layout */
+.crm-settings-page .tao-crm-settings-tabs,
+.crm-settings-page .tao-crm-ws-bar { display: none !important; }
+
+@media (max-width: 880px) {
+  .crm-settings-sidebar { width: 180px; min-width: 180px; }
+  .crm-settings-topbar, .crm-settings-main .tao-crm-settings-section { padding-left: 20px; padding-right: 20px; }
+}
+@media (max-width: 640px) {
+  .crm-settings-layout { flex-direction: column; }
+  .crm-settings-sidebar { width: 100% !important; height: auto; position: static; border-right: none; border-bottom: 1px solid #e2e8f0; }
+  .crm-sidebar-nav      { display: flex; flex-wrap: wrap; gap: 2px; padding: 8px; }
+  .crm-nav-group-label  { display: none; }
+}
+/* ── /Settings: sidebar layout ────────────────────────────────────────────── */
+/* Delivery ticks */
+.msg-tick           { font-size: 11px; margin-left: 3px; }
+.msg-tick-pending   { color: #cbd5e1; }
+.msg-tick-sent      { color: #94a3b8; }
+.msg-tick-delivered { color: #94a3b8; }
+.msg-tick-read      { color: #3b82f6; }
+
+.chat-img { max-width: 100%; border-radius: 6px; }
+.chat-doc { color: #2271b1; text-decoration: none; font-size: 12px; }
+
+.chat-input-area {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px 16px;
+    border-top: 1px solid #e2e8f0;
+    background: #fff;
+}
+.chat-input-area textarea {
+    flex: 1;
+    resize: none;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-family: inherit;
+    line-height: 1.5;
+}
+.chat-input-btns {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: flex-end;
+}
+.chat-input-area .button {
+    height: auto;
+    padding: 8px 16px;
+}
+.tao-crm-attach-label {
+    cursor: pointer;
+    font-size: 18px;
+    padding: 6px 10px !important;
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 6px;
+    line-height: 1;
+    user-select: none;
+}
+.tao-crm-attach-label:hover { background: #e2e8f0; }
+#tao-crm-file-preview {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #f0f9ff;
+    border: 1px solid #bae6fd;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    color: #0369a1;
+}
+#tao-crm-file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#tao-crm-file-clear {
+    background: none; border: none; cursor: pointer;
+    color: #64748b; font-size: 14px; padding: 0; line-height: 1;
+}
+.msg-img { max-width: 220px; border-radius: 6px; display: block; }
+.msg-caption { margin-top: 4px; font-size: 12px; }
+.msg-doc { color: inherit; text-decoration: none; font-size: 13px; }
+.msg-doc:hover { text-decoration: underline; }
+
+/* ─── HANDOFF BADGE ──────────────────────────────────────────────────────── */
+.tao-crm-handoff-badge {
+    background: #fef3c7;
+    color: #92400e;
+    border: 1px solid #fbbf24;
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+/* ─── NOTIFICAÇÕES — DOT no card ─────────────────────────────────────────── */
+.tao-crm-card { position: relative; }
+.card-unread-dot {
+    position: absolute;
+    top: 8px; right: 8px;
+    width: 10px; height: 10px;
+    background: #ef4444;
+    border-radius: 50%;
+    border: 2px solid #fff;
+}
+.card-handoff-icon {
+    position: absolute;
+    top: 6px; right: 22px;
+    font-size: 13px;
+}
+.tao-crm-card.has-unread {
+    border-left: 3px solid #ef4444;
+}
+
+/* Badge no título */
+.tao-crm-inbox-badge {
+    display: inline-block;
+    background: #ef4444;
+    color: #fff;
+    border-radius: 10px;
+    padding: 1px 7px;
+    font-size: 11px;
+    font-weight: 700;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+/* ─── INBOX VIEW ──────────────────────────────────────────────────────────── */
+.tao-crm-inbox { display: flex; flex-direction: column; gap: 2px; }
+.tao-crm-inbox-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    text-decoration: none;
+    color: inherit;
+    transition: background 0.1s;
+}
+.tao-crm-inbox-row:hover { background: #f8fafc; }
+.tao-crm-inbox-row.has-unread { border-left: 4px solid #ef4444; }
+
+.inbox-avatar {
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    background: #6366f1;
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 16px;
+    flex-shrink: 0;
+}
+.inbox-info { flex: 1; min-width: 0; }
+.inbox-name {
+    font-weight: 600; font-size: 14px; color: #1e293b;
+    display: flex; align-items: center; gap: 8px;
+}
+.inbox-meta { font-size: 12px; color: #64748b; margin-top: 2px; }
+.inbox-unread-dot {
+    width: 8px; height: 8px;
+    background: #ef4444; border-radius: 50%;
+    display: inline-block; flex-shrink: 0;
+}
+.inbox-right {
+    display: flex; flex-direction: column;
+    align-items: flex-end; gap: 4px; flex-shrink: 0;
+}
+.inbox-stage {
+    color: #fff; border-radius: 10px;
+    padding: 2px 8px; font-size: 10px; font-weight: 600;
+}
+.inbox-time { font-size: 11px; color: #94a3b8; }
+
+/* ─── CAMPOS PARAMETRIZÁVEIS — Card detail ───────────────────────────────── */
+.card-campos-section {
+    padding: 12px 16px;
+    border-top: 1px solid #e2e8f0;
+}
+.campos-title {
+    font-size: 12px; font-weight: 700;
+    color: #475569; margin: 0 0 10px;
+    text-transform: uppercase; letter-spacing: 0.04em;
+}
+.campo-item {
+    margin-bottom: 10px;
+}
+.campo-label {
+    display: block;
+    font-size: 11px; font-weight: 600;
+    color: #64748b; margin-bottom: 3px;
+}
+.campo-required { color: #dc2626; margin-left: 2px; }
+.campo-item input[type=text],
+.campo-item input[type=number],
+.campo-item input[type=date],
+.campo-item input[type=tel],
+.campo-item input[type=email],
+.campo-item select,
+.campo-item textarea {
+    width: 100%;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 5px 8px;
+    font-size: 12px;
+    font-family: inherit;
+    background: #fff;
+    transition: border-color 0.15s;
+    box-sizing: border-box;
+}
+.campo-item input:focus,
+.campo-item select:focus,
+.campo-item textarea:focus {
+    border-color: #6366f1;
+    outline: none;
+}
+.campo-item.campo-missing input,
+.campo-item.campo-missing select,
+.campo-item.campo-missing textarea {
+    border-color: #fca5a5;
+    background: #fff5f5;
+}
+.campo-bool { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }
+.campo-saved { font-size: 10px; color: #10b981; display: block; text-align: right; margin-top: 2px; }
+
+/* Campos de outros estágios */
+.card-campos-outros {
+    padding: 8px 16px 12px;
+    border-top: 1px solid #f1f5f9;
+}
+.campos-outros-toggle {
+    font-size: 11px; color: #64748b; cursor: pointer; font-weight: 600;
+    list-style: none; padding: 4px 0;
+}
+.campos-outros-toggle::-webkit-details-marker { display: none; }
+.campo-readonly input,
+.campo-readonly select,
+.campo-readonly textarea {
+    background: #f8fafc !important;
+    color: #64748b;
+}
+
+/* ─── SETTINGS — Campos ──────────────────────────────────────────────────── */
+.campos-layout {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 24px;
+    margin-top: 16px;
+}
+.campos-list-panel h3,
+.campos-form-panel h3 { margin: 0 0 12px; font-size: 14px; }
+
+.campos-form-panel {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 16px;
+    max-width: 680px;
+}
+
+/* ─── SETTINGS: Workspace bar ───────────────────────────────────────────── */
+.tao-crm-ws-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: #eef2ff;
+    border: 1px solid #c7d7f7;
+    border-radius: 6px;
+    margin-bottom: 14px;
+    font-size: 13px;
+    flex-wrap: wrap;
+}
+.tao-crm-ws-bar .ws-label {
+    color: #3730a3;
+    font-weight: 600;
+    white-space: nowrap;
+    margin-right: 4px;
+}
+.tao-crm-ws-btn {
+    padding: 4px 12px;
+    border-radius: 20px;
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 500;
+    color: #475569;
+    background: #fff;
+    border: 1px solid #c7d5e8;
+    transition: all .15s;
+}
+.tao-crm-ws-btn:hover { background: #dde7f9; color: #2271b1; border-color: #93afd6; }
+.tao-crm-ws-btn.active { background: #2271b1; color: #fff; border-color: #2271b1; }
+.tao-crm-ws-manage {
+    color: #64748b;
+    font-size: 12px;
+    text-decoration: none;
+    margin-left: 8px;
+    opacity: .7;
+}
+.tao-crm-ws-manage:hover { color: #2271b1; opacity: 1; }
+
+/* ─── SETTINGS: Pipeline bar ─────────────────────────────────────────────── */
+.tao-crm-pipe-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+.tao-crm-pipe-bar .pipe-label {
+    font-size: 12px;
+    color: #64748b;
+    font-weight: 600;
+    margin-right: 4px;
+}
+
+/* ─── SETTINGS ───────────────────────────────────────────────────────────── */
+.tao-crm-settings-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 20px;
+    border-bottom: 2px solid #e2e8f0;
+}
+.tao-crm-settings-tabs a {
+    padding: 8px 16px;
+    text-decoration: none;
+    color: #64748b;
+    border-radius: 4px 4px 0 0;
+    border: 1px solid transparent;
+    border-bottom: none;
+    margin-bottom: -2px;
+    font-size: 13px;
+}
+.tao-crm-settings-tabs a.active {
+    background: #fff;
+    color: #2271b1;
+    border-color: #e2e8f0;
+    border-bottom-color: #fff;
+    font-weight: 600;
+}
+.tao-crm-settings-section { background: #fff; padding: 20px; border: 1px solid #e2e8f0; border-radius: 4px; }
+
+/* ─── CARD: Fechar Negócio / Cancelar ────────────────────────────────────── */
+.tao-crm-fechar-actions {
+    display: flex;
+    gap: 8px;
+    margin-left: auto;
+}
+.tao-crm-btn-ganho {
+    background: #22c55e !important;
+    border-color: #16a34a !important;
+    color: #fff !important;
+    font-weight: 600;
+}
+.tao-crm-btn-ganho:hover { background: #16a34a !important; }
+.tao-crm-btn-perdido {
+    background: #ef4444 !important;
+    border-color: #dc2626 !important;
+    color: #fff !important;
+    font-weight: 600;
+}
+.tao-crm-btn-perdido:hover { background: #dc2626 !important; }
+.btn-perdido {
+    background: #ef4444 !important;
+    border-color: #dc2626 !important;
+    color: #fff !important;
+}
+.tao-crm-fechado-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #fef2f2;
+    color: #dc2626;
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+    padding: 5px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-left: auto;
+}
+
+/* ─── CARD: Histórico — motivo ────────────────────────────────────────────── */
+.history-motivo {
+    display: block;
+    font-size: 11px;
+    color: #64748b;
+    font-style: italic;
+    margin-top: 2px;
+    padding-left: 4px;
+    border-left: 2px solid #e2e8f0;
+}
+
+/* ─── NOTA INTERNA ───────────────────────────────────────────────────────── */
+.chat-msg.note { justify-content: center; }
+.chat-msg.note .msg-bubble {
+    background: #fefce8;
+    border: 1px dashed #fbbf24;
+    border-radius: 8px;
+    max-width: 82%;
+    font-size: 12.5px;
+}
+.msg-note-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: #b45309;
+    text-transform: uppercase;
+    letter-spacing: .4px;
+    margin-bottom: 4px;
+}
+#tao-crm-nota-toggle {
+    font-size: 16px;
+    padding: 6px 10px !important;
+    background: #f8fafc;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 6px;
+}
+#tao-crm-nota-toggle.active {
+    background: #fef3c7 !important;
+    border-color: #fbbf24 !important;
+    color: #92400e;
+}
+.btn-nota {
+    background: #fef3c7 !important;
+    border-color: #fbbf24 !important;
+    color: #92400e !important;
+}
+.btn-nota:hover { background: #fde68a !important; }
+
+/* ─── CARD: botão editar info ────────────────────────────────────────────── */
+.tao-crm-edit-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #94a3b8;
+    font-size: 14px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    line-height: 1;
+    transition: color .15s, background .15s;
+}
+.tao-crm-edit-btn:hover { color: #2271b1; background: #f0f6fc; }
+.card-info-header { flex-wrap: wrap; gap: 6px; }
+
+/* ─── BUSCA ──────────────────────────────────────────────────────────────── */
+.tao-crm-search-input {
+    padding: 6px 12px;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    font-size: 13px;
+    width: 220px;
+    outline: none;
+    transition: border-color .15s, box-shadow .15s;
+}
+.tao-crm-search-input:focus {
+    border-color: #2271b1;
+    box-shadow: 0 0 0 2px rgba(34,113,177,.15);
+}
+.tao-crm-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+/* ─── KANBAN: Filtros ────────────────────────────────────────────────────── */
+.tao-crm-filter-bar {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    margin-bottom: 12px;
+    overflow: hidden;
+}
+.filter-bar-inner {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 10px 14px;
+}
+.filter-label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: .3px;
+}
+.filter-label select {
+    font-size: 13px;
+    padding: 4px 8px;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    color: #1e293b;
+    min-width: 140px;
+}
+.filter-toggle-closed {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    color: #475569;
+}
+
+/* ─── DASHBOARD: KPIs ────────────────────────────────────────────────────── */
+.crm-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+}
+.crm-kpi {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.05);
+}
+.kpi-label {
+    font-size: 12px;
+    color: #64748b;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: .4px;
+    line-height: 1.3;
+}
+.kpi-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: #1e293b;
+    line-height: 1;
+}
+.crm-kpi.kpi-ganho  { border-left: 4px solid #22c55e; }
+.crm-kpi.kpi-perdido { border-left: 4px solid #ef4444; }
+.crm-kpi.kpi-handoff { border-left: 4px solid #f59e0b; }
+.crm-kpi.kpi-ganho  .kpi-value { color: #16a34a; }
+.crm-kpi.kpi-perdido .kpi-value { color: #dc2626; }
+.crm-kpi.kpi-handoff .kpi-value { color: #d97706; }
+
+/* ─── DASHBOARD: Painéis ──────────────────────────────────────────────────── */
+.crm-dash-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+}
+.crm-dash-card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 18px 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.05);
+}
+.crm-dash-card h3 {
+    margin: 0 0 14px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #334155;
+}
+.crm-dash-empty {
+    color: #94a3b8;
+    font-size: 13px;
+    margin: 0;
+}
+.crm-dash-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.crm-dash-table tr + tr td { border-top: 1px solid #f1f5f9; }
+.crm-dash-table td { padding: 6px 4px; vertical-align: middle; }
+.dash-att-nome {
+    font-size: 13px;
+    color: #334155;
+    white-space: nowrap;
+    padding-right: 10px;
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.dash-bar-cell { width: 100%; padding: 0 8px; }
+.dash-bar {
+    height: 8px;
+    background: #6366f1;
+    border-radius: 4px;
+    min-width: 4px;
+    transition: width .3s;
+}
+.dash-bar-stage { background: #0ea5e9; }
+.dash-att-qtd {
+    font-size: 13px;
+    font-weight: 600;
+    color: #475569;
+    text-align: right;
+    white-space: nowrap;
+    padding-left: 8px;
+}
+
+/* ─── SLA BADGES ──────────────────────────────────────────────────────────── */
+.tao-crm-card.sla-yellow {
+    border-left: 3px solid #f59e0b !important;
+}
+.tao-crm-card.sla-red {
+    border-left: 3px solid #dc2626 !important;
+}
+.tao-crm-card.sla-yellow .card-date::before { content: '⏱ '; }
+.tao-crm-card.sla-red    .card-date::before { content: '🔴 '; }
+
+/* ─── BULK ACTIONS ───────────────────────────────────────────────────────── */
+.crm-card-checkbox-wrap {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    z-index: 10;
+    opacity: 0;
+    transition: opacity .15s;
+    cursor: pointer;
+    line-height: 1;
+}
+.tao-crm-card:hover .crm-card-checkbox-wrap,
+.crm-card-checkbox:checked + * .crm-card-checkbox-wrap,
+.crm-card-checkbox:checked ~ .crm-card-checkbox-wrap,
+.tao-crm-card:has(.crm-card-checkbox:checked) .crm-card-checkbox-wrap { opacity: 1; }
+.crm-card-checkbox { width: 14px; height: 14px; cursor: pointer; accent-color: #6366f1; }
+.tao-crm-card:has(.crm-card-checkbox:checked) {
+    outline: 2px solid #6366f1;
+    background: #f5f3ff;
+}
+#crm-bulk-toolbar { display: none; }
+
+/* ─── TEMPLATE BAR ────────────────────────────────────────────────────────── */
+.chat-template-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+}
+.chat-template-bar select {
+    flex: 1;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+    color: #475569;
+    background: #f8fafc;
+    cursor: pointer;
+}
+.chat-template-bar select:focus { outline: none; border-color: #6366f1; }
+
+/* ─── NOTA INTERNA ────────────────────────────────────────────────────────── */
+.chat-msg.note { justify-content: center; }
+.chat-msg.note .msg-bubble {
+    background: #fef9c3;
+    border: 1px dashed #fbbf24;
+    max-width: 85%;
+    border-radius: 8px;
+}
+.msg-note-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: #92400e;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* ─── MOBILE RESPONSIVE ───────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+    .tao-crm-card-layout {
+        flex-direction: column;
+        height: auto;
+    }
+    .tao-crm-card-info {
+        flex: none;
+        width: 100%;
+        max-height: 340px;
+    }
+    .tao-crm-chat-panel {
+        height: 60vh;
+        min-height: 400px;
+    }
+    .tao-crm-topbar {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+    .tao-crm-actions {
+        width: 100%;
+        flex-wrap: wrap;
+    }
+    .tao-crm-board {
+        height: auto;
+        min-height: 500px;
+    }
+    .tao-crm-column {
+        flex: 0 0 240px;
+    }
+    .tao-crm-inbox-row {
+        flex-wrap: wrap;
+    }
+    .inbox-right {
+        flex-direction: row;
+        width: 100%;
+        justify-content: flex-start;
+        margin-left: 52px;
+    }
+    .campos-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ── v1.3.0: Tags, Lembretes, Histórico, Valor, Dashboard ───────────────── */
+
+/* Tag pills */
+.crm-tag-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.4;
+    white-space: nowrap;
+    cursor: default;
+}
+.crm-tags-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+}
+.crm-card-lembrete-icon {
+    font-size: 13px;
+    color: #f59e0b;
+    margin-left: 4px;
+}
+.crm-card-valor {
+    font-size: 11px;
+    font-weight: 700;
+    color: #16a34a;
+    background: #dcfce7;
+    border-radius: 4px;
+    padding: 1px 6px;
+}
+
+/* Tags picker no card */
+.crm-section-tags,
+.crm-section-lembretes,
+.crm-section-historico {
+    padding: 14px 0;
+    border-top: 1px solid #f1f5f9;
+}
+.crm-section-tags label,
+.crm-section-lembretes label,
+.crm-section-historico label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    display: block;
+    margin-bottom: 6px;
+}
+#crm-tags-picker {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 10px;
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.crm-tag-check-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+}
+.crm-tag-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+/* Lembretes */
+.crm-lembrete-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    margin-bottom: 6px;
+    background: #fff;
+}
+.crm-lembrete-item.vencido {
+    border-color: #fca5a5;
+    background: #fff7f7;
+}
+.crm-lembrete-item.completado {
+    opacity: .5;
+    text-decoration: line-through;
+}
+.crm-lembrete-titulo { font-size: 13px; font-weight: 600; }
+.crm-lembrete-data   { font-size: 11px; color: #64748b; }
+.crm-lembrete-form   { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.crm-lembrete-form input,
+.crm-lembrete-form textarea {
+    width: 100%;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 6px 8px;
+    font-size: 13px;
+}
+
+/* Histórico timeline */
+.crm-historico-timeline { list-style: none; padding: 0; margin: 0; position: relative; }
+.crm-historico-timeline::before {
+    content: '';
+    position: absolute;
+    left: 11px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #e2e8f0;
+}
+.crm-historico-item {
+    display: flex;
+    gap: 12px;
+    padding: 8px 0 8px 28px;
+    position: relative;
+    font-size: 12px;
+    color: #475569;
+}
+.crm-historico-item::before {
+    content: '';
+    position: absolute;
+    left: 6px;
+    top: 12px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #3b82f6;
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 2px #e2e8f0;
+}
+.crm-historico-de   { color: #dc2626; }
+.crm-historico-para { color: #16a34a; }
+.crm-historico-data { color: #94a3b8; font-size: 11px; white-space: nowrap; }
+
+/* Valor de oportunidade no card */
+.crm-valor-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+}
+.crm-valor-row input[type="number"] {
+    width: 140px;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 13px;
+}
+
+/* Dashboard KPIs */
+.crm-dash-kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 14px;
+    margin-bottom: 24px;
+}
+.crm-dash-kpi {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 16px 20px;
+    text-align: center;
+}
+.crm-dash-kpi-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: #1e293b;
+    line-height: 1.1;
+}
+.crm-dash-kpi-label {
+    font-size: 11px;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    margin-top: 4px;
+}
+.crm-dash-kpi.green .crm-dash-kpi-value { color: #16a34a; }
+.crm-dash-kpi.red   .crm-dash-kpi-value { color: #dc2626; }
+.crm-dash-kpi.blue  .crm-dash-kpi-value { color: #3b82f6; }
+
+/* Dashboard charts grid */
+.crm-dash-charts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    margin-bottom: 24px;
+}
+.crm-dash-chart-box {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 16px;
+}
+.crm-dash-chart-box h3 {
+    font-size: 13px;
+    color: #475569;
+    margin: 0 0 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+.crm-dash-chart-box canvas { max-height: 220px; }
+
+/* Dashboard lembretes */
+.crm-dash-lembretes { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; margin-bottom: 24px; }
+.crm-dash-lem-item  { display: flex; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+.crm-dash-lem-item:last-child { border-bottom: none; }
+.crm-dash-lem-hora  { font-size: 11px; color: #94a3b8; white-space: nowrap; }
+.crm-dash-lem-titulo { font-weight: 600; flex: 1; }
+.crm-dash-lem-link  { font-size: 11px; color: #3b82f6; text-decoration: none; }
+
+/* Atendentes tabela */
+.crm-dash-atendentes { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; }
+.crm-dash-atendentes table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.crm-dash-atendentes th { text-align: left; color: #64748b; font-size: 11px; text-transform: uppercase; padding-bottom: 8px; }
+.crm-dash-atendentes td { padding: 6px 0; border-bottom: 1px solid #f1f5f9; }
+.crm-dash-bar { height: 6px; border-radius: 3px; background: #3b82f6; display: inline-block; }
+
+@media (max-width: 768px) {
+    .crm-dash-charts { grid-template-columns: 1fr; }
+    .crm-dash-kpis   { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ── v1.4.0: Wizard onboarding, billing, transfer modal ─────────────────── */
+
+/* Onboarding wizard */
+.crm-wizard-progress {
+    display: flex;
+    align-items: center;
+    margin: 24px 0;
+    gap: 0;
+}
+.crm-wizard-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    min-width: 80px;
+}
+.crm-wizard-step span { font-size: 11px; color: #94a3b8; font-weight: 600; text-align: center; }
+.crm-wizard-step.active span { color: #3b82f6; }
+.crm-wizard-step.done span   { color: #16a34a; }
+.crm-wizard-bubble {
+    width: 36px; height: 36px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 14px;
+    background: #f1f5f9; color: #94a3b8; border: 2px solid #e2e8f0;
+}
+.crm-wizard-step.active .crm-wizard-bubble { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+.crm-wizard-step.done   .crm-wizard-bubble { background: #16a34a; color: #fff; border-color: #16a34a; }
+.crm-wizard-line {
+    flex: 1; height: 2px; background: #e2e8f0; margin: 0 4px; margin-bottom: 18px;
+}
+.crm-wizard-line.done { background: #16a34a; }
+.crm-wizard-body {
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
+    padding: 32px; max-width: 680px;
+}
+.crm-wizard-body h2 { margin-top: 0; color: #1e293b; }
+
+/* Billing plan card */
+.crm-plano-card {
+    background: linear-gradient(135deg, #3b82f6, #6366f1);
+    color: #fff; border-radius: 12px; padding: 24px;
+    margin-bottom: 20px; max-width: 360px;
+}
+.crm-plano-card-nome  { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; opacity: .8; }
+.crm-plano-card-label { font-size: 32px; font-weight: 700; margin: 4px 0; }
+.crm-plano-card-exp   { font-size: 12px; opacity: .8; }
+.crm-uso-barra-wrap   { margin-top: 6px; }
+.crm-uso-barra-bg     { height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden; }
+.crm-uso-barra-fill   { height: 100%; background: #3b82f6; border-radius: 3px; transition: width .3s; }
+.crm-uso-barra-fill.warn { background: #f59e0b; }
+.crm-uso-barra-fill.over { background: #dc2626; }
+.crm-plano-compare    { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 20px; }
+.crm-plano-compare th { background: #f8fafc; padding: 8px 12px; text-align: center; border: 1px solid #e2e8f0; font-size: 12px; }
+.crm-plano-compare td { padding: 8px 12px; text-align: center; border: 1px solid #e2e8f0; }
+.crm-plano-compare tr:hover td { background: #f8fafc; }
+.crm-plano-ativo      { background: #eff6ff !important; font-weight: 700; }
+
+/* ── v1.5.0: Comentarios, Busca, Metas ─────────────────────────────────────── */
+
+/* Comentários internos */
+.crm-section-comentarios {
+    padding: 14px 0;
+    border-top: 1px solid #f1f5f9;
+}
+.crm-section-comentarios label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    display: block;
+    margin-bottom: 6px;
+}
+.crm-coment-item {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 6px;
+    padding: 8px 12px;
+    margin-bottom: 6px;
+    font-size: 13px;
+}
+
+/* Busca global dropdown */
+#crm-search-dropdown a:hover {
+    background: #f8fafc;
+    text-decoration: none;
+}
+#crm-search-dropdown a:last-child {
+    border-bottom: none !important;
+}
+
+/* Botão reabrir */
+#crm-reabrir-btn {
+    color: #16a34a !important;
+    border-color: #16a34a !important;
+}
+#crm-reabrir-btn:hover {
+    background: #f0fdf4 !important;
+}
+
+/* Agendamento de mensagem */
+#crm-agendar-wrap {
+    border-top: 1px solid #f1f5f9;
+    padding-top: 8px;
+}
+#crm-agendar-form {
+    animation: crm-slide-down .15s ease;
+}
+@keyframes crm-slide-down {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Metas — barra de progresso inline */
+.crm-meta-pct-bar {
+    height: 4px;
+    border-radius: 2px;
+    background: #e2e8f0;
+    margin-top: 4px;
+}
+.crm-meta-pct-fill {
+    height: 4px;
+    border-radius: 2px;
+    transition: width .4s;
+}
+
+/* ── v1.5.0: Mobile completo (< 600px) ─────────────────────────────────── */
+@media (max-width: 600px) {
+    /* Remove padding padrão do WP admin */
+    #wpcontent, #wpbody-content { padding-left: 0 !important; }
+    .wrap { margin: 0 !important; }
+
+    /* Topbar empilhada */
+    .tao-crm-topbar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+        padding: 10px 12px;
+    }
+    .tao-crm-topbar h2 { font-size: 16px; margin: 0; }
+    #crm-search-input { width: 100% !important; }
+    .tao-crm-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+    .tao-crm-actions .button { flex: 1 1 auto; text-align: center; }
+
+    /* Kanban: colunas empilhadas verticalmente */
+    .tao-crm-board {
+        flex-direction: column !important;
+        overflow-x: hidden;
+        height: auto !important;
+        padding: 8px;
+        gap: 12px;
+    }
+    .tao-crm-column {
+        flex: none !important;
+        width: 100% !important;
+        min-width: unset;
+        max-height: 320px;
+        overflow-y: auto;
+    }
+    .tao-crm-col-header { position: sticky; top: 0; z-index: 2; }
+
+    /* Inbox */
+    .tao-crm-inbox-row { flex-direction: column; }
+    .inbox-right { margin-left: 0; width: 100%; justify-content: flex-start; flex-wrap: wrap; }
+
+    /* Card detail: layout empilhado */
+    .tao-crm-card-layout {
+        flex-direction: column !important;
+        height: auto !important;
+    }
+    .tao-crm-card-info {
+        flex: none !important;
+        width: 100% !important;
+        max-height: none;
+        overflow-y: visible;
+        border-right: none;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    .tao-crm-chat-panel {
+        height: 60vh !important;
+        min-height: 320px;
+        display: flex;
+        flex-direction: column;
+    }
+
+    /* Chat input sticky no fundo */
+    .tao-crm-chat-input-wrap {
+        position: sticky;
+        bottom: 0;
+        background: #fff;
+        border-top: 1px solid #e2e8f0;
+        padding: 8px;
+        z-index: 10;
+    }
+    .tao-crm-chat-input-wrap textarea { font-size: 16px !important; } /* evita zoom no iOS */
+
+    /* Modais: full screen */
+    .crm-modal-box,
+    .tao-crm-modal-box {
+        width: 100% !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+        border-radius: 12px 12px 0 0;
+        position: fixed !important;
+        bottom: 0 !important;
+        top: auto !important;
+        left: 0 !important;
+        transform: none !important;
+        max-height: 90vh;
+        overflow-y: auto;
+    }
+
+    /* Settings: tabs scroll horizontal */
+    .crm-settings-tabs {
+        display: flex;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        white-space: nowrap;
+        border-bottom: 2px solid #e2e8f0;
+        gap: 0;
+        scrollbar-width: none;
+    }
+    .crm-settings-tabs::-webkit-scrollbar { display: none; }
+    .crm-settings-tab {
+        flex: 0 0 auto;
+        padding: 8px 14px;
+        font-size: 13px;
+    }
+
+    /* Dashboard KPIs: 2 colunas */
+    .crm-dash-kpis { grid-template-columns: repeat(2, 1fr) !important; }
+    .crm-dash-charts { grid-template-columns: 1fr !important; }
+
+    /* Targets touch-friendly */
+    .button, .tao-crm-btn, .crm-tag-pill,
+    .crm-section-tags input[type=checkbox],
+    .crm-section-lembretes button {
+        min-height: 40px;
+        min-width: 40px;
+    }
+
+    /* Campos grid */
+    .campos-layout { grid-template-columns: 1fr !important; }
+
+    /* Bulk toolbar mobile */
+    #crm-bulk-toolbar {
+        min-width: unset !important;
+        flex-wrap: wrap;
+        gap: 8px;
+        bottom: 12px;
+        padding: 10px 14px;
+        border-radius: 12px;
+        width: calc(100% - 24px);
+        left: 12px;
+        transform: none !important;
+    }
+    #crm-bulk-toolbar .button { flex: 1 1 auto; font-size: 11px !important; }
+
+    /* Card topbar buttons wrap */
+    .tao-crm-card .tao-crm-topbar { flex-wrap: wrap; gap: 6px; }
+    .tao-crm-card .tao-crm-fechar-actions { flex-wrap: wrap; width: 100%; }
+    .tao-crm-card .tao-crm-fechar-actions .button { flex: 1 1 auto; }
+
+    /* Painel Pós Vendas */
+    .card-pv-panel { margin: 0 0 12px !important; }
+}
+
+/* ── Kanban: scroll horizontal tátil em telas médias (tablet/phone landscape) */
+@media (max-width: 900px) {
+    .tao-crm-board {
+        overflow-x: auto !important;
+        overflow-y: hidden !important;
+        -webkit-overflow-scrolling: touch;
+        flex-direction: row !important;
+        scroll-snap-type: x proximity;
+        padding-bottom: 12px;
+    }
+    .tao-crm-column {
+        flex: 0 0 280px !important;
+        scroll-snap-align: start;
+    }
+}
+
+@media (max-width: 600px) {
+    .tao-crm-column {
+        flex: 0 0 88vw !important;
+    }
+    .tao-crm-search-input { width: 100% !important; box-sizing: border-box; }
+    .tao-crm-settings-tabs {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        white-space: nowrap;
+    }
+    .tao-crm-settings-tabs::-webkit-scrollbar { display: none; }
+    .tao-crm-settings-tabs a { flex: 0 0 auto; }
+}
+
+/* ── Kanban: "Ver mais" paginação por coluna ──────────────────────────────── */
+.tao-crm-ver-mais {
+    display: block;
+    width: calc(100% - 12px);
+    margin: 6px 6px 6px;
+    padding: 7px 0;
+    background: #f8fafc;
+    border: 1px dashed #c3c4c7;
+    border-radius: 6px;
+    color: #64748b;
+    font-size: 12px;
+    text-align: center;
+    cursor: pointer;
+    transition: background .15s, color .15s;
+}
+.tao-crm-ver-mais:hover { background: #eff6ff; color: #2271b1; border-color: #2271b1; }

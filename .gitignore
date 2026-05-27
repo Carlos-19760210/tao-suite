@@ -1,0 +1,29 @@
+# Arquivos de teste/deploy local
+*.html
+*.py
+*.txt
+persistent-cookies.txt
+
+# Binários e zips
+*.zip
+*.bin
+*.mp3
+*.mp4
+
+# Pastas de build e restore
+_build/
+_restore/
+
+# Helpers de desenvolvimento local (não fazem parte do plugin)
+tao-crm-copy-helper.php
+tao-crm-helper.php
+tao-crm-restore.php
+n8n-update-helper.php
+
+# JSON de payloads de teste e respostas brutas
+ajax-*.json
+restore-*.json
+test_*.json
+n8n-payload*.json
+n8n-chatbot-payload*.json
+mp-body.bin
