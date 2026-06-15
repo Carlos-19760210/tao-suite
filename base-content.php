@@ -354,18 +354,21 @@ p.submit, .submit { padding:20px 0 0; margin:0; }
     }
 
     // ── Operações ────────────────────────────────────────────────────────────────
-    $neo_op_slugs = ['chatbot-platform-leads','chatbot-platform-pedidos','chatbot-platform-historico','chatbot-platform-campanhas','chatbot-platform-listas'];
-    $crm_op_slugs = ['tao-crm','tao-crm-inbox','tao-crm-kanban','tao-crm-contatos'];
-    cbpm_nav_section_group('sec-op', 'Operações', function() use ($page_atual, $is_op, $neo_op_slugs, $crm_op_slugs) {
-        cbpm_nav_group('op-neo', 'TAO NEO', function() use ($page_atual, $is_op) {
+    $neo_op_slugs  = ['chatbot-platform-leads','chatbot-platform-pedidos','chatbot-platform-historico'];
+    $camp_op_slugs = ['chatbot-platform-campanhas','chatbot-platform-listas'];
+    $crm_op_slugs  = ['tao-crm','tao-crm-inbox','tao-crm-kanban','tao-crm-contatos'];
+    cbpm_nav_section_group('sec-op', 'Operações', function() use ($page_atual, $is_op, $neo_op_slugs, $camp_op_slugs, $crm_op_slugs) {
+        cbpm_nav_group('op-neo', 'TAO NEO', function() use ($page_atual) {
             cbpm_nav_item('chatbot-platform-leads',     ['icon'=>'&#x1F464;','label'=>'Leads',      'url'=>cbpm_url('leads')],     $page_atual);
             cbpm_nav_item('chatbot-platform-pedidos',   ['icon'=>'&#x1F6D2;','label'=>'Pedidos',    'url'=>cbpm_url('pedidos')],   $page_atual);
             cbpm_nav_item('chatbot-platform-historico', ['icon'=>'&#x1F4AC;','label'=>'Histórico',  'url'=>cbpm_url('historico')], $page_atual);
-            if ( ! $is_op ) {
+        }, $page_atual, $neo_op_slugs);
+        if ( ! $is_op ) {
+            cbpm_nav_group('op-camp', 'CAMPANHAS', function() use ($page_atual) {
                 cbpm_nav_item('chatbot-platform-campanhas', ['icon'=>'&#x1F4E3;','label'=>'Campanhas','url'=>cbpm_url('campanhas')], $page_atual);
                 cbpm_nav_item('chatbot-platform-listas',    ['icon'=>'&#x1F4CB;','label'=>'Listas',   'url'=>cbpm_url('listas')],   $page_atual);
-            }
-        }, $page_atual, $neo_op_slugs);
+            }, $page_atual, $camp_op_slugs);
+        }
         if ( ! $is_op && function_exists('tao_crm_page_kanban') ) {
             cbpm_nav_group('op-crm', 'TAO CRM', function() use ($page_atual) {
                 cbpm_nav_item('tao-crm',          ['icon'=>'&#x1F4CA;','label'=>'Dashboard','url'=>cbpm_url('crm')],          $page_atual);

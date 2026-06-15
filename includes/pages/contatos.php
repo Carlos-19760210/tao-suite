@@ -197,11 +197,12 @@ $default_ws = $workspace_id ?: ( $workspaces[0]['id'] ?? '' );
       <label style="font-size:13px;font-weight:600">CEP
         <input type="text" id="ct-cep" style="width:100%;margin-top:4px" maxlength="9" placeholder="00000-000">
       </label>
-      <label style="font-size:13px;font-weight:600">N&uacute;mero
-        <input type="text" id="ct-numero" style="width:100%;margin-top:4px" placeholder="123">
-      </label>
+      <div></div>
       <label style="font-size:13px;font-weight:600;grid-column:1/-1">Logradouro
         <input type="text" id="ct-logradouro" style="width:100%;margin-top:4px" placeholder="Rua, Av, Travessa...">
+      </label>
+      <label style="font-size:13px;font-weight:600">N&uacute;mero
+        <input type="text" id="ct-numero" style="width:100%;margin-top:4px" placeholder="123">
       </label>
       <label style="font-size:13px;font-weight:600">Complemento
         <input type="text" id="ct-complemento" style="width:100%;margin-top:4px" placeholder="Apto, Bloco...">
@@ -232,6 +233,7 @@ $default_ws = $workspace_id ?: ( $workspaces[0]['id'] ?? '' );
 </div>
 
 <script>
+document.addEventListener('DOMContentLoaded', function(){
 (function($){
   var nonce    = '<?php echo esc_js($nonce); ?>';
   var ajaxUrl  = '<?php echo esc_js(admin_url('admin-ajax.php')); ?>';
@@ -420,9 +422,61 @@ $default_ws = $workspace_id ?: ( $workspaces[0]['id'] ?? '' );
 
   function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+  function validarCPF(cpf){
+    cpf = cpf.replace(/\D/g,'');
+    if(cpf.length !== 11 || /^(\d)\1+$/.test(cpf)) return false;
+    var s = 0, r;
+    for(var i=0;i<9;i++) s += parseInt(cpf[i])*(10-i);
+    r = (s*10)%11; if(r===10||r===11) r=0;
+    if(r !== parseInt(cpf[9])) return false;
+    s = 0;
+    for(var i=0;i<10;i++) s += parseInt(cpf[i])*(11-i);
+    r = (s*10)%11; if(r===10||r===11) r=0;
+    return r === parseInt(cpf[10]);
+  }
+
+  // ── Máscara CEP ──────────────────────────────────────────────────────────────
+  $('#ct-cep').on('input', function(){
+    var v = $(this).val().replace(/\D/g,'').slice(0,8);
+    if(v.length > 5) v = v.replace(/^(\d{5})(\d{0,3})/,'$1-$2');
+    $(this).val(v);
+    if(v.replace(/\D/g,'').length === 8){
+      $.getJSON('https://viacep.com.br/ws/'+v.replace(/\D/g,'')+'/json/', function(d){
+        if(d.erro) return;
+        $('#ct-logradouro').val(d.logradouro||'');
+        $('#ct-bairro').val(d.bairro||'');
+        $('#ct-cidade').val(d.localidade||'');
+        if(d.logradouro) setTimeout(function(){ $('#ct-numero').focus(); }, 50);
+      });
+    }
+  });
+
+  // ── Máscara e validação CPF ───────────────────────────────────────────────────
+  $('#ct-cpf').on('input', function(){
+    var v = $(this).val().replace(/\D/g,'').slice(0,11);
+    if(v.length > 9)      v = v.replace(/^(\d{3})(\d{3})(\d{3})(\d{0,2})/,'$1.$2.$3-$4');
+    else if(v.length > 6) v = v.replace(/^(\d{3})(\d{3})(\d{0,3})/,'$1.$2.$3');
+    else if(v.length > 3) v = v.replace(/^(\d{3})(\d{0,3})/,'$1.$2');
+    $(this).val(v);
+  });
+
+  $('#ct-cpf').on('blur', function(){
+    var v = $(this).val().trim();
+    if(!v) return;
+    if(!validarCPF(v)){
+      $(this).css('borderColor','#ef4444');
+      ctMsg('CPF inválido','err');
+    } else {
+      $(this).css('borderColor','');
+      ctMsg('','');
+    }
+  });
+
   // ── Salvar ───────────────────────────────────────────────────────────────────
   $('#ct-btn-salvar').on('click', function(){
     var wsId = $('#ct-workspace-sel').length ? $('#ct-workspace-sel').val() : $('#ct-workspace-id').val();
+    var cpf = $('#ct-cpf').val().trim();
+    if(cpf && !validarCPF(cpf)){ ctMsg('CPF inválido — corrija antes de salvar','err'); $('#ct-cpf').css('borderColor','#ef4444').focus(); return; }
     var data = {
       action:'tao_crm_save_contato', nonce:nonce,
       id:            $('#ct-id').val(),
@@ -430,7 +484,7 @@ $default_ws = $workspace_id ?: ( $workspaces[0]['id'] ?? '' );
       nome:          $('#ct-nome').val().trim(),
       whatsapp:      $('#ct-whatsapp').val().trim(),
       email:         $('#ct-email').val().trim(),
-      cpf:           $('#ct-cpf').val().trim(),
+      cpf:           cpf,
       cep:           $('#ct-cep').val().trim(),
       numero:        $('#ct-numero').val().trim(),
       logradouro:    $('#ct-logradouro').val().trim(),
@@ -441,18 +495,25 @@ $default_ws = $workspace_id ?: ( $workspaces[0]['id'] ?? '' );
       observacoes:   $('#ct-observacoes').val().trim(),
     };
     if(!data.nome || !data.whatsapp){ ctMsg('Nome e WhatsApp são obrigatórios','err'); return; }
-    $('#ct-btn-salvar').prop('disabled',true).text('Salvando...');
-    $.post(ajaxUrl, data, function(res){
-      if(res.success){
-        ctMsg('Contato salvo!','ok');
-        setTimeout(function(){ location.reload(); }, 800);
-      } else {
-        ctMsg(res.data || 'Erro ao salvar','err');
-        $('#ct-btn-salvar').prop('disabled',false).text('Salvar');
-      }
+    var $btn = $(this).prop('disabled',true).text('Salvando...');
+    $.ajax({
+      url: ajaxUrl, type: 'POST', data: data, dataType: 'text',
+      success: function(raw){
+        var s = raw.indexOf('{'); if(s > 0) raw = raw.substring(s);
+        var res; try{ res = JSON.parse(raw); } catch(e){ ctMsg('Resposta inválida do servidor','err'); $btn.prop('disabled',false).text('Salvar'); return; }
+        if(res.success){
+          ctMsg('Contato salvo!','ok');
+          setTimeout(function(){ location.reload(); }, 700);
+        } else {
+          ctMsg(res.data || 'Erro ao salvar','err');
+          $btn.prop('disabled',false).text('Salvar');
+        }
+      },
+      error: function(xhr){ ctMsg('Falha na requisição (HTTP '+xhr.status+')','err'); $btn.prop('disabled',false).text('Salvar'); }
     });
   });
 
 })(jQuery);
+});
 </script>
 </div>

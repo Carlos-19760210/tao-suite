@@ -73,6 +73,15 @@ function tao_crm_page_card() {
         }
     }
 
+    // Instância de origem do card
+    $instancia_origem = null;
+    if ( ! empty( $card['instancia_id'] ) ) {
+        $ri = tao_crm_api( "/crm_instancias?id=eq.{$card['instancia_id']}&select=nome,evolution_instancia&limit=1" );
+        if ( $ri['ok'] && ! empty( $ri['data'] ) ) {
+            $instancia_origem = $ri['data'][0];
+        }
+    }
+
     // Dados do contato (email, CPF)
     $contato_extra = [];
     if ( ! empty( $card['contato_id'] ) ) {
@@ -119,8 +128,10 @@ function tao_crm_page_card() {
     $estagios_map = [];
     foreach ( $estagios as $e ) { $estagios_map[ $e['id'] ] = $e['nome']; }
 
-    // Responsáveis WP
-    $wp_users = get_users( [ 'fields' => [ 'ID', 'display_name' ] ] );
+    // Responsáveis: apenas equipe do workspace (gestores + vendedores)
+    $ws_id    = $card['workspace_id'] ?? '';
+    $wp_users = function_exists( 'tao_crm_get_equipe_ws' ) ? tao_crm_get_equipe_ws( $ws_id ) : get_users( [ 'fields' => [ 'ID', 'display_name' ] ] );
+
 
     // Estágio atual
     $estagio_atual = null;
@@ -150,6 +161,9 @@ function tao_crm_page_card() {
                 <button class="button tao-crm-btn-ganho" id="tao-crm-btn-ganho">&#x2705; Fechar Neg&oacute;cio</button>
                 <button class="button tao-crm-btn-perdido" id="tao-crm-btn-perdido">&#x274C; Neg&oacute;cio Perdido</button>
             </div>
+            <button type="button" id="crm-formalizar-btn" class="button" style="margin-left:8px" title="Gerar Or&ccedil;amento, Proposta ou Pedido formal">
+                &#x1F4CB; Formalizar
+            </button>
             <?php endif; ?>
         <?php if ( tao_crm_is_gestor( $card['workspace_id'] ?? '' ) && empty( $card['fechado'] ) ) : ?>
         <?php if ( ! empty( $card['atendimento_humano'] ) ) : ?>
@@ -157,6 +171,13 @@ function tao_crm_page_card() {
             &#x1F916; Devolver ao chatbot
         </button>
         <?php endif; ?>
+        <?php endif; ?>
+        <?php if ( empty( $card['fechado'] ) && empty( $card['atendimento_humano'] ) ) : ?>
+        <button type="button" id="crm-recuperar-atendimento-btn" class="button" style="margin-left:8px;color:#0ea5e9;border-color:#0ea5e9" title="Para o chatbot e assume o atendimento manual deste cliente">
+            &#x1F91D; Recuperar atendimento
+        </button>
+        <?php endif; ?>
+        <?php if ( tao_crm_is_gestor( $card['workspace_id'] ?? '' ) && empty( $card['fechado'] ) ) : ?>
         <?php if ( $is_pos_vendas ) : ?>
         <button type="button" id="crm-fechar-pv-btn" class="button" style="margin-left:8px;color:#16a34a;border-color:#16a34a" title="Marca o pedido como entregue e fecha o card">
             &#x2705; Pedido entregue
@@ -165,13 +186,30 @@ function tao_crm_page_card() {
         <button type="button" id="crm-transfer-btn" class="button" style="margin-left:8px">
             &#x1F500; Transferir
         </button>
+        <?php endif; ?>
+        <?php if ( empty( $card['fechado'] ) ) : ?>
+        <div style="display:flex;align-items:center;gap:6px;margin-left:12px;padding-left:12px;border-left:1px solid #e2e8f0">
+            <span style="font-size:12px;color:#64748b;white-space:nowrap">Mover para:</span>
+            <select id="tao-crm-move-stage" style="font-size:12px;padding:3px 6px;border:1px solid #d1d5db;border-radius:4px;max-width:160px">
+                <?php foreach ( $estagios as $e ) : ?>
+                <option value="<?php echo esc_attr( $e['id'] ); ?>"
+                    <?php selected( $e['id'], $card['estagio_id'] ); ?>>
+                    <?php echo esc_html( $e['nome'] ); ?>
+                </option>
+                <?php endforeach; ?>
+            </select>
+            <button class="button" id="tao-crm-btn-move">Mover</button>
+            <span id="tao-crm-move-status" style="font-size:12px"></span>
+        </div>
+        <?php endif; ?>
+        <?php if ( tao_crm_is_gestor( $card['workspace_id'] ?? '' ) && empty( $card['fechado'] ) ) : ?>
         <!-- Modal de transferência -->
         <div id="crm-transfer-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center">
             <div style="background:#fff;border-radius:12px;padding:24px;width:400px;max-width:90vw">
                 <h3 style="margin:0 0 16px">Transferir card</h3>
                 <label style="display:block;margin-bottom:10px;font-size:13px">Atendente
                     <select id="crm-transfer-user" style="width:100%;margin-top:4px">
-                        <?php foreach ( get_users(['fields'=>['ID','display_name']]) as $u ) : ?>
+                        <?php foreach ( $wp_users as $u ) : ?>
                         <option value="<?php echo esc_attr($u->ID); ?>"><?php echo esc_html($u->display_name); ?></option>
                         <?php endforeach; ?>
                     </select>
@@ -189,10 +227,10 @@ function tao_crm_page_card() {
         <?php endif; ?>
         </div>
 
-        <div class="tao-crm-card-layout">
+        <div class="tao-crm-card-layout" id="crm-card-layout">
 
             <!-- Painel esquerdo -->
-            <div class="tao-crm-card-info">
+            <div class="tao-crm-card-info" id="crm-panel-info">
 
                 <div class="card-info-header">
                     <h2 id="tao-crm-card-title-display"><?php echo esc_html( $card['titulo'] ?: $card['contato_nome'] ); ?></h2>
@@ -224,11 +262,23 @@ function tao_crm_page_card() {
                         <span class="info-label">Criado em</span>
                         <span class="info-value"><?php echo esc_html( tao_crm_brt( $card['criado_em'], 'd/m/Y H:i' ) ); ?></span>
                     </div>
+                    <?php if ( $instancia_origem ) : ?>
+                    <div class="info-row">
+                        <span class="info-label">Instância</span>
+                        <span class="info-value" title="<?php echo esc_attr( $instancia_origem['evolution_instancia'] ); ?>" style="display:flex;align-items:center;gap:4px">
+                            <span style="font-size:15px">📱</span>
+                            <?php echo esc_html( $instancia_origem['nome'] ); ?>
+                            <span style="color:#6b7280;font-size:11px">(<?php echo esc_html( $instancia_origem['evolution_instancia'] ); ?>)</span>
+                        </span>
+                    </div>
+                    <?php endif; ?>
 
                     <!-- Responsável -->
                     <div class="info-row" style="align-items:center">
                         <span class="info-label">Responsável</span>
-                        <select id="tao-crm-responsavel" class="info-select" style="max-width:150px;font-size:12px">
+                        <select id="tao-crm-responsavel" class="info-select"
+                                data-original="<?php echo esc_attr( $card['responsavel_id'] ?? '' ); ?>"
+                                style="max-width:150px;font-size:12px">
                             <option value="">— Ninguém —</option>
                             <?php foreach ( $wp_users as $u ) : ?>
                             <option value="<?php echo esc_attr( $u->ID ); ?>"
@@ -244,10 +294,37 @@ function tao_crm_page_card() {
                         <span class="info-label">Valor (R$)</span>
                         <input type="number" id="crm-valor-oportunidade" step="0.01" min="0"
                                value="<?php echo esc_attr( $card['valor_oportunidade'] ?? '' ); ?>"
+                               data-original="<?php echo esc_attr( $card['valor_oportunidade'] ?? '' ); ?>"
                                placeholder="0,00"
+                               title="Calculado automaticamente quando há itens cadastrados"
                                style="width:110px;font-size:12px;padding:3px 6px;border:1px solid #d1d5db;border-radius:4px">
-                        <button class="button button-small" id="crm-valor-save" style="font-size:11px">Salvar</button>
-                        <span id="crm-valor-status" style="font-size:11px;color:#16a34a;display:none">✔ salvo</span>
+                    </div>
+
+                    <!-- Barra Salvar / Cancelar informações gerais -->
+                    <?php if ( empty( $card['fechado'] ) ) : ?>
+                    <div id="crm-info-action-bar" style="display:flex;align-items:center;gap:8px;padding:8px 0 2px;margin-top:2px;border-top:1px solid #e2e8f0">
+                        <button type="button" id="crm-info-save" class="button button-primary button-small" style="font-size:12px">Salvar</button>
+                        <button type="button" id="crm-info-cancel" class="button button-small" style="font-size:12px">Cancelar</button>
+                        <span id="crm-info-status" style="display:none;font-size:11px;color:#16a34a">✔ salvo</span>
+                    </div>
+                    <?php endif; ?>
+
+                    <!-- Itens do Negócio -->
+                    <div class="crm-itens-section"
+                         data-card-id="<?php echo esc_attr( $card_id ); ?>"
+                         data-fechado="<?php echo empty( $card['fechado'] ) ? '0' : '1'; ?>">
+                        <div class="crm-itens-header">
+                            <strong style="font-size:13px">&#x1F6D2; Itens do Neg&oacute;cio</strong>
+                            <?php if ( empty( $card['fechado'] ) ) : ?>
+                            <button type="button" id="crm-item-add" class="button button-small" style="font-size:11px">+ Item</button>
+                            <?php endif; ?>
+                        </div>
+                        <div id="crm-itens-loading" style="display:none;font-size:12px;color:#6b7280;padding:4px 0">Carregando...</div>
+                        <div id="crm-itens-list"></div>
+                        <div id="crm-itens-footer" style="display:none;display:flex;justify-content:space-between;padding:5px 4px 2px;border-top:2px solid #e2e8f0;margin-top:4px;font-size:12px">
+                            <span style="color:#6b7280">Total</span>
+                            <strong id="crm-itens-grand-total" style="color:#1e293b">R$ 0,00</strong>
+                        </div>
                     </div>
 
                     <!-- Etiquetas (Tags) -->
@@ -410,21 +487,6 @@ function tao_crm_page_card() {
                     </form>
                 </div>
 
-                <!-- Mover estágio -->
-                <div class="card-move-stage">
-                    <label>Mover para estágio</label>
-                    <select id="tao-crm-move-stage">
-                        <?php foreach ( $estagios as $e ) : ?>
-                        <option value="<?php echo esc_attr( $e['id'] ); ?>"
-                            <?php selected( $e['id'], $card['estagio_id'] ); ?>>
-                            <?php echo esc_html( $e['nome'] ); ?>
-                        </option>
-                        <?php endforeach; ?>
-                    </select>
-                    <button class="button button-primary" id="tao-crm-btn-move">Mover</button>
-                    <span id="tao-crm-move-status"></span>
-                </div>
-
                 <!-- Histórico de movimentações (collapsible) -->
                 <div class="card-history crm-section-historico">
                     <h3 style="cursor:pointer;user-select:none" onclick="(function(){var d=document.getElementById('crm-historico-body');var t=document.getElementById('hist-toggle');if(d.style.display==='none'){d.style.display='block';t.textContent='▲';}else{d.style.display='none';t.textContent='▼';}})()">
@@ -438,7 +500,9 @@ function tao_crm_page_card() {
                             $para = $estagios_map[ $h['para_estagio_id'] ?? '' ] ?? '—';
                         ?>
                         <div class="history-item">
+                            <?php if ( ! empty( $h['de_estagio_id'] ) || ! empty( $h['para_estagio_id'] ) ) : ?>
                             <span class="history-arrow"><?php echo esc_html( $de ); ?> → <?php echo esc_html( $para ); ?></span>
+                            <?php endif; ?>
                             <span class="history-date"><?php echo esc_html( tao_crm_brt( $h['criado_em'], 'd/m H:i' ) ); ?></span>
                             <?php if ( ! empty( $h['motivo'] ) ) : ?>
                             <span class="history-motivo"><?php echo esc_html( $h['motivo'] ); ?></span>
@@ -476,12 +540,18 @@ function tao_crm_page_card() {
 
             </div>
 
+            <!-- Divisor arrastável -->
+            <div class="crm-panel-resizer" id="crm-panel-resizer" title="Arraste para redimensionar"></div>
+
             <!-- Painel direito: chat -->
-            <div class="tao-crm-chat-panel">
+            <div class="tao-crm-chat-panel" id="crm-panel-chat">
 
                 <div class="chat-header">
                     <span class="chat-contact">💬 <?php echo esc_html( $card['contato_nome'] ); ?></span>
                     <span class="chat-number"><?php echo esc_html( tao_crm_format_phone( $card['contato_whatsapp'] ) ); ?></span>
+                    <?php if ( $instancia_origem ) : ?>
+                    <span class="chat-number" style="margin-left:8px;opacity:.75" title="Instância WhatsApp que recebeu este atendimento">📱 <?php echo esc_html( $instancia_origem['nome'] ); ?></span>
+                    <?php endif; ?>
                 </div>
 
                 <div class="chat-messages" id="tao-crm-messages">
@@ -641,6 +711,38 @@ function tao_crm_page_card() {
         </div>
     </div>
 
+    <!-- Barra de ação pós-movimentação (sobe do rodapé após mover o card) -->
+    <?php if ( empty( $card['fechado'] ) ) : ?>
+    <div id="crm-pos-move-bar" style="
+        display:none;position:fixed;bottom:0;left:0;right:0;z-index:99999;
+        background:#1e293b;color:#fff;padding:14px 24px;
+        display:none;align-items:center;justify-content:space-between;gap:12px;
+        box-shadow:0 -4px 20px rgba(0,0,0,.25);transform:translateY(100%);transition:transform .3s ease">
+        <div style="font-size:13px;color:#94a3b8">Card movido com sucesso. O que deseja fazer?</div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <button type="button" id="crm-posm-ganho"
+                style="background:#16a34a;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">
+                &#x2705; Fechar como Ganho
+            </button>
+            <button type="button" id="crm-posm-perdido"
+                style="background:#dc2626;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">
+                &#x274C; Negócio Perdido
+            </button>
+            <?php if ( isset( $taoCrmKanbanUrl ) || true ) : ?>
+            <button type="button" id="crm-posm-kanban"
+                style="background:#3b82f6;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer">
+                &#x21A9; Voltar ao Kanban
+            </button>
+            <?php endif; ?>
+            <button type="button" id="crm-posm-fechar"
+                style="background:transparent;color:#94a3b8;border:1px solid #475569;border-radius:6px;padding:8px 12px;font-size:13px;cursor:pointer"
+                title="Continuar editando">
+                &#x2715;
+            </button>
+        </div>
+    </div>
+    <?php endif; ?>
+
     <!-- Modal: Fechar Card -->
     <div id="tao-crm-fechar-modal" class="tao-crm-modal" style="display:none">
         <div class="tao-crm-modal-content" style="max-width:440px">
@@ -661,10 +763,82 @@ function tao_crm_page_card() {
                                style="width:100%;font-size:13px;padding:6px 8px;border:1px solid #d1d5db;border-radius:4px"
                                placeholder="Descreva o motivo...">
                     </div>
+                    <div id="tao-crm-fechar-campos-wrap" style="display:none;margin-top:16px;border-top:1px solid #e5e7eb;padding-top:14px"></div>
                 </div>
                 <div class="tao-crm-modal-footer">
                     <button type="button" class="button" onclick="document.getElementById('tao-crm-fechar-modal').style.display='none'">Voltar</button>
                     <button type="submit" class="button button-primary" id="tao-crm-fechar-btn">Confirmar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Adicionar / Editar Item do Negócio -->
+    <div id="crm-item-modal" class="tao-crm-modal" style="display:none">
+        <div class="tao-crm-modal-content" style="max-width:420px">
+            <div class="tao-crm-modal-header">
+                <h2 id="crm-item-modal-titulo">Adicionar Item</h2>
+                <button class="tao-crm-modal-close" id="crm-item-modal-fechar">&#x2715;</button>
+            </div>
+            <div class="crm-item-modal-body">
+                <!-- Catálogo (visível apenas quando disponível e adicionando novo item) -->
+                <div id="crm-item-catalogo-section" style="display:none">
+                    <div class="crm-item-catalogo-label">&#x1F4E6; Selecionar do cat&aacute;logo</div>
+                    <input type="text" id="crm-item-busca" placeholder="Buscar produto..." class="crm-item-busca-input">
+                    <div id="crm-item-catalogo-lista"></div>
+                    <div class="crm-item-ou"><span>ou preencha manualmente</span></div>
+                </div>
+                <!-- Formulário do item -->
+                <div class="crm-item-form-grid">
+                    <div class="crm-item-form-field" style="grid-column:1/-1">
+                        <label>Descri&ccedil;&atilde;o *</label>
+                        <input type="text" id="crm-item-f-desc" placeholder="Nome do produto ou servi&ccedil;o">
+                    </div>
+                    <div class="crm-item-form-field">
+                        <label>Quantidade</label>
+                        <input type="number" id="crm-item-f-qtd" min="0.001" step="0.001" value="1">
+                    </div>
+                    <div class="crm-item-form-field">
+                        <label>Pre&ccedil;o Unit.</label>
+                        <input type="number" id="crm-item-f-preco" min="0" step="0.01" value="0">
+                    </div>
+                    <div class="crm-item-form-field">
+                        <label>Desconto</label>
+                        <div class="crm-item-desc-row">
+                            <select id="crm-item-f-desc-tipo">
+                                <option value="pct">%</option>
+                                <option value="valor">R$</option>
+                            </select>
+                            <input type="number" id="crm-item-f-desc-val" min="0" step="0.01" value="0">
+                        </div>
+                    </div>
+                    <div class="crm-item-form-field crm-item-total-preview">
+                        <label>Total</label>
+                        <div id="crm-item-f-total">R$ 0,00</div>
+                    </div>
+                </div>
+            </div>
+            <div class="tao-crm-modal-footer">
+                <button type="button" class="button" id="crm-item-modal-cancelar">Cancelar</button>
+                <button type="button" class="button button-primary" id="crm-item-modal-salvar">Salvar Item</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Campos na entrada da fase (movimentar card) -->
+    <div id="tao-crm-entrada-modal" class="tao-crm-modal" style="display:none">
+        <div class="tao-crm-modal-content" style="max-width:480px">
+            <div class="tao-crm-modal-header">
+                <h2>&#x1F4CB; Campos obrigat&oacute;rios &mdash; entrada na fase</h2>
+                <button class="tao-crm-modal-close" id="tao-crm-entrada-fechar">&#x2715;</button>
+            </div>
+            <form id="tao-crm-entrada-form">
+                <div id="tao-crm-entrada-fields" style="padding:16px 20px;display:flex;flex-direction:column;gap:14px">
+                    <!-- preenchido dinamicamente pelo JS -->
+                </div>
+                <div class="tao-crm-modal-footer">
+                    <button type="button" class="button" id="tao-crm-entrada-cancelar">Cancelar</button>
+                    <button type="submit" class="button button-primary" id="tao-crm-entrada-btn">Confirmar e Mover</button>
                 </div>
             </form>
         </div>
@@ -687,15 +861,159 @@ function tao_crm_page_card() {
         </div>
     </div>
 
+    <!-- Modal: Formalizar -->
+    <?php if ( empty( $card['fechado'] ) ) : ?>
+    <div id="crm-formalizar-modal" class="tao-crm-modal" style="display:none">
+        <div class="tao-crm-modal-content" style="max-width:580px">
+            <div class="tao-crm-modal-header">
+                <h2>&#x1F4CB; Formalizar</h2>
+                <button class="tao-crm-modal-close" id="crm-formalizar-fechar">&#x2715;</button>
+            </div>
+            <div style="padding:16px 20px;display:flex;flex-direction:column;gap:14px;overflow-y:auto;max-height:calc(90vh - 120px)">
+
+                <!-- Tipo -->
+                <div>
+                    <label style="font-size:12px;font-weight:600;color:#64748b;display:block;margin-bottom:6px">Tipo de documento</label>
+                    <div style="display:flex;gap:6px" id="crm-formalizar-tipo-group">
+                        <button type="button" class="crm-formalizar-tipo-btn active" data-tipo="Orçamento"
+                            style="padding:5px 14px;font-size:12px;border:1px solid #6366f1;border-radius:20px;cursor:pointer;background:#6366f1;color:#fff;font-weight:600">Or&ccedil;amento</button>
+                        <button type="button" class="crm-formalizar-tipo-btn" data-tipo="Proposta"
+                            style="padding:5px 14px;font-size:12px;border:1px solid #d1d5db;border-radius:20px;cursor:pointer;background:#fff;color:#374151">Proposta</button>
+                        <button type="button" class="crm-formalizar-tipo-btn" data-tipo="Pedido"
+                            style="padding:5px 14px;font-size:12px;border:1px solid #d1d5db;border-radius:20px;cursor:pointer;background:#fff;color:#374151">Pedido</button>
+                    </div>
+                </div>
+
+                <!-- Itens -->
+                <div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                        <label style="font-size:12px;font-weight:600;color:#64748b">Itens</label>
+                        <button type="button" id="crm-formalizar-add-item"
+                            style="font-size:11px;padding:3px 10px;border:1px solid #6366f1;border-radius:4px;background:#fff;color:#6366f1;cursor:pointer">+ Item</button>
+                    </div>
+                    <table style="width:100%;border-collapse:collapse;font-size:13px">
+                        <thead>
+                            <tr style="background:#f8fafc">
+                                <th style="text-align:left;padding:6px 8px;border-bottom:1px solid #e2e8f0;font-weight:600;font-size:11px;color:#64748b">Descri&ccedil;&atilde;o</th>
+                                <th style="text-align:center;padding:6px 4px;border-bottom:1px solid #e2e8f0;width:52px;font-weight:600;font-size:11px;color:#64748b">Qtd</th>
+                                <th style="text-align:right;padding:6px 8px;border-bottom:1px solid #e2e8f0;width:92px;font-weight:600;font-size:11px;color:#64748b">Valor (R$)</th>
+                                <th style="width:26px;border-bottom:1px solid #e2e8f0"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="crm-formalizar-itens-body"></tbody>
+                    </table>
+                    <div style="text-align:right;font-size:13px;font-weight:700;margin-top:8px;color:#1e293b">
+                        Total: <span id="crm-formalizar-total">R$ 0,00</span>
+                    </div>
+                </div>
+
+                <!-- Pagamento -->
+                <div>
+                    <label style="font-size:12px;font-weight:600;color:#64748b;display:block;margin-bottom:4px">Condi&ccedil;&otilde;es de pagamento</label>
+                    <input type="text" id="crm-formalizar-pagamento" list="crm-formalizar-pagamento-list"
+                        style="width:100%;font-size:13px;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box"
+                        placeholder="Selecione ou digite...">
+                    <datalist id="crm-formalizar-pagamento-list">
+                        <option value="&Agrave; vista (PIX / dinheiro)">
+                        <option value="Cart&atilde;o de cr&eacute;dito &agrave; vista">
+                        <option value="Cart&atilde;o de cr&eacute;dito 2x sem juros">
+                        <option value="Cart&atilde;o de cr&eacute;dito 3x sem juros">
+                        <option value="50% entrada + 50% na entrega">
+                        <option value="50% entrada + 50% em 30 dias">
+                        <option value="30 dias">
+                        <option value="30 / 60 dias">
+                        <option value="30 / 60 / 90 dias">
+                        <option value="Boleto banc&aacute;rio 28 dias">
+                        <option value="Combinar">
+                    </datalist>
+                </div>
+
+                <!-- Prazo -->
+                <div>
+                    <label style="font-size:12px;font-weight:600;color:#64748b;display:block;margin-bottom:4px">Validade / Prazo de entrega</label>
+                    <input type="text" id="crm-formalizar-prazo" list="crm-formalizar-prazo-list"
+                        style="width:100%;font-size:13px;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box"
+                        placeholder="Ex: V&aacute;lido por 7 dias...">
+                    <datalist id="crm-formalizar-prazo-list">
+                        <option value="V&aacute;lido por 7 dias">
+                        <option value="V&aacute;lido por 15 dias">
+                        <option value="V&aacute;lido por 30 dias">
+                        <option value="Entrega em 3 dias &uacute;teis">
+                        <option value="Entrega em 5 dias &uacute;teis">
+                        <option value="Entrega em 7 dias &uacute;teis">
+                        <option value="Entrega imediata">
+                        <option value="A combinar">
+                    </datalist>
+                </div>
+
+                <!-- Observações -->
+                <div>
+                    <label style="font-size:12px;font-weight:600;color:#64748b;display:block;margin-bottom:4px">Observa&ccedil;&otilde;es <span style="font-weight:400">(opcional)</span></label>
+                    <textarea id="crm-formalizar-obs" rows="2"
+                        style="width:100%;font-size:13px;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;resize:vertical;box-sizing:border-box"
+                        placeholder="Informa&ccedil;&otilde;es adicionais..."></textarea>
+                </div>
+
+                <!-- Preview -->
+                <div>
+                    <label style="font-size:12px;font-weight:600;color:#64748b;display:block;margin-bottom:6px">Preview da mensagem</label>
+                    <div id="crm-formalizar-preview"
+                        style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px 14px;font-size:12px;line-height:1.7;white-space:pre-wrap;color:#1e293b;min-height:80px;font-family:monospace;word-break:break-word"></div>
+                </div>
+
+            </div>
+            <div class="tao-crm-modal-footer">
+                <button type="button" class="button" id="crm-formalizar-nota-btn">Salvar como Nota</button>
+                <button type="button" class="button button-primary" id="crm-formalizar-whatsapp-btn">&#x1F4F2; Enviar no WhatsApp</button>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
+
     <script>
     var taoCrmCardId       = <?php echo wp_json_encode( $card_id ); ?>;
     var taoCrmLastMsg      = <?php echo wp_json_encode( end( $msgs ) ? end( $msgs )['enviado_em'] : '' ); ?>;
     var taoCrmCurrentStage = <?php echo wp_json_encode( $card['estagio_id'] ); ?>;
     var taoCrmWorkspaceId  = <?php echo wp_json_encode( $card['workspace_id'] ); ?>;
+    <?php
+    $rgs = tao_crm_api( "/crm_estagios?pipeline_id=eq.{$card['pipeline_id']}&tipo=eq.ganho&limit=1" );
+    $ganho_stage_id = ( $rgs['ok'] && ! empty( $rgs['data'] ) ) ? $rgs['data'][0]['id'] : '';
+
+    // Pré-fetch campos obrigatórios do estágio ganho para evitar dependência de AJAX
+    $ganho_campos_js  = [];
+    $ganho_valores_js = [];
+    if ( $ganho_stage_id ) {
+        $rce = tao_crm_api( "/crm_campos_estagio?estagio_id=eq.{$ganho_stage_id}&na_entrada=eq.true&order=ordem.asc" );
+        if ( $rce['ok'] && ! empty( $rce['data'] ) ) {
+            $cids    = array_column( $rce['data'], 'campo_id' );
+            $obr_map = array_column( $rce['data'], 'obrigatorio', 'campo_id' );
+            $rcd     = tao_crm_api( '/crm_campos_definicao?id=in.(' . implode( ',', $cids ) . ')&select=id,nome,tipo,opcoes' );
+            foreach ( ( $rcd['ok'] ? ( $rcd['data'] ?? [] ) : [] ) as $d ) {
+                $ganho_campos_js[] = [
+                    'id'          => $d['id'],
+                    'nome'        => $d['nome'],
+                    'tipo'        => $d['tipo'],
+                    'opcoes'      => $d['opcoes'] ?? null,
+                    'obrigatorio' => ! empty( $obr_map[ $d['id'] ] ),
+                ];
+            }
+            if ( $cids ) {
+                $rv = tao_crm_api( "/crm_card_campos?card_id=eq.$card_id&campo_id=in.(" . implode( ',', $cids ) . ")" );
+                foreach ( ( $rv['ok'] ? ( $rv['data'] ?? [] ) : [] ) as $v ) {
+                    $ganho_valores_js[ $v['campo_id'] ] = $v['valor'];
+                }
+            }
+        }
+    }
+    ?>
+    var taoCrmGanhoStageId = <?php echo wp_json_encode( $ganho_stage_id ); ?>;
+    var taoCrmGanhoCampos  = <?php echo wp_json_encode( $ganho_campos_js ); ?>;
+    var taoCrmGanhoValores = <?php echo wp_json_encode( $ganho_valores_js ); ?>;
     var taoCrmKanbanUrl    = <?php echo wp_json_encode( function_exists( 'cbpm_url' ) ? cbpm_url( 'crm-kanban', [ 'workspace_id' => $card['workspace_id'], 'pipeline_id' => $card['pipeline_id'] ] ) : '' ); ?>;
     var taoCrmCardTagIds   = <?php echo wp_json_encode( $card_tag_ids ); ?>;
     var taoCrmAllTags      = <?php echo wp_json_encode( $all_tags ); ?>;
     var taoCrmLembretes    = <?php echo wp_json_encode( $lembretes ); ?>;
+    var taoCrmContatoNome  = <?php echo wp_json_encode( $card['contato_nome'] ?? '' ); ?>;
 
     // ── Valor de oportunidade ─────────────────────────────────────────────
     document.addEventListener('DOMContentLoaded', function() {
@@ -971,6 +1289,18 @@ function tao_crm_page_card() {
             });
         }
 
+        // ── Recuperar atendimento ─────────────────────────────────────────
+        var recuperarBtn = document.getElementById('crm-recuperar-atendimento-btn');
+        if (recuperarBtn) {
+            recuperarBtn.addEventListener('click', function(){
+                if (!confirm('Assumir o atendimento? O chatbot será pausado e você assumirá o atendimento manual.')) return;
+                crmPost({action:'tao_crm_recuperar_atendimento', nonce:taoCrm.nonce, card_id:taoCrmCardId}, function(r){
+                    if (r.success) location.reload();
+                    else alert('Erro: ' + (r.data||'Não foi possível recuperar o atendimento'));
+                });
+            });
+        }
+
         // ── Fechar Pós Vendas (pedido entregue) ──────────────────────────
         var fecharPvBtn = document.getElementById('crm-fechar-pv-btn');
         if (fecharPvBtn) {
@@ -1051,9 +1381,40 @@ function tao_crm_render_campo_input( $def, $val, $card_id ) {
         $html .= "</select>";
         return $html;
     }
+    if ( $tipo === 'arquivo' ) {
+        // val format: "STORAGE:{path}:{original_filename}" ou vazio
+        $is_stored = str_starts_with( (string) $val, 'STORAGE:' );
+        $filename  = '';
+        if ( $is_stored ) {
+            $parts    = explode( ':', $val, 3 );
+            $filename = $parts[2] ?? basename( $parts[1] ?? '' );
+        }
+        $nonce  = wp_create_nonce( 'tao_crm_nonce' );
+        $dl_url = admin_url( 'admin-ajax.php?action=tao_crm_download_campo_arquivo'
+                    . '&nonce=' . $nonce
+                    . '&card_id=' . urlencode( $card_id )
+                    . '&campo_id=' . urlencode( $def['id'] ) );
+        $html   = "<div class='campo-arquivo-wrap' data-campo-id='$id' data-card-id='" . esc_attr( $card_id ) . "'>";
+        if ( $is_stored ) {
+            $html .= "<div class='campo-arquivo-atual'>";
+            $html .= "<span>&#x1F4CE;</span> ";
+            $html .= "<a href='" . esc_url( $dl_url ) . "' target='_blank' class='campo-arquivo-link'>" . esc_html( $filename ) . "</a> ";
+            $html .= "<button type='button' class='button button-small campo-arquivo-trocar' style='font-size:11px'>Trocar</button>";
+            $html .= "</div>";
+        }
+        $ocult  = $is_stored ? " style='display:none'" : '';
+        $html  .= "<div class='campo-arquivo-upload'$ocult>";
+        $html  .= "<input type='file' class='campo-arquivo-input' style='font-size:12px;max-width:220px'>";
+        $html  .= " <span class='campo-arquivo-status' style='font-size:11px'></span>";
+        $html  .= "</div>";
+        $html  .= "</div>";
+        return $html;
+    }
+
     $type_map = [ 'number' => 'number', 'date' => 'date', 'phone' => 'tel', 'email' => 'email' ];
     $input_type = $type_map[ $tipo ] ?? 'text';
-    return "<input type='$input_type' $attrs value='$val_e'>";
+    $step = ( $input_type === 'number' ) ? " step='any'" : '';
+    return "<input type='$input_type'$step $attrs value='$val_e'>";
 }
 
 // ─── RENDER MESSAGE ───────────────────────────────────────────────────────────

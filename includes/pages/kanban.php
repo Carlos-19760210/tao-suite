@@ -9,8 +9,23 @@ function tao_crm_page_kanban() {
     $action = sanitize_key( $_GET['action'] ?? 'list' );
     if ( $action === 'card' ) { tao_crm_page_card(); return; }
 
-    $ws_id = sanitize_text_field( $_GET['workspace_id'] ?? '' );
-    $ws    = tao_crm_get_workspace( $ws_id ?: null );
+    $ws_id    = sanitize_text_field( $_GET['workspace_id'] ?? '' );
+    $todos_ws = tao_crm_get_workspaces();
+
+    // Se não tem ws_id na URL, redireciona para o último visitado (cookie) ou o primeiro da lista
+    if ( ! $ws_id && ! empty( $todos_ws ) ) {
+        $cookie_ws = sanitize_text_field( $_COOKIE['tao_crm_last_ws'] ?? '' );
+        $valid_ids = array_column( $todos_ws, 'id' );
+        if ( $cookie_ws && in_array( $cookie_ws, $valid_ids, true ) ) {
+            $ws_id = $cookie_ws;
+        } else {
+            $ws_id = $todos_ws[0]['id'];
+        }
+        wp_redirect( tao_crm_url( [ 'workspace_id' => $ws_id ] ) );
+        exit;
+    }
+
+    $ws = tao_crm_get_workspace( $ws_id ?: null );
 
     if ( ! $ws ) {
         echo '<div class="wrap"><div class="notice notice-warning"><p>';
@@ -44,6 +59,29 @@ function tao_crm_page_kanban() {
     $re       = tao_crm_api( "/crm_estagios?pipeline_id=eq.$pipeline_id&order=ordem.asc" );
     $estagios = $re['ok'] ? ( $re['data'] ?? [] ) : [];
 
+    // Pré-fetch campos obrigatórios do estágio ganho deste pipeline
+    $kanban_ganho_campos = [];
+    foreach ( $estagios as $_ke ) {
+        if ( ( $_ke['tipo'] ?? '' ) === 'ganho' ) {
+            $rce = tao_crm_api( "/crm_campos_estagio?estagio_id=eq.{$_ke['id']}&na_entrada=eq.true&order=ordem.asc" );
+            if ( $rce['ok'] && ! empty( $rce['data'] ) ) {
+                $cids    = array_column( $rce['data'], 'campo_id' );
+                $obr_map = array_column( $rce['data'], 'obrigatorio', 'campo_id' );
+                $rcd     = tao_crm_api( '/crm_campos_definicao?id=in.(' . implode( ',', $cids ) . ')&select=id,nome,tipo,opcoes' );
+                foreach ( ( $rcd['ok'] ? ( $rcd['data'] ?? [] ) : [] ) as $d ) {
+                    $kanban_ganho_campos[] = [
+                        'id'          => $d['id'],
+                        'nome'        => $d['nome'],
+                        'tipo'        => $d['tipo'],
+                        'opcoes'      => $d['opcoes'] ?? null,
+                        'obrigatorio' => ! empty( $obr_map[ $d['id'] ] ),
+                    ];
+                }
+            }
+            break;
+        }
+    }
+
     // Atendentes veem só seus cards; gestores veem todos
     $cards_filter = '';
     if ( ! tao_crm_is_gestor( $ws_id ) ) {
@@ -65,9 +103,10 @@ function tao_crm_page_kanban() {
         $cards_by_stage[ $card['estagio_id'] ][] = $card;
     }
 
-    // Contar não lidos
+    // Contar não lidos (apenas cards abertos)
     $nao_lidos = 0;
     foreach ( $cards as $c ) {
+        if ( ! empty( $c['fechado'] ) ) continue;
         $msg  = $c['ultima_mensagem_em'] ?? '';
         $lida = $c['ultima_leitura_em']  ?? '';
         if ( $msg && ( ! $lida || $msg > $lida ) ) $nao_lidos++;
@@ -80,18 +119,49 @@ function tao_crm_page_kanban() {
     $tags_ws   = tao_crm_api( "/crm_tags?workspace_id=eq.$ws_id&order=nome.asc" );
     $tags_list = $tags_ws['ok'] ? ( $tags_ws['data'] ?? [] ) : [];
 
-    // Atendentes com cards ativos neste pipeline
+    // Equipe do workspace (gestores + vendedores) — apenas perfis relacionados ao negócio
     $wp_users_k = [];
-    foreach ( get_users( [ 'fields' => [ 'ID', 'display_name' ] ] ) as $u ) {
+    $equipe_ws  = function_exists( 'tao_crm_get_equipe_ws' ) ? tao_crm_get_equipe_ws( $ws_id ) : get_users( [ 'fields' => [ 'ID', 'display_name' ] ] );
+    foreach ( $equipe_ws as $u ) {
         $wp_users_k[ $u->ID ] = $u->display_name;
     }
+
+    // Instâncias ativas do workspace (para o modal de novo card)
+    $ri_inst    = tao_crm_api( "/crm_instancias?workspace_id=eq.$ws_id&ativo=eq.true&select=id,nome&order=nome.asc" );
+    $instancias = $ri_inst['ok'] ? ( $ri_inst['data'] ?? [] ) : [];
 
     ?>
     <div class="wrap tao-crm-wrap">
 
         <div class="tao-crm-topbar">
             <h1 class="tao-crm-title">
-                &#x1F4CB; CRM &mdash; <?php echo esc_html( $ws['nome'] ); ?>
+                &#x1F4CB; CRM
+                <?php if ( count( $todos_ws ) > 1 ) : ?>
+                <select id="tao-crm-ws-select"
+                        style="font-size:14px;font-weight:600;margin-left:8px;padding:2px 6px;border-radius:4px;border:1px solid #cbd5e1;cursor:pointer"
+                        onchange="document.cookie='tao_crm_last_ws='+this.dataset.wsid+';path=/;max-age=31536000';window.location.href=this.value"
+                        data-wsid="<?php echo esc_attr( $ws_id ); ?>">
+                    <?php foreach ( $todos_ws as $_tw ) : ?>
+                    <option value="<?php echo esc_attr( tao_crm_url( [ 'workspace_id' => $_tw['id'] ] ) ); ?>"
+                            data-wsid="<?php echo esc_attr( $_tw['id'] ); ?>"
+                            <?php selected( $_tw['id'], $ws_id ); ?>>
+                        <?php echo esc_html( $_tw['nome'] ); ?>
+                    </option>
+                    <?php endforeach; ?>
+                </select>
+                <script>
+                (function(){
+                    var s = document.getElementById('tao-crm-ws-select');
+                    if(s) s.onchange = function(){
+                        var opt = this.options[this.selectedIndex];
+                        document.cookie = 'tao_crm_last_ws=' + (opt.dataset.wsid||'') + ';path=/;max-age=31536000';
+                        window.location.href = this.value;
+                    };
+                })();
+                </script>
+                <?php else : ?>
+                &mdash; <?php echo esc_html( $ws['nome'] ); ?>
+                <?php endif; ?>
                 <?php if ( $nao_lidos > 0 ) : ?>
                 <span class="tao-crm-inbox-badge"><?php echo $nao_lidos; ?></span>
                 <?php endif; ?>
@@ -103,7 +173,7 @@ function tao_crm_page_kanban() {
                     <div id="crm-search-dropdown" style="display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:360px;
                          background:#fff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.12);z-index:9999;overflow:hidden"></div>
                 </div>
-                <button class="button" id="tao-crm-filter-toggle" title="Filtros">Filtrar</button>
+                <button class="button button-primary" id="tao-crm-filter-toggle" title="Filtros">Filtrar</button>
                 <a href="<?php echo esc_url( add_query_arg( 'view', 'inbox',  $base_url_pl ) ); ?>"
                    class="button <?php echo $view === 'inbox'  ? 'button-primary' : ''; ?>">
                     &#x1F4E5; Inbox<?php if ( $nao_lidos > 0 ) echo ' (' . $nao_lidos . ')'; ?>
@@ -121,7 +191,7 @@ function tao_crm_page_kanban() {
         </div>
 
         <!-- Barra de filtros (kanban e inbox) -->
-        <div class="tao-crm-filter-bar" id="tao-crm-filter-bar" style="display:none">
+        <div class="tao-crm-filter-bar" id="tao-crm-filter-bar">
             <div class="filter-bar-inner">
                 <label class="filter-label">
                     Atendente
@@ -172,6 +242,17 @@ function tao_crm_page_kanban() {
                     Mostrar colunas encerradas (ganhos/perdidos)
                 </label>
                 <?php endif; ?>
+                <label class="filter-label">
+                    Atualizar a cada
+                    <select id="tao-crm-refresh-interval" title="Intervalo de verificação de novas mensagens/cards">
+                        <option value="10">10 s</option>
+                        <option value="20" selected>20 s</option>
+                        <option value="30">30 s</option>
+                        <option value="60">1 min</option>
+                        <option value="120">2 min</option>
+                        <option value="0">Desligado</option>
+                    </select>
+                </label>
                 <button class="button button-small" id="tao-crm-filter-clear">Limpar filtros</button>
             </div>
         </div>
@@ -383,7 +464,7 @@ function tao_crm_page_kanban() {
                 <h3 style="margin:0 0 14px">Transferir em lote</h3>
                 <label style="display:block;margin-bottom:14px;font-size:13px">Responsável
                     <select id="crm-bulk-transfer-user" style="width:100%;margin-top:4px">
-                        <?php foreach ( get_users(['fields'=>['ID','display_name']]) as $u ) : ?>
+                        <?php foreach ( $equipe_ws as $u ) : ?>
                         <option value="<?php echo esc_attr($u->ID); ?>"><?php echo esc_html($u->display_name); ?></option>
                         <?php endforeach; ?>
                     </select>
@@ -397,6 +478,32 @@ function tao_crm_page_kanban() {
         </div>
 
         <?php endif; ?>
+
+        <!-- Barra de ações (aparece quando cards são selecionados via checkbox) -->
+        <div id="crm-kanban-pos-move-bar" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9990;
+             background:#1e293b;color:#fff;padding:14px 24px;
+             align-items:center;justify-content:space-between;gap:12px;
+             box-shadow:0 -4px 20px rgba(0,0,0,.25);transform:translateY(100%);transition:transform .3s ease">
+            <span id="crm-posm-count" style="font-size:13px;font-weight:600;white-space:nowrap">0 selecionados</span>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                <button id="crm-kposm-transferir" type="button"
+                    style="background:#6366f1;color:#fff;border:none;border-radius:6px;padding:7px 14px;cursor:pointer;font-size:13px;font-weight:600">
+                    &#x1F500; Transferir
+                </button>
+                <button id="crm-kposm-ganho" type="button"
+                    style="background:#16a34a;color:#fff;border:none;border-radius:6px;padding:7px 14px;cursor:pointer;font-size:13px;font-weight:600">
+                    &#x2705; Fechar como Ganho
+                </button>
+                <button id="crm-kposm-perdido" type="button"
+                    style="background:#dc2626;color:#fff;border:none;border-radius:6px;padding:7px 14px;cursor:pointer;font-size:13px;font-weight:600">
+                    &#x274C; Neg&oacute;cio Perdido
+                </button>
+                <button id="crm-kposm-fechar" type="button"
+                    style="background:transparent;color:#94a3b8;border:1px solid #475569;border-radius:6px;padding:7px 12px;cursor:pointer;font-size:13px">
+                    &#x2715; Cancelar
+                </button>
+            </div>
+        </div>
 
     </div>
 
@@ -430,6 +537,21 @@ function tao_crm_page_kanban() {
                     <label>Título do card</label>
                     <input type="text" name="titulo" placeholder="Deixe em branco para usar o nome">
                 </div>
+                <?php if ( ! empty( $instancias ) ) : ?>
+                <div class="tao-crm-field">
+                    <label>Instância WhatsApp <?php echo count( $instancias ) > 1 ? '*' : ''; ?></label>
+                    <select name="instancia_id"<?php echo count( $instancias ) > 1 ? ' required' : ''; ?>>
+                        <?php if ( count( $instancias ) > 1 ) : ?>
+                        <option value="">— Selecionar instância —</option>
+                        <?php endif; ?>
+                        <?php foreach ( $instancias as $inst ) : ?>
+                        <option value="<?php echo esc_attr( $inst['id'] ); ?>">
+                            📱 <?php echo esc_html( $inst['nome'] ); ?>
+                        </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <?php endif; ?>
                 <div class="tao-crm-modal-footer">
                     <button type="button" class="button" onclick="taoCrmCloseModal()">Cancelar</button>
                     <button type="submit" class="button button-primary" id="tao-crm-save-card-btn">Criar Card</button>
@@ -457,10 +579,40 @@ function tao_crm_page_kanban() {
         </div>
     </div>
 
+    <!-- Modal: Fechar Card (Ganho / Perdido) -->
+    <div id="tao-crm-fechar-modal" class="tao-crm-modal" style="display:none">
+        <div class="tao-crm-modal-content" style="max-width:440px">
+            <div class="tao-crm-modal-header">
+                <h2 id="tao-crm-fechar-titulo">Fechar Negócio</h2>
+                <button class="tao-crm-modal-close" onclick="document.getElementById('tao-crm-fechar-modal').style.display='none'">✕</button>
+            </div>
+            <form id="tao-crm-fechar-form">
+                <input type="hidden" id="tao-crm-fechar-tipo" value="">
+                <div style="padding:16px 20px;overflow-y:auto;max-height:calc(80vh - 140px)">
+                    <p id="tao-crm-fechar-desc" style="color:#64748b;margin-bottom:14px;font-size:13px"></p>
+                    <label style="display:block;font-weight:600;margin-bottom:6px;font-size:13px">Motivo</label>
+                    <select id="tao-crm-fechar-motivo" style="width:100%;font-size:13px;padding:6px 8px;border:1px solid #d1d5db;border-radius:4px"></select>
+                    <div id="tao-crm-fechar-outro-wrap" style="display:none;margin-top:8px">
+                        <input type="text" id="tao-crm-fechar-outro"
+                               style="width:100%;font-size:13px;padding:6px 8px;border:1px solid #d1d5db;border-radius:4px"
+                               placeholder="Descreva o motivo...">
+                    </div>
+                    <div id="tao-crm-fechar-campos-wrap" style="display:none;margin-top:16px;border-top:1px solid #e5e7eb;padding-top:14px"></div>
+                </div>
+                <div class="tao-crm-modal-footer">
+                    <button type="button" class="button" onclick="document.getElementById('tao-crm-fechar-modal').style.display='none'">Voltar</button>
+                    <button type="submit" class="button button-primary" id="tao-crm-fechar-btn">Confirmar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
-    var taoCrmWorkspaceId = <?php echo wp_json_encode( $ws_id ); ?>;
-    var taoCrmPipelineId  = <?php echo wp_json_encode( $pipeline_id ); ?>;
-    var taoCrmLoadedAt    = <?php echo wp_json_encode( gmdate( 'c' ) ); ?>;
+    var taoCrmWorkspaceId  = <?php echo wp_json_encode( $ws_id ); ?>;
+    var taoCrmPipelineId   = <?php echo wp_json_encode( $pipeline_id ); ?>;
+    var taoCrmLoadedAt     = <?php echo wp_json_encode( gmdate( 'c' ) ); ?>;
+    var taoCrmGanhoCampos  = <?php echo wp_json_encode( $kanban_ganho_campos ); ?>;
+    var taoCrmGanhoValores = {};
     // SLA por estágio (minutos para alerta / crítico)
     var taoCrmSlaMinutos = <?php
         $sla_map = [];

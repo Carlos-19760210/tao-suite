@@ -77,28 +77,27 @@ function tao_crm_evolution_send_with_retry( $workspace, $numero, $texto, $max_re
     return false;
 }
 
-function tao_crm_evolution_send_media( $workspace, $numero, $base64, $mimetype, $filename, $caption = '' ) {
+function tao_crm_evolution_send_media( $workspace, $numero, $media, $mimetype, $filename, $caption = '' ) {
     $url  = rtrim( $workspace['evolution_url'] ?? '', '/' );
     $key  = $workspace['evolution_key'] ?? '';
     $inst = $workspace['evolution_instancia'] ?? '';
 
     if ( ! $url || ! $key || ! $inst ) return [ 'ok' => false, 'error' => 'Evolution não configurada' ];
 
-    // Determina o tipo para a Evolution
     // WhatsApp só aceita OGG/Opus como áudio PTT — outros formatos (mp3, m4a...) vão como documento
-    if ( str_starts_with( $mimetype, 'image/' ) )                                      $mediatype = 'image';
-    elseif ( str_starts_with( $mimetype, 'video/' ) )                                  $mediatype = 'video';
+    if ( str_starts_with( $mimetype, 'image/' ) )                                       $mediatype = 'image';
+    elseif ( str_starts_with( $mimetype, 'video/' ) )                                   $mediatype = 'video';
     elseif ( in_array( $mimetype, [ 'audio/ogg', 'audio/opus', 'audio/webm' ], true ) ) $mediatype = 'audio';
-    else                                                                                $mediatype = 'document';
+    else                                                                                 $mediatype = 'document';
 
     $body = [
         'number'    => $numero,
         'mediatype' => $mediatype,
         'mimetype'  => $mimetype,
-        'media'     => $base64,
+        'media'     => $media,   // URL pública ou base64
         'fileName'  => $filename,
-        'caption'   => $caption,
     ];
+    if ( $caption ) $body['caption'] = $caption;
 
     $r = wp_remote_post( "$url/message/sendMedia/$inst", [
         'headers' => [ 'Content-Type' => 'application/json', 'apikey' => $key ],
@@ -107,8 +106,13 @@ function tao_crm_evolution_send_media( $workspace, $numero, $base64, $mimetype, 
     ] );
 
     if ( is_wp_error( $r ) ) return [ 'ok' => false, 'error' => $r->get_error_message() ];
-    $code = wp_remote_retrieve_response_code( $r );
-    if ( $code >= 400 ) return [ 'ok' => false, 'error' => "HTTP $code" ];
+    $code      = wp_remote_retrieve_response_code( $r );
+    if ( $code >= 400 ) {
+        $raw  = wp_remote_retrieve_body( $r );
+        $dec  = json_decode( $raw, true );
+        $msg  = $dec['message'] ?? $dec['error'] ?? ( $raw ? substr( $raw, 0, 120 ) : "HTTP $code" );
+        return [ 'ok' => false, 'error' => "HTTP $code: $msg" ];
+    }
     return [ 'ok' => true ];
 }
 
@@ -150,6 +154,25 @@ function tao_crm_ajax_save_gestores() {
     if ( ! $ws_id ) wp_send_json_error( 'workspace_id obrigatório' );
     tao_crm_set_gestores( $ws_id, $user_ids );
     wp_send_json_success();
+}
+
+/**
+ * Retorna WP_User[] com gestores + vendedores configurados para o workspace.
+ * Usado em selects de Responsável para não listar TODOS os usuários do WordPress.
+ */
+function tao_crm_get_equipe_ws( string $ws_id ): array {
+    $ids = array_unique( array_merge(
+        array_filter( array_map( 'intval', (array) get_option( 'tao_crm_gestores_global', [] ) ) ),
+        array_filter( array_map( 'intval', (array) get_option( 'tao_crm_gestores_ws_' . $ws_id, [] ) ) ),
+        array_filter( array_map( 'intval', (array) get_option( 'tao_crm_vendedores_global', [] ) ) )
+    ) );
+    // Sempre inclui admins
+    $admins = get_users( [ 'role' => 'administrator', 'fields' => 'ID' ] );
+    $ids    = array_unique( array_merge( $ids, array_map( 'intval', $admins ) ) );
+    if ( empty( $ids ) ) {
+        return get_users( [ 'fields' => [ 'ID', 'display_name' ] ] );
+    }
+    return get_users( [ 'include' => $ids, 'fields' => [ 'ID', 'display_name' ], 'orderby' => 'display_name' ] );
 }
 
 function tao_crm_get_workspace( $ws_id = null ) {
@@ -238,12 +261,23 @@ function tao_crm_lock_chatbot( $phone, $workspace_id ) {
 
 // ─── Helper: credenciais Evolution por card ───────────────────────────────────
 function tao_crm_get_evo_creds( $card ) {
+    // Sempre busca workspace como base (URL e key padrão)
+    $rw     = tao_crm_api( "/crm_workspaces?id=eq.{$card['workspace_id']}&select=evolution_url,evolution_key,evolution_instancia" );
+    $ws_cfg = ( $rw['ok'] && ! empty( $rw['data'] ) ) ? $rw['data'][0] : null;
+
     if ( ! empty( $card['instancia_id'] ) ) {
         $ri = tao_crm_api( "/crm_instancias?id=eq.{$card['instancia_id']}&select=evolution_url,evolution_key,evolution_instancia" );
-        if ( $ri['ok'] && ! empty( $ri['data'] ) ) return $ri['data'][0];
+        if ( $ri['ok'] && ! empty( $ri['data'] ) ) {
+            $inst = $ri['data'][0];
+            // Herda URL e key do workspace quando não configurados na instância
+            return [
+                'evolution_url'       => $inst['evolution_url']       ?: ( $ws_cfg['evolution_url']  ?? '' ),
+                'evolution_key'       => $inst['evolution_key']       ?: ( $ws_cfg['evolution_key']   ?? '' ),
+                'evolution_instancia' => $inst['evolution_instancia'] ?: ( $ws_cfg['evolution_instancia'] ?? '' ),
+            ];
+        }
     }
-    $rw = tao_crm_api( "/crm_workspaces?id=eq.{$card['workspace_id']}&select=evolution_url,evolution_key,evolution_instancia" );
-    return ( $rw['ok'] && ! empty( $rw['data'] ) ) ? $rw['data'][0] : null;
+    return $ws_cfg;
 }
 
 // ─── AJAX: salvar instância ───────────────────────────────────────────────────
@@ -253,13 +287,20 @@ function tao_crm_ajax_save_instancia() {
     if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Sem permissão.' );
     $edit_id      = sanitize_text_field( $_POST['edit_id'] ?? '' );
     $workspace_id = sanitize_text_field( $_POST['workspace_id'] ?? '' );
+    // Resolve cliente_id a partir do workspace para manter consistência com crm_instancias.cliente_id
+    $rw_cid = tao_crm_api( "/crm_workspaces?id=eq.$workspace_id&select=cliente_id&limit=1" );
+    $cliente_id_inst = ( $rw_cid['ok'] && ! empty( $rw_cid['data'] ) ) ? $rw_cid['data'][0]['cliente_id'] : null;
+
     $data = [
-        'workspace_id'        => $workspace_id,
-        'nome'                => sanitize_text_field( $_POST['nome'] ?? '' ),
-        'evolution_url'       => esc_url_raw( $_POST['evolution_url'] ?? '' ),
-        'evolution_key'       => sanitize_text_field( $_POST['evolution_key'] ?? '' ),
-        'evolution_instancia' => sanitize_text_field( $_POST['evolution_instancia'] ?? '' ),
-        'ativo'               => true,
+        'workspace_id'          => $workspace_id,
+        'cliente_id'            => $cliente_id_inst,
+        'nome'                  => sanitize_text_field( $_POST['nome'] ?? '' ),
+        'evolution_url'         => esc_url_raw( $_POST['evolution_url'] ?? '' ),
+        'evolution_key'         => sanitize_text_field( $_POST['evolution_key'] ?? '' ),
+        'evolution_instancia'   => sanitize_text_field( $_POST['evolution_instancia'] ?? '' ),
+        'modo_recepcionista'    => ! empty( $_POST['modo_recepcionista'] ),
+        'mensagem_recepcionista'=> sanitize_textarea_field( $_POST['mensagem_recepcionista'] ?? '' ),
+        'ativo'                 => true,
     ];
     if ( ! $data['workspace_id'] || ! $data['nome'] ) wp_send_json_error( 'Dados incompletos.' );
     if ( ! $edit_id ) {
@@ -274,11 +315,76 @@ function tao_crm_ajax_save_instancia() {
         }
     }
     if ( $edit_id ) {
-        $r = tao_crm_api( "/crm_instancias?id=eq.$edit_id", 'PATCH', $data );
+        $r = tao_crm_api( "/crm_instancias?id=eq.$edit_id", 'PATCH', $data, [ 'Prefer' => 'return=representation' ] );
     } else {
         $r = tao_crm_api( '/crm_instancias', 'POST', $data, [ 'Prefer' => 'return=representation' ] );
     }
-    $r['ok'] ? wp_send_json_success( $r['data'][0] ?? [] ) : wp_send_json_error( $r['error'] );
+    if ( ! $r['ok'] ) wp_send_json_error( $r['error'] );
+
+    // Configura webhook na Evolution API apontando ao dispatch deste workspace
+    $evo_url  = rtrim( $data['evolution_url'], '/' );
+    $evo_key  = $data['evolution_key'];
+    $evo_inst = $data['evolution_instancia'];
+    if ( $evo_url && $evo_key && $evo_inst ) {
+        $rw_key       = tao_crm_api( "/crm_workspaces?id=eq.$workspace_id&select=dispatch_key&limit=1" );
+        $dispatch_key = ( $rw_key['ok'] && ! empty( $rw_key['data'] ) )
+                        ? ( $rw_key['data'][0]['dispatch_key'] ?? '' )
+                        : '';
+        wp_remote_post( "$evo_url/webhook/set/$evo_inst", [
+            'headers'  => [ 'Content-Type' => 'application/json', 'apikey' => $evo_key ],
+            'body'     => wp_json_encode( [
+                'webhook' => [
+                    'enabled'       => true,
+                    'url'           => get_site_url() . '/wp-json/tao-crm/v1/dispatch',
+                    'headers'       => [ 'X-Tao-Key' => $dispatch_key ],
+                    'webhookBase64' => true,
+                    'events'        => [ 'MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'SEND_MESSAGE' ],
+                ],
+            ] ),
+            'timeout'  => 10,
+            'blocking' => false,
+        ] );
+    }
+
+    wp_send_json_success( $r['data'][0] ?? [] );
+}
+
+// ─── AJAX: QR Code de instância Evolution ────────────────────────────────────
+add_action( 'wp_ajax_tao_crm_get_qrcode', 'tao_crm_ajax_get_qrcode' );
+function tao_crm_ajax_get_qrcode() {
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Sem permissão.' );
+
+    $inst_name   = sanitize_text_field( $_POST['evolution_instancia'] ?? '' );
+    $evo_url     = esc_url_raw( $_POST['evolution_url'] ?? '' );
+    $evo_key     = sanitize_text_field( $_POST['evolution_key'] ?? '' );
+
+    if ( ! $inst_name || ! $evo_url || ! $evo_key ) wp_send_json_error( 'Dados da instância incompletos.' );
+
+    $evo_url = rtrim( $evo_url, '/' );
+    $r = wp_remote_get( "$evo_url/instance/connect/$inst_name", [
+        'headers' => [ 'apikey' => $evo_key ],
+        'timeout' => 15,
+    ] );
+
+    if ( is_wp_error( $r ) ) wp_send_json_error( $r->get_error_message() );
+
+    $body = json_decode( wp_remote_retrieve_body( $r ), true );
+    $code = wp_remote_retrieve_response_code( $r );
+
+    if ( $code !== 200 ) {
+        $msg = $body['response']['message'][0] ?? ( $body['message'] ?? "Erro $code" );
+        wp_send_json_error( $msg );
+    }
+
+    $base64 = $body['base64'] ?? ( $body['qrcode']['base64'] ?? '' );
+
+    if ( ! $base64 ) {
+        // Instância já conectada
+        wp_send_json_success( [ 'connected' => true, 'base64' => '' ] );
+    }
+
+    wp_send_json_success( [ 'connected' => false, 'base64' => $base64 ] );
 }
 
 // ─── AJAX: deletar instância ──────────────────────────────────────────────────

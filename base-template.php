@@ -1,490 +1,493 @@
 <?php
 if ( ! defined( 'ABSPATH' ) ) exit;
-if ( ! cbpm_can_access() ) wp_die( 'Acesso negado.' );
-ob_start();
-$is_admin_user = current_user_can( 'manage_options' );
-$forced_cid    = cbpm_current_cliente_id();
-$supabase_url  = cbpm_supabase_url();
-$supabase_key  = cbpm_supabase_key();
+if ( ! function_exists( 'cbpm_can_access' ) || ! cbpm_can_access() ) wp_die( 'Acesso negado.' );
 
-$cbpm_role = cbpm_current_role();
-$is_master = ( $cbpm_role === 'master' );
-$is_gestor = ( $cbpm_role === 'gestor' );
-$is_op     = ( $cbpm_role === 'operacional' );
+$supabase_url = cbpm_supabase_url();
+$supabase_key = cbpm_supabase_key();
 
-$secoes_master = [
-    'chatbot-platform-dashboard'       => ['fn'=>'cbpm_page_dashboard',         'label'=>'Dashboard'],
-    'chatbot-platform'                 => ['fn'=>'cbpm_page_clientes',          'label'=>'Negócios'],
-    'chatbot-platform-categorias'      => ['fn'=>'cbpm_page_categorias',        'label'=>'Categorias'],
-    'chatbot-platform-campos-extras'   => ['fn'=>'cbpm_page_campos_extras',     'label'=>'Campos Extras'],
-    'chatbot-platform-catalogo'        => ['fn'=>'cbpm_page_catalogo',          'label'=>'Catálogo'],
-    'chatbot-platform-disponibilidade' => ['fn'=>'cbpm_page_disponibilidade',   'label'=>'Disponibilidade'],
-    'chatbot-platform-conteudo'        => ['fn'=>'cbpm_page_conteudo_dinamico', 'label'=>'Promoções/Avisos'],
-    'chatbot-platform-leads'           => ['fn'=>'cbpm_page_leads',             'label'=>'Leads'],
-    'chatbot-platform-pedidos'         => ['fn'=>'cbpm_page_pedidos',           'label'=>'Pedidos'],
-    'chatbot-platform-historico'       => ['fn'=>'cbpm_page_historico',         'label'=>'Histórico'],
-    'chatbot-platform-campanhas'       => ['fn'=>'cbpm_page_campanhas',         'label'=>'Campanhas'],
-    'chatbot-platform-listas'          => ['fn'=>'cbpm_page_listas_contatos',   'label'=>'Listas de Contatos'],
-    'chatbot-platform-usuarios'        => ['fn'=>'cbpm_page_usuarios',          'label'=>'Usuários'],
-    'chatbot-platform-conectores'      => ['fn'=>'cbpm_page_conectores',        'label'=>'Conectores'],
-    'chatbot-platform-settings'        => ['fn'=>'cbpm_page_settings',          'label'=>'Configurações'],
-    'tao-crm'            => ['fn'=>'tao_crm_page_dashboard',      'label'=>'CRM — Dashboard'],
-    'tao-crm-inbox'      => ['fn'=>'tao_crm_page_inbox',          'label'=>'CRM — Inbox'],
-    'tao-crm-kanban'     => ['fn'=>'tao_crm_page_kanban_full',    'label'=>'CRM — Kanban'],
-    'tao-crm-settings'   => ['fn'=>'tao_crm_page_settings',       'label'=>'CRM — Configurações'],
-    'tao-crm-workspaces' => ['fn'=>'tao_crm_settings_workspaces', 'label'=>'CRM — Workspaces'],
-    'tao-crm-pipelines'  => ['fn'=>'tao_crm_settings_pipelines',  'label'=>'CRM — Pipelines e Estágios'],
-    'tao-crm-campos'     => ['fn'=>'tao_crm_settings_campos',     'label'=>'CRM — Campos'],
-    'tao-crm-automacoes' => ['fn'=>'tao_crm_settings_automacoes', 'label'=>'CRM — Automações'],
-    'tao-crm-contatos'  => ['fn'=>'tao_crm_page_contatos',       'label'=>'CRM — Contatos'],
+// ─── Mapa de seções (routing) ─────────────────────────────────────────────────
+$secoes = [
+    'chatbot-platform'                => [ 'fn' => 'cbpm_page_portal_home',     'label' => 'Visão Geral' ],
+    'chatbot-platform-negocios'        => [ 'fn' => 'cbpm_page_clientes',        'label' => 'Negócios' ],
+    'chatbot-platform-categorias'     => [ 'fn' => 'cbpm_page_categorias',       'label' => 'Categorias' ],
+    'chatbot-platform-catalogo'       => [ 'fn' => 'cbpm_page_catalogo',          'label' => 'Catálogo' ],
+    'chatbot-platform-disponibilidade'=> [ 'fn' => 'cbpm_page_disponibilidade',   'label' => 'Disponibilidade' ],
+    'chatbot-platform-conteudo'       => [ 'fn' => 'cbpm_page_conteudo_dinamico', 'label' => 'Promoções/Avisos' ],
+    'chatbot-platform-campanhas'      => [ 'fn' => 'cbpm_page_campanhas',         'label' => 'Campanhas' ],
+    'chatbot-platform-listas'         => [ 'fn' => 'cbpm_page_listas_contatos',   'label' => 'Listas de Contatos' ],
+    'chatbot-platform-leads'          => [ 'fn' => 'cbpm_page_leads',             'label' => 'Leads' ],
+    'chatbot-platform-pedidos'        => [ 'fn' => 'cbpm_page_pedidos',           'label' => 'Pedidos' ],
+    'chatbot-platform-historico'      => [ 'fn' => 'cbpm_page_historico',         'label' => 'Histórico' ],
+    'chatbot-platform-campos-extras'  => [ 'fn' => 'cbpm_page_campos_extras',     'label' => 'Campos Extras' ],
+    'chatbot-platform-conectores'     => [ 'fn' => 'cbpm_page_conectores',        'label' => 'Conectores' ],
+    'chatbot-platform-usuarios'       => [ 'fn' => 'cbpm_page_usuarios',          'label' => 'Usuários' ],
+    'chatbot-platform-settings'       => [ 'fn' => 'cbpm_page_settings',          'label' => 'Configurações' ],
+    'chatbot-platform-dashboard'      => [ 'fn' => 'cbpm_page_dashboard',         'label' => 'Dashboard' ],
 ];
-$secoes_gestor = [
-    'chatbot-platform-dashboard'       => ['fn'=>'cbpm_page_dashboard',         'label'=>'Dashboard'],
-    'chatbot-platform'                 => ['fn'=>'cbpm_page_clientes',          'label'=>'Meu Negócio'],
-    'chatbot-platform-categorias'      => ['fn'=>'cbpm_page_categorias',        'label'=>'Categorias'],
-    'chatbot-platform-campos-extras'   => ['fn'=>'cbpm_page_campos_extras',     'label'=>'Campos Extras'],
-    'chatbot-platform-catalogo'        => ['fn'=>'cbpm_page_catalogo',          'label'=>'Catálogo'],
-    'chatbot-platform-disponibilidade' => ['fn'=>'cbpm_page_disponibilidade',   'label'=>'Disponibilidade'],
-    'chatbot-platform-conteudo'        => ['fn'=>'cbpm_page_conteudo_dinamico', 'label'=>'Promoções/Avisos'],
-    'chatbot-platform-leads'           => ['fn'=>'cbpm_page_leads',             'label'=>'Leads'],
-    'chatbot-platform-pedidos'         => ['fn'=>'cbpm_page_pedidos',           'label'=>'Pedidos'],
-    'chatbot-platform-historico'       => ['fn'=>'cbpm_page_historico',         'label'=>'Histórico'],
-    'chatbot-platform-campanhas'       => ['fn'=>'cbpm_page_campanhas',         'label'=>'Campanhas'],
-    'chatbot-platform-listas'          => ['fn'=>'cbpm_page_listas_contatos',   'label'=>'Listas de Contatos'],
-    'chatbot-platform-usuarios'        => ['fn'=>'cbpm_page_usuarios',          'label'=>'Usuários'],
-    'tao-crm'          => ['fn'=>'tao_crm_page_dashboard',   'label'=>'CRM — Dashboard'],
-    'tao-crm-inbox'    => ['fn'=>'tao_crm_page_inbox',       'label'=>'CRM — Inbox'],
-    'tao-crm-kanban'   => ['fn'=>'tao_crm_page_kanban_full', 'label'=>'CRM — Kanban'],
-    'tao-crm-contatos' => ['fn'=>'tao_crm_page_contatos',    'label'=>'CRM — Contatos'],
+$has_crm = function_exists( 'tao_crm_page_kanban_full' );
+if ( $has_crm ) {
+    $secoes['tao-crm-dashboard'] = [ 'fn' => 'tao_crm_page_dashboard',  'label' => 'Dashboard CRM' ];
+    $secoes['tao-crm-kanban']   = [ 'fn' => 'tao_crm_page_kanban_full', 'label' => 'CRM Kanban' ];
+    $secoes['tao-crm-inbox']    = [ 'fn' => 'tao_crm_page_inbox',       'label' => 'CRM Inbox' ];
+    $secoes['tao-crm-contatos'] = [ 'fn' => 'tao_crm_page_contatos',    'label' => 'Contatos' ];
+    $secoes['tao-crm-settings'] = [ 'fn' => 'tao_crm_page_settings',    'label' => 'CRM Configurações' ];
+}
+
+$page_atual = $_GET['page'] ?? 'chatbot-platform';
+if ( ! isset( $secoes[ $page_atual ] ) ) $page_atual = 'chatbot-platform';
+$fn = $secoes[ $page_atual ]['fn'] ?? 'cbpm_page_clientes';
+
+// ─── Estrutura do menu accordion ─────────────────────────────────────────────
+$nav = [
+    'config' => [
+        'label' => 'Configura&ccedil;&atilde;o',
+        'icon'  => '&#x2699;&#xFE0F;',
+        'subs'  => [
+            'cfg-geral' => [
+                'label' => 'Geral',
+                'icon'  => '&#x1F3E2;',
+                'items' => [
+                    [ 'slug' => 'chatbot-platform-negocios',  'label' => 'Neg&oacute;cios',           'url' => cbpm_url('negocios') ],
+                    [ 'slug' => 'chatbot-platform-categorias','label' => 'Categorias',                'url' => cbpm_url('categorias') ],
+                    [ 'slug' => 'chatbot-platform-usuarios',  'label' => 'Usu&aacute;rios',           'url' => cbpm_url('usuarios') ],
+                    [ 'slug' => 'chatbot-platform-conectores','label' => 'Conectores',                'url' => cbpm_url('conectores') ],
+                    [ 'slug' => 'chatbot-platform-settings',  'label' => 'Configura&ccedil;&otilde;es','url' => cbpm_url('configuracoes') ],
+                ],
+            ],
+            'cfg-taon' => [
+                'label' => 'TAO Neo',
+                'icon'  => '&#x1F916;',
+                'items' => [
+                    [ 'slug' => 'chatbot-platform-catalogo',       'label' => 'Cat&aacute;logo',          'url' => cbpm_url('catalogo') ],
+                    [ 'slug' => 'chatbot-platform-disponibilidade','label' => 'Disponibilidade',          'url' => cbpm_url('disponibilidade') ],
+                    [ 'slug' => 'chatbot-platform-conteudo',       'label' => 'Promo&ccedil;&otilde;es/Avisos','url' => cbpm_url('conteudo') ],
+                    [ 'slug' => 'chatbot-platform-campanhas',      'label' => 'Campanhas',                'url' => cbpm_url('campanhas') ],
+                    [ 'slug' => 'chatbot-platform-listas',         'label' => 'Listas de Contatos',       'url' => cbpm_url('listas') ],
+                    [ 'slug' => 'chatbot-platform-campos-extras',  'label' => 'Campos Extras',            'url' => cbpm_url('campos-extras') ],
+                ],
+            ],
+        ],
+    ],
+    'operacao' => [
+        'label' => 'Opera&ccedil;&atilde;o',
+        'icon'  => '&#x25B6;&#xFE0F;',
+        'subs'  => [
+            'op-taon' => [
+                'label' => 'TAO Neo',
+                'icon'  => '&#x1F916;',
+                'items' => [
+                    [ 'slug' => 'chatbot-platform-dashboard','label' => 'Dashboard',         'url' => cbpm_url('neo-dashboard') ],
+                    [ 'slug' => 'chatbot-platform-leads',    'label' => 'Leads',             'url' => cbpm_url('leads') ],
+                    [ 'slug' => 'chatbot-platform-pedidos',  'label' => 'Pedidos',           'url' => cbpm_url('pedidos') ],
+                    [ 'slug' => 'chatbot-platform-historico','label' => 'Hist&oacute;rico',  'url' => cbpm_url('historico') ],
+                ],
+            ],
+        ],
+    ],
 ];
-$secoes_operacional = [
-    'chatbot-platform-dashboard'       => ['fn'=>'cbpm_page_dashboard',         'label'=>'Dashboard'],
-    'chatbot-platform-catalogo'        => ['fn'=>'cbpm_page_catalogo',          'label'=>'Catálogo'],
-    'chatbot-platform-disponibilidade' => ['fn'=>'cbpm_page_disponibilidade',   'label'=>'Disponibilidade'],
-    'chatbot-platform-categorias'      => ['fn'=>'cbpm_page_categorias',        'label'=>'Categorias'],
-    'chatbot-platform-conteudo'        => ['fn'=>'cbpm_page_conteudo_dinamico', 'label'=>'Promoções/Avisos'],
-    'chatbot-platform-leads'           => ['fn'=>'cbpm_page_leads',             'label'=>'Leads'],
-    'chatbot-platform-pedidos'         => ['fn'=>'cbpm_page_pedidos',           'label'=>'Pedidos'],
-    'chatbot-platform-historico'       => ['fn'=>'cbpm_page_historico',         'label'=>'Histórico'],
-];
-$secoes = $is_master ? $secoes_master : ( $is_gestor ? $secoes_gestor : $secoes_operacional );
-$page_atual = $_GET['page'] ?? '';
-if ( ! isset( $secoes[$page_atual] ) ) $page_atual = array_key_first( $secoes );
-?><!DOCTYPE html>
+
+if ( $has_crm ) {
+    $nav['config']['subs']['cfg-crm'] = [
+        'label' => 'TAO CRM',
+        'icon'  => '&#x1F4BC;',
+        'items' => [
+            [ 'slug' => 'tao-crm-settings', 'label' => 'Configura&ccedil;&otilde;es', 'url' => cbpm_url('crm-settings') ],
+        ],
+    ];
+    $nav['operacao']['subs']['op-crm'] = [
+        'label' => 'TAO CRM',
+        'icon'  => '&#x1F4BC;',
+        'items' => [
+            [ 'slug' => 'tao-crm-dashboard', 'label' => 'Dashboard', 'url' => cbpm_url('crm-dashboard') ],
+            [ 'slug' => 'tao-crm-kanban', 'label' => 'Kanban', 'url' => cbpm_url('crm-kanban') ],
+            [ 'slug' => 'tao-crm-inbox',  'label' => 'Inbox',  'url' => cbpm_url('crm-inbox') ],
+        ],
+    ];
+    // Reordena: Contatos > TAO Neo > Campanhas > TAO CRM
+    $nav['operacao']['subs'] = [
+        'op-contatos' => [
+            'label' => 'Contatos',
+            'icon'  => '&#x1F465;',
+            'items' => [
+                [ 'slug' => 'tao-crm-contatos', 'label' => 'Contatos', 'url' => cbpm_url('crm-contatos') ],
+            ],
+        ],
+        'op-taon' => $nav['operacao']['subs']['op-taon'],
+        'op-camp' => [
+            'label' => 'Campanhas',
+            'icon'  => '&#x1F4E3;',
+            'items' => [
+                [ 'slug' => 'chatbot-platform-campanhas', 'label' => 'Campanhas',          'url' => cbpm_url('campanhas') ],
+                [ 'slug' => 'chatbot-platform-listas',    'label' => 'Listas de Contatos', 'url' => cbpm_url('listas') ],
+            ],
+        ],
+        'op-crm'  => $nav['operacao']['subs']['op-crm'],
+    ];
+}
+
+// Detecta qual grupo/sub contém a página atual (para abrir automaticamente)
+$active_group = '';
+$active_sub   = '';
+foreach ( $nav as $gid => $group ) {
+    foreach ( $group['subs'] as $sid => $sub ) {
+        foreach ( $sub['items'] as $item ) {
+            if ( $item['slug'] === $page_atual ) {
+                $active_group = $gid;
+                $active_sub   = $sid;
+                break 3;
+            }
+        }
+    }
+}
+?>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TAO Neo — <?php echo esc_html( $secoes[$page_atual]['label'] ); ?></title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="<?php echo esc_url( CBPM_PLUGIN_URL . 'assets/style.css' ); ?>?v=<?php echo CBPM_VERSION; ?>">
-<style>
-:root {
-  --tao-primary:      #152C42;
-  --tao-primary-dark: #0E2233;
-  --tao-accent:       #B38E6C;
-  --tao-accent-dark:  #8F6E4F;
-  --tao-secondary:    #444C57;
-  --tao-bg-main:      #FFFFFF;
-  --tao-bg-alt:       #F5F4F2;
-  --tao-text-main:    #1A1A1A;
-  --tao-text-muted:   #6B7280;
-  --tao-border:       #E2E0DC;
-  --tao-success:      #00a32a;
-  --tao-danger:       #d63638;
-  --tao-warning:      #996800;
-}
-*, *::before, *::after { box-sizing: border-box; }
-body { margin:0; font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif; font-size:14px; background:var(--tao-bg-alt); color:var(--tao-text-main); }
-img { max-width:100%; }
-a { color:var(--tao-accent); }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Plataforma de Rob&ocirc;s &mdash; <?php echo esc_html( $secoes[ $page_atual ]['label'] ); ?></title>
+    <link rel="stylesheet" href="<?php echo esc_url( CBPM_PLUGIN_URL . 'assets/style.css' ); ?>?v=<?php echo CBPM_VERSION; ?>">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; }
+        body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f0f0f1; color: #1d2327; }
+        .cbpm-layout { display: flex; min-height: 100vh; }
 
-.cbpm-layout { display:flex; min-height:100vh; }
+        /* ── Sidebar ── */
+        .cbpm-sidebar {
+            width: 240px; flex-shrink: 0; background: #1d2327; color: #a7aaad;
+            display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; overflow-y: auto;
+        }
+        .cbpm-sidebar-logo {
+            padding: 20px 18px 14px; font-size: 14px; font-weight: 700; color: #fff;
+            border-bottom: 1px solid #2c3338; display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+        }
+        .cbpm-sidebar-logo .icon { font-size: 22px; }
+        .cbpm-sidebar nav { padding: 6px 0; flex: 1; }
+        .cbpm-sidebar-footer {
+            padding: 12px 18px; border-top: 1px solid #2c3338; font-size: 11px; color: #72777c; flex-shrink: 0;
+        }
+        .cbpm-sidebar-footer a { color: #72777c; text-decoration: none; }
+        .cbpm-sidebar-footer a:hover { color: #a7aaad; }
 
-/* Sidebar */
-.cbpm-sidebar { width:240px; flex-shrink:0; background:var(--tao-primary); display:flex; flex-direction:column; position:sticky; top:0; height:100vh; overflow-y:auto; }
-.cbpm-sidebar-logo { padding:18px 20px 14px; border-bottom:1px solid rgba(255,255,255,.08); display:flex; align-items:center; gap:10px; }
-.cbpm-sidebar-logo img { height:44px; width:auto; background:#fff; padding:4px 10px; border-radius:6px; }
-.cbpm-sidebar-logo .cbpm-logo-text { font-size:11px; font-weight:600; color:rgba(255,255,255,.4); letter-spacing:.08em; text-transform:uppercase; }
-.cbpm-sidebar-section { padding:16px 20px 4px; font-size:10px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:rgba(255,255,255,.28); }
-.cbpm-sidebar nav { padding:4px 0; flex:1; }
-.cbpm-sidebar nav a { display:flex; align-items:center; gap:10px; padding:9px 20px; color:rgba(255,255,255,.65); text-decoration:none; font-size:13px; font-weight:400; border-left:3px solid transparent; transition:all .15s; }
-.cbpm-sidebar nav a:hover { color:#fff; background:rgba(255,255,255,.06); }
-.cbpm-sidebar nav a.active { color:var(--tao-accent); background:rgba(179,142,108,.12); border-left-color:var(--tao-accent); font-weight:500; }
-.cbpm-sidebar-footer { padding:12px 20px; border-top:1px solid rgba(255,255,255,.08); font-size:11px; color:rgba(255,255,255,.4); }
-.cbpm-sidebar-footer a { color:rgba(255,255,255,.4); text-decoration:none; }
-.cbpm-sidebar-footer a:hover { color:rgba(255,255,255,.8); }
+        /* ── Accordion: grupos de 1º nível ── */
+        .cbpm-grp-hdr {
+            display: flex; align-items: center; gap: 8px;
+            padding: 9px 18px; cursor: pointer; user-select: none;
+            color: #72777c; font-size: 10px; font-weight: 700;
+            text-transform: uppercase; letter-spacing: .8px;
+            border-left: 3px solid transparent;
+        }
+        .cbpm-grp-hdr:hover { color: #c3c4c7; background: rgba(255,255,255,.04); }
+        .cbpm-grp-hdr .cbpm-chv { margin-left: auto; font-size: 10px; transition: transform .2s; display: inline-block; }
+        .cbpm-grp.open > .cbpm-grp-hdr .cbpm-chv { transform: rotate(90deg); }
+        .cbpm-grp-body { display: none; }
+        .cbpm-grp.open > .cbpm-grp-body { display: block; }
 
-/* Main */
-.cbpm-main { flex:1; padding:28px 32px; min-width:0; overflow-x:auto; }
-.cbpm-breadcrumb { font-size:12px; color:var(--tao-text-muted); margin-bottom:10px; }
-.cbpm-breadcrumb a { color:var(--tao-text-muted); text-decoration:none; }
-.cbpm-breadcrumb a:hover { color:var(--tao-accent); }
+        /* ── Accordion: subseções de 2º nível ── */
+        .cbpm-sub-hdr {
+            display: flex; align-items: center; gap: 8px;
+            padding: 7px 18px 7px 28px; cursor: pointer; user-select: none;
+            color: #a7aaad; font-size: 12px; font-weight: 600;
+            border-left: 3px solid transparent;
+        }
+        .cbpm-sub-hdr:hover { color: #fff; background: rgba(255,255,255,.05); }
+        .cbpm-sub-hdr .cbpm-chv { margin-left: auto; font-size: 10px; transition: transform .2s; display: inline-block; }
+        .cbpm-sub.open > .cbpm-sub-hdr .cbpm-chv { transform: rotate(90deg); }
+        .cbpm-sub-body { display: none; }
+        .cbpm-sub.open > .cbpm-sub-body { display: block; }
 
-/* Typography */
-.wrap h1, .cbpm-wrap h1 { font-family:'Playfair Display',Georgia,serif; font-size:24px; font-weight:600; color:var(--tao-primary); margin:0 0 20px; line-height:1.2; }
-h2 { font-size:18px; margin:20px 0 12px; color:var(--tao-primary); font-family:'Playfair Display',serif; }
-h3 { font-size:12px; margin:16px 0 8px; color:var(--tao-text-muted); text-transform:uppercase; letter-spacing:.5px; font-weight:600; }
-code { background:var(--tao-bg-alt); border:1px solid var(--tao-border); padding:2px 6px; border-radius:4px; font-size:12px; word-break:break-all; }
-hr { border:none; border-top:1px solid var(--tao-border); margin:20px 0; }
-label { cursor:pointer; }
-optgroup { font-style:normal; font-weight:600; }
+        /* ── Links de 3º nível ── */
+        .cbpm-nav-direct {
+            display: flex; align-items: center; gap: 8px;
+            padding: 9px 18px; cursor: pointer;
+            color: #a7aaad; font-size: 10px; font-weight: 700;
+            text-transform: uppercase; letter-spacing: .8px;
+            border-left: 3px solid transparent;
+            text-decoration: none;
+        }
+        .cbpm-nav-direct:hover { color: #c3c4c7; background: rgba(255,255,255,.04); }
+        .cbpm-nav-direct.active { color: #fff; background: #2271b1; border-left-color: #72aee6; }
+        .cbpm-nav-link {
+            display: block; padding: 7px 18px 7px 42px;
+            color: #a7aaad; text-decoration: none; font-size: 13px;
+            border-left: 3px solid transparent; transition: .12s;
+        }
+        .cbpm-nav-link:hover { color: #fff; background: #2c3338; }
+        .cbpm-nav-link.active { color: #fff; background: #2271b1; border-left-color: #72aee6; }
 
-/* Inputs */
-input[type=text], input[type=url], input[type=email], input[type=password],
-input[type=number], input[type=datetime-local], textarea {
-  border:1px solid var(--tao-border); border-radius:6px; padding:8px 12px; font-size:13px;
-  font-family:'Inter',sans-serif; color:var(--tao-text-main); background:#fff;
-  box-sizing:border-box; width:100%; max-width:100%; transition:border-color .15s, box-shadow .15s;
-}
-select {
-  border:1px solid var(--tao-border); border-radius:6px; padding:8px 12px; font-size:13px;
-  font-family:'Inter',sans-serif; color:var(--tao-text-main); background:#fff;
-  box-sizing:border-box; max-width:100%;
-}
-input[type=text]:focus, input[type=url]:focus, input[type=email]:focus,
-input[type=password]:focus, input[type=number]:focus, input[type=datetime-local]:focus,
-textarea:focus, select:focus {
-  outline:none; border-color:var(--tao-accent); box-shadow:0 0 0 3px rgba(179,142,108,.15);
-}
-input.small-text, input[type=number].small-text { width:80px !important; }
-input.regular-text, .regular-text { width:100%; max-width:100%; }
-textarea { resize:vertical; width:100%; }
-.form-table { width:100%; border-collapse:collapse; }
-.form-table th { padding:12px 20px 12px 0; text-align:left; width:200px; vertical-align:top; font-weight:600; font-size:13px; color:var(--tao-primary); white-space:nowrap; }
-.form-table td { padding:8px 0; word-wrap:break-word; }
-.form-table .description { color:var(--tao-text-muted); font-size:12px; margin:4px 0 0; }
+        /* ── Main ── */
+        .cbpm-main { flex: 1; padding: 24px 28px; min-width: 0; overflow-x: auto; }
+        .cbpm-breadcrumb { font-size: 12px; color: #72777c; margin-bottom: 8px; }
+        .cbpm-breadcrumb a { color: #72777c; text-decoration: none; }
+        .cbpm-breadcrumb a:hover { color: #2271b1; }
 
-/* Buttons */
-.button, input[type=submit], button[type=submit] {
-  display:inline-block; padding:8px 18px; border-radius:6px;
-  border:1.5px solid var(--tao-border); background:#fff; color:var(--tao-secondary);
-  cursor:pointer; font-size:13px; font-family:'Inter',sans-serif; font-weight:500;
-  text-decoration:none; white-space:nowrap; line-height:1.4; vertical-align:middle; transition:all .15s;
-}
-.button:hover { background:var(--tao-bg-alt); border-color:var(--tao-accent); color:var(--tao-accent); }
-.button-primary, input[type=submit].button-primary, button.button-primary {
-  background:var(--tao-accent) !important; color:#fff !important; border-color:var(--tao-accent) !important;
-}
-.button-primary:hover { background:var(--tao-accent-dark) !important; border-color:var(--tao-accent-dark) !important; }
-.button-secondary { border-color:var(--tao-border); color:var(--tao-secondary); background:#fff; }
-.button-secondary:hover { border-color:var(--tao-accent); color:var(--tao-accent); }
-.button-small { padding:5px 12px !important; font-size:12px !important; }
-.page-title-action {
-  font-size:12px; font-weight:500; padding:6px 14px; margin-left:12px; vertical-align:middle;
-  border:1.5px solid var(--tao-accent); color:var(--tao-accent) !important; border-radius:6px;
-  background:transparent; text-decoration:none; display:inline-block; transition:all .15s;
-}
-.page-title-action:hover { background:var(--tao-accent); color:#fff !important; }
-p.submit, .submit { padding:20px 0 0; margin:0; }
+        /* ── Mobile: topbar fixa + drawer lateral ── */
+        .cbpm-mobile-topbar {
+            display: none;
+            align-items: center;
+            gap: 12px;
+            padding: 0 16px;
+            height: 52px;
+            background: #1d2327;
+            position: sticky;
+            top: 0;
+            z-index: 200;
+            flex-shrink: 0;
+        }
+        .cbpm-hamburger {
+            background: none; border: none; cursor: pointer;
+            padding: 6px; color: #c3c4c7;
+            display: flex; flex-direction: column; gap: 5px; flex-shrink: 0;
+        }
+        .cbpm-hamburger span {
+            display: block; width: 22px; height: 2px;
+            background: currentColor; border-radius: 2px; transition: .2s;
+        }
+        .cbpm-mobile-title { font-size: 14px; font-weight: 700; color: #fff; flex: 1; }
+        .cbpm-backdrop {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,.55); z-index: 299;
+        }
+        .cbpm-backdrop.open { display: block; }
 
-/* Notices */
-.notice {
-  padding:12px 16px; border-left:4px solid var(--tao-secondary); background:#fff;
-  margin-bottom:20px; border-radius:0 6px 6px 0; font-size:13px;
-  box-shadow:0 1px 4px rgba(0,0,0,.06);
-}
-.notice p { margin:0; }
-.notice-success { border-left-color:var(--tao-success); }
-.notice-error   { border-left-color:var(--tao-danger); }
-.notice-info    { border-left-color:var(--tao-accent); }
+        @media (max-width: 768px) {
+            .cbpm-mobile-topbar { display: flex; }
 
-/* Tables */
-.cbpm-table-container { overflow-x:auto; width:100%; }
-.wp-list-table {
-  width:100%; border-collapse:collapse; background:#fff;
-  border-radius:8px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,.06); min-width:500px;
-}
-.wp-list-table thead tr { background:var(--tao-bg-alt); border-bottom:2px solid var(--tao-border); }
-.wp-list-table th { padding:12px 16px; text-align:left; font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--tao-secondary); white-space:nowrap; }
-.wp-list-table td { padding:12px 16px; font-size:13px; border-bottom:1px solid var(--tao-bg-alt); }
-.wp-list-table tbody tr:last-child td { border-bottom:none; }
-.wp-list-table tbody tr:hover { background:rgba(245,244,242,.8); }
+            /* Layout vertical: topbar + content */
+            .cbpm-layout { flex-direction: column; }
 
-/* Misc */
-.cbpm-filters { margin:12px 0 16px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-.cbpm-filters select, .cbpm-filters input[type=text] { width:auto; }
-.cbpm-chat { width:100%; max-height:65vh; overflow-y:auto; border:1px solid var(--tao-border); background:var(--tao-bg-alt); padding:16px; border-radius:8px; margin-top:16px; box-sizing:border-box; }
-.cbpm-msg { margin:10px 0; display:flex; flex-direction:column; }
-.cbpm-msg-user { align-items:flex-end; }
-.cbpm-msg-bot  { align-items:flex-start; }
-.cbpm-msg-bubble { max-width:75%; padding:10px 14px; border-radius:12px; font-size:13px; line-height:1.5; word-wrap:break-word; white-space:pre-wrap; }
-.cbpm-msg-user .cbpm-msg-bubble { background:var(--tao-accent); color:#fff; border-bottom-right-radius:3px; }
-.cbpm-msg-bot  .cbpm-msg-bubble { background:#fff; color:var(--tao-text-main); border:1px solid var(--tao-border); border-bottom-left-radius:3px; }
-.cbpm-msg-meta { font-size:11px; color:var(--tao-text-muted); margin-top:3px; }
-.wrap { max-width:100%; }
-.cbpm-wrap { width:100%; box-sizing:border-box; }
+            /* Sidebar como drawer oculto */
+            .cbpm-sidebar {
+                position: fixed;
+                top: 0; left: 0;
+                width: 240px;
+                height: 100vh;
+                z-index: 300;
+                transform: translateX(-240px);
+                transition: transform .25s ease;
+                overflow-y: auto;
+                overflow-x: hidden;
+            }
+            .cbpm-sidebar.open { transform: translateX(0); }
 
-@media (max-width: 768px) {
-  .cbpm-sidebar { width:56px; }
-  .cbpm-sidebar-logo .cbpm-logo-text, .cbpm-sidebar nav a span.label,
-  .cbpm-sidebar-section, .cbpm-sidebar-footer { display:none; }
-  .cbpm-sidebar nav a { justify-content:center; padding:12px 0; }
-  .cbpm-sidebar-logo img { height:36px; padding:3px 6px; }
-  .cbpm-main { padding:16px; }
-}
-.cbpm-sidebar nav a.sub {
-  padding-left: 36px;
-  font-size: 12px;
-  color: rgba(255,255,255,.4);
-  padding-top: 6px;
-  padding-bottom: 6px;
-}
-.cbpm-sidebar nav a.sub:hover { color: rgba(255,255,255,.7); }
-.cbpm-sidebar nav a.sub.active { color: var(--tao-accent); background: rgba(179,142,108,.1); border-left-color: var(--tao-accent); }
-.cbpm-sidebar-section { cursor:default; }
-.cbpm-nav-group { }
-.cbpm-nav-group-btn {
-  display:flex; align-items:center; justify-content:space-between;
-  padding:6px 20px 4px; cursor:pointer; user-select:none; width:100%; background:none; border:none;
-  font-size:10px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
-  color:rgba(255,255,255,.28); transition:color .15s;
-}
-.cbpm-nav-group-btn:hover { color:rgba(255,255,255,.5); }
-.cbpm-nav-group-toggle { font-size:9px; transition:transform .2s; display:inline-block; }
-.cbpm-nav-group-items { overflow:hidden; transition:max-height .25s ease; }
-.cbpm-nav-group-items.crm-grp-collapsed { display:none; }
-.cbpm-nav-group-items a { padding-left:36px !important; font-size:12px; color:rgba(255,255,255,.4); }
-.cbpm-nav-group-items a:hover { color:rgba(255,255,255,.7); background:rgba(255,255,255,.04); }
-.cbpm-nav-group-items a.active { color:var(--tao-accent); background:rgba(179,142,108,.1); border-left-color:var(--tao-accent); }
-/* Collapsible section groups (Configurações, Operações) */
-.cbpm-nav-section-btn {
-  display:flex; align-items:center; justify-content:space-between;
-  padding:16px 20px 4px; cursor:pointer; user-select:none; width:100%; background:none; border:none;
-  font-size:10px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
-  color:rgba(255,255,255,.28); transition:color .15s;
-}
-.cbpm-nav-section-btn:hover { color:rgba(255,255,255,.5); }
-.cbpm-nav-section-toggle { font-size:9px; transition:transform .2s; display:inline-block; }
-.cbpm-nav-section-items { overflow:hidden; }
-.cbpm-nav-section-items.sgp-collapsed { display:none; }
-.cbpm-nav-section-items .cbpm-nav-group-btn { padding-left:28px; }
-.cbpm-nav-section-items .cbpm-nav-group-items a { padding-left:48px !important; }
-</style>
-<?php if ( function_exists('tao_crm_page_kanban') && defined('TAO_CRM_URL') ) : ?>
-<link rel="stylesheet" href="<?php echo esc_url( TAO_CRM_URL . 'assets/crm-style.css' ); ?>?v=<?php echo TAO_CRM_VERSION; ?>">
-<?php endif; ?>
-<script src="<?php echo esc_url( includes_url( 'js/jquery/jquery.min.js' ) ); ?>"></script>
-<script>var ajaxurl = "<?php echo esc_js( admin_url( 'admin-ajax.php' ) ); ?>";</script>
+            /* Main: largura total, sem margem lateral */
+            .cbpm-main {
+                padding: 14px;
+                overflow-x: hidden;
+                min-width: 0;
+                width: 100%;
+                box-sizing: border-box;
+            }
+        }
+
+        /* ── Layout geral ── */
+        .wrap { max-width: 100%; }
+        .cbpm-wrap { width: 100%; box-sizing: border-box; }
+        .cbpm-form { width: 100%; }
+        .form-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        .form-table th { padding: 12px 16px 12px 0; text-align: left; width: 200px; vertical-align: top; font-weight: 600; font-size: 13px; white-space: nowrap; }
+        .form-table td { padding: 8px 0; word-wrap: break-word; overflow-wrap: break-word; }
+        .form-table .description { color: #646970; font-size: 12px; margin: 4px 0 0; }
+        input[type=text], input[type=url], input[type=email], input[type=password],
+        input[type=number], input[type=datetime-local], textarea {
+            border: 1px solid #8c8f94; border-radius: 4px; padding: 6px 10px;
+            font-size: 13px; font-family: inherit; color: #1d2327;
+            box-sizing: border-box; width: 100%; max-width: 100%;
+        }
+        select { border: 1px solid #8c8f94; border-radius: 4px; padding: 6px 10px; font-size: 13px; font-family: inherit; color: #1d2327; box-sizing: border-box; max-width: 100%; }
+        input.small-text, input[type=number].small-text { width: 80px !important; }
+        input.regular-text, .regular-text { width: 100%; max-width: 100%; }
+        input.large-text, textarea.large-text { width: 100%; }
+        textarea { resize: vertical; width: 100%; box-sizing: border-box; }
+        .button, input[type=submit], button[type=submit] {
+            display: inline-block; padding: 6px 16px; border-radius: 3px;
+            border: 1px solid #2271b1; background: #fff; color: #2271b1;
+            cursor: pointer; font-size: 13px; text-decoration: none; font-family: inherit;
+            white-space: nowrap; line-height: 1.4; vertical-align: middle;
+        }
+        .button:hover, input[type=submit]:hover, button[type=submit]:hover { background: #f0f5fb; }
+        .button-primary, input[type=submit].button-primary { background: #2271b1; color: #fff; border-color: #2271b1; }
+        .button-primary:hover, input[type=submit].button-primary:hover { background: #135e96; border-color: #135e96; color: #fff; }
+        .button-secondary { border-color: #8c8f94; color: #3c434a; background: #fff; }
+        .button-secondary:hover { background: #f6f7f7; }
+        p.submit { padding: 16px 0 0; margin: 0; }
+        .notice { padding: 10px 14px; border-left: 4px solid #72aee6; background: #fff; margin-bottom: 16px; border-radius: 0 4px 4px 0; }
+        .notice-success { border-left-color: #00a32a; }
+        .notice-error   { border-left-color: #d63638; }
+        .notice-info    { border-left-color: #72aee6; }
+        .cbpm-table-container { overflow-x: auto; width: 100%; }
+        .wp-list-table { width: 100%; border-collapse: collapse; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.08); min-width: 500px; }
+        .wp-list-table thead tr { border-bottom: 2px solid #e2e4e7; }
+        .wp-list-table th, .wp-list-table td { padding: 10px 14px; text-align: left; word-wrap: break-word; overflow-wrap: break-word; }
+        .wp-list-table th { font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; color: #50575e; white-space: nowrap; }
+        .wp-list-table tbody tr:nth-child(even) { background: #f9f9f9; }
+        .wp-list-table tbody tr:hover { background: #f0f5fb; }
+        .page-title-action { font-size: 13px; font-weight: 400; padding: 5px 12px; margin-left: 10px; vertical-align: middle; }
+        h1 { font-size: 22px; margin: 0 0 16px; word-wrap: break-word; }
+        h2 { font-size: 17px; margin: 20px 0 12px; }
+        h3 { font-size: 14px; margin: 16px 0 8px; color: #50575e; text-transform: uppercase; letter-spacing: .4px; }
+        code { background: #f0f0f0; padding: 2px 5px; border-radius: 3px; font-size: 12px; word-break: break-all; }
+        hr { border: none; border-top: 1px solid #e2e4e7; margin: 20px 0; }
+        label { cursor: pointer; }
+        optgroup { font-style: normal; font-weight: 600; }
+        .submit { padding: 16px 0 0; }
+        .cbpm-filters { margin: 12px 0 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .cbpm-filters select, .cbpm-filters input[type=text] { width: auto; }
+
+        /* ── Chat (histórico de conversas) ── */
+        .cbpm-chat { width: 100%; max-height: 65vh; overflow-y: auto; border: 1px solid #e2e4e7; background: #f0f0f1; padding: 16px; border-radius: 6px; margin-top: 16px; box-sizing: border-box; }
+        .cbpm-msg { margin: 10px 0; display: flex; flex-direction: column; }
+        .cbpm-msg-user  { align-items: flex-end; }
+        .cbpm-msg-bot   { align-items: flex-start; }
+        .cbpm-msg-agent { align-items: flex-end; }
+        .cbpm-msg-bubble { max-width: 75%; padding: 8px 12px; border-radius: 12px; font-size: 13px; line-height: 1.5; word-wrap: break-word; overflow-wrap: break-word; white-space: pre-wrap; }
+        .cbpm-msg-user  .cbpm-msg-bubble { background: #2271b1; color: #fff; border-bottom-right-radius: 3px; }
+        .cbpm-msg-bot   .cbpm-msg-bubble { background: #e1ecf4; color: #1d2327; border: 1px solid #c8dde9; border-bottom-left-radius: 3px; }
+        .cbpm-msg-agent .cbpm-msg-bubble { background: #00a32a; color: #fff; border-bottom-right-radius: 3px; }
+        .cbpm-msg-meta { font-size: 11px; color: #72777c; margin-top: 3px; }
+    </style>
+    <?php if ( in_array( $fn, [ 'tao_crm_page_kanban_full', 'tao_crm_page_inbox', 'tao_crm_page_settings' ], true ) && defined( 'TAO_CRM_URL' ) ): ?>
+    <link rel="stylesheet" href="<?php echo esc_url( TAO_CRM_URL . 'assets/crm-style.css' ); ?>?v=<?php echo TAO_CRM_VERSION; ?>">
+    <?php endif; ?>
 </head>
 <body>
-<div class="cbpm-layout">
-<aside class="cbpm-sidebar">
-  <div class="cbpm-sidebar-logo">
-    <img src="<?php echo esc_url( home_url( '/wp-content/themes/solucoesetao/assets/logo.png' ) ); ?>" alt="TAO Neo">
-    <span class="cbpm-logo-text">Painel</span>
-  </div>
-  <nav>
-    <?php
-    function cbpm_nav_item( $slug, $item, $page_atual ) {
-      $active = ( $page_atual === $slug ) ? ' active' : '';
-      $sub    = ! empty( $item['sub'] ) ? ' sub' : '';
-      echo '<a href="' . esc_url( $item['url'] ) . '" class="' . trim( $active . $sub ) . '">'
-         . '<span>' . $item['icon'] . '</span>'
-         . '<span class="label">' . $item['label'] . '</span>'
-         . '</a>';
-    }
-    function cbpm_nav_group( $id, $label, $content_fn, $page_atual, $slugs_in_group ) {
-      $has_active = in_array( $page_atual, $slugs_in_group );
-      echo '<div class="cbpm-nav-group">';
-      echo '<button type="button" class="cbpm-nav-group-btn" data-grp="' . esc_attr($id) . '">'
-         . '<span>' . esc_html($label) . '</span>'
-         . '<span class="cbpm-nav-group-toggle" id="cbpm-toggle-' . esc_attr($id) . '">▾</span>'
-         . '</button>';
-      echo '<div class="cbpm-nav-group-items" id="cbpm-grp-' . esc_attr($id) . '">';
-      $content_fn();
-      echo '</div></div>';
-    }
-    function cbpm_nav_section_group( $id, $label, $content_fn ) {
-      echo '<div class="cbpm-nav-section-group">';
-      echo '<button type="button" class="cbpm-nav-section-btn" data-sgp="' . esc_attr($id) . '">'
-         . '<span>' . esc_html($label) . '</span>'
-         . '<span class="cbpm-nav-section-toggle" id="cbpm-stoggle-' . esc_attr($id) . '">▾</span>'
-         . '</button>';
-      echo '<div class="cbpm-nav-section-items" id="cbpm-sgp-' . esc_attr($id) . '">';
-      $content_fn();
-      echo '</div></div>';
-    }
-
-    // ── Visão Geral ─────────────────────────────────────────────────────────────
-    echo '<div class="cbpm-sidebar-section">Vis&atilde;o Geral</div>';
-    cbpm_nav_item('chatbot-platform-dashboard', ['icon'=>'&#x1F4CA;','label'=>'Dashboard','url'=>cbpm_url('dashboard')], $page_atual);
-
-    // ── Configurações ────────────────────────────────────────────────────────────
-    if ( $is_master ) {
-        $geral_cfg_slugs = ['chatbot-platform','chatbot-platform-usuarios','chatbot-platform-settings','chatbot-platform-conectores'];
-        $neo_cfg_slugs   = ['chatbot-platform-categorias','chatbot-platform-campos-extras','chatbot-platform-catalogo','chatbot-platform-disponibilidade','chatbot-platform-conteudo'];
-        cbpm_nav_section_group('sec-cfg', 'Configurações', function() use ($page_atual, $geral_cfg_slugs, $neo_cfg_slugs) {
-            cbpm_nav_group('cfg-geral', 'Geral', function() use ($page_atual) {
-                cbpm_nav_item('chatbot-platform',            ['icon'=>'&#x1F3E2;','label'=>'Neg&oacute;cios',             'url'=>cbpm_url('negocios')],      $page_atual);
-                cbpm_nav_item('chatbot-platform-usuarios',   ['icon'=>'&#x1F465;','label'=>'Usu&aacute;rios',             'url'=>cbpm_url('usuarios')],      $page_atual);
-                cbpm_nav_item('chatbot-platform-conectores', ['icon'=>'&#x1F517;','label'=>'Conectores',                  'url'=>cbpm_url('conectores')],    $page_atual);
-                cbpm_nav_item('chatbot-platform-settings',   ['icon'=>'&#x2699;', 'label'=>'Configura&ccedil;&otilde;es', 'url'=>cbpm_url('configuracoes')], $page_atual);
-            }, $page_atual, $geral_cfg_slugs);
-            cbpm_nav_group('cfg-neo', 'TAO NEO', function() use ($page_atual) {
-                cbpm_nav_item('chatbot-platform-categorias',    ['icon'=>'&#x1F3F7;','label'=>'Categorias',          'url'=>cbpm_url('categorias')],     $page_atual);
-                cbpm_nav_item('chatbot-platform-campos-extras', ['icon'=>'&#x1F9E9;','label'=>'Campos Extras',       'url'=>cbpm_url('campos-extras')],  $page_atual);
-                cbpm_nav_item('chatbot-platform-catalogo',        ['icon'=>'&#x1F4CB;','label'=>'Cat&aacute;logo',       'url'=>cbpm_url('catalogo')],       $page_atual);
-                cbpm_nav_item('chatbot-platform-disponibilidade', ['icon'=>'&#x1F4C5;','label'=>'Disponibilidade',       'url'=>cbpm_url('disponibilidade')], $page_atual);
-                cbpm_nav_item('chatbot-platform-conteudo',        ['icon'=>'&#x1F4E2;','label'=>'Promo&ccedil;&otilde;es','url'=>cbpm_url('conteudo')],       $page_atual);
-            }, $page_atual, $neo_cfg_slugs);
-            if ( function_exists('tao_crm_page_kanban') ) {
-                cbpm_nav_group('cfg-crm', 'TAO CRM', function() use ($page_atual) {
-                    cbpm_nav_item('tao-crm-settings', ['icon'=>'&#x2699;','label'=>'Geral','url'=>cbpm_url('crm-settings')], $page_atual);
-                }, $page_atual, ['tao-crm-settings']);
-            }
-        });
-    }
-
-    if ( $is_gestor ) {
-        $gestor_cfg_slugs = ['chatbot-platform','chatbot-platform-categorias','chatbot-platform-campos-extras','chatbot-platform-catalogo','chatbot-platform-disponibilidade','chatbot-platform-conteudo','chatbot-platform-usuarios'];
-        cbpm_nav_section_group('sec-cfg-g', 'Configurações', function() use ($page_atual, $gestor_cfg_slugs) {
-            cbpm_nav_group('cfg-gestor', 'Meu Neg&oacute;cio', function() use ($page_atual) {
-                cbpm_nav_item('chatbot-platform',               ['icon'=>'&#x1F3E2;','label'=>'Configura&ccedil;&otilde;es','url'=>cbpm_url('negocios')],      $page_atual);
-                cbpm_nav_item('chatbot-platform-categorias',    ['icon'=>'&#x1F3F7;','label'=>'Categorias',                 'url'=>cbpm_url('categorias')],    $page_atual);
-                cbpm_nav_item('chatbot-platform-campos-extras', ['icon'=>'&#x1F9E9;','label'=>'Campos Extras',              'url'=>cbpm_url('campos-extras')], $page_atual);
-                cbpm_nav_item('chatbot-platform-catalogo',        ['icon'=>'&#x1F4CB;','label'=>'Cat&aacute;logo',       'url'=>cbpm_url('catalogo')],       $page_atual);
-                cbpm_nav_item('chatbot-platform-disponibilidade', ['icon'=>'&#x1F4C5;','label'=>'Disponibilidade',       'url'=>cbpm_url('disponibilidade')], $page_atual);
-                cbpm_nav_item('chatbot-platform-conteudo',        ['icon'=>'&#x1F4E2;','label'=>'Promo&ccedil;&otilde;es','url'=>cbpm_url('conteudo')],       $page_atual);
-                cbpm_nav_item('chatbot-platform-usuarios',      ['icon'=>'&#x1F465;','label'=>'Usu&aacute;rios',            'url'=>cbpm_url('usuarios')],      $page_atual);
-            }, $page_atual, $gestor_cfg_slugs);
-        });
-    }
-
-    // ── Operações ────────────────────────────────────────────────────────────────
-    $neo_op_slugs = ['chatbot-platform-leads','chatbot-platform-pedidos','chatbot-platform-historico','chatbot-platform-campanhas','chatbot-platform-listas'];
-    $crm_op_slugs = ['tao-crm','tao-crm-inbox','tao-crm-kanban','tao-crm-contatos'];
-    cbpm_nav_section_group('sec-op', 'Operações', function() use ($page_atual, $is_op, $neo_op_slugs, $crm_op_slugs) {
-        cbpm_nav_group('op-neo', 'TAO NEO', function() use ($page_atual, $is_op) {
-            cbpm_nav_item('chatbot-platform-leads',     ['icon'=>'&#x1F464;','label'=>'Leads',                  'url'=>cbpm_url('leads')],     $page_atual);
-            cbpm_nav_item('chatbot-platform-pedidos',   ['icon'=>'&#x1F6D2;','label'=>'Pedidos',                'url'=>cbpm_url('pedidos')],   $page_atual);
-            cbpm_nav_item('chatbot-platform-historico', ['icon'=>'&#x1F4AC;','label'=>'Hist&oacute;rico',       'url'=>cbpm_url('historico')], $page_atual);
-            if ( ! $is_op ) {
-                cbpm_nav_item('chatbot-platform-campanhas', ['icon'=>'&#x1F4E3;','label'=>'Campanhas','url'=>cbpm_url('campanhas')], $page_atual);
-                cbpm_nav_item('chatbot-platform-listas',    ['icon'=>'&#x1F4CB;','label'=>'Listas',   'url'=>cbpm_url('listas')],   $page_atual);
-            }
-        }, $page_atual, $neo_op_slugs);
-        if ( ! $is_op && function_exists('tao_crm_page_kanban') ) {
-            cbpm_nav_group('op-crm', 'TAO CRM', function() use ($page_atual) {
-                cbpm_nav_item('tao-crm',          ['icon'=>'&#x1F4CA;','label'=>'Dashboard','url'=>cbpm_url('crm')],          $page_atual);
-                cbpm_nav_item('tao-crm-inbox',    ['icon'=>'&#x1F4E5;','label'=>'Inbox',    'url'=>cbpm_url('crm-inbox')],    $page_atual);
-                cbpm_nav_item('tao-crm-kanban',   ['icon'=>'&#x1F5C2;','label'=>'Kanban',   'url'=>cbpm_url('crm-kanban')],   $page_atual);
-                cbpm_nav_item('tao-crm-contatos', ['icon'=>'&#x1F465;','label'=>'Contatos', 'url'=>cbpm_url('crm-contatos')], $page_atual);
-            }, $page_atual, $crm_op_slugs);
-        }
-    });
-    ?>
-  </nav>
-  <div class="cbpm-sidebar-footer">
-    <?php echo esc_html( wp_get_current_user()->display_name ); ?><br>
-    <a href="<?php echo esc_url( wp_logout_url( home_url( '/robos/' ) ) ); ?>">Sair</a>
-    <?php if ( $is_admin_user ) : ?>
-      &nbsp;&middot;&nbsp;<a href="<?php echo esc_url( admin_url() ); ?>">wp-admin</a>
-    <?php endif; ?>
-  </div>
-</aside>
-<main class="cbpm-main">
-  <div class="cbpm-breadcrumb">
-    <a href="<?php echo esc_url( cbpm_url() ); ?>">TAO Neo</a>
-    <?php if ( $page_atual !== 'chatbot-platform-dashboard' ) : ?>
-      &rsaquo; <?php echo esc_html( $secoes[$page_atual]['label'] ); ?>
-    <?php endif; ?>
-  </div>
-  <?php
-  $fn = $secoes[$page_atual]['fn'] ?? 'cbpm_page_clientes';
-  if ( function_exists( $fn ) ) call_user_func( $fn );
-  else echo '<p>P&aacute;gina n&atilde;o encontrada.</p>';
-  ?>
-</main>
+<?php
+$_mobile_label = $secoes[$page_atual]['label'] ?? 'Portal';
+?>
+<div class="cbpm-mobile-topbar">
+    <button class="cbpm-hamburger" id="cbpmBurger" aria-label="Abrir menu">
+        <span></span><span></span><span></span>
+    </button>
+    <span class="cbpm-mobile-title"><?php echo esc_html($_mobile_label); ?></span>
 </div>
-<?php if ( $forced_cid ) : ?>
-<script>document.addEventListener("DOMContentLoaded",function(){
-  document.querySelectorAll("select[name='cliente_id']").forEach(function(s){
-    var h=document.createElement("input");h.type="hidden";h.name="cliente_id";h.value=s.value;
-    s.parentNode.insertBefore(h,s);s.disabled=true;
-  });
-});</script>
-<?php endif; ?>
+<div class="cbpm-backdrop" id="cbpmBackdrop"></div>
+<div class="cbpm-layout">
+
+    <aside class="cbpm-sidebar">
+        <div class="cbpm-sidebar-logo">
+            <span class="icon">&#x1F916;</span>
+            <span class="cbpm-logo-text">Plataforma Rob&ocirc;s</span>
+        </div>
+        <nav>
+        <?php
+        $home_active = ($page_atual === 'chatbot-platform') ? ' active' : '';
+        ?>
+        <a href="<?php echo esc_url( cbpm_url('dashboard') ); ?>" class="cbpm-nav-direct<?php echo $home_active; ?>">
+            <span>&#x1F3E0;</span>
+            <span class="label">Vis&atilde;o Geral</span>
+        </a>
+        <?php foreach ( $nav as $gid => $group ):
+            $g_open = ( $active_group === $gid ) ? ' open' : '';
+        ?>
+            <div class="cbpm-grp<?php echo $g_open; ?>" data-grp="<?php echo esc_attr( $gid ); ?>">
+                <div class="cbpm-grp-hdr">
+                    <span><?php echo $group['icon']; ?></span>
+                    <span class="label"><?php echo $group['label']; ?></span>
+                    <span class="cbpm-chv">&#x276F;</span>
+                </div>
+                <div class="cbpm-grp-body">
+                <?php foreach ( $group['subs'] as $sid => $sub ):
+                    $s_open = ( $active_sub === $sid ) ? ' open' : '';
+                ?>
+                    <div class="cbpm-sub<?php echo $s_open; ?>" data-sub="<?php echo esc_attr( $sid ); ?>">
+                        <div class="cbpm-sub-hdr">
+                            <span><?php echo $sub['icon']; ?></span>
+                            <span class="label"><?php echo $sub['label']; ?></span>
+                            <span class="cbpm-chv">&#x276F;</span>
+                        </div>
+                        <div class="cbpm-sub-body">
+                        <?php foreach ( $sub['items'] as $item ):
+                            $cls = ( $item['slug'] === $page_atual ) ? ' active' : '';
+                        ?>
+                            <a href="<?php echo esc_url( $item['url'] ); ?>" class="cbpm-nav-link<?php echo $cls; ?>"><?php echo $item['label']; ?></a>
+                        <?php endforeach; ?>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+                </div>
+            </div>
+        <?php endforeach; ?>
+        </nav>
+        <div class="cbpm-sidebar-footer">
+            <?php echo esc_html( wp_get_current_user()->display_name ); ?><br>
+            <a href="<?php echo esc_url( wp_logout_url( home_url('/robos/') ) ); ?>">Sair</a>
+            &nbsp;&middot;&nbsp;
+            <a href="<?php echo esc_url( admin_url() ); ?>">wp-admin</a>
+        </div>
+    </aside>
+
+    <main class="cbpm-main">
+        <div class="cbpm-breadcrumb">
+            <a href="<?php echo esc_url( cbpm_url() ); ?>">Plataforma Rob&ocirc;s</a>
+            <?php if ( $page_atual !== 'chatbot-platform' ): ?>
+                &rsaquo; <?php echo esc_html( $secoes[ $page_atual ]['label'] ); ?>
+            <?php endif; ?>
+        </div>
+        <?php
+        if ( function_exists( $fn ) ) {
+            call_user_func( $fn );
+        } else {
+            echo '<p>P&aacute;gina n&atilde;o encontrada.</p>';
+        }
+        ?>
+    </main>
+</div>
+
+<script src="<?php echo esc_url( includes_url('js/jquery/jquery.min.js') ); ?>"></script>
 <script>
 window.cbpm = {
-  ajax_url:     "<?php echo esc_js( admin_url( 'admin-ajax.php' ) ); ?>",
-  nonce:        "<?php echo esc_js( wp_create_nonce( 'cbpm_nonce' ) ); ?>",
-  supabase_url: "<?php echo esc_js( $supabase_url ); ?>",
-  supabase_key: "<?php echo esc_js( $supabase_key ); ?>"
+    ajax_url:     "<?php echo esc_js( admin_url('admin-ajax.php') ); ?>",
+    nonce:        "<?php echo esc_js( wp_create_nonce('cbpm_nonce') ); ?>",
+    supabase_url: "<?php echo esc_js( $supabase_url ); ?>",
+    supabase_key: "<?php echo esc_js( $supabase_key ); ?>"
 };
+// ── Accordion ──
+(function(){
+    // Restaura estado salvo (só para grupos/subs sem item ativo — esses já estão abertos pelo PHP)
+    document.querySelectorAll('.cbpm-grp').forEach(function(g){
+        var id = g.dataset.grp;
+        if (!g.classList.contains('open') && localStorage.getItem('cg:'+id)==='1') g.classList.add('open');
+        g.querySelector('.cbpm-grp-hdr').addEventListener('click', function(){
+            g.classList.toggle('open');
+            localStorage.setItem('cg:'+id, g.classList.contains('open')?'1':'0');
+        });
+    });
+    document.querySelectorAll('.cbpm-sub').forEach(function(s){
+        var id = s.dataset.sub;
+        if (!s.classList.contains('open') && localStorage.getItem('cs:'+id)==='1') s.classList.add('open');
+        s.querySelector('.cbpm-sub-hdr').addEventListener('click', function(e){
+            e.stopPropagation();
+            s.classList.toggle('open');
+            localStorage.setItem('cs:'+id, s.classList.contains('open')?'1':'0');
+        });
+    });
+})();
+// ── Mobile drawer ──
+(function(){
+    var sidebar  = document.querySelector('.cbpm-sidebar');
+    var backdrop = document.getElementById('cbpmBackdrop');
+    var burger   = document.getElementById('cbpmBurger');
+    if (!burger || !sidebar) return;
+    function open()  { sidebar.classList.add('open');  backdrop.classList.add('open');  document.body.style.overflow='hidden'; }
+    function close() { sidebar.classList.remove('open'); backdrop.classList.remove('open'); document.body.style.overflow=''; }
+    burger.addEventListener('click', function(){ sidebar.classList.contains('open') ? close() : open(); });
+    backdrop.addEventListener('click', close);
+    sidebar.querySelectorAll('.cbpm-nav-link, .cbpm-nav-direct').forEach(function(l){ l.addEventListener('click', close); });
+})();
 </script>
 <script src="<?php echo esc_url( CBPM_PLUGIN_URL . 'assets/script.js' ); ?>?v=<?php echo CBPM_VERSION; ?>"></script>
-
-<?php if ( function_exists('tao_crm_page_kanban') && defined('TAO_CRM_URL') && str_starts_with($page_atual, 'tao-crm') ) : ?>
+<?php if ( in_array( $fn, [ 'tao_crm_page_kanban_full', 'tao_crm_page_inbox', 'tao_crm_page_settings' ], true ) && defined( 'TAO_CRM_URL' ) ): ?>
 <script>
-window.taoCrm = {
-  ajax_url:     "<?php echo esc_js( admin_url('admin-ajax.php') ); ?>",
-  nonce:        "<?php echo esc_js( wp_create_nonce('tao_crm_nonce') ); ?>",
-  supabase_url: "<?php echo esc_js( $supabase_url ); ?>",
-  supabase_key: "<?php echo esc_js( $supabase_key ); ?>",
-  card_base_url:"<?php echo esc_js( function_exists('cbpm_url') ? cbpm_url('crm-kanban', ['action'=>'card','id'=>'']) : '' ); ?>"
-};
+window.taoCrm = <?php echo wp_json_encode( [
+    'ajax_url'     => admin_url( 'admin-ajax.php' ),
+    'nonce'        => wp_create_nonce( 'tao_crm_nonce' ),
+    'supabase_url' => function_exists( 'cbpm_supabase_url' ) ? cbpm_supabase_url() : get_option( 'cbpm_supabase_url', '' ),
+    'supabase_key' => function_exists( 'cbpm_supabase_key' ) ? cbpm_supabase_key() : get_option( 'cbpm_supabase_key', '' ),
+    'card_base_url'=> cbpm_url( 'crm-kanban', [ 'action' => 'card', 'id' => '' ] ),
+    'adminUrl'     => admin_url(),
+] ); ?>;
 </script>
 <script src="<?php echo esc_url( TAO_CRM_URL . 'assets/crm-script.js' ); ?>?v=<?php echo TAO_CRM_VERSION; ?>"></script>
 <?php endif; ?>
-<script>
-(function(){
-  var STORE_KEY = 'cbpm-nav-groups';
-  var state = {};
-  try { state = JSON.parse(localStorage.getItem(STORE_KEY)||'{}'); } catch(e){}
-
-  document.querySelectorAll('.cbpm-nav-group-btn').forEach(function(btn){
-    var id    = btn.dataset.grp;
-    var items = document.getElementById('cbpm-grp-' + id);
-    var tog   = document.getElementById('cbpm-toggle-' + id);
-    if(!items) return;
-
-    // Auto-expand if contains active page
-    var hasActive = items.querySelector('a.active');
-    var collapsed = hasActive ? false : (state[id] === '1');
-
-    function apply(c){
-      items.classList.toggle('crm-grp-collapsed', c);
-      if(tog) tog.style.transform = c ? 'rotate(-90deg)' : '';
-      state[id] = c ? '1' : '0';
-      try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch(e){}
-    }
-    apply(collapsed);
-
-    btn.addEventListener('click', function(){
-      apply(!items.classList.contains('crm-grp-collapsed'));
-    });
-  });
-
-  // Section groups (Configurações, Operações)
-  var STORE_KEY_S = 'cbpm-nav-sections';
-  var stateS = {};
-  try { stateS = JSON.parse(localStorage.getItem(STORE_KEY_S)||'{}'); } catch(e){}
-
-  document.querySelectorAll('.cbpm-nav-section-btn').forEach(function(btn){
-    var id    = btn.dataset.sgp;
-    var items = document.getElementById('cbpm-sgp-' + id);
-    var tog   = document.getElementById('cbpm-stoggle-' + id);
-    if(!items) return;
-
-    var hasActive = items.querySelector('a.active');
-    var collapsed = hasActive ? false : (stateS[id] === '1');
-
-    function applyS(c){
-      items.classList.toggle('sgp-collapsed', c);
-      if(tog) tog.style.transform = c ? 'rotate(-90deg)' : '';
-      stateS[id] = c ? '1' : '0';
-      try { localStorage.setItem(STORE_KEY_S, JSON.stringify(stateS)); } catch(e){}
-    }
-    applyS(collapsed);
-
-    btn.addEventListener('click', function(){
-      applyS(!items.classList.contains('sgp-collapsed'));
-    });
-  });
-})();
-</script>
 </body>
 </html>

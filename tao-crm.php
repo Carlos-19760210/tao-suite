@@ -8,7 +8,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'TAO_CRM_VERSION', '1.6.0' );
+define( 'TAO_CRM_VERSION', '1.6.2' );
 
 function tao_crm_is_handoff_msg( $text ) {
     static $kws = [
@@ -64,6 +64,7 @@ require_once TAO_CRM_DIR . 'includes/pages/dashboard.php';
 require_once TAO_CRM_DIR . 'includes/pages/kanban.php';
 require_once TAO_CRM_DIR . 'includes/pages/card.php';
 require_once TAO_CRM_DIR . 'includes/pages/settings.php';
+// tao_crm_page_conversas is defined inline below (no separate file needed)
 
 // ─── CRON: AUTOMAÇÕES ─────────────────────────────────────────────────────────
 
@@ -84,6 +85,14 @@ add_action( 'admin_init', function() {
         }
     }
     update_option( 'tao_crm_v140_bootstrap_done', '1' );
+} );
+
+// Garante execução da fila em qualquer request autenticado (admin page load OU ajax)
+// DOING_AJAX foi removido da exclusão: o polling de msgs dispara a fila a cada 4s
+add_action( 'shutdown', function() {
+    if ( ! is_admin() || ! is_user_logged_in() ) return;
+    if ( function_exists( 'tao_crm_processar_fila_fn' ) )      tao_crm_processar_fila_fn();
+    if ( function_exists( 'tao_crm_processar_agendadas_fn' ) ) tao_crm_processar_agendadas_fn();
 } );
 
 add_action( 'init', function() {
@@ -202,15 +211,15 @@ function tao_crm_executar_limpeza_semanal() {
     $resultado = [];
 
     // Mensagens do N8N > 7 dias
-    $r = tao_crm_api( '/historico?criado_em=lt.' . gmdate( 'c', strtotime( '-7 days' ) ), 'DELETE' );
+    $r = tao_crm_api( '/historico?criado_em=lt.' . gmdate( 'Y-m-d\TH:i:s\Z', strtotime( '-7 days' ) ), 'DELETE' );
     $resultado['historico'] = $r['ok'] ? 'ok' : ( $r['error'] ?? 'erro' );
 
     // Fila de automações executadas há mais de 30 dias
-    $r = tao_crm_api( '/crm_automacoes_fila?executado_em=lt.' . gmdate( 'c', strtotime( '-30 days' ) ) . '&executado_em=not.is.null', 'DELETE' );
+    $r = tao_crm_api( '/crm_automacoes_fila?executado_em=lt.' . gmdate( 'Y-m-d\TH:i:s\Z', strtotime( '-30 days' ) ) . '&executado_em=not.is.null', 'DELETE' );
     $resultado['automacoes_fila'] = $r['ok'] ? 'ok' : ( $r['error'] ?? 'erro' );
 
     // Mensagens agendadas já enviadas há mais de 30 dias
-    $r = tao_crm_api( '/crm_msgs_agendadas?enviado=eq.true&enviado_em=lt.' . gmdate( 'c', strtotime( '-30 days' ) ), 'DELETE' );
+    $r = tao_crm_api( '/crm_msgs_agendadas?enviado=eq.true&enviado_em=lt.' . gmdate( 'Y-m-d\TH:i:s\Z', strtotime( '-30 days' ) ), 'DELETE' );
     $resultado['msgs_agendadas'] = $r['ok'] ? 'ok' : ( $r['error'] ?? 'erro' );
 
     update_option( 'tao_limpeza_ultimo_resultado', [ 'ts' => gmdate( 'c' ), 'resultado' => $resultado ], false );
@@ -238,13 +247,14 @@ function tao_crm_register_menus() {
     $cap_gestor   = current_user_can( 'manage_options' ) ? 'manage_options' : 'tao_crm_gestor';
     $cap_adm      = 'manage_options';
 
-    add_menu_page( 'TAO CRM', 'TAO CRM', $cap, 'tao-crm', 'tao_crm_page_dashboard', 'dashicons-networking', 56 );
+    add_menu_page( 'TAO CRM', 'TAO CRM <span id="tao-crm-badge" style="background:#ef4444;color:#fff;font-size:9px;font-weight:700;border-radius:10px;padding:1px 6px;margin-left:4px;vertical-align:middle;display:none"></span>', $cap, 'tao-crm', 'tao_crm_page_dashboard', 'dashicons-networking', 56 );
 
     // Mesmo slug do pai → aparece como primeiro item sem duplicar
     add_submenu_page( 'tao-crm', 'Dashboard', 'Dashboard', $cap,        'tao-crm',              'tao_crm_page_dashboard' );
-    add_submenu_page( 'tao-crm', 'Inbox',     'Inbox',     $cap,        'tao-crm-inbox',        'tao_crm_page_inbox' );
-    add_submenu_page( 'tao-crm', 'Kanban',    'Kanban',    $cap,        'tao-crm-kanban',       'tao_crm_page_kanban_full' );
-    add_submenu_page( 'tao-crm', 'Contatos',  'Contatos',  $cap,        'tao-crm-contatos',     'tao_crm_page_contatos' );
+    add_submenu_page( 'tao-crm', 'Inbox',      'Inbox <span id="tao-crm-inbox-badge" style="background:#ef4444;color:#fff;font-size:9px;font-weight:700;border-radius:10px;padding:1px 5px;margin-left:3px;vertical-align:middle;display:none"></span>', $cap, 'tao-crm-inbox', 'tao_crm_page_inbox' );
+    add_submenu_page( 'tao-crm', 'Conversas', 'Conversas',  $cap, 'tao-crm-conversas',   'tao_crm_page_conversas_wrap' );
+    add_submenu_page( 'tao-crm', 'Kanban',    'Kanban',     $cap, 'tao-crm-kanban',      'tao_crm_page_kanban_full' );
+    add_submenu_page( 'tao-crm', 'Contatos',  'Contatos',   $cap, 'tao-crm-contatos',    'tao_crm_page_contatos' );
 
     // Configurações: visível para admins e gestores
     add_submenu_page( 'tao-crm', 'Configurações', 'Configurações', $cap_gestor, 'tao-crm-settings',   'tao_crm_page_settings' );
@@ -263,6 +273,106 @@ function tao_crm_register_menus() {
 // Wrappers que forçam a aba correta em settings.php
 function tao_crm_page_inbox()             { $_GET['view'] = 'inbox';      tao_crm_page_kanban(); }
 function tao_crm_page_kanban_full()       { tao_crm_page_kanban(); }
+function tao_crm_page_conversas_wrap()    { tao_crm_page_conversas(); }
+
+// ─── PÁGINA: CONVERSAS ATIVAS NO CHATBOT ─────────────────────────────────────
+function tao_crm_page_conversas() {
+    if ( ! function_exists( 'cbpm_can_access' ) || ! cbpm_can_access() ) {
+        echo '<div class="wrap"><p>Acesso negado.</p></div>'; return;
+    }
+    $ws_id      = sanitize_text_field( $_GET['workspace_id'] ?? '' );
+    $ws         = tao_crm_get_workspace( $ws_id ?: null );
+    if ( ! $ws ) { echo '<div class="wrap"><div class="notice notice-warning"><p>Nenhum workspace configurado.</p></div></div>'; return; }
+    $ws_id      = $ws['id'];
+    $workspaces = tao_crm_get_workspaces();
+    $nonce      = wp_create_nonce( 'tao_crm_nonce' );
+    ?>
+    <div class="wrap" style="max-width:1200px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+        <div style="display:flex;align-items:center;gap:12px">
+            <h1 style="margin:0;font-size:20px">🗨️ Conversas Ativas no Chatbot</h1>
+            <?php if ( count( $workspaces ) > 1 ) : ?>
+            <form method="get" style="margin:0">
+                <input type="hidden" name="page" value="tao-crm-conversas">
+                <select name="workspace_id" onchange="this.form.submit()" style="padding:4px 8px;border-radius:4px;border:1px solid #ccc;font-size:13px">
+                    <?php foreach ( $workspaces as $wk ) : ?>
+                    <option value="<?php echo esc_attr( $wk['id'] ); ?>" <?php selected( $wk['id'], $ws_id ); ?>><?php echo esc_html( $wk['nome'] ); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </form>
+            <?php else : ?>
+            <span style="font-size:13px;color:#666;background:#f0f0f0;padding:3px 10px;border-radius:12px"><?php echo esc_html( $ws['nome'] ); ?></span>
+            <?php endif; ?>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+            <span id="crm-conv-status" style="font-size:12px;color:#888">Carregando…</span>
+            <button id="crm-conv-refresh" class="button">⟳ Atualizar</button>
+        </div>
+    </div>
+    <div id="crm-conv-list" style="display:flex;flex-direction:column;gap:10px;min-height:120px">
+        <div style="text-align:center;padding:40px;color:#999;font-size:14px">Buscando conversas…</div>
+    </div>
+    </div>
+    <style>
+    .crm-conv-card{background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:14px 16px;display:flex;align-items:flex-start;gap:14px;transition:box-shadow .15s}
+    .crm-conv-card:hover{box-shadow:0 2px 8px rgba(0,0,0,.08)}
+    .crm-conv-avatar{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+    .crm-conv-body{flex:1;min-width:0}
+    .crm-conv-header{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px}
+    .crm-conv-nome{font-weight:600;font-size:14px;color:#1e293b}
+    .crm-conv-phone{font-size:12px;color:#64748b}
+    .crm-conv-badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;white-space:nowrap}
+    .badge-crm{background:#dcfce7;color:#166534}.badge-novo{background:#dbeafe;color:#1e40af}.badge-card{background:#fef3c7;color:#92400e}
+    .crm-conv-preview{font-size:13px;color:#475569;margin:4px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:480px}
+    .crm-conv-meta{font-size:11px;color:#94a3b8;display:flex;align-items:center;gap:10px;margin-top:4px}
+    .crm-conv-actions{display:flex;gap:6px;flex-shrink:0;align-items:flex-start;flex-wrap:wrap}
+    .crm-conv-btn{font-size:12px!important;padding:4px 10px!important;height:auto!important;line-height:1.5!important;white-space:nowrap}
+    .crm-conv-btn-interceptar{border-color:#0ea5e9!important;color:#0ea5e9!important}
+    .crm-conv-btn-crm{border-color:#16a34a!important;color:#16a34a!important;font-weight:600!important}
+    .crm-conv-btn-card{border-color:#d97706!important;color:#d97706!important}
+    .crm-conv-empty{text-align:center;padding:60px 20px;color:#94a3b8}
+    </style>
+    <script>
+    (function(){
+        var WS_ID=<?php echo wp_json_encode($ws_id);?>,NONCE=<?php echo wp_json_encode($nonce);?>,AJAX=<?php echo wp_json_encode(admin_url('admin-ajax.php'));?>,CARD_BASE=<?php echo wp_json_encode(admin_url('admin.php?page=tao-crm-kanban&action=card&id='));?>,timer=null;
+        function ago(d){if(!d)return'';var s=Math.floor((Date.now()-new Date(d).getTime())/1000);if(s<60)return s+'s';if(s<3600)return Math.floor(s/60)+'min';if(s<86400)return Math.floor(s/3600)+'h';return Math.floor(s/86400)+'d';}
+        function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+        function jse(o){return JSON.stringify(o).replace(/</g,'\\u003c').replace(/>/g,'\\u003e').replace(/&/g,'\\u0026').replace(/'/g,'\\u0027');}
+        function render(data){
+            var list=document.getElementById('crm-conv-list'),cvs=data.conversas||[],tot=data.total||0;
+            document.getElementById('crm-conv-status').textContent=tot+' conversa'+(tot!==1?'s':'')+' ativa'+(tot!==1?'s':'')+' · '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+            if(!cvs.length){list.innerHTML='<div class="crm-conv-empty"><div style="font-size:48px;margin-bottom:12px">🤖</div><div style="font-size:16px;margin-bottom:6px;color:#64748b">Nenhuma conversa ativa no momento</div><div style="font-size:13px">Quando um cliente iniciar conversa com o chatbot, ela aparecerá aqui.</div></div>';return;}
+            var html='';
+            cvs.forEach(function(c){
+                var isCrm=!!c.crm_contato,hasCard=!!c.card_ativo,nome=esc(c.nome||c.phone),phone=esc(c.phone);
+                var preview=c.ultima_msg?(c.ultima_role==='assistant'?'🤖 ':'👤 ')+esc(c.ultima_msg):'<em style="color:#cbd5e1">Sem mensagens</em>';
+                var badges='';
+                if(isCrm){var cl=c.crm_contato.classificacao?' · '+esc(c.crm_contato.classificacao):'',at=c.crm_contato.total_atendimentos?' · '+c.crm_contato.total_atendimentos+' atend.':'';badges+='<span class="crm-conv-badge badge-crm">✅ Cliente CRM'+cl+at+'</span>';}
+                else badges+='<span class="crm-conv-badge badge-novo">🆕 Novo contato</span>';
+                if(hasCard)badges+='<span class="crm-conv-badge badge-card">📋 Card ativo</span>';
+                var actions='';
+                if(hasCard)actions+='<a href="'+CARD_BASE+esc(c.card_ativo.id)+'" class="button crm-conv-btn crm-conv-btn-card">📋 Ver card</a>';
+                else if(isCrm)actions+='<button class="button crm-conv-btn crm-conv-btn-crm" onclick="crmInterceptar('+jse(c)+')">🤝 Criar Card (CRM)</button>';
+                else actions+='<button class="button crm-conv-btn crm-conv-btn-interceptar" onclick="crmInterceptar('+jse(c)+')">🤝 Interceptar</button>';
+                html+='<div class="crm-conv-card"><div class="crm-conv-avatar" style="background:'+(isCrm?'#dcfce7':'#dbeafe')+'">'+(isCrm?'👤':'💬')+'</div><div class="crm-conv-body"><div class="crm-conv-header"><span class="crm-conv-nome">'+nome+'</span><span class="crm-conv-phone">📱 '+phone+'</span>'+badges+'</div><div class="crm-conv-preview">'+preview+'</div><div class="crm-conv-meta"><span>💬 '+c.msg_count+' msg'+(c.msg_count!==1?'s':'')+'</span>'+(c.criado_em?'<span>🕐 '+esc(ago(c.criado_em))+'</span>':'')+'</div></div><div class="crm-conv-actions">'+actions+'</div></div>';
+            });
+            list.innerHTML=html;
+        }
+        function load(){
+            var fd=new FormData();fd.append('action','tao_crm_conversas_ativas');fd.append('nonce',NONCE);fd.append('ws_id',WS_ID);
+            fetch(AJAX,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(function(r){if(r.success)render(r.data);else document.getElementById('crm-conv-status').textContent='Erro: '+(r.data||'?');}).catch(function(){document.getElementById('crm-conv-status').textContent='Erro de rede';});
+        }
+        window.crmInterceptar=function(c){
+            if(!confirm((c.crm_contato?'Criar card CRM para ':'Interceptar conversa de ')+c.nome+'?\n\nO chatbot será pausado e você assumirá o atendimento.'))return;
+            var fd=new FormData();fd.append('action','tao_crm_interceptar_conversa');fd.append('nonce',NONCE);fd.append('ws_id',WS_ID);fd.append('phone',c.phone);fd.append('nome',c.nome||'');
+            fetch(AJAX,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(function(r){if(r.success)window.location.href=r.data.url;else alert('Erro: '+(r.data||'Não foi possível interceptar'));});
+        };
+        document.getElementById('crm-conv-refresh').addEventListener('click',function(){clearInterval(timer);load();timer=setInterval(load,30000);});
+        load();timer=setInterval(load,30000);
+    })();
+    </script>
+    <?php
+}
 function tao_crm_settings_workspaces()    { $_GET['tab'] = 'workspaces';  tao_crm_page_settings(); }
 function tao_crm_settings_pipelines()     { $_GET['tab'] = 'pipelines';   tao_crm_page_settings(); }
 function tao_crm_settings_campos()        { $_GET['tab'] = 'campos';      tao_crm_page_settings(); }
@@ -480,6 +590,49 @@ function tao_crm_ajax_contato_perfil() {
 
 // ─── ASSETS ──────────────────────────────────────────────────────────────────
 
+// Adiciona body class 'tao-crm-page' em todas as páginas do plugin (usado pelo CSS mobile)
+add_filter( 'admin_body_class', function( $classes ) {
+    $screen = get_current_screen();
+    if ( $screen && ( strpos( $screen->id, 'tao-crm' ) !== false || strpos( $screen->id, 'tao_crm' ) !== false ) ) {
+        $classes .= ' tao-crm-page';
+    }
+    return $classes;
+} );
+
+add_action( 'admin_enqueue_scripts', 'tao_crm_enqueue_notif_badge' );
+function tao_crm_enqueue_notif_badge() {
+    if ( ! function_exists( 'cbpm_can_access' ) || ! cbpm_can_access() ) return;
+    $ws = function_exists( 'tao_crm_get_workspace' ) ? tao_crm_get_workspace() : null;
+    if ( ! $ws ) return;
+    $nonce  = wp_create_nonce( 'tao_crm_nonce' );
+    $ws_id  = esc_js( $ws['id'] );
+    $ajax   = esc_js( admin_url( 'admin-ajax.php' ) );
+    wp_add_inline_script( 'jquery', <<<JS
+(function(){
+    if(typeof taoCrm !== 'undefined' && taoCrm.ws_id) return; // já carregado pelo script principal
+    var wsId='{$ws_id}', nonce='{$nonce}', ajaxUrl='{$ajax}';
+    if(!wsId) return;
+    function doPoll(){
+        var fd=new FormData(); fd.append('action','tao_crm_notif_count'); fd.append('nonce',nonce); fd.append('workspace_id',wsId);
+        fetch(ajaxUrl,{method:'POST',body:fd,credentials:'same-origin'})
+        .then(function(r){return r.json();})
+        .then(function(resp){
+            var c=(resp.success&&resp.data)?resp.data.count||0:0;
+            ['tao-crm-badge','tao-crm-inbox-badge'].forEach(function(id){
+                var el=document.getElementById(id);
+                if(!el)return;
+                el.textContent=c; el.style.display=c>0?'inline-block':'none';
+            });
+            var t=document.title.replace(/^\(\d+\)\s*/,'');
+            document.title=c>0?'('+c+') '+t:t;
+        }).catch(function(){});
+    }
+    document.addEventListener('DOMContentLoaded',function(){ doPoll(); setInterval(doPoll,60000); });
+})();
+JS
+    );
+}
+
 add_action( 'admin_enqueue_scripts', 'tao_crm_enqueue_assets' );
 function tao_crm_enqueue_assets( $hook ) {
     // Carrega em qualquer página do CRM (tao-crm, tao-crm-inbox, tao-crm-campos, tao-crm-settings)
@@ -488,6 +641,7 @@ function tao_crm_enqueue_assets( $hook ) {
     wp_enqueue_style( 'tao-crm-style', TAO_CRM_URL . 'assets/crm-style.css', [], TAO_CRM_VERSION );
     wp_enqueue_script( 'tao-crm-script', TAO_CRM_URL . 'assets/crm-script.js', [ 'jquery' ], TAO_CRM_VERSION, true );
 
+    $ws_notif = function_exists( 'tao_crm_get_workspace' ) ? tao_crm_get_workspace() : null;
     wp_localize_script( 'tao-crm-script', 'taoCrm', [
         'ajax_url'     => admin_url( 'admin-ajax.php' ),
         'nonce'        => wp_create_nonce( 'tao_crm_nonce' ),
@@ -495,6 +649,7 @@ function tao_crm_enqueue_assets( $hook ) {
         'supabase_key' => function_exists( 'cbpm_supabase_key' ) ? cbpm_supabase_key() : get_option( 'cbpm_supabase_key', '' ),
         'card_base_url'=> admin_url( 'admin.php?page=tao-crm-kanban&action=card&id=' ),
         'adminUrl'     => admin_url(),
+        'ws_id'        => $ws_notif['id'] ?? '',
     ] );
 }
 
@@ -548,7 +703,7 @@ function tao_crm_executar_automacao_item( $auto, $card_id ) {
                     'enviado_em'     => gmdate( 'c' ),
                 ], [ 'Prefer' => 'return=minimal' ] );
             }
-            return $evo['ok'] ? [ 'ok' => true, 'detalhe' => 'Enviado' ] : [ 'ok' => false, 'detalhe' => $evo['error'] ];
+            return $sent ? [ 'ok' => true, 'detalhe' => 'Enviado' ] : [ 'ok' => false, 'detalhe' => 'Falha ao enviar via Evolution' ];
 
         case 'mover_fase':
             if ( empty( $auto['para_estagio_id'] ) ) return [ 'ok' => false, 'detalhe' => 'Fase destino não definida' ];
@@ -632,7 +787,8 @@ function tao_crm_cancelar_fila( $card_id, $estagio_id = null ) {
 
 add_action( 'tao_crm_processar_fila', 'tao_crm_processar_fila_fn' );
 function tao_crm_processar_fila_fn() {
-    $agora = gmdate( 'c' );
+    // Usa formato Z (ex: 2026-06-12T23:00:00Z) — evita o + do fuso que quebra a URL do Supabase
+    $agora = gmdate( 'Y-m-d\TH:i:s\Z' );
     $r = tao_crm_api( "/crm_automacoes_fila?executado_em=is.null&executar_em=lte.$agora&limit=50&order=executar_em.asc" );
     if ( ! $r['ok'] || empty( $r['data'] ) ) return;
     foreach ( $r['data'] as $item ) {
@@ -660,6 +816,78 @@ function tao_crm_processar_fila_fn() {
             'detalhe'      => $res['detalhe'] ?? '',
         ] );
     }
+}
+
+function tao_crm_processar_agendadas_fn() {
+    do_action( 'tao_crm_processar_agendadas' );
+}
+
+// ─── AJAX: STATUS WHATSAPP ───────────────────────────────────────────────────
+
+add_action( 'wp_ajax_tao_crm_wa_status', 'tao_crm_ajax_wa_status' );
+function tao_crm_ajax_wa_status() {
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+    if ( ! function_exists( 'cbpm_can_access' ) || ! cbpm_can_access() ) wp_send_json_error( 'Acesso negado' );
+
+    $ws_id = sanitize_text_field( $_POST['workspace_id'] ?? '' );
+    if ( ! $ws_id ) wp_send_json_error( 'workspace_id obrigatório' );
+
+    $cache_key = 'tao_wa_status_' . md5( $ws_id );
+    $cached    = get_transient( $cache_key );
+    if ( $cached !== false ) {
+        wp_send_json_success( $cached );
+    }
+
+    $ri = tao_crm_api( "/crm_instancias?workspace_id=eq.$ws_id&ativo=eq.true&select=id,nome,evolution_instancia,evolution_url,evolution_key" );
+    if ( ! $ri['ok'] || empty( $ri['data'] ) ) {
+        wp_send_json_success( [] );
+    }
+
+    $result = [];
+    foreach ( $ri['data'] as $inst ) {
+        $url = rtrim( $inst['evolution_url'] ?? '', '/' );
+        $key = $inst['evolution_key']      ?? '';
+        $nom = $inst['evolution_instancia'] ?? '';
+        if ( ! $url || ! $nom ) {
+            $result[] = [ 'nome' => $inst['nome'] ?? $nom, 'instancia' => $nom, 'state' => 'unknown' ];
+            continue;
+        }
+        $r = wp_remote_get( "$url/instance/connectionState/$nom", [
+            'headers' => [ 'apikey' => $key ],
+            'timeout' => 5,
+        ] );
+        if ( is_wp_error( $r ) ) {
+            $result[] = [ 'nome' => $inst['nome'] ?? $nom, 'instancia' => $nom, 'state' => 'error' ];
+            continue;
+        }
+        $body  = json_decode( wp_remote_retrieve_body( $r ), true );
+        $state = $body['state'] ?? ( $body['instance']['state'] ?? 'unknown' );
+        $result[] = [ 'nome' => $inst['nome'] ?? $nom, 'instancia' => $nom, 'state' => $state ];
+    }
+
+    set_transient( $cache_key, $result, 60 );
+    wp_send_json_success( $result );
+}
+
+// ─── AJAX: CONTAGEM DE NOTIFICAÇÕES ─────────────────────────────────────────
+
+add_action( 'wp_ajax_tao_crm_notif_count', 'tao_crm_ajax_notif_count' );
+function tao_crm_ajax_notif_count() {
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+    if ( ! function_exists( 'cbpm_can_access' ) || ! cbpm_can_access() ) wp_send_json_error( 'Acesso negado' );
+
+    $ws_id = sanitize_text_field( $_POST['workspace_id'] ?? '' );
+    if ( ! $ws_id ) { wp_send_json_success( [ 'count' => 0 ] ); }
+
+    // Handoff abertos = clientes aguardando atendente humano
+    $r = tao_crm_api( "/crm_cards?workspace_id=eq.$ws_id&atendimento_humano=eq.true&fechado=eq.false&select=id&limit=200" );
+    $total = $r['ok'] ? count( $r['data'] ?? [] ) : 0;
+
+    // Cards nunca lidos (nova mensagem, operador ainda não viu)
+    $r2 = tao_crm_api( "/crm_cards?workspace_id=eq.$ws_id&atendimento_humano=eq.true&fechado=eq.false&ultima_leitura_em=is.null&select=id&limit=200" );
+    $nao_lidos = $r2['ok'] ? count( $r2['data'] ?? [] ) : 0;
+
+    wp_send_json_success( [ 'count' => $total, 'nao_lidos' => $nao_lidos ] );
 }
 
 // ─── AJAX: MOVER CARD ────────────────────────────────────────────────────────
@@ -756,6 +984,10 @@ function tao_crm_ajax_move_card() {
         'estagio_id' => $estagio_id,
         'de_estagio' => $de_estagio,
     ] );
+
+    // Processa fila de automações vencidas (WP-cron não confiável sem tráfego)
+    tao_crm_processar_fila_fn();
+
     wp_send_json_success();
 }
 
@@ -763,7 +995,8 @@ function tao_crm_ajax_move_card() {
 
 add_action( 'wp_ajax_tao_crm_get_campos_destino', 'tao_crm_ajax_get_campos_destino' );
 function tao_crm_ajax_get_campos_destino() {
-    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+    $raw_nonce = isset( $_POST['nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['nonce'] ) ) : '';
+    if ( ! wp_verify_nonce( $raw_nonce, 'tao_crm_nonce' ) ) wp_send_json_error( 'Sessão expirada.' );
     if ( ! function_exists( 'cbpm_can_access' ) || ! cbpm_can_access() ) wp_send_json_error( 'Acesso negado' );
     $estagio_id = sanitize_text_field( $_POST['estagio_id'] ?? '' );
     $card_id    = sanitize_text_field( $_POST['card_id']    ?? '' );
@@ -772,10 +1005,15 @@ function tao_crm_ajax_get_campos_destino() {
     if ( ! $r['ok'] ) wp_send_json_error( $r['error'] );
     $assigns = $r['data'] ?? [];
     if ( empty( $assigns ) ) { wp_send_json_success( [ 'campos' => [], 'valores' => [] ] ); return; }
-    $campo_ids = array_column( $assigns, 'campo_id' );
-    $ordem_map = array_column( $assigns, 'ordem', 'campo_id' );
-    $r2  = tao_crm_api( '/crm_campos_definicao?id=in.(' . implode( ',', $campo_ids ) . ')&select=id,nome,tipo,opcoes,chave' );
+    $campo_ids     = array_column( $assigns, 'campo_id' );
+    $ordem_map     = array_column( $assigns, 'ordem',      'campo_id' );
+    $obrigatorio_map = array_column( $assigns, 'obrigatorio', 'campo_id' );
+    $r2   = tao_crm_api( '/crm_campos_definicao?id=in.(' . implode( ',', $campo_ids ) . ')&select=id,nome,tipo,opcoes,chave' );
     $defs = $r2['ok'] ? ( $r2['data'] ?? [] ) : [];
+    foreach ( $defs as &$def ) {
+        $def['obrigatorio'] = ! empty( $obrigatorio_map[ $def['id'] ] );
+    }
+    unset( $def );
     usort( $defs, fn( $a, $b ) => ( $ordem_map[ $a['id'] ] ?? 0 ) <=> ( $ordem_map[ $b['id'] ] ?? 0 ) );
     $valores = [];
     if ( $card_id ) {
@@ -786,6 +1024,44 @@ function tao_crm_ajax_get_campos_destino() {
         }
     }
     wp_send_json_success( [ 'campos' => $defs, 'valores' => $valores ] );
+}
+
+// ─── AJAX: CAMPOS OBRIGATÓRIOS DO ESTÁGIO GANHO (dado card_id) ───────────────
+
+add_action( 'wp_ajax_tao_crm_get_ganho_campos',        'tao_crm_ajax_get_ganho_campos' );
+add_action( 'wp_ajax_nopriv_tao_crm_get_ganho_campos', 'tao_crm_ajax_get_ganho_campos' );
+function tao_crm_ajax_get_ganho_campos() {
+    $raw_nonce = isset( $_POST['nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['nonce'] ) ) : '';
+    if ( ! wp_verify_nonce( $raw_nonce, 'tao_crm_nonce' ) ) wp_send_json_error( 'Sessão expirada.' );
+    $card_id = sanitize_text_field( $_POST['card_id'] ?? '' );
+    if ( ! $card_id ) wp_send_json_error( 'card_id obrigatório' );
+    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=pipeline_id&limit=1" );
+    if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( 'Card não encontrado' );
+    $pipeline_id = $rc['data'][0]['pipeline_id'] ?? '';
+    if ( ! $pipeline_id ) wp_send_json_success( [ 'campos' => [], 'valores' => [], 'ganho_stage_id' => '' ] );
+    $rg = tao_crm_api( "/crm_estagios?pipeline_id=eq.$pipeline_id&tipo=eq.ganho&limit=1" );
+    if ( ! $rg['ok'] || empty( $rg['data'] ) ) wp_send_json_success( [ 'campos' => [], 'valores' => [], 'ganho_stage_id' => '' ] );
+    $ganho_stage_id = $rg['data'][0]['id'];
+    $r = tao_crm_api( "/crm_campos_estagio?estagio_id=eq.$ganho_stage_id&na_entrada=eq.true&order=ordem.asc" );
+    if ( ! $r['ok'] || empty( $r['data'] ) ) wp_send_json_success( [ 'campos' => [], 'valores' => [], 'ganho_stage_id' => $ganho_stage_id ] );
+    $assigns         = $r['data'];
+    $campo_ids       = array_column( $assigns, 'campo_id' );
+    $ordem_map       = array_column( $assigns, 'ordem',      'campo_id' );
+    $obrigatorio_map = array_column( $assigns, 'obrigatorio', 'campo_id' );
+    $r2   = tao_crm_api( '/crm_campos_definicao?id=in.(' . implode( ',', $campo_ids ) . ')&select=id,nome,tipo,opcoes,chave' );
+    $defs = $r2['ok'] ? ( $r2['data'] ?? [] ) : [];
+    foreach ( $defs as &$def ) {
+        $def['obrigatorio'] = ! empty( $obrigatorio_map[ $def['id'] ] );
+    }
+    unset( $def );
+    usort( $defs, fn( $a, $b ) => ( $ordem_map[ $a['id'] ] ?? 0 ) <=> ( $ordem_map[ $b['id'] ] ?? 0 ) );
+    $ids_str = implode( ',', $campo_ids );
+    $rv = tao_crm_api( "/crm_cards_valores?card_id=eq.$card_id&campo_id=in.($ids_str)&select=campo_id,valor" );
+    $valores = [];
+    if ( $rv['ok'] && ! empty( $rv['data'] ) ) {
+        foreach ( $rv['data'] as $v ) $valores[ $v['campo_id'] ] = $v['valor'];
+    }
+    wp_send_json_success( [ 'campos' => $defs, 'valores' => $valores, 'ganho_stage_id' => $ganho_stage_id ] );
 }
 
 // ─── AJAX: ENVIAR MENSAGEM ────────────────────────────────────────────────────
@@ -799,12 +1075,13 @@ function tao_crm_ajax_send_message() {
     $mensagem = sanitize_textarea_field( $_POST['mensagem'] ?? '' );
     if ( ! $card_id || ! $mensagem ) wp_send_json_error( 'Dados inválidos' );
 
-    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=contato_whatsapp,workspace_id,instancia_id" );
+    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=contato_whatsapp,workspace_id,instancia_id,responsavel_id" );
     if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( 'Card não encontrado' );
 
-    $card    = $rc['data'][0];
-    $ws_id   = $card['workspace_id'];
-    $evo_cfg = tao_crm_get_evo_creds( $card );
+    $card       = $rc['data'][0];
+    $ws_id      = $card['workspace_id'];
+    $resp_atual = intval( $card['responsavel_id'] ?? 0 );
+    $evo_cfg    = tao_crm_get_evo_creds( $card );
     if ( ! $evo_cfg ) wp_send_json_error( 'Sem Evolution configurado para este card' );
 
     // Marca no cache: quando o dispatch receber o SEND_MESSAGE de volta, não duplica
@@ -824,7 +1101,25 @@ function tao_crm_ajax_send_message() {
         'enviado_em'     => gmdate( 'c' ),
     ], [ 'Prefer' => 'return=representation' ] );
 
-    wp_send_json_success( [ 'msg' => $rm['ok'] ? $rm['data'][0] : null ] );
+    // Quem responde assume a responsabilidade do card automaticamente
+    $responsavel_changed = null;
+    if ( $user->ID && $user->ID !== $resp_atual ) {
+        $de_nome = '—';
+        if ( $resp_atual ) {
+            $de_user = get_userdata( $resp_atual );
+            if ( $de_user ) $de_nome = $de_user->display_name;
+        }
+        tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [ 'responsavel_id' => $user->ID ] );
+        tao_crm_api( '/crm_cards_historico', 'POST', [
+            'card_id'    => $card_id,
+            'usuario_id' => $user->ID,
+            'motivo'     => "Responsável: {$de_nome} → {$user->display_name} (respondeu mensagem)",
+            'criado_em'  => gmdate( 'c' ),
+        ] );
+        $responsavel_changed = [ 'id' => $user->ID, 'nome' => $user->display_name ];
+    }
+
+    wp_send_json_success( [ 'msg' => $rm['ok'] ? $rm['data'][0] : null, 'responsavel_changed' => $responsavel_changed ] );
 }
 
 add_action( 'wp_ajax_tao_crm_send_attachment', 'tao_crm_ajax_send_attachment' );
@@ -842,23 +1137,24 @@ function tao_crm_ajax_send_attachment() {
     $max_bytes = 20 * 1024 * 1024; // 20 MB
     if ( $file['size'] > $max_bytes ) wp_send_json_error( 'Arquivo muito grande (máx 20 MB)' );
 
-    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=contato_whatsapp,workspace_id,instancia_id" );
+    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=contato_whatsapp,workspace_id,instancia_id,responsavel_id" );
     if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( 'Card não encontrado' );
 
-    $card    = $rc['data'][0];
-    $ws_id   = $card['workspace_id'];
-    $evo_cfg = tao_crm_get_evo_creds( $card );
+    $card       = $rc['data'][0];
+    $ws_id      = $card['workspace_id'];
+    $resp_atual = intval( $card['responsavel_id'] ?? 0 );
+    $evo_cfg    = tao_crm_get_evo_creds( $card );
     if ( ! $evo_cfg ) wp_send_json_error( 'Sem Evolution configurado para este card' );
 
     $mimetype = mime_content_type( $file['tmp_name'] ) ?: $file['type'];
     $filename = sanitize_file_name( $file['name'] );
-    $base64   = base64_encode( file_get_contents( $file['tmp_name'] ) );
 
-    $evo_r = tao_crm_evolution_send_media( $evo_cfg, $card['contato_whatsapp'], $base64, $mimetype, $filename, $caption );
-    if ( ! $evo_r['ok'] ) wp_send_json_error( 'Erro ao enviar: ' . $evo_r['error'] );
-
-    // Salva o arquivo em uploads para URL permanente de download
+    // Salva antes do envio para obter URL pública (Evolution busca o arquivo via URL)
     $midia_url = tao_crm_save_media_file( file_get_contents( $file['tmp_name'] ), $mimetype, $filename );
+    if ( ! $midia_url ) wp_send_json_error( 'Erro ao salvar arquivo no servidor' );
+
+    $evo_r = tao_crm_evolution_send_media( $evo_cfg, $card['contato_whatsapp'], $midia_url, $mimetype, $filename, $caption );
+    if ( ! $evo_r['ok'] ) wp_send_json_error( 'Erro ao enviar: ' . $evo_r['error'] );
 
     // Marca no cache para evitar duplicata no dispatch
     set_transient( 'tao_crm_fwd_' . md5( $card['contato_whatsapp'] . ( $caption ?: $filename ) ), 1, 60 );
@@ -882,7 +1178,25 @@ function tao_crm_ajax_send_attachment() {
         'enviado_em'     => gmdate( 'c' ),
     ], [ 'Prefer' => 'return=representation' ] );
 
-    wp_send_json_success( [ 'msg' => $rm['ok'] ? $rm['data'][0] : null ] );
+    // Quem responde assume a responsabilidade do card automaticamente
+    $responsavel_changed = null;
+    if ( $user->ID && $user->ID !== $resp_atual ) {
+        $de_nome = '—';
+        if ( $resp_atual ) {
+            $de_user = get_userdata( $resp_atual );
+            if ( $de_user ) $de_nome = $de_user->display_name;
+        }
+        tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [ 'responsavel_id' => $user->ID ] );
+        tao_crm_api( '/crm_cards_historico', 'POST', [
+            'card_id'    => $card_id,
+            'usuario_id' => $user->ID,
+            'motivo'     => "Responsável: {$de_nome} → {$user->display_name} (respondeu mensagem)",
+            'criado_em'  => gmdate( 'c' ),
+        ] );
+        $responsavel_changed = [ 'id' => $user->ID, 'nome' => $user->display_name ];
+    }
+
+    wp_send_json_success( [ 'msg' => $rm['ok'] ? $rm['data'][0] : null, 'responsavel_changed' => $responsavel_changed ] );
 }
 
 // ─── AJAX: BUSCAR MENSAGENS NOVAS (polling) ───────────────────────────────────
@@ -916,12 +1230,13 @@ function tao_crm_ajax_create_card() {
     $nome         = sanitize_text_field( $_POST['contato_nome'] ?? '' );
     $whats        = preg_replace( '/\D/', '', $_POST['contato_whatsapp'] ?? '' );
     $titulo       = sanitize_text_field( $_POST['titulo'] ?? '' ) ?: $nome;
+    $instancia_id = sanitize_text_field( $_POST['instancia_id'] ?? '' ) ?: null;
 
     if ( ! $workspace_id || ! $pipeline_id || ! $estagio_id || ! $nome || strlen( $whats ) < 10 ) {
         wp_send_json_error( 'Preencha todos os campos obrigatórios' );
     }
 
-    $r = tao_crm_api( '/crm_cards', 'POST', [
+    $card_data = [
         'workspace_id'      => $workspace_id,
         'pipeline_id'       => $pipeline_id,
         'estagio_id'        => $estagio_id,
@@ -929,9 +1244,13 @@ function tao_crm_ajax_create_card() {
         'contato_whatsapp'  => $whats,
         'titulo'            => $titulo,
         'responsavel_id'    => get_current_user_id(),
+        'atendimento_humano' => true,
         'criado_em'         => gmdate( 'c' ),
         'movido_em'         => gmdate( 'c' ),
-    ], [ 'Prefer' => 'return=representation' ] );
+    ];
+    if ( $instancia_id ) $card_data['instancia_id'] = $instancia_id;
+
+    $r = tao_crm_api( '/crm_cards', 'POST', $card_data, [ 'Prefer' => 'return=representation' ] );
 
     if ( ! $r['ok'] ) wp_send_json_error( $r['error'] );
     $new_card = $r['data'][0];
@@ -1169,6 +1488,20 @@ function tao_crm_ajax_delete_automacao() {
 
 // ─── AJAX: FECHAR CARD (venda concluída / cancelado) ─────────────────────────
 
+function tao_crm_salvar_campos_card( $card_id, $valores ) {
+    if ( empty( $valores ) || ! is_array( $valores ) ) return;
+    foreach ( $valores as $campo_id => $valor ) {
+        $campo_id = sanitize_text_field( $campo_id );
+        if ( ! $campo_id ) continue;
+        $ex = tao_crm_api( "/crm_cards_valores?card_id=eq.$card_id&campo_id=eq.$campo_id&limit=1" );
+        if ( $ex['ok'] && ! empty( $ex['data'] ) ) {
+            tao_crm_api( "/crm_cards_valores?card_id=eq.$card_id&campo_id=eq.$campo_id", 'PATCH', [ 'valor' => $valor ] );
+        } else {
+            tao_crm_api( '/crm_cards_valores', 'POST', [ 'card_id' => $card_id, 'campo_id' => $campo_id, 'valor' => $valor ] );
+        }
+    }
+}
+
 add_action( 'wp_ajax_tao_crm_fechar_card', 'tao_crm_ajax_fechar_card' );
 function tao_crm_ajax_fechar_card() {
     check_ajax_referer( 'tao_crm_nonce', 'nonce' );
@@ -1177,6 +1510,12 @@ function tao_crm_ajax_fechar_card() {
     $card_id = sanitize_text_field( $_POST['card_id']   ?? '' );
     $tipo    = sanitize_key( $_POST['tipo']              ?? '' );
     $motivo  = sanitize_textarea_field( $_POST['motivo'] ?? '' );
+    $valores = [];
+    foreach ( $_POST as $k => $v ) {
+        if ( preg_match( '/^valores\[([a-f0-9\-]+)\]$/', $k, $m ) ) {
+            $valores[ $m[1] ] = sanitize_textarea_field( wp_unslash( $v ) );
+        }
+    }
 
     if ( ! $card_id || ! in_array( $tipo, [ 'ganho', 'perdido' ] ) ) wp_send_json_error( 'Dados inválidos' );
 
@@ -1228,6 +1567,7 @@ function tao_crm_ajax_fechar_card() {
                     'motivo'          => $motivo ?: 'Negócio ganho → Pós-vendas',
                 ] );
 
+                tao_crm_salvar_campos_card( $card_id, $valores );
                 tao_crm_disparar_automacoes( $card_id, $de_estagio, 'sair_fase', true );
                 tao_crm_cancelar_fila( $card_id, $de_estagio );
                 tao_crm_disparar_automacoes( $card_id, $pos_stage_id, 'entrar_fase' );
@@ -1249,6 +1589,8 @@ function tao_crm_ajax_fechar_card() {
         'status'     => 'fechado',
     ] );
     if ( ! $r['ok'] ) wp_send_json_error( $r['error'] );
+
+    tao_crm_salvar_campos_card( $card_id, $valores );
 
     tao_crm_api( '/crm_cards_historico', 'POST', [
         'card_id'         => $card_id,
@@ -1580,6 +1922,30 @@ function tao_crm_register_rest() {
         'callback'            => 'tao_crm_rest_lead_to_card',
         'permission_callback' => '__return_true',
     ] );
+    // Endpoint para cron externo (cron-job.org ou similar)
+    // GET /wp-json/tao-crm/v1/cron?key=CHAVE
+    register_rest_route( 'tao-crm/v1', '/cron', [
+        'methods'             => 'GET',
+        'callback'            => 'tao_crm_rest_cron',
+        'permission_callback' => '__return_true',
+    ] );
+}
+
+function tao_crm_rest_cron( WP_REST_Request $req ) {
+    $key = sanitize_text_field( $req->get_param('key') ?? '' );
+    $stored = get_option( 'tao_crm_cron_key', '' );
+    if ( ! $stored ) {
+        // Gera chave na primeira chamada
+        $stored = wp_generate_password( 32, false );
+        update_option( 'tao_crm_cron_key', $stored );
+    }
+    if ( ! hash_equals( $stored, $key ) ) {
+        return new WP_REST_Response( [ 'error' => 'chave inválida' ], 403 );
+    }
+    $t = microtime(true);
+    tao_crm_processar_fila_fn();
+    tao_crm_processar_agendadas_fn();
+    return new WP_REST_Response( [ 'ok' => true, 'ms' => round( (microtime(true) - $t) * 1000 ), 'ts' => gmdate('c') ], 200 );
 }
 
 function tao_crm_upsert_contato( string $workspace_id, string $whatsapp, string $nome = '' ): array {
@@ -1749,9 +2115,226 @@ function tao_crm_ajax_devolver_chatbot() {
     if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( 'Card não encontrado' );
     $card = $rc['data'][0];
     if ( ! tao_crm_is_gestor( $card['workspace_id'] ) ) wp_send_json_error( 'Apenas gestores' );
-    tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [ 'atendimento_humano' => false ] );
-    tao_crm_reset_chatbot_historico( $card['contato_whatsapp'], $card['workspace_id'] );
+    $ws_id   = $card['workspace_id'];
+    $contato = $card['contato_whatsapp'];
+    // Clear ALL open atendimento_humano=true cards for this contact (not just the clicked one)
+    tao_crm_api( "/crm_cards?workspace_id=eq.$ws_id&contato_whatsapp=eq.$contato&fechado=eq.false&atendimento_humano=eq.true", 'PATCH', [ 'atendimento_humano' => false ] );
+    tao_crm_reset_chatbot_historico( $contato, $ws_id );
     wp_send_json_success();
+}
+
+// ─── AJAX: RECUPERAR ATENDIMENTO (inverte o Devolver) ────────────────────────
+add_action( 'wp_ajax_tao_crm_recuperar_atendimento', 'tao_crm_ajax_recuperar_atendimento' );
+function tao_crm_ajax_recuperar_atendimento() {
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+    if ( ! function_exists( 'cbpm_can_access' ) || ! cbpm_can_access() ) wp_send_json_error( 'Acesso negado' );
+    $card_id = sanitize_text_field( $_POST['card_id'] ?? '' );
+    if ( ! $card_id ) wp_send_json_error( 'Card inválido' );
+    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=contato_whatsapp,workspace_id,estagio_id,pipeline_id,titulo,fechado&limit=1" );
+    if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( 'Card não encontrado' );
+    $card = $rc['data'][0];
+    if ( ! empty( $card['fechado'] ) ) wp_send_json_error( 'Card já fechado' );
+    $ws_id   = $card['workspace_id'];
+    $contato = $card['contato_whatsapp'];
+    $pl_id   = $card['pipeline_id'];
+    $handoff_stage_id = null;
+    $rhs = tao_crm_api( "/crm_estagios?pipeline_id=eq.$pl_id&tipo=eq.handoff&limit=1" );
+    if ( $rhs['ok'] && ! empty( $rhs['data'] ) ) $handoff_stage_id = $rhs['data'][0]['id'];
+    $patch = [ 'atendimento_humano' => true ];
+    if ( $handoff_stage_id ) {
+        $patch['estagio_id'] = $handoff_stage_id;
+        $patch['movido_em']  = gmdate( 'c' );
+    }
+    tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', $patch );
+    if ( function_exists( 'tao_crm_lock_chatbot' ) ) tao_crm_lock_chatbot( $contato, $ws_id );
+    if ( $handoff_stage_id ) {
+        tao_crm_disparar_automacoes( $card_id, $handoff_stage_id, 'entrar_fase' );
+        tao_crm_disparar_automacoes( $card_id, $handoff_stage_id, 'tempo_na_fase' );
+    }
+    wp_send_json_success();
+}
+
+// ─── AJAX: CONVERSAS ATIVAS NO CHATBOT ───────────────────────────────────────
+add_action( 'wp_ajax_tao_crm_conversas_ativas', 'tao_crm_ajax_conversas_ativas' );
+function tao_crm_ajax_conversas_ativas() {
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+    if ( ! function_exists( 'cbpm_can_access' ) || ! cbpm_can_access() ) wp_send_json_error( 'Acesso negado' );
+
+    $ws_id = sanitize_text_field( $_POST['ws_id'] ?? '' );
+    if ( ! $ws_id ) wp_send_json_error( 'Workspace inválido' );
+
+    $rw = tao_crm_api( "/crm_workspaces?id=eq.$ws_id&select=cliente_id&limit=1" );
+    if ( ! $rw['ok'] || empty( $rw['data'] ) ) wp_send_json_error( 'Workspace não encontrado' );
+    $cliente_id = $rw['data'][0]['cliente_id'] ?? '';
+    if ( ! $cliente_id ) wp_send_json_error( 'cliente_id não configurado no workspace' );
+
+    // Leads com chatbot ativo (status=novo)
+    $rl    = tao_crm_api( "/leads?cliente_id=eq.$cliente_id&status=eq.novo&order=criado_em.desc&limit=100" );
+    $leads = $rl['ok'] ? ( $rl['data'] ?? [] ) : [];
+
+    if ( empty( $leads ) ) {
+        wp_send_json_success( [ 'conversas' => [], 'total' => 0 ] );
+    }
+
+    $phones     = array_unique( array_column( $leads, 'phone' ) );
+    $phones_enc = implode( ',', $phones );
+
+    // Historico ativo para esses phones
+    $rh       = tao_crm_api( "/historico?cliente_id=eq.$cliente_id&phone=in.($phones_enc)" );
+    $hist_map = [];
+    if ( $rh['ok'] ) {
+        foreach ( ( $rh['data'] ?? [] ) as $h ) {
+            $hist_map[ $h['phone'] ] = $h;
+        }
+    }
+
+    // Contatos CRM para esses phones (strip non-digits para match)
+    $crm_ct_map = [];
+    $rc         = tao_crm_api( "/crm_contatos?workspace_id=eq.$ws_id&whatsapp=in.($phones_enc)&select=id,nome,whatsapp,classificacao,total_atendimentos&limit=100" );
+    if ( $rc['ok'] ) {
+        foreach ( ( $rc['data'] ?? [] ) as $ct ) {
+            $k = preg_replace( '/\D/', '', $ct['whatsapp'] );
+            $crm_ct_map[ $k ] = $ct;
+        }
+    }
+
+    // Cards abertos para esses phones
+    $cards_map = [];
+    $rc2       = tao_crm_api( "/crm_cards?workspace_id=eq.$ws_id&contato_whatsapp=in.($phones_enc)&fechado=eq.false&select=id,titulo,estagio_id,atendimento_humano,contato_whatsapp&order=criado_em.desc&limit=100" );
+    if ( $rc2['ok'] ) {
+        foreach ( ( $rc2['data'] ?? [] ) as $c ) {
+            $k = preg_replace( '/\D/', '', $c['contato_whatsapp'] );
+            if ( ! isset( $cards_map[ $k ] ) ) $cards_map[ $k ] = $c;
+        }
+    }
+
+    $conversas = [];
+    $leads_by_phone = [];
+    foreach ( $leads as $l ) { $leads_by_phone[ $l['phone'] ] = $l; }
+
+    foreach ( $phones as $phone ) {
+        $lead = $leads_by_phone[ $phone ] ?? null;
+        if ( ! $lead ) continue;
+        $hist = $hist_map[ $phone ] ?? null;
+        if ( ! $hist ) continue; // sem histórico = conversa não iniciada ainda
+
+        $k         = preg_replace( '/\D/', '', $phone );
+        $messages  = is_array( $hist['messages'] )
+            ? $hist['messages']
+            : ( json_decode( $hist['messages'] ?? '[]', true ) ?: [] );
+        $msg_count = count( $messages );
+
+        $ultima_msg  = '';
+        $ultima_role = 'user';
+        if ( ! empty( $messages ) ) {
+            $last        = end( $messages );
+            $ultima_msg  = $last['content'] ?? ( $last['text'] ?? '' );
+            $r           = $last['role']    ?? ( $last['type'] ?? 'user' );
+            $ultima_role = in_array( $r, [ 'human', 'user' ] ) ? 'user' : 'assistant';
+            $ultima_msg  = mb_substr( strip_tags( $ultima_msg ), 0, 120 );
+        }
+
+        $conversas[] = [
+            'phone'       => $phone,
+            'nome'        => $lead['nome'] ?? $phone,
+            'lead_id'     => $lead['id'],
+            'criado_em'   => $lead['criado_em'],
+            'msg_count'   => $msg_count,
+            'ultima_msg'  => $ultima_msg,
+            'ultima_role' => $ultima_role,
+            'crm_contato' => $crm_ct_map[ $k ] ?? null,
+            'card_ativo'  => $cards_map[ $k ] ?? null,
+        ];
+    }
+
+    // Sem card = mais urgente; dentro de cada grupo, mais recente primeiro
+    usort( $conversas, function ( $a, $b ) {
+        $a_c = ! empty( $a['card_ativo'] );
+        $b_c = ! empty( $b['card_ativo'] );
+        if ( $a_c !== $b_c ) return $a_c ? 1 : -1;
+        return strcmp( $b['criado_em'], $a['criado_em'] );
+    } );
+
+    wp_send_json_success( [ 'conversas' => $conversas, 'total' => count( $conversas ) ] );
+}
+
+// ─── AJAX: INTERCEPTAR CONVERSA (bloqueia chatbot + cria/reativa card) ────────
+add_action( 'wp_ajax_tao_crm_interceptar_conversa', 'tao_crm_ajax_interceptar_conversa' );
+function tao_crm_ajax_interceptar_conversa() {
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+    if ( ! function_exists( 'cbpm_can_access' ) || ! cbpm_can_access() ) wp_send_json_error( 'Acesso negado' );
+
+    $ws_id = sanitize_text_field( $_POST['ws_id']  ?? '' );
+    $phone = sanitize_text_field( $_POST['phone']  ?? '' );
+    $nome  = sanitize_text_field( $_POST['nome']   ?? '' );
+    if ( ! $ws_id || ! $phone ) wp_send_json_error( 'Parâmetros inválidos' );
+
+    $phone_clean = preg_replace( '/\D/', '', $phone );
+
+    // Pipeline e estágio de handoff
+    $rpl = tao_crm_api( "/crm_pipelines?workspace_id=eq.$ws_id&ativo=eq.true&order=ordem.asc&limit=1" );
+    $pl_id = ( $rpl['ok'] && ! empty( $rpl['data'] ) ) ? $rpl['data'][0]['id'] : null;
+    if ( ! $pl_id ) wp_send_json_error( 'Pipeline não configurado' );
+
+    $handoff_stage_id = null;
+    $rhs = tao_crm_api( "/crm_estagios?pipeline_id=eq.$pl_id&tipo=eq.handoff&limit=1" );
+    if ( $rhs['ok'] && ! empty( $rhs['data'] ) ) $handoff_stage_id = $rhs['data'][0]['id'];
+    if ( ! $handoff_stage_id ) wp_send_json_error( 'Estágio de handoff não configurado no pipeline' );
+
+    // Contato CRM (enriquece nome e vincula contato_id)
+    $contato_id = null;
+    $rc = tao_crm_api( "/crm_contatos?workspace_id=eq.$ws_id&whatsapp=eq.$phone_clean&limit=1" );
+    if ( $rc['ok'] && ! empty( $rc['data'] ) ) {
+        $contato_id = $rc['data'][0]['id'];
+        if ( ! $nome ) $nome = $rc['data'][0]['nome'] ?? '';
+    }
+    if ( ! $nome ) $nome = $phone_clean;
+
+    // Verifica card aberto → reativa
+    $rc_card = tao_crm_api( "/crm_cards?workspace_id=eq.$ws_id&contato_whatsapp=eq.$phone_clean&fechado=eq.false&order=criado_em.desc&limit=1" );
+    if ( $rc_card['ok'] && ! empty( $rc_card['data'] ) ) {
+        $existing = $rc_card['data'][0];
+        tao_crm_api( "/crm_cards?id=eq.{$existing['id']}", 'PATCH', [
+            'atendimento_humano' => true,
+            'estagio_id'         => $handoff_stage_id,
+            'movido_em'          => gmdate( 'c' ),
+        ] );
+        if ( function_exists( 'tao_crm_lock_chatbot' ) ) tao_crm_lock_chatbot( $phone_clean, $ws_id );
+        tao_crm_disparar_automacoes( $existing['id'], $handoff_stage_id, 'entrar_fase' );
+        tao_crm_disparar_automacoes( $existing['id'], $handoff_stage_id, 'tempo_na_fase' );
+        $url = admin_url( 'admin.php?page=tao-crm-kanban&action=card&id=' . $existing['id'] );
+        wp_send_json_success( [ 'card_id' => $existing['id'], 'url' => $url, 'criado' => false ] );
+    }
+
+    // Cria novo card
+    $instancia_id = null;
+    $ri = tao_crm_api( "/crm_instancias?workspace_id=eq.$ws_id&ativo=eq.true&limit=1" );
+    if ( $ri['ok'] && ! empty( $ri['data'] ) ) $instancia_id = $ri['data'][0]['id'];
+
+    $rc_new = tao_crm_api( '/crm_cards', 'POST', [
+        'workspace_id'       => $ws_id,
+        'pipeline_id'        => $pl_id,
+        'estagio_id'         => $handoff_stage_id,
+        'instancia_id'       => $instancia_id,
+        'contato_id'         => $contato_id,
+        'titulo'             => $nome,
+        'contato_nome'       => $nome,
+        'contato_whatsapp'   => $phone_clean,
+        'atendimento_humano' => true,
+        'criado_em'          => gmdate( 'c' ),
+        'movido_em'          => gmdate( 'c' ),
+    ], [ 'Prefer' => 'return=representation' ] );
+
+    if ( ! $rc_new['ok'] || empty( $rc_new['data'] ) ) wp_send_json_error( 'Erro ao criar card: ' . ( $rc_new['error'] ?? '' ) );
+
+    $card_id = $rc_new['data'][0]['id'];
+    if ( $contato_id ) tao_crm_api( '/rpc/crm_contato_novo_atendimento', 'POST', [ 'p_id' => $contato_id ] );
+    if ( function_exists( 'tao_crm_lock_chatbot' ) ) tao_crm_lock_chatbot( $phone_clean, $ws_id );
+    tao_crm_disparar_automacoes( $card_id, $handoff_stage_id, 'entrar_fase' );
+    tao_crm_disparar_automacoes( $card_id, $handoff_stage_id, 'tempo_na_fase' );
+
+    $url = admin_url( 'admin.php?page=tao-crm-kanban&action=card&id=' . $card_id );
+    wp_send_json_success( [ 'card_id' => $card_id, 'url' => $url, 'criado' => true ] );
 }
 
 // ─── AJAX: LGPD — EXCLUSÃO DE DADOS DO CONTATO ───────────────────────────────
@@ -1867,7 +2450,8 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
             $inst_cache[ $instancia ] = ( $ri['ok'] && ! empty( $ri['data'] ) ) ? $ri['data'][0] : null;
         }
         $inst = $inst_cache[ $instancia ];
-        if ( ! $inst ) continue;
+        // Instâncias sem workspace_id pertencem ao TAO Neo puro — N8N processa, CRM ignora
+        if ( ! $inst || ! $inst['workspace_id'] ) continue;
 
         $INST_ID = $inst['id'];
         $WS_ID   = $inst['workspace_id'];
@@ -1973,28 +2557,130 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
             }
 
             // ── 2. Busca card em atendimento humano ativo (bloqueia chatbot) ────────
-            $r = tao_crm_api( "/crm_cards?workspace_id=eq.$WS_ID&contato_whatsapp=eq.$num&fechado=eq.false&atendimento_humano=eq.true&select=id,estagio_id,fechado&order=criado_em.desc&limit=1" );
+            // Filtra pela instância atual; cards sem instancia_id (legados) também casam.
+            $inst_or = "or=(instancia_id.eq.$INST_ID,instancia_id.is.null)";
+            $r = tao_crm_api( "/crm_cards?workspace_id=eq.$WS_ID&contato_whatsapp=eq.$num&fechado=eq.false&atendimento_humano=eq.true&$inst_or&select=id,estagio_id,fechado&order=criado_em.desc&limit=1" );
             $card_id         = null;
             $card_estagio_id = null;
             if ( $r['ok'] && ! empty( $r['data'] ) ) {
                 $card_id         = $r['data'][0]['id'];
                 $card_estagio_id = $r['data'][0]['estagio_id'];
             }
+            tao_crm_log_error( 'dispatch', '[2] card_humano=' . ( $card_id ? substr($card_id,0,8) : 'none' ), [ 'num' => $num_plain, 'from_me' => $from_me, 'msg' => mb_substr($conteudo,0,80) ] );
 
             // ── 2c. Busca card aberto de tracking (Pós Vendas, sem bloquear chatbot) ─
-            // Usado para salvar mensagens e informar o N8N sobre o pedido em andamento.
+            // Busca em TODAS as instâncias para garantir que cards de pós-vendas sejam detectados
+            // independentemente da instância em que foram criados.
             $tracking_card_id    = $card_id;
             $pos_vendas_card     = null;
             if ( ! $card_id ) {
-                $rt = tao_crm_api( "/crm_cards?workspace_id=eq.$WS_ID&contato_whatsapp=eq.$num&fechado=eq.false&atendimento_humano=eq.false&select=id,estagio_id,titulo&order=criado_em.desc&limit=1" );
+                $rt = tao_crm_api( "/crm_cards?workspace_id=eq.$WS_ID&contato_whatsapp=eq.$num&fechado=eq.false&atendimento_humano=eq.false&select=id,estagio_id,titulo,pipeline_id&order=criado_em.desc&limit=1" );
                 if ( $rt['ok'] && ! empty( $rt['data'] ) ) {
                     $tracking_card_id = $rt['data'][0]['id'];
                     $pos_vendas_card  = $rt['data'][0];
                 }
             }
+            // [2c-pv] Fallback: card de pós-vendas fechado nos últimos 90 dias.
+            // Reativa imediatamente e bloqueia encaminhamento ao N8N (evita msg de horário + novo card de vendas).
+            if ( ! $from_me && ! $card_id && ! $pos_vendas_card ) {
+                $_pv_pl_2c = get_option( 'tao_crm_pos_vendas_pipeline_' . $WS_ID, '' );
+                if ( ! $_pv_pl_2c ) {
+                    $_r_pls_2c   = tao_crm_api( "/crm_pipelines?workspace_id=eq.$WS_ID&ativo=eq.true&order=ordem.asc&limit=2" );
+                    $_all_pls_2c = $_r_pls_2c['ok'] ? ( $_r_pls_2c['data'] ?? [] ) : [];
+                    if ( count( $_all_pls_2c ) >= 2 ) $_pv_pl_2c = $_all_pls_2c[1]['id'];
+                }
+                if ( $_pv_pl_2c ) {
+                    $_since_2c = gmdate( 'c', strtotime( '-90 days' ) );
+                    $r_pvc_2c  = tao_crm_api( "/crm_cards?workspace_id=eq.$WS_ID&contato_whatsapp=eq.$num&pipeline_id=eq.$_pv_pl_2c&criado_em=gte.$_since_2c&select=id,estagio_id,titulo,pipeline_id,fechado&order=criado_em.desc&limit=1" );
+                    if ( $r_pvc_2c['ok'] && ! empty( $r_pvc_2c['data'] ) ) {
+                        $pvc_found        = $r_pvc_2c['data'][0];
+                        $pos_vendas_card  = $pvc_found;
+                        $tracking_card_id = $pvc_found['id'];
+                        $card_id          = $pvc_found['id'];   // bloqueia step 2b (N8N forward)
+                        $card_estagio_id  = $pvc_found['estagio_id'];
+                        tao_crm_api( "/crm_cards?id=eq.{$card_id}", 'PATCH', [
+                            'atendimento_humano' => true,
+                            'fechado'            => false,
+                            'movido_em'          => gmdate( 'c' ),
+                        ] );
+                        tao_crm_lock_chatbot( $num_plain, $WS_ID );
+                        tao_crm_log_error( 'dispatch', '[2c-pv] pós-vendas reativado sem encaminhar N8N card=' . substr($card_id,0,8), [ 'num' => $num_plain ] );
+                    }
+                }
+            }
+            tao_crm_log_error( 'dispatch', '[2c] tracking_card=' . ( $tracking_card_id ? substr($tracking_card_id,0,8) : 'none' ) . ' pos_vendas=' . ( $pos_vendas_card ? substr($pos_vendas_card['id'],0,8) : 'none' ) );
+
+            // ── 2e. Conflito cross-instância: número ativo em outra instância ─────────
+            // Se não encontrou card nesta instância mas há um aberto em outra, avisa e descarta.
+            if ( ! $from_me && ! $tracking_card_id ) {
+                $rc_conf = tao_crm_api( "/crm_cards?workspace_id=eq.$WS_ID&contato_whatsapp=eq.$num&fechado=eq.false&instancia_id=neq.$INST_ID&select=id&limit=1" );
+                if ( $rc_conf['ok'] && ! empty( $rc_conf['data'] ) ) {
+                    tao_crm_evolution_send( $inst, $num, '⚠️ Este número já está em atendimento em outro canal. Assim que o atendimento atual for concluído, responderemos por aqui.' );
+                    tao_crm_log_error( 'dispatch', '[2e] conflito cross-instancia', [ 'num' => $num_plain, 'inst' => $instancia ] );
+                    continue;
+                }
+            }
+
+            // ── 2d. Verifica resposta de agendamento fora do horário ─────────────
+            $is_handoff_req = tao_crm_is_user_handoff_request( $conteudo );
+            $agend_key      = 'tao_crm_agend_' . $WS_ID . '_' . $num_plain;
+            if ( ! $from_me && ! $card_id && get_transient( $agend_key ) ) {
+                $resp_lc     = mb_strtolower( trim( $conteudo ) );
+                $afirmativos = [ 'sim', 'quero', 'pode', 'ok', 'tá', 'ta', 'bom', 'claro', 'vamos',
+                                 'com certeza', 'quero sim', 'pode ser', 'fechado', 'combinado', 'perfeito', 'ótimo', 'otimo' ];
+                $is_afirm = false;
+                foreach ( $afirmativos as $w ) {
+                    if ( strpos( $resp_lc, $w ) !== false ) { $is_afirm = true; break; }
+                }
+                delete_transient( $agend_key );
+                if ( $is_afirm ) {
+                    if ( $pos_vendas_card && $HANDOFF_STAGE_ID ) {
+                        $card_id = $pos_vendas_card['id'];
+                        tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [
+                            'estagio_id' => $HANDOFF_STAGE_ID,
+                            'movido_em'  => gmdate( 'c' ),
+                        ] );
+                    } elseif ( $HANDOFF_STAGE_ID && $PL_ID ) {
+                        $push_ag = trim( $msg['pushName'] ?? '' );
+                        $nome_ag = ( $push_ag && $push_ag !== '.' ) ? $push_ag : $num_plain;
+                        $rc_ag   = tao_crm_api( '/crm_cards', 'POST', [
+                            'workspace_id'     => $WS_ID,
+                            'pipeline_id'      => $PL_ID,
+                            'estagio_id'       => $HANDOFF_STAGE_ID,
+                            'instancia_id'     => $INST_ID,
+                            'contato_id'       => $contato_id,
+                            'titulo'           => $nome_ag,
+                            'contato_nome'     => $nome_ag,
+                            'contato_whatsapp' => $num,
+                            'criado_em'        => gmdate( 'c' ),
+                            'movido_em'        => gmdate( 'c' ),
+                        ], [ 'Prefer' => 'return=representation' ] );
+                        if ( $rc_ag['ok'] && ! empty( $rc_ag['data'] ) ) {
+                            $card_id = $rc_ag['data'][0]['id'];
+                            if ( $contato_id ) tao_crm_api( '/rpc/crm_contato_novo_atendimento', 'POST', [ 'p_id' => $contato_id ] );
+                        }
+                    }
+                    $h_ag  = tao_crm_get_horario_ws( $WS_ID );
+                    $tz_ag = new DateTimeZone( $h_ag['timezone'] ?: 'America/Sao_Paulo' );
+                    $prox_ag = '';
+                    for ( $d = 1; $d <= 7; $d++ ) {
+                        $test_ag = ( new DateTime( 'now', $tz_ag ) )->modify( "+$d day" );
+                        $dow_ag  = (string)(int)$test_ag->format( 'w' );
+                        $dia_ag  = $h_ag['dias'][$dow_ag] ?? null;
+                        if ( $dia_ag && ! empty( $dia_ag['ativo'] ) ) { $prox_ag = $dia_ag['abertura'] . ' do dia ' . $test_ag->format('d/m'); break; }
+                    }
+                    $confirm = "✅ *Perfeito!* Seu atendimento está agendado.\n\n"
+                             . "Um de nossos atendentes irá te chamar assim que estivermos em horário de atendimento"
+                             . ( $prox_ag ? " (a partir das *$prox_ag*)" : '' ) . ". 😊\n\n"
+                             . "Enquanto isso, pode continuar me enviando suas dúvidas — estou aqui 24h!";
+                    tao_crm_evolution_send( $inst, $num, $confirm );
+                    // $card_id definido → steps 2b e 3 não executam; mensagem salva no card normalmente
+                }
+            }
 
             // ── 2b. Encaminha ao N8N uma vez por workspace, só sem card aberto ──────
-            if ( ! $from_me && ! $card_id && $N8N_URL && empty( $fw_cache[ $WS_ID ] ) ) {
+            // Bloqueia N8N se cliente tem card no pós-vendas (evita msg de horário + criação de novo card de vendas)
+            if ( ! $from_me && ! $card_id && ! $pos_vendas_card && $N8N_URL && empty( $fw_cache[ $WS_ID ] ) && ! ( $is_handoff_req && ! tao_crm_esta_em_horario( $WS_ID ) ) ) {
                 $fw_ev = $ev;
                 if ( isset( $fw_ev['data'] ) ) {
                     $fw_ev['_crm_retorno']    = $is_retorno;
@@ -2053,76 +2739,123 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
             // ── 3. Handoff detectado na mensagem ENTRANTE do usuário ────────────
             // Evolution v2 não dispara webhook para mensagens enviadas via API,
             // então detectamos o handoff diretamente na solicitação do usuário.
-            if ( ! $from_me && ! $card_id && $HANDOFF_STAGE_ID && $PL_ID && tao_crm_is_user_handoff_request( $conteudo ) ) {
+            $is_handoff_phrase = tao_crm_is_user_handoff_request( $conteudo );
+            tao_crm_log_error( 'dispatch', '[3] handoff_check: from_me=' . ($from_me?'1':'0') . ' card_id=' . ($card_id?substr($card_id,0,8):'none') . ' HANDOFF_STAGE=' . ($HANDOFF_STAGE_ID?substr($HANDOFF_STAGE_ID,0,8):'none') . ' PL_ID=' . ($PL_ID?substr($PL_ID,0,8):'none') . ' is_req=' . ($is_handoff_phrase?'SIM':'NÃO') );
+            if ( ! $from_me && ! $card_id && $HANDOFF_STAGE_ID && $PL_ID && $is_handoff_phrase ) {
                 // Verifica horário de atendimento antes de criar handoff
                 if ( ! tao_crm_esta_em_horario( $WS_ID ) ) {
-                    $h_cfg    = tao_crm_get_horario_ws( $WS_ID );
-                    $msg_fora = str_replace( [ '{abertura}', '{fechamento}' ], [ $h_cfg['abertura'], $h_cfg['fechamento'] ], $h_cfg['mensagem'] );
+                    $h_cfg  = tao_crm_get_horario_ws( $WS_ID );
+                    $tz_fh  = new DateTimeZone( $h_cfg['timezone'] ?: 'America/Sao_Paulo' );
+                    $prox_fh = '';
+                    for ( $d = 1; $d <= 7; $d++ ) {
+                        $test_fh = ( new DateTime( 'now', $tz_fh ) )->modify( "+$d day" );
+                        $dow_fh  = (string)(int)$test_fh->format( 'w' );
+                        $dia_fh  = $h_cfg['dias'][$dow_fh] ?? null;
+                        if ( $dia_fh && ! empty( $dia_fh['ativo'] ) ) { $prox_fh = $dia_fh['abertura'] . ' do dia ' . $test_fh->format('d/m'); break; }
+                    }
+                    $dias_nomes_fh = [ 'Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb' ];
+                    $dias_texto_fh = [];
+                    foreach ( $h_cfg['dias'] as $d_num => $d_cfg_fh ) {
+                        if ( ! empty( $d_cfg_fh['ativo'] ) ) $dias_texto_fh[] = $dias_nomes_fh[ (int)$d_num ] . ' ' . $d_cfg_fh['abertura'] . '–' . $d_cfg_fh['fechamento'];
+                    }
+                    $msg_fora  = "Olá! 😊 Agradecemos o contato.\n\n";
+                    $msg_fora .= "⏰ *Horário de atendimento humano:*\n" . implode( ', ', $dias_texto_fh ) . "\n\n";
+                    $msg_fora .= "💬 Nosso atendimento virtual está disponível 24h e pode te ajudar com dúvidas e orientações agora mesmo!\n\n";
+                    $msg_fora .= "👤 O atendimento humano retomará no próximo dia útil" . ( $prox_fh ? ", a partir das *$prox_fh*" : '' ) . ".\n\n";
+                    $msg_fora .= "Gostaria de deixar seu atendimento *agendado* para quando abrirmos? Basta responder *SIM*. 📋";
                     tao_crm_evolution_send( $inst, $num, $msg_fora );
-                    continue; // não cria card fora do horário
+                    set_transient( $agend_key, 1, DAY_IN_SECONDS );
+                    continue;
                 }
                 $push = trim( $msg['pushName'] ?? '' );
                 // pushName '.' ou vazio em @lid → usa o número limpo como nome provisório
                 $nome = ( $push && $push !== '.' ) ? $push : $num_plain;
 
-                // Monta título referenciando o card de Pós Vendas, se existir.
-                // Formato: "Carlos Silva - PV - <Número Requisição>"
-                // O campo "Número Requisição" fica em crm_campos_definicao + crm_cards_valores.
-                $card_titulo = $nome;
+                // ── Se já existe card aberto (ex: após Devolver ao Chatbot ou em Pós-Vendas), reativa ──
                 if ( $pos_vendas_card ) {
-                    $pv_req = '';
-                    // 1. Acha o campo pelo nome (busca case-insensitive por "requisição")
-                    $rc_def = tao_crm_api( '/crm_campos_definicao?workspace_id=eq.' . $WS_ID
-                        . '&nome=ilike.*Requisi%C3%A7%C3%A3o*&select=id&limit=1' );
-                    if ( $rc_def['ok'] && ! empty( $rc_def['data'] ) ) {
-                        $campo_id = $rc_def['data'][0]['id'];
-                        // 2. Busca o valor desse campo no card de Pós Vendas
-                        $rc_val = tao_crm_api( '/crm_cards_valores?card_id=eq.' . $pos_vendas_card['id']
-                            . '&campo_id=eq.' . $campo_id . '&select=valor&limit=1' );
-                        if ( $rc_val['ok'] && ! empty( $rc_val['data'] ) ) {
-                            $pv_req = trim( $rc_val['data'][0]['valor'] ?? '' );
-                        }
-                    }
-                    $card_titulo = rtrim( $nome . ' - PV' . ( $pv_req ? ' - ' . $pv_req : '' ) );
-                }
+                    $card_id = $pos_vendas_card['id'];
 
-                $rc = tao_crm_api( '/crm_cards', 'POST', [
-                    'workspace_id'       => $WS_ID,
-                    'pipeline_id'        => $PL_ID,
-                    'estagio_id'         => $HANDOFF_STAGE_ID,
-                    'instancia_id'       => $INST_ID,
-                    'contato_id'         => $contato_id,
-                    'titulo'             => $card_titulo,
-                    'contato_nome'       => $nome,
-                    'contato_whatsapp'   => $num,
-                    'atendimento_humano' => true,
-                    'criado_em'          => gmdate( 'c' ),
-                    'movido_em'          => gmdate( 'c' ),
-                ], [ 'Prefer' => 'return=representation' ] );
-                if ( $rc['ok'] && ! empty( $rc['data'] ) ) {
-                    $card_id         = $rc['data'][0]['id'];
-                    $card_estagio_id = $HANDOFF_STAGE_ID;
-                    if ( $pos_vendas_card ) {
+                    // Detecta se o card está no pipeline de pós-vendas
+                    $_pv_pl = get_option( 'tao_crm_pos_vendas_pipeline_' . $WS_ID, '' );
+                    if ( ! $_pv_pl ) {
+                        $_rall = tao_crm_api( "/crm_pipelines?workspace_id=eq.$WS_ID&ativo=eq.true&order=ordem.asc&limit=2" );
+                        $_all  = $_rall['ok'] ? ( $_rall['data'] ?? [] ) : [];
+                        if ( count( $_all ) >= 2 ) $_pv_pl = $_all[1]['id'];
+                    }
+                    $_em_pv = $_pv_pl && ( ( $pos_vendas_card['pipeline_id'] ?? '' ) === $_pv_pl );
+
+                    if ( $_em_pv ) {
+                        // Cliente em pós-vendas: não move para o funil de vendas; ativa atendimento humano no mesmo estágio
+                        $card_estagio_id = $pos_vendas_card['estagio_id'];
+                        tao_crm_log_error( 'dispatch', '[3a] POS-VENDAS: ativando humano sem mover pipeline card=' . substr($card_id,0,8) );
                         tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [
-                            'meta' => wp_json_encode( [ 'pos_vendas_card_id' => $pos_vendas_card['id'] ] ),
+                            'atendimento_humano' => true,
+                            'fechado'            => false,
+                            'movido_em'          => gmdate( 'c' ),
+                        ] );
+                    } else {
+                        // Card "devolvido ao chatbot" no funil de vendas: reativa e move para handoff
+                        $card_estagio_id = $HANDOFF_STAGE_ID;
+                        tao_crm_log_error( 'dispatch', '[3a] REATIVANDO card=' . substr($card_id,0,8) . ' pipeline_id=' . substr($PL_ID,0,8) . ' estagio=' . substr($HANDOFF_STAGE_ID,0,8) );
+                        tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [
+                            'atendimento_humano' => true,
+                            'pipeline_id'        => $PL_ID,
+                            'estagio_id'         => $HANDOFF_STAGE_ID,
+                            'movido_em'          => gmdate( 'c' ),
                         ] );
                     }
-                    if ( $contato_id ) tao_crm_api( '/rpc/crm_contato_novo_atendimento', 'POST', [ 'p_id' => $contato_id ] );
                     tao_crm_lock_chatbot( $num_plain, $WS_ID );
-                    tao_crm_disparar_automacoes( $card_id, $HANDOFF_STAGE_ID, 'entrar_fase' );
-                    tao_crm_disparar_automacoes( $card_id, $HANDOFF_STAGE_ID, 'tempo_na_fase' );
-                    // E-mail de notificação para gestores
+                    tao_crm_disparar_automacoes( $card_id, $card_estagio_id, 'entrar_fase' );
+                    tao_crm_disparar_automacoes( $card_id, $card_estagio_id, 'tempo_na_fase' );
                     $gestor_ids = array_unique( array_merge(
                         (array) get_option( 'tao_crm_gestores_global', [] ),
                         (array) get_option( 'tao_crm_gestores_ws_' . $WS_ID, [] )
                     ) );
                     if ( empty( $gestor_ids ) ) $gestor_ids = [ 1 ];
                     $card_url_email = admin_url( 'admin.php?page=tao-crm-kanban&action=card&id=' . $card_id );
-                    $email_subj = '[TAO CRM] Novo atendimento: ' . $nome;
-                    $email_body = "Um cliente solicitou atendimento humano.\n\nNome: $nome\nWhatsApp: $num\n\nAcesse o card:\n$card_url_email";
+                    $email_subj = '[TAO CRM] Retomada de atendimento: ' . $nome;
+                    $email_body = "Um cliente retomou o atendimento humano após ser devolvido ao chatbot.\n\nNome: $nome\nWhatsApp: $num\n\nAcesse o card:\n$card_url_email";
                     foreach ( $gestor_ids as $gid ) {
                         $gu = get_userdata( intval( $gid ) );
                         if ( $gu && is_email( $gu->user_email ) ) wp_mail( $gu->user_email, $email_subj, $email_body );
+                    }
+                } else {
+                    // ── Cria novo card de handoff ────────────────────────────────────
+                    tao_crm_log_error( 'dispatch', '[3b] CRIANDO novo card handoff nome=' . $nome . ' pipeline=' . substr($PL_ID,0,8) . ' estagio=' . substr($HANDOFF_STAGE_ID,0,8) );
+                    $card_titulo = $nome;
+                    $rc = tao_crm_api( '/crm_cards', 'POST', [
+                        'workspace_id'       => $WS_ID,
+                        'pipeline_id'        => $PL_ID,
+                        'estagio_id'         => $HANDOFF_STAGE_ID,
+                        'instancia_id'       => $INST_ID,
+                        'contato_id'         => $contato_id,
+                        'titulo'             => $card_titulo,
+                        'contato_nome'       => $nome,
+                        'contato_whatsapp'   => $num,
+                        'atendimento_humano' => true,
+                        'criado_em'          => gmdate( 'c' ),
+                        'movido_em'          => gmdate( 'c' ),
+                    ], [ 'Prefer' => 'return=representation' ] );
+                    if ( $rc['ok'] && ! empty( $rc['data'] ) ) {
+                        $card_id         = $rc['data'][0]['id'];
+                        $card_estagio_id = $HANDOFF_STAGE_ID;
+                        tao_crm_log_error( 'dispatch', '[3b] card criado OK id=' . substr($card_id,0,8) );
+                        if ( $contato_id ) tao_crm_api( '/rpc/crm_contato_novo_atendimento', 'POST', [ 'p_id' => $contato_id ] );
+                        tao_crm_lock_chatbot( $num_plain, $WS_ID );
+                        tao_crm_disparar_automacoes( $card_id, $HANDOFF_STAGE_ID, 'entrar_fase' );
+                        tao_crm_disparar_automacoes( $card_id, $HANDOFF_STAGE_ID, 'tempo_na_fase' );
+                        $gestor_ids = array_unique( array_merge(
+                            (array) get_option( 'tao_crm_gestores_global', [] ),
+                            (array) get_option( 'tao_crm_gestores_ws_' . $WS_ID, [] )
+                        ) );
+                        if ( empty( $gestor_ids ) ) $gestor_ids = [ 1 ];
+                        $card_url_email = admin_url( 'admin.php?page=tao-crm-kanban&action=card&id=' . $card_id );
+                        $email_subj = '[TAO CRM] Novo atendimento: ' . $nome;
+                        $email_body = "Um cliente solicitou atendimento humano.\n\nNome: $nome\nWhatsApp: $num\n\nAcesse o card:\n$card_url_email";
+                        foreach ( $gestor_ids as $gid ) {
+                            $gu = get_userdata( intval( $gid ) );
+                            if ( $gu && is_email( $gu->user_email ) ) wp_mail( $gu->user_email, $email_subj, $email_body );
+                        }
                     }
                 }
             }
@@ -2237,6 +2970,9 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
         }
     }
 
+    // Aproveita o webhook para processar automações pendentes (WP-cron não é confiável sem tráfego)
+    tao_crm_processar_fila_fn();
+
     return rest_ensure_response( [ 'ok' => true, 'processados' => $salvos ] );
 }
 
@@ -2308,15 +3044,50 @@ function tao_crm_rest_lead_to_card( WP_REST_Request $req ) {
     if ( ! $estagio_id ) return new WP_Error( 'no_stage', 'Nenhum estágio encontrado', [ 'status' => 400 ] );
 
     // Evita duplicata: card aberto para este número
-    // Quando novo_atendimento=true (cliente de Pós Vendas abre assunto novo),
-    // só bloqueia se houver card com atendimento_humano=true — ignora Pós Vendas.
+    // Quando novo_atendimento=true, primeiro verifica se já existe card com atendimento_humano=true.
+    // Se só existe card com atendimento_humano=false (ex: após Devolver ao Chatbot),
+    // reativa esse card em vez de criar um duplicado.
     $novo_atendimento = ! empty( $body['novo_atendimento'] );
-    $dedup_filter     = $novo_atendimento
-        ? "/crm_cards?workspace_id=eq.$workspace_id&contato_whatsapp=eq.$whatsapp&fechado=eq.false&atendimento_humano=eq.true&order=criado_em.desc&limit=1"
-        : "/crm_cards?workspace_id=eq.$workspace_id&contato_whatsapp=eq.$whatsapp&fechado=eq.false&order=criado_em.desc&limit=1";
-    $rc_ex = tao_crm_api( $dedup_filter );
+    $dedup_filter     = "/crm_cards?workspace_id=eq.$workspace_id&contato_whatsapp=eq.$whatsapp&fechado=eq.false&order=criado_em.desc&limit=1";
+    $rc_ex            = tao_crm_api( $dedup_filter );
     if ( $rc_ex['ok'] && ! empty( $rc_ex['data'] ) ) {
-        return rest_ensure_response( [ 'ok' => true, 'card_id' => $rc_ex['data'][0]['id'], 'criado' => false ] );
+        $existing = $rc_ex['data'][0];
+        if ( $existing['atendimento_humano'] ) {
+            // Já existe card em atendimento humano ativo — retorna sem criar
+            return rest_ensure_response( [ 'ok' => true, 'card_id' => $existing['id'], 'criado' => false ] );
+        }
+        if ( $novo_atendimento ) {
+            // Reativa o card existente (ex: após Devolver ao Chatbot) em vez de criar duplicata
+            tao_crm_api( "/crm_cards?id=eq.{$existing['id']}", 'PATCH', [ 'atendimento_humano' => true ] );
+            if ( function_exists( 'tao_crm_lock_chatbot' ) ) tao_crm_lock_chatbot( $whatsapp, $workspace_id );
+            return rest_ensure_response( [ 'ok' => true, 'card_id' => $existing['id'], 'criado' => false ] );
+        }
+        // Card aberto sem atendimento humano: retorna sem criar
+        return rest_ensure_response( [ 'ok' => true, 'card_id' => $existing['id'], 'criado' => false ] );
+    }
+
+    // Sem card aberto: verifica se há card de pós-vendas nos últimos 90 dias (mesmo fechado).
+    // Evita criar novo card de vendas para cliente que já está/esteve no pós-vendas.
+    // Apenas quando criando no pipeline de vendas (pipeline_id != pós-vendas).
+    $_pv_pl_ltc = get_option( 'tao_crm_pos_vendas_pipeline_' . $workspace_id, '' );
+    if ( ! $_pv_pl_ltc ) {
+        $_rall_ltc  = tao_crm_api( "/crm_pipelines?workspace_id=eq.$workspace_id&ativo=eq.true&order=ordem.asc&limit=2" );
+        $_all_ltc   = $_rall_ltc['ok'] ? ( $_rall_ltc['data'] ?? [] ) : [];
+        if ( count( $_all_ltc ) >= 2 ) $_pv_pl_ltc = $_all_ltc[1]['id'];
+    }
+    if ( $_pv_pl_ltc && $pipeline_id !== $_pv_pl_ltc ) {
+        $_since_ltc = gmdate( 'c', strtotime( '-90 days' ) );
+        $r_pv_ltc   = tao_crm_api( "/crm_cards?workspace_id=eq.$workspace_id&contato_whatsapp=eq.$whatsapp&pipeline_id=eq.$_pv_pl_ltc&criado_em=gte.$_since_ltc&select=id,fechado,atendimento_humano&order=criado_em.desc&limit=1" );
+        if ( $r_pv_ltc['ok'] && ! empty( $r_pv_ltc['data'] ) ) {
+            $pv_ex = $r_pv_ltc['data'][0];
+            tao_crm_api( "/crm_cards?id=eq.{$pv_ex['id']}", 'PATCH', [
+                'atendimento_humano' => true,
+                'fechado'            => false,
+                'movido_em'          => gmdate( 'c' ),
+            ]);
+            if ( function_exists( 'tao_crm_lock_chatbot' ) ) tao_crm_lock_chatbot( $whatsapp, $workspace_id );
+            return rest_ensure_response( [ 'ok' => true, 'card_id' => $pv_ex['id'], 'criado' => false, 'reativado_pv' => true ] );
+        }
     }
 
     $ct         = tao_crm_upsert_contato( $workspace_id, $whatsapp, $nome );
@@ -2975,6 +3746,100 @@ function tao_crm_export_relatorio_csv() {
     exit;
 }
 
+// ─── v1.8.0: RELATÓRIO FINANCEIRO CSV ────────────────────────────────────────
+add_action( 'admin_post_tao_crm_export_relatorio_financeiro', 'tao_crm_export_relatorio_financeiro' );
+function tao_crm_export_relatorio_financeiro() {
+    if ( ! current_user_can( 'manage_options' ) && ! tao_crm_is_gestor( sanitize_text_field( $_GET['workspace_id'] ?? '' ) ) ) {
+        wp_die( 'Acesso negado' );
+    }
+    check_admin_referer( 'tao_crm_export_relatorio_financeiro' );
+
+    $ws_id = sanitize_text_field( $_GET['workspace_id'] ?? '' );
+    $dias  = max( 7, min( 365, intval( $_GET['dias'] ?? 30 ) ) );
+    $desde = gmdate( 'Y-m-d\TH:i:s\Z', strtotime( "-{$dias} days" ) );
+    $ate   = gmdate( 'Y-m-d\T23:59:59\Z' );
+
+    // Busca cards do período com todos os campos relevantes
+    $rc = tao_crm_api(
+        "/crm_cards?workspace_id=eq.$ws_id" .
+        "&criado_em=gte.$desde&criado_em=lte.$ate" .
+        "&select=id,titulo,contato_nome,contato_whatsapp,status,fechado,responsavel_id," .
+               "pipeline_id,estagio_id,valor_oportunidade,criado_em,movido_em,meta" .
+        "&order=criado_em.desc&limit=5000"
+    );
+    $cards = $rc['ok'] ? ( $rc['data'] ?? [] ) : [];
+
+    // Mapas auxiliares
+    $estagios_map  = [];
+    $pipelines_map = [];
+    $res_pipes = tao_crm_api( "/crm_pipelines?workspace_id=eq.$ws_id&select=id,nome" );
+    foreach ( $res_pipes['ok'] ? $res_pipes['data'] : [] as $p ) {
+        $pipelines_map[ $p['id'] ] = $p['nome'];
+    }
+    $estagio_ids = array_unique( array_column( $cards, 'estagio_id' ) );
+    if ( ! empty( $estagio_ids ) ) {
+        $res_est = tao_crm_api( '/crm_estagios?id=in.(' . implode( ',', $estagio_ids ) . ')&select=id,nome,tipo' );
+        foreach ( $res_est['ok'] ? $res_est['data'] : [] as $e ) {
+            $estagios_map[ $e['id'] ] = $e;
+        }
+    }
+
+    header( 'Content-Type: text/csv; charset=utf-8' );
+    header( 'Content-Disposition: attachment; filename="relatorio_financeiro_' . date( 'Y-m-d' ) . '.csv"' );
+    $out = fopen( 'php://output', 'w' );
+    fprintf( $out, chr(0xEF).chr(0xBB).chr(0xBF) ); // BOM UTF-8 — compatível com Excel
+
+    fputcsv( $out, [
+        'ID', 'Título', 'Contato', 'WhatsApp', 'Responsável',
+        'Pipeline', 'Estágio', 'Status', 'Valor (R$)',
+        'Criado em', 'Última movimentação',
+    ] );
+
+    foreach ( $cards as $c ) {
+        $uid  = intval( $c['responsavel_id'] ?? 0 );
+        $u    = $uid ? get_userdata( $uid ) : null;
+        $est  = $estagios_map[ $c['estagio_id'] ?? '' ] ?? [];
+        $meta = is_string( $c['meta'] ) ? ( json_decode( $c['meta'], true ) ?: [] ) : ( $c['meta'] ?: [] );
+
+        $status_label = match( $c['status'] ?? '' ) {
+            'fechado'    => 'Ganho',
+            'cancelado'  => 'Perdido',
+            default      => 'Aberto',
+        };
+
+        fputcsv( $out, [
+            substr( $c['id'] ?? '', 0, 8 ),
+            $c['titulo']           ?? $c['contato_nome'] ?? '',
+            $c['contato_nome']     ?? '',
+            tao_crm_format_phone( $c['contato_whatsapp'] ?? '' ),
+            $u ? $u->display_name  : 'Sem atendente',
+            $pipelines_map[ $c['pipeline_id'] ?? '' ] ?? '',
+            $est['nome']           ?? '',
+            $status_label,
+            number_format( floatval( $c['valor_oportunidade'] ?? 0 ), 2, ',', '.' ),
+            tao_crm_brt( $c['criado_em']  ?? '', 'd/m/Y H:i' ),
+            tao_crm_brt( $c['movido_em']  ?? '', 'd/m/Y H:i' ),
+        ] );
+    }
+
+    // ── Linha de totais ───────────────────────────────────────────────────────
+    $total_ganho    = array_sum( array_map( fn($c) => $c['status']==='fechado'   ? floatval($c['valor_oportunidade']??0) : 0, $cards ) );
+    $total_perdido  = count( array_filter( $cards, fn($c) => $c['status']==='cancelado' ) );
+    $total_ganhos   = count( array_filter( $cards, fn($c) => $c['status']==='fechado' ) );
+    $total_abertos  = count( array_filter( $cards, fn($c) => !in_array($c['status']??'', ['fechado','cancelado']) ) );
+
+    fputcsv( $out, [] ); // linha em branco
+    fputcsv( $out, [ '=== RESUMO ===' ] );
+    fputcsv( $out, [ 'Total de cards no período', count($cards) ] );
+    fputcsv( $out, [ 'Ganhos',  $total_ganhos,  '', '', number_format($total_ganho,2,',','.') ] );
+    fputcsv( $out, [ 'Perdidos', $total_perdido ] );
+    fputcsv( $out, [ 'Abertos',  $total_abertos ] );
+    fputcsv( $out, [ 'Período', "Últimos $dias dias (até " . date('d/m/Y') . ')' ] );
+
+    fclose( $out );
+    exit;
+}
+
 // ── CRON: Automação sem resposta ─────────────────────────────────────────────
 add_action( 'tao_crm_check_sem_resposta', 'tao_crm_processar_sem_resposta' );
 function tao_crm_processar_sem_resposta() {
@@ -3236,7 +4101,7 @@ function tao_crm_ajax_save_msg_agendada() {
 
 add_action( 'tao_crm_processar_agendadas', 'tao_crm_processar_msgs_agendadas' );
 function tao_crm_processar_msgs_agendadas() {
-    $agora = gmdate( 'c' );
+    $agora = gmdate( 'Y-m-d\TH:i:s\Z' );
     $r = tao_crm_api( "/crm_msgs_agendadas?enviado=eq.false&agendado_para=lte.$agora&select=id,card_id,workspace_id,conteudo" );
     if ( ! $r['ok'] || empty( $r['data'] ) ) return;
     foreach ( $r['data'] as $msg ) {
@@ -3275,3 +4140,349 @@ if ( ! function_exists( 'tao_crm_enviar_whatsapp' ) ) {
         return tao_crm_evolution_send_with_retry( $rw['data'][0], $whatsapp, $texto );
     }
 }
+
+// ─── v1.8.0: ITENS DE VENDA POR CARD ─────────────────────────────────────────
+
+/**
+ * Calcula o total de um item.
+ * desconto_tipo='pct'   → total = qtd × preco × (1 - desc/100)
+ * desconto_tipo='valor' → total = (qtd × preco) − desc
+ */
+function tao_crm_calcular_item_total( float $qtd, float $preco, string $tipo, float $desc ): float {
+    $bruto = $qtd * $preco;
+    if ( $tipo === 'valor' ) {
+        return max( 0.0, $bruto - $desc );
+    }
+    // 'pct'
+    $pct = max( 0.0, min( 100.0, $desc ) );
+    return max( 0.0, $bruto * ( 1 - $pct / 100 ) );
+}
+
+/**
+ * Recalcula a soma dos itens e atualiza crm_cards.valor_oportunidade.
+ */
+function tao_crm_sync_valor_oportunidade( string $card_id ): void {
+    $r = tao_crm_api( "/crm_card_itens?card_id=eq.$card_id&select=total" );
+    if ( ! $r['ok'] ) return;
+    $total = array_sum( array_column( $r['data'] ?? [], 'total' ) );
+    tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [ 'valor_oportunidade' => round( $total, 2 ) ] );
+}
+
+/**
+ * Verifica se o usuário logado tem acesso ao card (pelo workspace_id).
+ * Retorna o workspace_id ou false.
+ */
+function tao_crm_check_card_access( string $card_id ) {
+    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=workspace_id,responsavel_id&limit=1" );
+    if ( ! $rc['ok'] || empty( $rc['data'] ) ) return false;
+    $card = $rc['data'][0];
+    $ws   = $card['workspace_id'] ?? '';
+    if ( tao_crm_is_gestor( $ws ) ) return $ws;
+    // Atendente só acessa cards atribuídos a ele
+    if ( intval( $card['responsavel_id'] ?? 0 ) === get_current_user_id() ) return $ws;
+    return false;
+}
+
+// ── GET produtos do catálogo TAO Neo para o workspace do card ─────────────────
+// Retorna [] se o workspace não tiver cliente_id (CRM standalone sem TAO Neo).
+add_action( 'wp_ajax_tao_crm_get_catalogo_para_card', function () {
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+    $card_id = sanitize_text_field( $_POST['card_id'] ?? '' );
+    if ( ! $card_id ) wp_send_json_error( 'card_id inválido' );
+
+    $ws = tao_crm_check_card_access( $card_id );
+    if ( ! $ws ) wp_send_json_error( 'Acesso negado' );
+
+    $rw = tao_crm_api( "/crm_workspaces?id=eq.$ws&select=cliente_id&limit=1" );
+    $cliente_id = $rw['ok'] && ! empty( $rw['data'] ) ? ( $rw['data'][0]['cliente_id'] ?? '' ) : '';
+
+    if ( ! $cliente_id ) {
+        wp_send_json_success( [] ); // workspace sem TAO Neo — sem catálogo vinculado
+        return;
+    }
+
+    $rc = tao_crm_api( "/catalogo?cliente_id=eq.$cliente_id&disponivel=eq.true&order=nome.asc&select=id,nome,preco,tipo&limit=500" );
+    wp_send_json_success( $rc['ok'] ? ( $rc['data'] ?? [] ) : [] );
+} );
+
+// ── GET itens de um card ──────────────────────────────────────────────────────
+add_action( 'wp_ajax_tao_crm_get_card_itens', function () {
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+    $card_id = sanitize_text_field( $_POST['card_id'] ?? '' );
+    if ( ! $card_id ) wp_send_json_error( 'card_id inválido' );
+    if ( ! tao_crm_check_card_access( $card_id ) ) wp_send_json_error( 'Acesso negado' );
+
+    $r = tao_crm_api( "/crm_card_itens?card_id=eq.$card_id&order=ordem.asc,criado_em.asc" );
+    $r['ok'] ? wp_send_json_success( $r['data'] ?? [] ) : wp_send_json_error( $r['error'] );
+} );
+
+// ── SAVE (insert ou update) de item ──────────────────────────────────────────
+add_action( 'wp_ajax_tao_crm_save_card_item', function () {
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+
+    $card_id       = sanitize_text_field( $_POST['card_id']       ?? '' );
+    $item_id       = sanitize_text_field( $_POST['item_id']       ?? '' ); // vazio = novo
+    $catalogo_id   = sanitize_text_field( $_POST['catalogo_id']   ?? '' ); // opcional — FK para catalogo do TAO Neo
+    $descricao     = sanitize_text_field( $_POST['descricao']     ?? '' );
+    $quantidade    = max( 0.001, floatval( $_POST['quantidade']   ?? 1 ) );
+    $preco         = max( 0.0,   floatval( $_POST['preco_unitario'] ?? 0 ) );
+    $desc_tipo     = in_array( $_POST['desconto_tipo'] ?? '', [ 'pct', 'valor' ] )
+                        ? sanitize_text_field( $_POST['desconto_tipo'] )
+                        : 'pct';
+    $desc_valor    = max( 0.0, floatval( $_POST['desconto_valor'] ?? 0 ) );
+    $ordem         = intval( $_POST['ordem'] ?? 0 );
+
+    if ( ! $card_id || ! $descricao ) wp_send_json_error( 'Dados obrigatórios ausentes' );
+
+    $ws = tao_crm_check_card_access( $card_id );
+    if ( ! $ws ) wp_send_json_error( 'Acesso negado' );
+
+    $total = tao_crm_calcular_item_total( $quantidade, $preco, $desc_tipo, $desc_valor );
+
+    $payload = [
+        'card_id'        => $card_id,
+        'workspace_id'   => $ws,
+        'catalogo_id'    => $catalogo_id ?: null, // null = entrada manual
+        'descricao'      => $descricao,
+        'quantidade'     => $quantidade,
+        'preco_unitario' => $preco,
+        'desconto_tipo'  => $desc_tipo,
+        'desconto_valor' => $desc_valor,
+        'total'          => $total,
+        'ordem'          => $ordem,
+        'atualizado_em'  => gmdate( 'c' ),
+    ];
+
+    if ( $item_id ) {
+        $r = tao_crm_api( "/crm_card_itens?id=eq.$item_id&card_id=eq.$card_id", 'PATCH', $payload,
+                          [ 'Prefer' => 'return=representation' ] );
+    } else {
+        $r = tao_crm_api( '/crm_card_itens', 'POST', $payload,
+                          [ 'Prefer' => 'return=representation' ] );
+    }
+
+    if ( ! $r['ok'] ) wp_send_json_error( $r['error'] );
+
+    tao_crm_sync_valor_oportunidade( $card_id );
+    wp_send_json_success( $r['data'][0] ?? [] );
+} );
+
+// ── DELETE item ───────────────────────────────────────────────────────────────
+add_action( 'wp_ajax_tao_crm_delete_card_item', function () {
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+
+    $card_id = sanitize_text_field( $_POST['card_id'] ?? '' );
+    $item_id = sanitize_text_field( $_POST['item_id'] ?? '' );
+
+    if ( ! $card_id || ! $item_id ) wp_send_json_error( 'Dados inválidos' );
+    if ( ! tao_crm_check_card_access( $card_id ) ) wp_send_json_error( 'Acesso negado' );
+
+    $r = tao_crm_api( "/crm_card_itens?id=eq.$item_id&card_id=eq.$card_id", 'DELETE' );
+    if ( ! $r['ok'] ) wp_send_json_error( $r['error'] );
+
+    tao_crm_sync_valor_oportunidade( $card_id );
+    wp_send_json_success();
+} );
+
+// ─── v1.8.0: CAMPO TIPO ARQUIVO — UPLOAD PARA SUPABASE STORAGE ───────────────
+
+add_action( 'wp_ajax_tao_crm_upload_campo_arquivo', 'tao_crm_ajax_upload_campo_arquivo' );
+function tao_crm_ajax_upload_campo_arquivo() {
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+
+    $card_id  = sanitize_text_field( $_POST['card_id']  ?? '' );
+    $campo_id = sanitize_text_field( $_POST['campo_id'] ?? '' );
+
+    if ( ! $card_id || ! $campo_id ) wp_send_json_error( 'Dados inválidos' );
+    if ( empty( $_FILES['arquivo'] ) ) wp_send_json_error( 'Nenhum arquivo recebido' );
+
+    $ws = tao_crm_check_card_access( $card_id );
+    if ( ! $ws ) wp_send_json_error( 'Acesso negado' );
+
+    $file = $_FILES['arquivo'];
+    if ( $file['error'] !== UPLOAD_ERR_OK ) wp_send_json_error( 'Erro no upload: código ' . $file['error'] );
+    if ( $file['size'] > 20 * 1024 * 1024 ) wp_send_json_error( 'Arquivo muito grande (máx 20 MB)' );
+
+    $sb_url = get_option( 'tao_crm_supabase_url', '' );
+    $sb_key = get_option( 'tao_crm_supabase_key', '' );
+    if ( ! $sb_url || ! $sb_key ) wp_send_json_error( 'Supabase não configurado' );
+
+    $ext      = strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) );
+    $safe_ext = preg_replace( '/[^a-z0-9]/', '', $ext );
+    $filename = sanitize_file_name( pathinfo( $file['name'], PATHINFO_FILENAME ) );
+    $path     = "$ws/$card_id/$campo_id/{$filename}_" . time() . ( $safe_ext ? ".$safe_ext" : '' );
+    $bucket   = 'tao-crm-campos';
+    $mime     = mime_content_type( $file['tmp_name'] ) ?: ( $file['type'] ?: 'application/octet-stream' );
+
+    $upload_url = rtrim( $sb_url, '/' ) . "/storage/v1/object/$bucket/$path";
+    $body       = file_get_contents( $file['tmp_name'] );
+
+    $resp = wp_remote_request( $upload_url, [
+        'method'  => 'POST',
+        'headers' => [
+            'Authorization' => 'Bearer ' . $sb_key,
+            'Content-Type'  => $mime,
+            'x-upsert'      => 'true',
+        ],
+        'body'    => $body,
+        'timeout' => 30,
+    ] );
+
+    if ( is_wp_error( $resp ) ) wp_send_json_error( $resp->get_error_message() );
+    $code = wp_remote_retrieve_response_code( $resp );
+    if ( $code < 200 || $code >= 300 ) {
+        wp_send_json_error( 'Supabase Storage erro ' . $code . ': ' . wp_remote_retrieve_body( $resp ) );
+    }
+
+    // URL de acesso via REST (service_role — uso interno, nunca exposto ao cliente)
+    $file_url = rtrim( $sb_url, '/' ) . "/storage/v1/object/authenticated/$bucket/$path";
+
+    // Salva (upsert) em crm_cards_valores
+    $rv = tao_crm_api( "/crm_cards_valores?card_id=eq.$card_id&campo_id=eq.$campo_id", 'GET' );
+    if ( $rv['ok'] && ! empty( $rv['data'] ) ) {
+        tao_crm_api( "/crm_cards_valores?card_id=eq.$card_id&campo_id=eq.$campo_id", 'PATCH',
+                     [ 'valor' => $file_url, 'campo_nome' => $file['name'] ] );
+    } else {
+        tao_crm_api( '/crm_cards_valores', 'POST', [
+            'card_id'    => $card_id,
+            'campo_id'   => $campo_id,
+            'valor'      => $file_url,
+            'campo_nome' => $file['name'],
+        ] );
+    }
+
+    wp_send_json_success( [
+        'url'      => $file_url,
+        'filename' => $file['name'],
+        'size'     => $file['size'],
+        'mime'     => $mime,
+        'stored'   => 'STORAGE:' . $path . ':' . $file['name'],
+    ] );
+}
+
+// ── Download de arquivo do campo (gera URL assinada no Supabase e redireciona) ─
+add_action( 'wp_ajax_tao_crm_download_campo_arquivo', 'tao_crm_ajax_download_campo_arquivo' );
+function tao_crm_ajax_download_campo_arquivo() {
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+
+    $card_id  = sanitize_text_field( $_GET['card_id']  ?? '' );
+    $campo_id = sanitize_text_field( $_GET['campo_id'] ?? '' );
+    if ( ! $card_id || ! $campo_id ) wp_die( 'Dados inválidos', 400 );
+    if ( ! tao_crm_check_card_access( $card_id ) ) wp_die( 'Acesso negado', 403 );
+
+    $rv = tao_crm_api( "/crm_cards_valores?card_id=eq.$card_id&campo_id=eq.$campo_id&limit=1" );
+    if ( ! $rv['ok'] || empty( $rv['data'] ) ) wp_die( 'Arquivo não encontrado', 404 );
+
+    $val = $rv['data'][0]['valor'] ?? '';
+    if ( ! str_starts_with( $val, 'STORAGE:' ) ) wp_die( 'Arquivo inválido', 400 );
+
+    $parts  = explode( ':', $val, 3 );
+    $path   = $parts[1] ?? '';
+    $bucket = 'tao-crm-campos';
+
+    $sb_url = get_option( 'tao_crm_supabase_url', '' );
+    $sb_key = get_option( 'tao_crm_supabase_key', '' );
+    if ( ! $sb_url || ! $sb_key || ! $path ) wp_die( 'Configuração ausente', 500 );
+
+    // Solicita URL assinada (1 hora)
+    $sign_url = rtrim( $sb_url, '/' ) . "/storage/v1/object/sign/$bucket/$path";
+    $resp = wp_remote_post( $sign_url, [
+        'headers' => [
+            'Authorization' => 'Bearer ' . $sb_key,
+            'Content-Type'  => 'application/json',
+        ],
+        'body'    => wp_json_encode( [ 'expiresIn' => 3600 ] ),
+        'timeout' => 10,
+    ] );
+
+    if ( is_wp_error( $resp ) ) wp_die( 'Erro ao gerar link: ' . $resp->get_error_message(), 500 );
+    $body = json_decode( wp_remote_retrieve_body( $resp ), true );
+    $signed = $body['signedURL'] ?? '';
+    if ( ! $signed ) wp_die( 'Não foi possível gerar link de download', 500 );
+
+    $full_url = rtrim( $sb_url, '/' ) . '/storage/v1' . $signed;
+    wp_redirect( $full_url );
+    exit;
+}
+
+// ─── LIMPEZA DE CARDS ANTIGOS (admin-only) ────────────────────────────────────
+// Uso: POST wp-admin/admin-ajax.php
+//   action=tao_crm_limpar_cards_antigos
+//   nonce=<taoCrm.nonce>
+//   workspace_name=Magis   (busca parcial, case-insensitive)
+//   cutoff_date=2026-06-12 (exclui cards com criado_em < essa data)
+//   dry_run=1              (apenas conta — não apaga)
+//   dry_run=0              (executa a deleção)
+add_action( 'wp_ajax_tao_crm_limpar_cards_antigos', function () {
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Acesso negado — apenas admins' );
+
+    $ws_name    = sanitize_text_field( $_POST['workspace_name'] ?? '' );
+    $cutoff_raw = sanitize_text_field( $_POST['cutoff_date']    ?? '' );
+    $dry_run    = ( ( $_POST['dry_run'] ?? '1' ) !== '0' );
+
+    if ( ! $ws_name )    wp_send_json_error( 'workspace_name obrigatório' );
+    if ( ! $cutoff_raw ) wp_send_json_error( 'cutoff_date obrigatório (YYYY-MM-DD)' );
+
+    $cutoff_iso = rawurlencode( $cutoff_raw . 'T00:00:00' );
+    $ws_q       = rawurlencode( '*' . $ws_name . '*' );
+
+    // 1. Encontra workspaces que casam com o nome
+    $rw = tao_crm_api( "/crm_workspaces?nome=ilike.$ws_q&select=id,nome" );
+    if ( ! $rw['ok'] || empty( $rw['data'] ) ) {
+        wp_send_json_error( 'Nenhum workspace encontrado para: ' . $ws_name );
+    }
+
+    $log        = [];
+    $total_excl = 0;
+
+    foreach ( $rw['data'] as $ws ) {
+        $ws_id   = $ws['id'];
+        $ws_nome = $ws['nome'];
+
+        // 2. Busca cards criados ANTES do cutoff (em lotes de 200)
+        $offset   = 0;
+        $card_ids = [];
+        do {
+            $rc = tao_crm_api( "/crm_cards?workspace_id=eq.$ws_id&criado_em=lt.$cutoff_iso&select=id&limit=200&offset=$offset" );
+            if ( ! $rc['ok'] || empty( $rc['data'] ) ) break;
+            foreach ( $rc['data'] as $c ) $card_ids[] = $c['id'];
+            $offset += 200;
+        } while ( count( $rc['data'] ?? [] ) === 200 );
+
+        $count = count( $card_ids );
+        $log[] = [ 'workspace' => $ws_nome, 'ws_id' => $ws_id, 'cards_encontrados' => $count ];
+
+        if ( $count === 0 || $dry_run ) continue;
+
+        // 3. Apaga registros dependentes em lotes de 50
+        $tabelas_dep = [
+            'crm_mensagens',
+            'crm_card_itens',
+            'crm_cards_valores',
+            'crm_cards_tags',
+            'crm_lembretes',
+            'crm_cards_historico',
+            'crm_msgs_agendadas',
+        ];
+
+        foreach ( array_chunk( $card_ids, 50 ) as $chunk ) {
+            $ids_csv = implode( ',', $chunk );
+            foreach ( $tabelas_dep as $tabela ) {
+                tao_crm_api( "/$tabela?card_id=in.($ids_csv)", 'DELETE' );
+            }
+            // Apaga os próprios cards
+            tao_crm_api( "/crm_cards?id=in.($ids_csv)", 'DELETE' );
+        }
+
+        $total_excl += $count;
+        $log[ count( $log ) - 1 ]['cards_excluidos'] = $count;
+    }
+
+    wp_send_json_success( [
+        'dry_run'        => $dry_run,
+        'cutoff'         => $cutoff_raw,
+        'total_excluido' => $total_excl,
+        'detalhes'       => $log,
+    ] );
+} );

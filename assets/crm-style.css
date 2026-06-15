@@ -172,15 +172,30 @@
     background: rgba(0,0,0,0.5);
     z-index: 99999;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
+    overflow-y: auto;
+    padding: 24px 12px;
 }
 .tao-crm-modal-content {
     background: #fff;
     border-radius: 8px;
     width: 480px;
     max-width: 95vw;
+    max-height: none;
     box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    display: flex;
+    flex-direction: column;
+    margin: auto;
+}
+.tao-crm-modal-content form {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+.tao-crm-modal-content form > div:not(.tao-crm-modal-footer) {
+    overflow-y: auto;
+    max-height: calc(80vh - 120px);
 }
 .tao-crm-modal-header {
     display: flex;
@@ -225,13 +240,15 @@
 /* ─── CARD DETAIL LAYOUT ─────────────────────────────────────────────────── */
 .tao-crm-card-layout {
     display: flex;
-    gap: 20px;
+    gap: 0;
     height: calc(100vh - 160px);
     min-height: 500px;
 }
 
 .tao-crm-card-info {
-    flex: 0 0 300px;
+    flex: 1 1 0;
+    min-width: 280px;
+    margin-right: 10px;
     background: #fff;
     border: 1px solid #e2e8f0;
     border-radius: 8px;
@@ -295,9 +312,25 @@
 .history-date  { color: #94a3b8; }
 .no-history    { font-size: 12px; color: #94a3b8; }
 
+/* ─── PANEL RESIZER ──────────────────────────────────────────────────────── */
+.crm-panel-resizer {
+    flex: 0 0 10px;
+    cursor: col-resize;
+    background: transparent;
+    border-left: 2px solid #e2e8f0;
+    align-self: stretch;
+    transition: border-color .15s;
+    position: relative;
+}
+.crm-panel-resizer:hover,
+.crm-panel-resizer.dragging { border-left-color: #94a3b8; }
+
 /* ─── CHAT PANEL ─────────────────────────────────────────────────────────── */
 .tao-crm-chat-panel {
-    flex: 1;
+    flex: 0 0 360px;
+    min-width: 260px;
+    max-width: 600px;
+    margin-left: 10px;
     background: #fff;
     border: 1px solid #e2e8f0;
     border-radius: 8px;
@@ -1122,6 +1155,162 @@
 .tao-crm-card.sla-yellow .card-date::before { content: '⏱ '; }
 .tao-crm-card.sla-red    .card-date::before { content: '🔴 '; }
 
+/* ─── v1.8.0: ITENS DE VENDA ──────────────────────────────────────────────── */
+.crm-itens-section {
+    margin: 12px 0 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: #fafafa;
+}
+.crm-itens-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+}
+/* Lista de itens — cada item como linha compacta */
+.crm-itens-empty {
+    font-size: 12px;
+    color: #94a3b8;
+    padding: 4px 0 2px;
+}
+.crm-item-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 0;
+    border-bottom: 1px solid #f1f5f9;
+}
+.crm-item-row:last-child { border-bottom: none; }
+.crm-item-info { flex: 1; min-width: 0; }
+.crm-item-nome {
+    font-size: 12px;
+    font-weight: 500;
+    color: #1e293b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.crm-item-detalhe { font-size: 11px; color: #6b7280; margin-top: 1px; }
+.crm-item-row-total {
+    font-size: 12px;
+    font-weight: 600;
+    color: #1e293b;
+    white-space: nowrap;
+}
+.crm-item-acoes { display: flex; gap: 2px; }
+.crm-item-edit,
+.crm-item-del {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 2px 4px;
+    line-height: 1;
+    border-radius: 3px;
+    opacity: .55;
+    transition: opacity .15s;
+}
+.crm-item-edit:hover { opacity: 1; color: #2563eb; }
+.crm-item-del:hover  { opacity: 1; color: #ef4444; }
+
+/* Modal add/edit item */
+.crm-item-modal-body { padding: 16px 20px; }
+.crm-item-catalogo-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 6px;
+}
+.crm-item-busca-input {
+    width: 100%;
+    font-size: 12px;
+    padding: 6px 8px;
+    border: 1px solid #d1d5db;
+    border-radius: 5px;
+    margin-bottom: 6px;
+    box-sizing: border-box;
+}
+#crm-item-catalogo-lista {
+    max-height: 140px;
+    overflow-y: auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 5px;
+    margin-bottom: 8px;
+}
+.crm-catalogo-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 7px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    border-bottom: 1px solid #f1f5f9;
+    transition: background .1s;
+}
+.crm-catalogo-item:last-child { border-bottom: none; }
+.crm-catalogo-item:hover { background: #f0f9ff; }
+.crm-catalogo-nome { font-weight: 500; }
+.crm-catalogo-preco { color: #16a34a; white-space: nowrap; }
+.crm-catalogo-vazio { padding: 10px; font-size: 12px; color: #6b7280; text-align: center; }
+.crm-item-ou {
+    text-align: center;
+    font-size: 11px;
+    color: #94a3b8;
+    margin: 6px 0 10px;
+    position: relative;
+}
+.crm-item-ou::before, .crm-item-ou::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    width: 38%;
+    height: 1px;
+    background: #e2e8f0;
+}
+.crm-item-ou::before { left: 0; }
+.crm-item-ou::after  { right: 0; }
+/* Grid de campos do formulário */
+.crm-item-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+.crm-item-form-field label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 4px;
+}
+.crm-item-form-field input,
+.crm-item-form-field select {
+    width: 100%;
+    font-size: 13px;
+    padding: 6px 8px;
+    border: 1px solid #d1d5db;
+    border-radius: 5px;
+    box-sizing: border-box;
+}
+.crm-item-form-field input.crm-field-error { border-color: #ef4444; }
+.crm-item-desc-row { display: flex; gap: 5px; }
+.crm-item-desc-row select { flex: 0 0 52px; padding: 6px 4px; }
+.crm-item-desc-row input  { flex: 1; }
+.crm-item-total-preview { display: flex; flex-direction: column; justify-content: flex-end; }
+#crm-item-f-total {
+    font-size: 18px;
+    font-weight: 700;
+    color: #1e293b;
+    line-height: 1.2;
+}
+
+/* ─── v1.8.0: CAMPO ARQUIVO ───────────────────────────────────────────────── */
+.campo-arquivo-wrap { display: flex; flex-direction: column; gap: 4px; }
+.campo-arquivo-atual { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+.campo-arquivo-link { color: #2563eb; text-decoration: underline; word-break: break-all; }
+.campo-arquivo-upload { display: flex; align-items: center; gap: 6px; }
+
 /* ─── BULK ACTIONS ───────────────────────────────────────────────────────── */
 .crm-card-checkbox-wrap {
     position: absolute;
@@ -1774,3 +1963,4 @@
     transition: background .15s, color .15s;
 }
 .tao-crm-ver-mais:hover { background: #eff6ff; color: #2271b1; border-color: #2271b1; }
+

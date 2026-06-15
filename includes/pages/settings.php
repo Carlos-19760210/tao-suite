@@ -190,17 +190,21 @@ function tao_crm_page_settings() {
 
             $data = [
 
-                'nome'                 => sanitize_text_field( $_POST['nome'] ?? '' ),
+                'nome'                    => sanitize_text_field( $_POST['nome'] ?? '' ),
 
-                'cliente_id'           => sanitize_text_field( $_POST['cliente_id'] ?? '' ) ?: null,
+                'cliente_id'              => sanitize_text_field( $_POST['cliente_id'] ?? '' ) ?: null,
 
-                'evolution_url'        => esc_url_raw( $_POST['evolution_url'] ?? '' ),
+                'evolution_url'           => esc_url_raw( $_POST['evolution_url'] ?? '' ),
 
-                'evolution_key'        => sanitize_text_field( $_POST['evolution_key'] ?? '' ),
+                'evolution_key'           => sanitize_text_field( $_POST['evolution_key'] ?? '' ),
 
-                'evolution_instancia'  => sanitize_text_field( $_POST['evolution_instancia'] ?? '' ),
+                'evolution_instancia'     => sanitize_text_field( $_POST['evolution_instancia'] ?? '' ),
 
-                'ativo'                => true,
+                'modo_recepcionista'      => ! empty( $_POST['modo_recepcionista'] ),
+
+                'mensagem_recepcionista'  => sanitize_textarea_field( $_POST['mensagem_recepcionista'] ?? '' ),
+
+                'ativo'                   => true,
 
             ];
 
@@ -632,13 +636,232 @@ function tao_crm_page_settings() {
 
                     </tr>
 
+                    <tr>
+
+                        <th>Modo Recepcionista</th>
+
+                        <td>
+                            <label>
+                                <input type="checkbox" name="modo_recepcionista" value="1"
+                                       <?php checked( ! empty( $edit_ws['modo_recepcionista'] ) ); ?>>
+                                Apenas cumprimentar o cliente e criar card no Kanban (sem fluxo chatbot)
+                            </label>
+                            <p class="description">Quando ativo, o TAO Neo envia a mensagem abaixo, cria o card e encerra. Ideal para atendimento 100% humano.</p>
+                        </td>
+
+                    </tr>
+
+                    <tr id="row-mensagem-recepcionista">
+
+                        <th>Mensagem de boas-vindas</th>
+
+                        <td><textarea name="mensagem_recepcionista" rows="3" class="large-text"
+                                      placeholder="Ex: Olá! 👋 Obrigado pelo contato. Um de nossos atendentes entrará em contato em breve."><?php echo esc_textarea( $edit_ws['mensagem_recepcionista'] ?? 'Olá! 👋 Obrigado pelo contato. Um atendente entrará em contato com você em breve.' ); ?></textarea></td>
+
+                    </tr>
+
                 </table>
+
+                <script>
+                (function(){
+                    var cb = document.querySelector('[name="modo_recepcionista"]');
+                    var row = document.getElementById('row-mensagem-recepcionista');
+                    if(!cb || !row) return;
+                    function tog(){ row.style.display = cb.checked ? '' : 'none'; }
+                    tog();
+                    cb.addEventListener('change', tog);
+                })();
+                </script>
 
                 <p><input type="submit" class="button button-primary"
 
                           value="<?php echo $edit_ws ? 'Atualizar workspace' : 'Criar workspace'; ?>"></p>
 
             </form>
+
+            <?php if ( $edit_ws ) : // ── Instâncias adicionais (só ao editar) ──
+
+                $r_insts = tao_crm_api( "/crm_instancias?workspace_id=eq.{$edit_ws['id']}&ativo=eq.true&order=criado_em.asc" );
+                $insts   = $r_insts['ok'] ? ( $r_insts['data'] ?? [] ) : [];
+
+                $edit_inst_id = sanitize_text_field( $_GET['edit_inst'] ?? '' );
+                $edit_inst    = null;
+                foreach ( $insts as $inst ) {
+                    if ( $inst['id'] === $edit_inst_id ) { $edit_inst = $inst; break; }
+                }
+            ?>
+
+            <hr style="margin:28px 0">
+            <h3 style="margin-bottom:6px">&#x1F4DE; Instâncias de WhatsApp adicionais</h3>
+            <p class="description" style="margin-bottom:16px">Cada instância é um número de WhatsApp separado. A instância principal está configurada acima (em "Nome da instância"). As instâncias adicionais permitem conectar outros números ao mesmo negócio.</p>
+
+            <?php if ( ! empty( $insts ) ) : ?>
+            <table class="wp-list-table widefat fixed striped" style="margin-bottom:16px">
+                <thead><tr>
+                    <th>Nome</th><th>Instância (Evolution)</th><th style="width:130px">Modo Recepcionista</th><th style="width:130px"></th>
+                </tr></thead>
+                <tbody>
+                <?php foreach ( $insts as $inst ) : ?>
+                <tr>
+                    <td><?php echo esc_html( $inst['nome'] ); ?></td>
+                    <td><code><?php echo esc_html( $inst['evolution_instancia'] ); ?></code></td>
+                    <td>
+                        <?php if ( ! empty( $inst['modo_recepcionista'] ) ) : ?>
+                            <span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">Recepcionista</span>
+                        <?php else : ?>
+                            <span style="background:#f1f5f9;color:#64748b;padding:2px 8px;border-radius:10px;font-size:11px">Chatbot</span>
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <a href="<?php echo esc_url( tao_crm_settings_url( ['tab' => 'workspaces', 'edit_ws' => $edit_ws['id'], 'edit_inst' => $inst['id']] ) ); ?>"
+                           class="button button-small">Editar</a>
+                        <button class="button button-small tao-crm-del-instancia"
+                                data-inst-id="<?php echo esc_attr( $inst['id'] ); ?>"
+                                data-nome="<?php echo esc_attr( $inst['nome'] ); ?>"
+                                style="color:#dc2626;border-color:#dc2626">Excluir</button>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+            <?php else : ?>
+            <p style="color:#64748b;font-size:13px;margin-bottom:12px">Nenhuma instância adicional cadastrada.</p>
+            <?php endif; ?>
+
+            <h4><?php echo $edit_inst ? 'Editar instância' : 'Adicionar instância'; ?></h4>
+            <form id="tao-crm-inst-form">
+                <?php wp_nonce_field( 'tao_crm_nonce', 'tao_crm_nonce_inst' ); ?>
+                <input type="hidden" name="edit_id" id="crm-inst-edit-id" value="<?php echo esc_attr( $edit_inst['id'] ?? '' ); ?>">
+                <input type="hidden" name="workspace_id" value="<?php echo esc_attr( $edit_ws['id'] ); ?>">
+                <table class="form-table" style="max-width:600px">
+                    <tr>
+                        <th>Nome *</th>
+                        <td><input type="text" name="nome" id="crm-inst-nome" class="regular-text" required
+                                   placeholder="Ex: Recepção / Número 2"
+                                   value="<?php echo esc_attr( $edit_inst['nome'] ?? '' ); ?>"></td>
+                    </tr>
+                    <tr>
+                        <th>Evolution API URL *</th>
+                        <td><input type="url" name="evolution_url" id="crm-inst-evo-url" class="regular-text" required
+                                   placeholder="<?php echo esc_attr( $edit_ws['evolution_url'] ?? 'https://...' ); ?>"
+                                   value="<?php echo esc_attr( $edit_inst['evolution_url'] ?? $edit_ws['evolution_url'] ?? '' ); ?>"></td>
+                    </tr>
+                    <tr>
+                        <th>Evolution API Key *</th>
+                        <td><input type="password" name="evolution_key" id="crm-inst-evo-key" class="regular-text" required
+                                   value="<?php echo esc_attr( $edit_inst['evolution_key'] ?? $edit_ws['evolution_key'] ?? '' ); ?>"></td>
+                    </tr>
+                    <tr>
+                        <th>Nome da instância *</th>
+                        <td><input type="text" name="evolution_instancia" id="crm-inst-evo-inst" class="regular-text" required
+                                   placeholder="Ex: magistao-recepcao"
+                                   value="<?php echo esc_attr( $edit_inst['evolution_instancia'] ?? '' ); ?>"></td>
+                    </tr>
+                    <tr>
+                        <th>Modo Recepcionista</th>
+                        <td>
+                            <label>
+                                <input type="checkbox" name="modo_recepcionista" id="crm-inst-recep" value="1"
+                                       <?php checked( ! empty( $edit_inst['modo_recepcionista'] ) ); ?>>
+                                Apenas cumprimentar e criar card (sem fluxo chatbot)
+                            </label>
+                        </td>
+                    </tr>
+                    <tr id="crm-inst-row-msg" style="<?php echo empty( $edit_inst['modo_recepcionista'] ) ? 'display:none' : ''; ?>">
+                        <th>Mensagem de boas-vindas</th>
+                        <td><textarea name="mensagem_recepcionista" id="crm-inst-msg" rows="3" class="large-text"
+                                      placeholder="Olá! 👋 Um atendente entrará em contato em breve."><?php echo esc_textarea( $edit_inst['mensagem_recepcionista'] ?? '' ); ?></textarea></td>
+                    </tr>
+                </table>
+                <p>
+                    <button type="submit" class="button button-primary" id="crm-inst-submit">
+                        <?php echo $edit_inst ? 'Atualizar instância' : 'Salvar instância'; ?>
+                    </button>
+                    <?php if ( $edit_inst ) : ?>
+                    <a href="<?php echo esc_url( tao_crm_settings_url( ['tab' => 'workspaces', 'edit_ws' => $edit_ws['id']] ) ); ?>"
+                       class="button" style="margin-left:8px">Cancelar</a>
+                    <?php endif; ?>
+                    <span id="crm-inst-msg-status" style="margin-left:12px;font-size:13px"></span>
+                </p>
+            </form>
+            <script>
+            (function(){
+                var _ajaxUrl = <?php echo json_encode( admin_url('admin-ajax.php') ); ?>;
+                var _nonce   = <?php echo json_encode( wp_create_nonce('tao_crm_nonce') ); ?>;
+
+                var cb = document.getElementById('crm-inst-recep');
+                var row = document.getElementById('crm-inst-row-msg');
+                if(cb && row){ cb.addEventListener('change', function(){ row.style.display = this.checked ? '' : 'none'; }); }
+
+                var form = document.getElementById('tao-crm-inst-form');
+                if(!form) return;
+                form.addEventListener('submit', function(e){
+                    e.preventDefault();
+                    var btn = document.getElementById('crm-inst-submit');
+                    var status = document.getElementById('crm-inst-msg-status');
+
+                    if(!_ajaxUrl){
+                        status.style.color='#dc2626';
+                        status.textContent = 'Erro: ajax_url não encontrado. Acesse via painel admin.';
+                        btn.disabled = false; btn.textContent = 'Salvar instância';
+                        return;
+                    }
+
+                    btn.disabled = true; btn.textContent = 'Salvando...';
+                    var fd = new FormData(form);
+                    fd.set('action', 'tao_crm_save_instancia');
+                    fd.set('nonce', _nonce);
+                    if(!fd.get('modo_recepcionista')) fd.set('modo_recepcionista','');
+
+                    fetch(_ajaxUrl, { method:'POST', body: fd })
+                        .then(function(r){ return r.text(); })
+                        .then(function(txt){
+                            var res = null;
+                            try {
+                                // Remove qualquer lixo antes do JSON (avisos PHP, etc.)
+                                var j = txt.indexOf('{');
+                                res = JSON.parse(j >= 0 ? txt.substring(j) : txt);
+                            } catch(e){ res = null; }
+                            if(res && res.success){
+                                status.style.color='#166534';
+                                status.textContent = 'Salvo!';
+                                setTimeout(function(){ window.location.reload(); }, 600);
+                            } else {
+                                var errMsg = (res && res.data) ? res.data : txt.substring(0,300);
+                                status.style.color='#dc2626';
+                                status.textContent = 'Erro: ' + errMsg;
+                                btn.disabled = false;
+                                btn.textContent = document.getElementById('crm-inst-edit-id').value ? 'Atualizar instância' : 'Salvar instância';
+                            }
+                        })
+                        .catch(function(err){
+                            status.style.color='#dc2626';
+                            status.textContent = 'Erro de rede: ' + (err.message || err);
+                            btn.disabled = false;
+                            btn.textContent = document.getElementById('crm-inst-edit-id').value ? 'Atualizar instância' : 'Salvar instância';
+                        });
+                });
+
+                // Delete
+                document.querySelectorAll('.tao-crm-del-instancia').forEach(function(delBtn){
+                    delBtn.addEventListener('click', function(){
+                        if(!confirm('Excluir instância "' + this.dataset.nome + '"?')) return;
+                        var instId = this.dataset.instId;
+                        fetch(_ajaxUrl, {
+                            method:'POST',
+                            headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                            body: 'action=tao_crm_delete_instancia&nonce=' + encodeURIComponent(_nonce) + '&inst_id=' + encodeURIComponent(instId)
+                        }).then(function(r){ return r.json(); }).then(function(res){
+                            if(res.success){ window.location.reload(); }
+                            else { alert('Erro ao excluir: ' + (res.data || '')); }
+                        });
+                    });
+                });
+
+            })();
+            </script>
+
+            <?php endif; // end $edit_ws ?>
 
         </div>
 
@@ -1186,7 +1409,8 @@ function tao_crm_page_settings() {
 
                                 <?php foreach ( [ 'text'=>'Texto curto','textarea'=>'Texto longo','number'=>'Número',
 
-                                    'date'=>'Data','select'=>'Seleção','boolean'=>'Sim/Não','phone'=>'Telefone','email'=>'E-mail' ] as $v => $l ) : ?>
+                                    'date'=>'Data','select'=>'Seleção','boolean'=>'Sim/Não','phone'=>'Telefone','email'=>'E-mail',
+                                    'arquivo'=>'Arquivo / Documento' ] as $v => $l ) : ?>
 
                                 <option value="<?php echo $v; ?>" <?php selected( $edit_campo['tipo'] ?? 'text', $v ); ?>><?php echo $l; ?></option>
 
@@ -3462,7 +3686,7 @@ function tao_crm_page_settings() {
             </script>
         </div>
 
-        <?php endif; ?>
+<?php endif; ?>
 
         </main><!-- .crm-settings-main -->
 
