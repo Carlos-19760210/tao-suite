@@ -2890,9 +2890,12 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
                         $card_estagio_id = $HANDOFF_STAGE_ID;
                     }
                 } else {
-                    // Sem card existente nem tracking: mensagem automática (ex: chatbot N8N) — não cria card
-                    if ( ! $tracking_card_id ) continue;
                     if ( ! $PL_ID ) continue;
+                    // Bug 7: previne phantom cards por respostas automáticas do chatbot (ex: "obrigado" → N8N responde → phantom card)
+                    // Só cria card via fromMe se a última interação deste contato foi há mais de 24h
+                    $_since_24h = gmdate( 'c', time() - 86400 );
+                    $_r_recent  = tao_crm_api( "/crm_cards?workspace_id=eq.$WS_ID&contato_whatsapp=eq.$num&ultima_mensagem_em=gte.$_since_24h&select=id&limit=1" );
+                    if ( $_r_recent['ok'] && ! empty( $_r_recent['data'] ) ) continue; // interação recente (<24h) → ignora
                     // Para handoff iniciado pelo agente, lookup de contato pode ser necessário
                     if ( ! $contato_id ) {
                         $ct_key2 = $WS_ID . '|' . $num;
