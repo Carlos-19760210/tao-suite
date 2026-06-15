@@ -38,7 +38,21 @@ function tao_crm_page_card() {
     $re       = tao_crm_api( "/crm_estagios?pipeline_id=eq.{$card['pipeline_id']}&order=ordem.asc" );
     $estagios = $re['ok'] ? ( $re['data'] ?? [] ) : [];
 
-    $rm   = tao_crm_api( "/crm_mensagens?card_id=eq.$card_id&order=enviado_em.asc&limit=200" );
+    // Carrega histórico completo do contato (todos os cards do mesmo WhatsApp no workspace)
+    $whatsapp_hist = $card['contato_whatsapp'] ?? '';
+    $ws_hist       = $card['workspace_id']     ?? '';
+    if ( $whatsapp_hist && $ws_hist ) {
+        $rc_hist      = tao_crm_api( "/crm_cards?contato_whatsapp=eq.$whatsapp_hist&workspace_id=eq.$ws_hist&select=id&order=criado_em.asc" );
+        $hist_ids     = array_column( $rc_hist['ok'] ? ( $rc_hist['data'] ?? [] ) : [], 'id' );
+        if ( ! empty( $hist_ids ) ) {
+            $ids_str = implode( ',', array_map( 'strval', $hist_ids ) );
+            $rm = tao_crm_api( "/crm_mensagens?card_id=in.($ids_str)&order=enviado_em.asc&limit=500" );
+        } else {
+            $rm = tao_crm_api( "/crm_mensagens?card_id=eq.$card_id&order=enviado_em.asc&limit=200" );
+        }
+    } else {
+        $rm = tao_crm_api( "/crm_mensagens?card_id=eq.$card_id&order=enviado_em.asc&limit=200" );
+    }
     $msgs = $rm['ok'] ? ( $rm['data'] ?? [] ) : [];
 
     // Campos: definição do estágio atual + outros estágios com valores preenchidos

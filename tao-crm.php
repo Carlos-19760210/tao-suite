@@ -915,6 +915,11 @@ function tao_crm_ajax_move_card() {
             foreach ( ( $rvals['ok'] ? ( $rvals['data'] ?? [] ) : [] ) as $v ) {
                 if ( $v['valor'] !== '' && $v['valor'] !== null ) $filled[ $v['campo_id'] ] = true;
             }
+            // Considera valores submetidos junto ao request (ainda não persistidos no DB)
+            foreach ( (array) ( $_POST['valores'] ?? [] ) as $_cid => $_cval ) {
+                $_cid = sanitize_text_field( $_cid );
+                if ( $_cval !== '' && $_cval !== null && $_cid ) $filled[ $_cid ] = true;
+            }
             $missing_ids = array_values( array_filter( $req_ids, fn( $id ) => ! isset( $filled[ $id ] ) ) );
             if ( ! empty( $missing_ids ) ) {
                 // Verifica se a fase destino também exige algum desses campos ausentes
@@ -2885,6 +2890,8 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
                         $card_estagio_id = $HANDOFF_STAGE_ID;
                     }
                 } else {
+                    // Sem card existente nem tracking: mensagem automática (ex: chatbot N8N) — não cria card
+                    if ( ! $tracking_card_id ) continue;
                     if ( ! $PL_ID ) continue;
                     // Para handoff iniciado pelo agente, lookup de contato pode ser necessário
                     if ( ! $contato_id ) {

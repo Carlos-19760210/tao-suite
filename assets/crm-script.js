@@ -643,15 +643,18 @@
             function(resp){
                 $btn.prop('disabled', false).text(autoId ? 'Atualizar automação' : 'Criar automação');
                 if(resp.success){
-                    $st.css('color','green').text('✔ Salvo');
-                    if(!autoId){ setTimeout(function(){ location.reload(); }, 800); }
+                    $st.css('color','green').text('✔ Salvo!');
+                    setTimeout(function(){ location.reload(); }, 800);
                 } else {
-                    $st.css('color','red').text('✘ ' + (resp.data || 'Erro'));
+                    var errMsg = resp.data || 'Erro ao salvar automação';
+                    $st.css('color','red').text('✘ ' + errMsg);
+                    alert('Erro ao salvar automação: ' + errMsg);
                 }
             },
             function(err){
                 $btn.prop('disabled', false);
                 $st.css('color','red').text('✘ ' + err);
+                alert('Erro de comunicação ao salvar automação: ' + err);
             }
         );
     });
@@ -1340,6 +1343,15 @@
         $('#crm-kposm-transferir').on('click', function(){
             if(!$('.crm-card-checkbox:checked').length) return;
             $('#crm-bulk-transfer-modal').css('display', 'flex');
+        });
+    }
+
+    // ─── KANBAN: Preservar posição horizontal ao navegar para card ──────────
+    if($('#tao-crm-board').length){
+        var _savedScroll = localStorage.getItem('tao_crm_kanban_scroll');
+        if(_savedScroll){ $('#tao-crm-board').scrollLeft(parseInt(_savedScroll, 10)); }
+        $(window).on('beforeunload', function(){
+            localStorage.setItem('tao_crm_kanban_scroll', $('#tao-crm-board').scrollLeft());
         });
     }
 
