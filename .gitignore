@@ -30,3 +30,9 @@ test_*.json
 n8n-payload*.json
 n8n-chatbot-payload*.json
 mp-body.bin
+
+# Backups antigos de workflows N8N (substituídos por n8n-workflows/)
+n8n-chatbot-v6.json
+n8n-chatbot-v6-current.json
+n8n-chatbot-v6-updated.json
+n8n-campanha-workflow.json
