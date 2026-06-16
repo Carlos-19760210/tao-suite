@@ -794,7 +794,15 @@ function tao_crm_processar_fila_fn() {
     $agora = gmdate( 'Y-m-d\TH:i:s\Z' );
     $r = tao_crm_api( "/crm_automacoes_fila?executado_em=is.null&executar_em=lte.$agora&limit=50&order=executar_em.asc" );
     if ( ! $r['ok'] || empty( $r['data'] ) ) return;
+    $executados = []; // dedup por card_id|automacao_id neste ciclo
     foreach ( $r['data'] as $item ) {
+        $dedup_key = $item['card_id'] . '|' . $item['automacao_id'];
+        if ( isset( $executados[ $dedup_key ] ) ) {
+            tao_crm_api( "/crm_automacoes_fila?id=eq.{$item['id']}", 'PATCH', [
+                'executado_em' => gmdate( 'c' ), 'resultado' => 'skip', 'detalhe' => 'Entrada duplicada na fila',
+            ] );
+            continue;
+        }
         $ra = tao_crm_api( "/crm_automacoes?id=eq.{$item['automacao_id']}&ativo=eq.true" );
         if ( ! $ra['ok'] || empty( $ra['data'] ) ) {
             tao_crm_api( "/crm_automacoes_fila?id=eq.{$item['id']}", 'PATCH', [
@@ -812,6 +820,7 @@ function tao_crm_processar_fila_fn() {
                 continue;
             }
         }
+        $executados[ $dedup_key ] = true;
         $res = tao_crm_executar_automacao_item( $auto, $item['card_id'] );
         tao_crm_api( "/crm_automacoes_fila?id=eq.{$item['id']}", 'PATCH', [
             'executado_em' => gmdate( 'c' ),
