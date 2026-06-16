@@ -173,38 +173,41 @@ function Sync-Capsulas($agora) {
 
     if ($linhas.Count -eq 0) { return }
 
+    # Usa hashtable para deduplicar por tipo+numero (FC pode ter entradas repetidas)
+    $seen    = @{}
     $payload = [System.Collections.Generic.List[hashtable]]::new()
     foreach ($linha in $linhas) {
         $c = $linha.Split('|')
         if ($c.Count -lt 3) { continue }
         $volul = if ($c[2] -match '^\d') { [double]$c[2] } else { $null }
         if ($null -eq $volul) { continue }
+        $key = "$($c[0].Trim())|$($c[1].Trim())"
+        if ($seen.ContainsKey($key)) { continue }
+        $seen[$key] = $true
         $payload.Add(@{
             cliente_id      = $script:CLIENTE_ID
             tipo            = $c[0].Trim()
             numero          = $c[1].Trim()
             vol_ul          = $volul
-            peso_vazio_mg   = if ($c[3] -match '^\d') { [double]$c[3] } else { $null }
+            peso_vazio_mg   = if ($c.Count -gt 3 -and $c[3] -match '^\d') { [double]$c[3] } else { $null }
             cdpro_fc        = if ($c.Count -gt 4) { $c[4].Trim() } else { $null }
             ativo           = $true
             sincronizado_em = $agora
         })
     }
+    Write-Host "  Capsulas unicas: $($payload.Count)" -ForegroundColor Green
 
-    $url_cap = "$script:SUPABASE_URL/rest/v1/tipos_capsula"
-
-    # Remove existentes e re-insere
-    try {
-        Invoke-RestMethod -Uri "${url_cap}?cliente_id=eq.$script:CLIENTE_ID" `
-            -Method Delete -Headers $script:h_del -UserAgent "TAO-Suite-Sync/1.0" -ErrorAction Stop | Out-Null
-    } catch {
-        try { $s = $_.Exception.Response.GetResponseStream(); $d = (New-Object System.IO.StreamReader($s)).ReadToEnd() } catch { $d = "$_" }
-        Write-Host "  ERRO limpeza capsulas: $d" -ForegroundColor Red; return
+    $url_cap  = "$script:SUPABASE_URL/rest/v1/tipos_capsula"
+    $h_upsert = @{
+        "apikey"        = $script:SUPABASE_KEY
+        "Authorization" = "Bearer $script:SUPABASE_KEY"
+        "Content-Type"  = "application/json"
+        "Prefer"        = "resolution=merge-duplicates,return=minimal"
     }
 
     $json = $payload | ConvertTo-Json -Depth 4 -Compress
     try {
-        Invoke-RestMethod -Uri $url_cap -Method Post -Headers $script:h_ins `
+        Invoke-RestMethod -Uri "${url_cap}?on_conflict=cliente_id,tipo,numero" -Method Post -Headers $h_upsert `
             -Body $json -UserAgent "TAO-Suite-Sync/1.0" -ErrorAction Stop | Out-Null
         Write-Host "  Capsulas sincronizadas: $($payload.Count)" -ForegroundColor Green
     } catch {
