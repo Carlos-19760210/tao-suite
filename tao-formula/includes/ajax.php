@@ -101,13 +101,23 @@ add_action( 'wp_ajax_tao_formula_save_forma', function() {
     $cliente_id = tao_formula_cliente_id();
     if ( ! $cliente_id ) wp_send_json_error( 'Cliente não identificado', 400 );
 
+    $tipo_forma      = sanitize_text_field( $_POST['tipo'] ?? 'gel' );
+    $tipo_capsula    = sanitize_text_field( $_POST['tipo_capsula'] ?? '' );
+    $numero_capsula  = sanitize_text_field( $_POST['numero_capsula'] ?? '' );
+    $vol_cap_ul_raw  = $_POST['vol_cap_ul'] ?? '';
+    $ftenchcap_raw   = $_POST['ftenchcap'] ?? '';
+
     $data = [
         'cliente_id'     => $cliente_id,
         'nome'           => sanitize_text_field( $_POST['nome'] ?? '' ),
-        'tipo'           => sanitize_text_field( $_POST['tipo'] ?? 'gel' ),
+        'tipo'           => $tipo_forma,
         'volume'         => isset( $_POST['volume'] ) && $_POST['volume'] !== '' ? (float) $_POST['volume'] : null,
         'unidade_volume' => sanitize_text_field( $_POST['unidade_volume'] ?? 'g' ),
         'n_capsulas'     => isset( $_POST['n_capsulas'] ) && $_POST['n_capsulas'] !== '' ? (int) $_POST['n_capsulas'] : null,
+        'tipo_capsula'   => ( $tipo_forma === 'cap' && $tipo_capsula !== '' ) ? $tipo_capsula : null,
+        'numero_capsula' => ( $tipo_forma === 'cap' && $numero_capsula !== '' ) ? $numero_capsula : null,
+        'vol_cap_ul'     => ( $tipo_forma === 'cap' && $vol_cap_ul_raw !== '' ) ? (float) $vol_cap_ul_raw : null,
+        'ftenchcap'      => $ftenchcap_raw !== '' ? (float) $ftenchcap_raw : 1.0,
         'custo_fixo'     => (float) ( $_POST['custo_fixo'] ?? 0 ),
         'margem_pct'     => (float) ( $_POST['margem_pct'] ?? 30 ),
         'ativo'          => true,

@@ -16,23 +16,73 @@
 
     // ── Formas Farmacêuticas ─────────────────────────────────────────────────
 
-    var $modal  = $('#taof-forma-modal');
-    var $form   = $('#taof-forma-form');
-    var $tipo   = $('#taof-tipo');
-    var $rowVol = $('#taof-row-volume');
-    var $rowCap = $('#taof-row-capsulas');
-    var $btnSave= $('#taof-btn-salvar');
-    var $spinner= $form.find('.taof-spinner');
-    var $msg    = $form.find('.taof-msg');
+    var $modal      = $('#taof-forma-modal');
+    var $form       = $('#taof-forma-form');
+    var $tipo       = $('#taof-tipo');
+    var $rowVol     = $('#taof-row-volume');
+    var $rowCap     = $('#taof-row-capsulas');
+    var $rowCapTipo = $('#taof-row-cap-tipo');
+    var $rowCapNum  = $('#taof-row-cap-numero');
+    var $rowFtench  = $('#taof-row-ftenchcap');
+    var $capTipo    = $('#taof-cap-tipo');
+    var $capNumero  = $('#taof-cap-numero');
+    var $capVolUl   = $('#taof-cap-vol-ul');
+    var $capVolInfo = $('#taof-cap-vol-info');
+    var $btnSave    = $('#taof-btn-salvar');
+    var $spinner    = $form.find('.taof-spinner');
+    var $msg        = $form.find('.taof-msg');
+
+    var capsulas = window.taofCapsulas || [];
 
     function toggleTipo() {
         var t = $tipo.val();
         if (t === 'cap') {
-            $rowVol.hide(); $rowCap.show();
+            $rowVol.hide();
+            $rowCap.show(); $rowCapTipo.show(); $rowCapNum.show(); $rowFtench.show();
         } else {
-            $rowVol.show(); $rowCap.hide();
+            $rowVol.show();
+            $rowCap.hide(); $rowCapTipo.hide(); $rowCapNum.hide(); $rowFtench.hide();
         }
     }
+
+    // Popula o select de número conforme o tipo de cápsula selecionado
+    function popularNumeros(tipoSel, numeroAtual) {
+        $capNumero.empty().append('<option value="">— Selecione o tamanho —</option>');
+        $capVolUl.val('');
+        $capVolInfo.text('');
+        if (!tipoSel) return;
+        var filtradas = capsulas.filter(function(c){ return c.tipo === tipoSel; });
+        // Ordena: numéricos primeiro (0,1,2…), depois alfanuméricos (00,000)
+        filtradas.sort(function(a,b){
+            var na = parseInt(a.numero), nb = parseInt(b.numero);
+            if (!isNaN(na) && !isNaN(nb)) return na - nb;
+            return a.numero.localeCompare(b.numero);
+        });
+        $.each(filtradas, function(_, c) {
+            var lbl = 'Nº ' + c.numero + ' — ' + c.vol_ul + ' µL';
+            if (c.peso_vazio_mg) lbl += ' / ' + c.peso_vazio_mg + ' mg vazio';
+            $capNumero.append($('<option>').val(c.numero).text(lbl).data('vol', c.vol_ul));
+        });
+        if (numeroAtual) $capNumero.val(numeroAtual);
+        $capNumero.trigger('change');
+    }
+
+    $capTipo.on('change', function(){
+        popularNumeros($(this).val(), '');
+    });
+
+    $capNumero.on('change', function(){
+        var num   = $(this).val();
+        var tipo  = $capTipo.val();
+        var cap   = capsulas.find(function(c){ return c.tipo === tipo && c.numero === num; });
+        if (cap) {
+            $capVolUl.val(cap.vol_ul);
+            $capVolInfo.text(cap.vol_ul + ' µL');
+        } else {
+            $capVolUl.val('');
+            $capVolInfo.text('');
+        }
+    });
 
     function openModal(data) {
         if (data) {
@@ -45,10 +95,18 @@
             $('#taof-ncap').val(data.nCapsulas);
             $('#taof-custo-fixo').val(data.custoFixo);
             $('#taof-margem').val(data.margemPct);
+            // Campos de cápsula
+            $capTipo.val(data.tipoCapsula || '');
+            $('#taof-ftenchcap').val(data.ftenchcap || 1);
+            popularNumeros(data.tipoCapsula || '', data.numeroCapsula || '');
+            if (data.volCapUl) $capVolUl.val(data.volCapUl);
         } else {
             $('#taof-modal-title').text('Nova Forma Farmacêutica');
             $form[0].reset();
             $('#taof-forma-id').val('');
+            $capNumero.empty().append('<option value="">— Selecione o tamanho —</option>');
+            $capVolUl.val('');
+            $capVolInfo.text('');
         }
         toggleTipo();
         $modal.show();
@@ -67,14 +125,18 @@
     $(document).on('click', '.taof-btn-edit', function(){
         var $tr = $(this).closest('tr');
         openModal({
-            id:           $tr.data('id'),
-            nome:         $tr.data('nome'),
-            tipo:         $tr.data('tipo'),
-            volume:       $tr.data('volume'),
-            unidadeVolume:$tr.data('unidade-volume'),
-            nCapsulas:    $tr.data('n-capsulas'),
-            custoFixo:    $tr.data('custo-fixo'),
-            margemPct:    $tr.data('margem-pct'),
+            id:            $tr.data('id'),
+            nome:          $tr.data('nome'),
+            tipo:          $tr.data('tipo'),
+            volume:        $tr.data('volume'),
+            unidadeVolume: $tr.data('unidade-volume'),
+            nCapsulas:     $tr.data('n-capsulas'),
+            custoFixo:     $tr.data('custo-fixo'),
+            margemPct:     $tr.data('margem-pct'),
+            tipoCapsula:   $tr.data('tipo-capsula'),
+            numeroCapsula: $tr.data('numero-capsula'),
+            volCapUl:      $tr.data('vol-cap-ul'),
+            ftenchcap:     $tr.data('ftenchcap'),
         });
     });
 
