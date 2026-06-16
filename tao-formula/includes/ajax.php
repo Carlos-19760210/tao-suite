@@ -12,10 +12,12 @@ add_action( 'wp_ajax_tao_formula_search_ativos', function() {
     $cliente_id = tao_formula_cliente_id();
     if ( ! $cliente_id ) wp_send_json_error( 'Cliente não identificado', 400 );
 
-    $term = urlencode( $q );
-    $qs   = "/ativos?cliente_id=eq.$cliente_id&ativo=eq.true&nome=ilike.*{$term}*" .
-            "&select=id,codigo_fc,nome,unidade,unidade_padrao,custo_por_unidade,fator_correcao,fator_perda,densidade,diluicao,teor,grupo" .
-            "&order=nome.asc&limit=25";
+    $term  = urlencode( $q );
+    $base  = "/ativos?cliente_id=eq.$cliente_id&ativo=eq.true" .
+             "&select=id,codigo_fc,nome,unidade,unidade_padrao,custo_por_unidade,fator_correcao,fator_perda,densidade,diluicao,teor,grupo" .
+             "&order=nome.asc&limit=25";
+    // Busca por nome OU por codigo_fc (permite digitar "10569" ou "cafeina")
+    $qs = $base . "&or=(nome.ilike.*{$term}*,codigo_fc.ilike.*{$term}*)";
     if ( in_array( $grupo, [ 'M', 'E' ], true ) ) $qs .= "&grupo=eq.$grupo";
 
     $r = tao_formula_api( $qs );

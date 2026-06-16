@@ -389,7 +389,10 @@
                         $dd.append('<div class="taof-ac-item" style="color:#94a3b8">Nenhum resultado.</div>');
                     } else {
                         $.each(resp.data, function (_, a) {
-                            var info = 'R$ ' + fmt(a.custo_por_unidade, 4) + '/' + a.unidade_padrao;
+                            var custo = parseFloat(a.custo_por_unidade) > 0
+                                ? 'R$ ' + fmt(a.custo_por_unidade, 4) + '/' + (a.unidade_padrao || 'g')
+                                : 'sem custo';
+                            var info = (a.codigo_fc ? '[' + a.codigo_fc + '] ' : '') + custo;
                             if (a.diluicao && a.diluicao != 1) info += ' · dil 1:' + a.diluicao;
                             var $item = $('<div class="taof-ac-item">').html(
                                 '<span>' + $('<span>').text(a.nome).html() + '</span>' +
