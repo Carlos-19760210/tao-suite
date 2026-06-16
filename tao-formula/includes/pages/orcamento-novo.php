@@ -62,6 +62,9 @@ function tao_formula_page_orcamento_novo() {
                         <?php endforeach; ?>
                     </select>
                     <span id="taof-forma-info" style="margin-left:12px;font-size:13px;color:#64748b"></span>
+                    <div id="taof-forma-mult-badge" style="display:none;margin-top:8px;font-size:13px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:6px 12px;display:inline-block">
+                        <strong id="taof-forma-mult-txt"></strong>
+                    </div>
                     <?php if ( empty($formas) ) : ?>
                     <p class="description" style="color:#dc2626">Nenhuma forma cadastrada. <a href="<?php echo esc_url(tao_formula_url('formula-formas')); ?>">Cadastrar formas →</a></p>
                     <?php endif; ?>
@@ -97,6 +100,32 @@ function tao_formula_page_orcamento_novo() {
 
         <p style="margin-top:10px">
             <button type="button" class="button" id="taof-btn-add-item">+ Adicionar Ativo</button>
+        </p>
+    </div>
+
+    <!-- ── Embalagens ───────────────────────────────────────────────────── -->
+    <div class="taof-orc-section">
+        <h2>Embalagens</h2>
+
+        <div class="taof-table-container">
+        <table class="wp-list-table widefat taof-table" id="taof-emb-table">
+            <thead>
+                <tr>
+                    <th style="width:40%">Embalagem</th>
+                    <th style="width:12%">Quantidade</th>
+                    <th style="width:13%">Custo/unid</th>
+                    <th style="width:12%;text-align:right">Subtotal</th>
+                    <th style="width:3%"></th>
+                </tr>
+            </thead>
+            <tbody id="taof-emb-body">
+                <!-- linhas inseridas via JS -->
+            </tbody>
+        </table>
+        </div>
+
+        <p style="margin-top:10px">
+            <button type="button" class="button" id="taof-btn-add-emb">+ Adicionar Embalagem</button>
         </p>
     </div>
 
@@ -182,6 +211,23 @@ function tao_formula_page_orcamento_novo() {
         </tr>
     </template>
 
+    <!-- Template de linha de embalagem (oculto) -->
+    <template id="taof-emb-tpl">
+        <tr class="taof-emb-row">
+            <td class="taof-td-emb">
+                <div class="taof-autocomplete-wrap">
+                    <input type="text" class="taof-emb-search" placeholder="Buscar embalagem..." autocomplete="off" style="width:100%">
+                    <input type="hidden" class="taof-emb-id">
+                    <div class="taof-autocomplete-results" style="display:none"></div>
+                </div>
+            </td>
+            <td><input type="number" class="taof-emb-qty small-text" value="1" min="1" step="1" style="width:60px"></td>
+            <td class="taof-emb-custo-label" style="color:#64748b;font-size:12px">—</td>
+            <td class="taof-emb-subtotal" style="text-align:right;font-weight:600">R$ 0,00</td>
+            <td><button type="button" class="taof-btn-del-emb button button-small" style="color:#b91c1c" title="Remover">✕</button></td>
+        </tr>
+    </template>
+
     <style>
     .taof-orc-section { background:#fff; border:1px solid #e2e8f0; border-radius:8px; padding:20px 22px; margin-bottom:16px; }
     .taof-orc-section h2 { margin:0 0 14px; font-size:15px; color:#1e293b; border-bottom:1px solid #f1f5f9; padding-bottom:8px; }
@@ -205,6 +251,7 @@ function tao_formula_page_orcamento_novo() {
     .taof-autocomplete-results .taof-ac-item small { color:#94a3b8; margin-left:6px; }
     #taof-itens-table input.small-text { width:70px !important; }
     #taof-itens-table select { max-width:70px; padding:4px 6px; }
+    #taof-forma-mult-badge { display:none; }
     </style>
 
     <script>

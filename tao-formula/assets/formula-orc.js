@@ -96,11 +96,17 @@
 
         var info = '';
         if (formaAtual) {
+            var multTxt = '';
             if (formaAtual.tipo === 'cap') {
-                info = formaAtual.nCapsulas + ' cáps.';
+                info = formaAtual.nCapsulas + ' capsulas';
+                multTxt = 'Multiplicador: x ' + formaAtual.nCapsulas + ' capsulas';
             } else {
                 info = formaAtual.volume + ' ' + formaAtual.unidVolume;
+                multTxt = 'Multiplicador: x ' + formaAtual.volume + ' ' + formaAtual.unidVolume;
             }
+            var $badge = $('#taof-forma-mult-badge');
+            if (multTxt) { $('#taof-forma-mult-txt').text(multTxt); $badge.show(); }
+            else { $badge.hide(); }
             info += ' | Custo fixo: R$ ' + fmt(formaAtual.custoFixo);
             info += ' | Margem: ' + fmt(formaAtual.margemPct, 1) + '%';
             $('#taof-margem-input').val(formaAtual.margemPct);
@@ -163,7 +169,8 @@
             $.getJSON(ajaxUrl, {
                 action: 'tao_formula_search_ativos',
                 nonce:  nonce,
-                q:      q
+                q:      q,
+                grupo:  'M'
             }, function (resp) {
                 $res.empty();
                 if (!resp.success || !resp.data.length) {
@@ -221,6 +228,102 @@
         });
     }
 
+    // ── Embalagens ───────────────────────────────────────────────────────────
+    function calcularEmb($row) {
+        var qty      = parseInt($row.find('.taof-emb-qty').val()) || 0;
+        var custo    = parseFloat($row.data('custo-unit')) || 0;
+        var subtotal = qty * custo;
+        $row.find('.taof-emb-subtotal').text('R$ ' + fmt(subtotal));
+        $row.data('subtotal-emb', subtotal);
+        calcularTotais();
+    }
+
+    function initEmbRow($row) {
+        $row.on('input', '.taof-emb-qty', function () { calcularEmb($row); });
+        $row.on('click', '.taof-btn-del-emb', function () {
+            $row.remove();
+            calcularTotais();
+        });
+        initEmbAutocomplete($row);
+    }
+
+    function initEmbAutocomplete($row) {
+        var $inp  = $row.find('.taof-emb-search');
+        var $res  = $row.find('.taof-autocomplete-results');
+        var $idFld= $row.find('.taof-emb-id');
+        var timer = null;
+
+        $inp.on('input', function () {
+            var q = $(this).val().trim();
+            clearTimeout(timer);
+            if (q.length < 2) { $res.hide().empty(); return; }
+            timer = setTimeout(function () {
+                $.getJSON(ajaxUrl, { action: 'tao_formula_search_ativos', nonce: nonce, q: q, grupo: 'E' }, function (resp) {
+                    $res.empty();
+                    if (!resp.success || !resp.data.length) {
+                        $res.append('<div class="taof-ac-item" style="color:#94a3b8">Nenhuma embalagem encontrada.</div>');
+                    } else {
+                        $.each(resp.data, function (_, a) {
+                            var $item = $('<div class="taof-ac-item">')
+                                .text(a.nome)
+                                .append($('<small>').text('R$ ' + fmt(a.custo_por_unidade, 4) + '/' + (a.unidade_padrao || 'un')));
+                            $item.on('mousedown', function (e) {
+                                e.preventDefault();
+                                $inp.val(a.nome);
+                                $idFld.val(a.id);
+                                $row.data('emb-id', a.id);
+                                $row.data('emb-nome', a.nome);
+                                $row.data('custo-unit', a.custo_por_unidade);
+                                $row.find('.taof-emb-custo-label').text('R$ ' + fmt(a.custo_por_unidade, 4) + '/un');
+                                $res.hide().empty();
+                                calcularEmb($row);
+                            });
+                            $res.append($item);
+                        });
+                    }
+                    $res.show();
+                });
+            }, 300);
+        });
+
+        $inp.on('blur', function () { setTimeout(function () { $res.hide(); }, 150); });
+        $inp.on('focus', function () { if ($res.children().length) $res.show(); });
+    }
+
+    $('#taof-btn-add-emb').on('click', function () {
+        var tpl    = document.getElementById('taof-emb-tpl');
+        var clone  = $(tpl.content.cloneNode(true));
+        var $row   = clone.find('tr');
+        $row.data('subtotal-emb', 0);
+        $('#taof-emb-body').append(clone);
+        initEmbRow($row);
+    });
+
+    // Sobreescreve calcularTotais para incluir embalagens
+    var _calcTotaisOrig = calcularTotais;
+    calcularTotais = function () {
+        var totalMp = 0;
+        $('#taof-itens-body .taof-item-row').each(function () {
+            totalMp += parseFloat($(this).data('subtotal')) || 0;
+        });
+        var totalEmb = 0;
+        $('#taof-emb-body .taof-emb-row').each(function () {
+            totalEmb += parseFloat($(this).data('subtotal-emb')) || 0;
+        });
+        var totalInsumos = totalMp + totalEmb;
+        var custoFixo    = formaAtual ? (formaAtual.custoFixo || 0) : 0;
+        var base         = totalInsumos + custoFixo;
+        var margemPct    = parseFloat($('#taof-margem-input').val()) || 0;
+        var margemVal    = base * margemPct / 100;
+        var total        = base + margemVal;
+
+        $('#taof-res-insumos').text('R$ ' + fmt(totalInsumos));
+        $('#taof-res-custo-fixo').text('R$ ' + fmt(custoFixo));
+        $('#taof-res-base').text('R$ ' + fmt(base));
+        $('#taof-res-margem').text('R$ ' + fmt(margemVal));
+        $('#taof-res-total').html('<strong>R$ ' + fmt(total) + '</strong>');
+    };
+
     // ── Salvar orçamento ─────────────────────────────────────────────────────
     $('#taof-orc-form').on('submit', function (e) {
         e.preventDefault();
@@ -229,7 +332,7 @@
         var $sp  = $('.taof-spinner');
         var $msg = $('.taof-msg');
 
-        // Monta array de itens
+        // Monta array de itens (MPs)
         var itens = [];
         var ok = true;
         $('#taof-itens-body .taof-item-row').each(function () {
@@ -237,6 +340,7 @@
             var id = $r.data('ativo-id');
             if (!id) { ok = false; return false; }
             itens.push({
+                tipo:           'mp',
                 ativo_id:       id,
                 nome:           $r.data('ativo-nome'),
                 dose:           $r.data('dose'),
@@ -252,6 +356,23 @@
         });
 
         if (!ok) { alert('Selecione o ativo em todas as linhas antes de salvar.'); return; }
+
+        // Monta itens de embalagem
+        $('#taof-emb-body .taof-emb-row').each(function () {
+            var $r = $(this);
+            var id = $r.data('emb-id');
+            if (!id) { ok = false; return false; }
+            itens.push({
+                tipo:           'emb',
+                ativo_id:       id,
+                nome:           $r.data('emb-nome'),
+                quantidade:     parseInt($r.find('.taof-emb-qty').val()) || 0,
+                custo_por_unidade: parseFloat($r.data('custo-unit')) || 0,
+                subtotal:       parseFloat($r.data('subtotal-emb')) || 0
+            });
+        });
+
+        if (!ok) { alert('Selecione a embalagem em todas as linhas antes de salvar.'); return; }
         if (!itens.length) { alert('Adicione ao menos um ativo na receita.'); return; }
 
         // Lê totais atuais

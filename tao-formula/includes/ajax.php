@@ -8,20 +8,46 @@ add_action( 'wp_ajax_tao_formula_search_ativos', function() {
     if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
 
     $q          = sanitize_text_field( $_GET['q'] ?? '' );
+    $grupo      = sanitize_text_field( $_GET['grupo'] ?? '' );
     $cliente_id = tao_formula_cliente_id();
     if ( ! $cliente_id ) wp_send_json_error( 'Cliente não identificado', 400 );
 
     $term = urlencode( $q );
-    $r    = tao_formula_api(
-        "/ativos?cliente_id=eq.$cliente_id&ativo=eq.true&nome=ilike.*{$term}*" .
-        "&select=id,nome,unidade,unidade_padrao,custo_por_unidade,fator_correcao,fator_perda" .
-        "&order=nome.asc&limit=25"
-    );
+    $qs   = "/ativos?cliente_id=eq.$cliente_id&ativo=eq.true&nome=ilike.*{$term}*" .
+            "&select=id,nome,unidade,unidade_padrao,custo_por_unidade,fator_correcao,fator_perda,grupo" .
+            "&order=nome.asc&limit=25";
+    if ( in_array( $grupo, [ 'M', 'E' ], true ) ) $qs .= "&grupo=eq.$grupo";
 
+    $r = tao_formula_api( $qs );
     if ( $r['ok'] ) {
         wp_send_json_success( $r['data'] );
     } else {
         wp_send_json_error( $r['raw'] );
+    }
+} );
+
+// ── Detalhe de um Ativo ───────────────────────────────────────────────────────
+
+add_action( 'wp_ajax_tao_formula_get_ativo', function() {
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+
+    $id         = sanitize_text_field( $_GET['id'] ?? '' );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $id || ! $cliente_id ) wp_send_json_error( 'Parâmetros inválidos', 400 );
+
+    $r = tao_formula_api(
+        "/ativos?id=eq.$id&cliente_id=eq.$cliente_id" .
+        "&select=id,codigo_fc,nome,grupo,unidade,unidade_padrao,estoque_atual,preco_compra,preco_custo," .
+        "custo_por_unidade,preco_venda,fator_correcao,fator_perda,densidade,dcb,dose_min,uni_dose_min," .
+        "dose_max,uni_dose_max,categoria,classe_terapeutica,principio_ativo,observacoes,sincronizado_em" .
+        "&limit=1"
+    );
+
+    if ( $r['ok'] && ! empty( $r['data'] ) ) {
+        wp_send_json_success( $r['data'][0] );
+    } else {
+        wp_send_json_error( $r['ok'] ? 'Não encontrado' : $r['raw'], 404 );
     }
 } );
 
