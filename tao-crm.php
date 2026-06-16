@@ -2690,7 +2690,10 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
 
             // ── 2b. Encaminha ao N8N uma vez por workspace, só sem card aberto ──────
             // Bloqueia N8N se cliente tem card no pós-vendas (evita msg de horário + criação de novo card de vendas)
-            if ( ! $from_me && ! $card_id && ! $pos_vendas_card && $N8N_URL && empty( $fw_cache[ $WS_ID ] ) && ! ( $is_handoff_req && ! tao_crm_esta_em_horario( $WS_ID ) ) ) {
+            // Transient por contato evita duplo encaminhamento quando mensagens chegam em paralelo (ex: 2 imagens simultâneas)
+            $_n8n_fwd_key = 'tao_crm_n8n_fwd_' . md5( $WS_ID . $num );
+            if ( ! $from_me && ! $card_id && ! $pos_vendas_card && $N8N_URL && empty( $fw_cache[ $WS_ID ] ) && ! get_transient( $_n8n_fwd_key ) && ! ( $is_handoff_req && ! tao_crm_esta_em_horario( $WS_ID ) ) ) {
+                set_transient( $_n8n_fwd_key, 1, 30 );
                 $fw_ev = $ev;
                 if ( isset( $fw_ev['data'] ) ) {
                     $fw_ev['_crm_retorno']    = $is_retorno;
