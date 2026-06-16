@@ -2511,8 +2511,8 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
             elseif ( isset( $m['stickerMessage'] ) )      { $tipo = 'sticker';  $conteudo = '[sticker]'; }
             else                                          { continue; }
 
-            // ── 1a. Mídia: baixa da Evolution — incoming sempre; fromMe só para documentos
-            if ( $tipo !== 'text' && $tipo !== 'sticker' && ( ! $from_me || $tipo === 'document' ) ) {
+            // ── 1a. Mídia incoming: baixa da Evolution imediatamente ───────────
+            if ( $tipo !== 'text' && $tipo !== 'sticker' && ! $from_me ) {
                 $midia = tao_crm_download_media( $inst, $msg['key'], $m );
             }
 
@@ -2562,14 +2562,15 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
             }
 
             // ── 2. Busca card em atendimento humano ativo (bloqueia chatbot) ────────
-            // Filtra pela instância atual; cards sem instancia_id (legados) também casam.
-            $inst_or = "or=(instancia_id.eq.$INST_ID,instancia_id.is.null)";
-            $r = tao_crm_api( "/crm_cards?workspace_id=eq.$WS_ID&contato_whatsapp=eq.$num&fechado=eq.false&atendimento_humano=eq.true&$inst_or&select=id,estagio_id,fechado&order=criado_em.desc&limit=1" );
+            // Busca em TODAS as instâncias: lock expirado não deve reativar o bot se card ainda existe.
+            $r = tao_crm_api( "/crm_cards?workspace_id=eq.$WS_ID&contato_whatsapp=eq.$num&fechado=eq.false&atendimento_humano=eq.true&select=id,estagio_id,fechado&order=criado_em.desc&limit=1" );
             $card_id         = null;
             $card_estagio_id = null;
             if ( $r['ok'] && ! empty( $r['data'] ) ) {
                 $card_id         = $r['data'][0]['id'];
                 $card_estagio_id = $r['data'][0]['estagio_id'];
+                // Renova o lock do chatbot: transient pode ter expirado mesmo com card aberto
+                if ( ! $from_me ) tao_crm_lock_chatbot( $num_plain, $WS_ID );
             }
             tao_crm_log_error( 'dispatch', '[2] card_humano=' . ( $card_id ? substr($card_id,0,8) : 'none' ), [ 'num' => $num_plain, 'from_me' => $from_me, 'msg' => mb_substr($conteudo,0,80) ] );
 
@@ -2620,6 +2621,7 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
             if ( ! $from_me && ! $tracking_card_id ) {
                 $rc_conf = tao_crm_api( "/crm_cards?workspace_id=eq.$WS_ID&contato_whatsapp=eq.$num&fechado=eq.false&instancia_id=neq.$INST_ID&select=id&limit=1" );
                 if ( $rc_conf['ok'] && ! empty( $rc_conf['data'] ) ) {
+                    tao_crm_lock_chatbot( $num_plain, $WS_ID ); // garante que N8N não responda cross-instância
                     tao_crm_evolution_send( $inst, $num, '⚠️ Este número já está em atendimento em outro canal. Assim que o atendimento atual for concluído, responderemos por aqui.' );
                     tao_crm_log_error( 'dispatch', '[2e] conflito cross-instancia', [ 'num' => $num_plain, 'inst' => $instancia ] );
                     continue;
