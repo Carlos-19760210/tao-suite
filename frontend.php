@@ -82,6 +82,7 @@ add_action( 'template_redirect', function() {
         'formula'            => 'tao-formula',
         'formula-dashboard'  => 'tao-formula',
         'formula-orcamentos' => 'tao-formula-orcamentos',
+        'formula-novo-orc'   => 'tao-formula-orc-novo',
         'formula-formas'     => 'tao-formula-formas',
         'formula-ativos'     => 'tao-formula-ativos',
         'formula-config'     => 'tao-formula-config',

@@ -35,11 +35,12 @@ if ( $has_crm ) {
 
 $has_formula = function_exists( 'tao_formula_page_dashboard' );
 if ( $has_formula ) {
-    $secoes['tao-formula']           = [ 'fn' => 'tao_formula_page_dashboard',  'label' => 'TAO Fórmulas — Dashboard' ];
-    $secoes['tao-formula-orcamentos']= [ 'fn' => 'tao_formula_page_orcamentos', 'label' => 'Orçamentos' ];
-    $secoes['tao-formula-formas']    = [ 'fn' => 'tao_formula_page_formas',     'label' => 'Formas Farmacêuticas' ];
-    $secoes['tao-formula-ativos']    = [ 'fn' => 'tao_formula_page_ativos',     'label' => 'Ativos' ];
-    $secoes['tao-formula-config']    = [ 'fn' => 'tao_formula_page_config',     'label' => 'TAO Fórmulas — Config' ];
+    $secoes['tao-formula']           = [ 'fn' => 'tao_formula_page_dashboard',      'label' => 'TAO Fórmulas — Dashboard' ];
+    $secoes['tao-formula-orcamentos']= [ 'fn' => 'tao_formula_page_orcamentos',     'label' => 'Orçamentos' ];
+    $secoes['tao-formula-orc-novo']  = [ 'fn' => 'tao_formula_page_orcamento_novo', 'label' => 'Novo Orçamento' ];
+    $secoes['tao-formula-formas']    = [ 'fn' => 'tao_formula_page_formas',         'label' => 'Formas Farmacêuticas' ];
+    $secoes['tao-formula-ativos']    = [ 'fn' => 'tao_formula_page_ativos',         'label' => 'Ativos' ];
+    $secoes['tao-formula-config']    = [ 'fn' => 'tao_formula_page_config',         'label' => 'TAO Fórmulas — Config' ];
 }
 
 $page_atual = $_GET['page'] ?? 'chatbot-platform';
@@ -148,8 +149,9 @@ if ( $has_formula ) {
         'label' => 'TAO F&oacute;rmulas',
         'icon'  => '&#x1F9EA;',
         'items' => [
-            [ 'slug' => 'tao-formula',           'label' => 'Dashboard',           'url' => cbpm_url('formula-dashboard') ],
-            [ 'slug' => 'tao-formula-orcamentos','label' => 'Or&ccedil;amentos',   'url' => cbpm_url('formula-orcamentos') ],
+            [ 'slug' => 'tao-formula',            'label' => 'Dashboard',              'url' => cbpm_url('formula-dashboard') ],
+            [ 'slug' => 'tao-formula-orcamentos', 'label' => 'Or&ccedil;amentos',      'url' => cbpm_url('formula-orcamentos') ],
+            [ 'slug' => 'tao-formula-orc-novo',   'label' => '+ Novo Or&ccedil;amento','url' => cbpm_url('formula-novo-orc') ],
         ],
     ];
 }
@@ -518,6 +520,9 @@ window.taoFormula = <?php echo wp_json_encode( [
 ] ); ?>;
 </script>
 <script src="<?php echo esc_url( TAOF_PLUGIN_URL . 'assets/formula-script.js' ); ?>?v=<?php echo TAOF_VERSION; ?>"></script>
+<?php if ( $fn === 'tao_formula_page_orcamento_novo' ): ?>
+<script src="<?php echo esc_url( TAOF_PLUGIN_URL . 'assets/formula-orc.js' ); ?>?v=<?php echo TAOF_VERSION; ?>"></script>
+<?php endif; ?>
 <?php endif; ?>
 <?php if ( in_array( $fn, [ 'tao_crm_page_kanban_full', 'tao_crm_page_inbox', 'tao_crm_page_settings' ], true ) && defined( 'TAO_CRM_URL' ) ): ?>
 <script>
