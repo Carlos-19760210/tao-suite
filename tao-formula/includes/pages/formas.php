@@ -16,11 +16,17 @@ function tao_formula_page_formas() {
     }
 
     $tipos = [
-        'gel'     => 'Gel / Creme',
         'cap'     => 'Cápsula',
-        'solucao' => 'Solução / Suspensão',
-        'po'      => 'Pó / Sachê',
-        'outro'   => 'Outro',
+        'creme'   => 'Creme',
+        'locao'   => 'Loção',
+        'shampoo' => 'Shampoo',
+        'gel'     => 'Gel / Pomada',
+        'envelope'=> 'Envelope (Sachê)',
+        'solucao' => 'Solução',
+        'un'      => 'Unidades',
+        'floral'  => 'Floral',
+        'duo_cap' => 'Duo Caps',
+        'outro'   => 'Outras',
     ];
 
     // Tipos únicos de cápsula para o select
