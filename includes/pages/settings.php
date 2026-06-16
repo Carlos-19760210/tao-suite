@@ -2006,7 +2006,7 @@ function tao_crm_page_settings() {
 
                         <div style="padding:12px 20px;display:flex;gap:8px">
 
-                            <button type="submit" class="button button-primary" id="af-submit">
+                            <button type="button" class="button button-primary" id="af-submit">
 
                                 <?php echo $edit_auto ? 'Atualizar automação' : 'Criar automação'; ?>
 

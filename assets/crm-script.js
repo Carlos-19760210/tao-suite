@@ -616,7 +616,7 @@
         $('#af-resp-wrap').toggle(a === 'atribuir_responsavel');
     });
 
-    $('#tao-crm-auto-form').on('submit', function(e){
+    $(document).on('click', '#af-submit', function(e){
         e.preventDefault();
         var autoId = $('#af-auto-id').val();
         var $btn   = $('#af-submit').prop('disabled', true).text('Salvando...');
