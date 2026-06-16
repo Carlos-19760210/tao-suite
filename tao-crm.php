@@ -770,6 +770,9 @@ function tao_crm_disparar_automacoes( $card_id, $estagio_id, $tipo, $force_immed
         if ( $force_immediate || $delay === 0 ) {
             tao_crm_executar_automacao_item( $auto, $card_id );
         } else {
+            // Dedup: não insere se já existe entrada pendente para este card+automacao
+            $rq = tao_crm_api( "/crm_automacoes_fila?automacao_id=eq.{$auto['id']}&card_id=eq.$card_id&executado_em=is.null&limit=1" );
+            if ( $rq['ok'] && ! empty( $rq['data'] ) ) continue;
             tao_crm_api( '/crm_automacoes_fila', 'POST', [
                 'automacao_id' => $auto['id'],
                 'card_id'      => $card_id,
