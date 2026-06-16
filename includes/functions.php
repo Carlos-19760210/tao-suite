@@ -259,6 +259,19 @@ function tao_crm_lock_chatbot( $phone, $workspace_id ) {
     tao_crm_api( "/historico?cliente_id=eq.$cliente_id&phone=eq.$phone", 'DELETE' );
 }
 
+/**
+ * Reverte o lock do chatbot (status contatado → ativo).
+ * Usado em workspaces chatbot_primary onde o N8N é o gerente principal do fluxo.
+ */
+function tao_crm_unlock_chatbot( $phone, $workspace_id ) {
+    if ( ! $phone || ! $workspace_id ) return;
+    $rw = tao_crm_api( "/crm_workspaces?id=eq.$workspace_id&select=cliente_id&limit=1" );
+    if ( ! $rw['ok'] || empty( $rw['data'] ) ) return;
+    $cliente_id = $rw['data'][0]['cliente_id'] ?? '';
+    if ( ! $cliente_id ) return;
+    tao_crm_api( "/leads?cliente_id=eq.$cliente_id&phone=eq.$phone&status=eq.contatado", 'PATCH', [ 'status' => 'ativo' ] );
+}
+
 // ─── Helper: credenciais Evolution por card ───────────────────────────────────
 function tao_crm_get_evo_creds( $card ) {
     // Sempre busca workspace como base (URL e key padrão)

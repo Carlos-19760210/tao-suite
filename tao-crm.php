@@ -2576,15 +2576,26 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
             // ── 2. Busca card em atendimento humano ativo (bloqueia chatbot) ────────
             // Busca em TODAS as instâncias: lock expirado não deve reativar o bot se card ainda existe.
             $r = tao_crm_api( "/crm_cards?workspace_id=eq.$WS_ID&contato_whatsapp=eq.$num&fechado=eq.false&atendimento_humano=eq.true&select=id,estagio_id,fechado&order=criado_em.desc&limit=1" );
-            $card_id         = null;
-            $card_estagio_id = null;
+            $card_id              = null;
+            $card_estagio_id      = null;
+            // chatbot_primary: workspaces onde o N8N gerencia todo o fluxo (ex: Iluminar).
+            // Nesse modo, atendimento_humano=true só bloqueia o chatbot quando o card está no estágio handoff.
+            $_chatbot_primary     = (bool) get_option( 'tao_crm_chatbot_primary_' . $WS_ID, false );
+            $_n8n_blocked_by_card = false;
             if ( $r['ok'] && ! empty( $r['data'] ) ) {
                 $card_id         = $r['data'][0]['id'];
                 $card_estagio_id = $r['data'][0]['estagio_id'];
-                // Renova o lock do chatbot: transient pode ter expirado mesmo com card aberto
-                if ( ! $from_me ) tao_crm_lock_chatbot( $num_plain, $WS_ID );
+                $is_handoff_card = $HANDOFF_STAGE_ID && ( $card_estagio_id === $HANDOFF_STAGE_ID );
+                if ( $is_handoff_card || ! $_chatbot_primary ) {
+                    // Padrão: atendimento humano bloqueia chatbot em qualquer estágio
+                    $_n8n_blocked_by_card = true;
+                    if ( ! $from_me ) tao_crm_lock_chatbot( $num_plain, $WS_ID );
+                } else {
+                    // chatbot_primary + card fora do handoff: N8N continua gerenciando
+                    if ( ! $from_me ) tao_crm_unlock_chatbot( $num_plain, $WS_ID );
+                }
             }
-            tao_crm_log_error( 'dispatch', '[2] card_humano=' . ( $card_id ? substr($card_id,0,8) : 'none' ), [ 'num' => $num_plain, 'from_me' => $from_me, 'msg' => mb_substr($conteudo,0,80) ] );
+            tao_crm_log_error( 'dispatch', '[2] card_humano=' . ( $card_id ? substr($card_id,0,8) : 'none' ) . ' n8n_blocked=' . ( $_n8n_blocked_by_card ? 'sim' : 'nao' ), [ 'num' => $num_plain, 'from_me' => $from_me, 'msg' => mb_substr($conteudo,0,80) ] );
 
             // ── 2c. Busca card aberto de tracking (Pós Vendas, sem bloquear chatbot) ─
             // Busca em TODAS as instâncias para garantir que cards de pós-vendas sejam detectados
@@ -2595,7 +2606,11 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
                 $rt = tao_crm_api( "/crm_cards?workspace_id=eq.$WS_ID&contato_whatsapp=eq.$num&fechado=eq.false&atendimento_humano=eq.false&select=id,estagio_id,titulo,pipeline_id&order=criado_em.desc&limit=1" );
                 if ( $rt['ok'] && ! empty( $rt['data'] ) ) {
                     $tracking_card_id = $rt['data'][0]['id'];
-                    $pos_vendas_card  = $rt['data'][0];
+                    // Só bloqueia N8N se o card está num pipeline secundário (pós-vendas).
+                    // Cards no pipeline principal não devem impedir o chatbot de atuar.
+                    if ( ( $rt['data'][0]['pipeline_id'] ?? '' ) !== $PL_ID ) {
+                        $pos_vendas_card = $rt['data'][0];
+                    }
                 }
             }
             // [2c-pv] Fallback: card de pós-vendas fechado nos últimos 90 dias.
@@ -2701,7 +2716,7 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
             // Bloqueia N8N se cliente tem card no pós-vendas (evita msg de horário + criação de novo card de vendas)
             // Transient por contato evita duplo encaminhamento quando mensagens chegam em paralelo (ex: 2 imagens simultâneas)
             $_n8n_fwd_key = 'tao_crm_n8n_fwd_' . md5( $WS_ID . $num );
-            if ( ! $from_me && ! $card_id && ! $pos_vendas_card && $N8N_URL && empty( $fw_cache[ $WS_ID ] ) && ! get_transient( $_n8n_fwd_key ) && ! ( $is_handoff_req && ! tao_crm_esta_em_horario( $WS_ID ) ) ) {
+            if ( ! $from_me && ! $_n8n_blocked_by_card && ! $pos_vendas_card && $N8N_URL && empty( $fw_cache[ $WS_ID ] ) && ! get_transient( $_n8n_fwd_key ) && ! ( $is_handoff_req && ! tao_crm_esta_em_horario( $WS_ID ) ) ) {
                 set_transient( $_n8n_fwd_key, 1, 30 );
                 $fw_ev = $ev;
                 if ( isset( $fw_ev['data'] ) ) {
