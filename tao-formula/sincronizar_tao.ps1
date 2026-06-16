@@ -1,6 +1,7 @@
 # ============================================================
 # sincronizar_tao.ps1
-# Equaliza materias-primas: Firebird (Formula Certa) -> Supabase (TAO Suite)
+# Equaliza Formula Certa -> Supabase (TAO Suite)
+# Sincroniza: MPs (GRUPO=M) + Embalagens (GRUPO=E) + Tipos de Capsula
 # Uso: .\sincronizar_tao.ps1
 # ============================================================
 
@@ -18,82 +19,59 @@ Write-Host "Banco  : $DB"
 Write-Host "Cliente: $CLIENTE_ID"
 Write-Host ""
 
-# ── 1. Gravar SQL em arquivo (array evita problemas com here-string) ──────────
-$sqlLinhas = @(
-    "SELECT",
-    "  CAST(p.CDPRO AS VARCHAR(10))               || '|' ||",
-    "  TRIM(REPLACE(p.DESCR, '@', ''))             || '|' ||",
-    "  TRIM(p.DESCR)                               || '|' ||",
-    "  COALESCE(TRIM(p.UNIDA), '')                 || '|' ||",
-    "  COALESCE(CAST(e.ESTAT    AS VARCHAR(20)),'')|| '|' ||",
-    "  COALESCE(CAST(p.PRCOM    AS VARCHAR(20)),'')|| '|' ||",
-    "  COALESCE(CAST(e.PRCOMCTB AS VARCHAR(20)),'')|| '|' ||",
-    "  COALESCE(CAST(p.PRVEN    AS VARCHAR(20)),'')|| '|' ||",
-    "  COALESCE(TRIM(p.CATEGORIA), '')             || '|' ||",
-    "  COALESCE(TRIM(p.PRINCIPIOATIVO), '')        || '|' ||",
-    "  COALESCE(CAST(p.DENSIDADE AS VARCHAR(15)),'')|| '|' ||",
-    "  COALESCE(CAST(p.FATOR    AS VARCHAR(15)),'')|| '|' ||",
-    "  COALESCE(TRIM(p.CDDCB), '')                 || '|' ||",
-    "  COALESCE(CAST(p.DOMIN    AS VARCHAR(15)),'')|| '|' ||",
-    "  COALESCE(TRIM(p.UNIDMIN), '')               || '|' ||",
-    "  COALESCE(CAST(p.DOMAX    AS VARCHAR(15)),'')|| '|' ||",
-    "  COALESCE(TRIM(p.UNIDM), '')                 || '|' ||",
-    "  COALESCE(TRIM(p.OBSCOMPO), '')",
-    "FROM FC03000 p",
-    "JOIN FC03100 e ON e.CDPRO = p.CDPRO AND e.CDFIL = 1",
-    "WHERE p.SITUA = 'A' AND p.GRUPO = 'M' AND e.ESTAT > 0",
-    "ORDER BY TRIM(REPLACE(p.DESCR, '@', ''));",
-    "QUIT;"
-)
-$sqlLinhas | Set-Content -Path $SQL_TMP -Encoding ASCII
-
-# ── 2. Executar isql ──────────────────────────────────────────────────────────
-Write-Host "Extraindo do Firebird..." -ForegroundColor Yellow
-$raw = & "$FB25" -user SYSDBA -password masterkey -input "$SQL_TMP" "$DB" 2>&1
-
-$linhas = $raw | Where-Object {
-    $l = [string]$_
-    $l -match '\|' -and
-    $l -notmatch '={5,}' -and
-    $l -notmatch 'CONCATENATION' -and
-    $l -notmatch 'Database:'
-} | ForEach-Object { ([string]$_).Trim() }
-
-if ($linhas.Count -eq 0) {
-    Write-Host "ERRO: Nenhum dado retornado do Firebird." -ForegroundColor Red
-    exit 1
+# ── Headers Supabase ──────────────────────────────────────────────────────────
+$h_del = @{ "apikey" = $SUPABASE_KEY; "Authorization" = "Bearer $SUPABASE_KEY" }
+$h_ins = @{
+    "apikey"        = $SUPABASE_KEY
+    "Authorization" = "Bearer $SUPABASE_KEY"
+    "Content-Type"  = "application/json"
+    "Prefer"        = "return=minimal"
 }
-Write-Host "Extraidos: $($linhas.Count) ativos" -ForegroundColor Green
 
-# ── 3. Montar payload ─────────────────────────────────────────────────────────
-$agora   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-$payload = [System.Collections.Generic.List[hashtable]]::new()
-
-# Mapeamento Firebird UNIDA -> unidade_padrao (constraint aceita: g, mcg, mg, UI)
-$unidade_map = @{
+# ── Mapeamento Firebird UNIDA -> unidade_padrao ───────────────────────────────
+$unidade_map_mp = @{
     'G'    = 'g';   'GR'   = 'g';   'KG'   = 'g';   'L'    = 'g'
     'MG'   = 'mg';  'MEQ'  = 'mg'
     'MCG'  = 'mcg'; 'UG'   = 'mcg'; 'NG'   = 'mcg'
     'UI'   = 'UI';  'IU'   = 'UI';  'U'    = 'UI'
     'ML'   = 'g';   'UN'   = 'mg';  'CAP'  = 'mg';  'CAPS' = 'mg'
 }
+$unidade_map_emb = @{
+    'UN'   = 'un';  'CAP'  = 'un';  'CAPS' = 'un';  'PC'   = 'un'
+    'PAR'  = 'un';  'KIT'  = 'un';  'RL'   = 'un';  'ENV'  = 'un'
+    'G'    = 'g';   'MG'   = 'mg';  'ML'   = 'g';   'L'    = 'g'
+}
 
-foreach ($linha in $linhas) {
-    $c = $linha.Split('|')
-    if ($c.Count -lt 8) { continue }
+# ── Helper: monta objeto ativo para o Supabase ───────────────────────────────
+# Colunas do SELECT (0-based):
+# 0=CDPRO 1=NOME_LIMPO 2=NOME_ORIG 3=UNIDA 4=ESTAT 5=PRCOM 6=PRCOMCTB
+# 7=PRVEN 8=CATEGORIA 9=PRINCIPIOATIVO 10=DENSIDADE 11=FATOR
+# 12=CDDCB 13=DOMIN 14=UNIDMIN 15=DOMAX 16=UNIDM 17=OBSCOMPO
+# 18=DILUICAO 19=TEOR
+function Build-Ativo($c, $grupo, $agora, $unidade_map) {
+    $unidade     = $c[3].Trim()
+    $unid_key    = $unidade.ToUpper()
+    $unid_padrao = if ($unidade_map.ContainsKey($unid_key)) { $unidade_map[$unid_key] } else {
+                       if ($grupo -eq 'E') { 'un' } else { 'mg' }
+                   }
 
-    $unidade      = $c[3].Trim()
-    $unid_key     = $unidade.ToUpper()
-    $unid_padrao  = if ($unidade_map.ContainsKey($unid_key)) { $unidade_map[$unid_key] } else { 'mg' }
+    # diluicao e teor (colunas 18 e 19, adicionadas na v1.2)
+    $diluicao_raw = if ($c.Count -gt 18) { $c[18].Trim() } else { '1' }
+    $teor_raw     = if ($c.Count -gt 19) { $c[19].Trim() } else { '100' }
+    $diluicao_val = if ($diluicao_raw -match '^\d') { [double]$diluicao_raw } else { 1.0 }
+    $teor_val     = if ($teor_raw     -match '^\d') { [double]$teor_raw     } else { 100.0 }
+    if ($diluicao_val -le 0) { $diluicao_val = 1.0 }
+    if ($teor_val     -le 0) { $teor_val     = 100.0 }
 
-    $obj = @{
-        cliente_id         = $CLIENTE_ID
+    return @{
+        cliente_id         = $script:CLIENTE_ID
         codigo_fc          = $c[0].Trim()
         nome               = $c[1].Trim()
         nome_original      = $c[2].Trim()
         nome_alt           = ""
+        grupo              = $grupo
         unidade            = $unidade
-        unidade_padrao     = $unid_padrao   # mapeado para valor aceito pelo check constraint
+        unidade_padrao     = $unid_padrao
         estoque_atual      = if ($c[4] -match '^\d') { [double]$c[4] } else { $null }
         em_estoque         = ($c[4] -match '^\d') -and ([double]$c[4] -gt 0)
         preco_compra       = if ($c[5] -match '^\d') { [double]$c[5] } else { $null }
@@ -105,9 +83,11 @@ foreach ($linha in $linhas) {
         classe_terapeutica = $null
         principio_ativo    = $c[9].Trim()
         controlado         = $false
-        densidade          = if ($c[10] -match '^\d') { [double]$c[10] } else { 1 }
-        fator_correcao     = if ($c[11] -match '^\d') { [double]$c[11] } else { 1 }
+        densidade          = if ($c[10] -match '^\d') { [double]$c[10] } else { 1.0 }
+        fator_correcao     = if ($c[11] -match '^\d') { [double]$c[11] } else { 1.0 }
         fator_perda        = 1.0
+        diluicao           = $diluicao_val
+        teor               = $teor_val
         excipiente_padrao  = $null
         dcb                = $c[12].Trim()
         dose_min           = if ($c.Count -gt 13 -and $c[13] -match '^\d') { [double]$c[13] } else { $null }
@@ -121,72 +101,193 @@ foreach ($linha in $linhas) {
         sincronizado_em    = $agora
         atualizado_em      = $agora
     }
-
-    $payload.Add($obj)
 }
 
-# ── 4. Sync completo: DELETE + INSERT em lotes de 200 ────────────────────────
-# (merge-duplicates requer UNIQUE CONSTRAINT; o índice existente é apenas INDEX)
+# ── Helper: extrai linhas do Firebird para um GRUPO ──────────────────────────
+function Get-FCLinhas($grupo) {
+    $filtroEstoque = if ($grupo -eq 'M') { "JOIN FC03100 e ON e.CDPRO = p.CDPRO AND e.CDFIL = 1" } `
+                     else                { "LEFT JOIN FC03100 e ON e.CDPRO = p.CDPRO AND e.CDFIL = 1" }
+    $whereEstoque  = if ($grupo -eq 'M') { "AND e.ESTAT > 0" } else { "" }
+
+    $sqlLinhas = @(
+        "SELECT",
+        "  CAST(p.CDPRO AS VARCHAR(10))                || '|' ||",
+        "  TRIM(REPLACE(p.DESCR, '@', ''))              || '|' ||",
+        "  TRIM(p.DESCR)                                || '|' ||",
+        "  COALESCE(TRIM(p.UNIDA), '')                  || '|' ||",
+        "  COALESCE(CAST(e.ESTAT     AS VARCHAR(20)),'')|| '|' ||",
+        "  COALESCE(CAST(p.PRCOM     AS VARCHAR(20)),'')|| '|' ||",
+        "  COALESCE(CAST(e.PRCOMCTB  AS VARCHAR(20)),'')|| '|' ||",
+        "  COALESCE(CAST(p.PRVEN     AS VARCHAR(20)),'')|| '|' ||",
+        "  COALESCE(TRIM(p.CATEGORIA), '')              || '|' ||",
+        "  COALESCE(TRIM(p.PRINCIPIOATIVO), '')         || '|' ||",
+        "  COALESCE(CAST(p.DENSIDADE AS VARCHAR(15)),'')|| '|' ||",
+        "  COALESCE(CAST(p.FATOR     AS VARCHAR(15)),'')|| '|' ||",
+        "  COALESCE(TRIM(p.CDDCB), '')                  || '|' ||",
+        "  COALESCE(CAST(p.DOMIN     AS VARCHAR(15)),'')|| '|' ||",
+        "  COALESCE(TRIM(p.UNIDMIN), '')                || '|' ||",
+        "  COALESCE(CAST(p.DOMAX     AS VARCHAR(15)),'')|| '|' ||",
+        "  COALESCE(TRIM(p.UNIDM), '')                  || '|' ||",
+        "  COALESCE(TRIM(p.OBSCOMPO), '')               || '|' ||",
+        "  COALESCE(CAST(p.DILUICAO  AS VARCHAR(15)),'')|| '|' ||",
+        "  COALESCE(CAST(p.TEOR      AS VARCHAR(15)),'')",
+        "FROM FC03000 p",
+        $filtroEstoque,
+        "WHERE p.SITUA = 'A' AND p.GRUPO = '$grupo' $whereEstoque",
+        "ORDER BY TRIM(REPLACE(p.DESCR, '@', ''));",
+        "QUIT;"
+    )
+    $sqlLinhas | Set-Content -Path $script:SQL_TMP -Encoding ASCII
+    $raw = & $script:FB25 -user SYSDBA -password masterkey -input $script:SQL_TMP $script:DB 2>&1
+    return $raw | Where-Object {
+        $l = [string]$_
+        $l -match '\|' -and $l -notmatch '={5,}' -and $l -notmatch 'CONCATENATION' -and $l -notmatch 'Database:'
+    } | ForEach-Object { ([string]$_).Trim() }
+}
+
+# ── Helper: extrai e sincroniza tipos de capsula (FC0H000 + FC0H100) ─────────
+function Sync-Capsulas($agora) {
+    Write-Host "Extraindo Tipos de Capsula..." -ForegroundColor Yellow
+
+    $sqlCap = @(
+        "SELECT",
+        "  TRIM(h.DESCRICAO)                             || '|' ||",
+        "  TRIM(CAST(c.NUMERO AS VARCHAR(5)))            || '|' ||",
+        "  COALESCE(CAST(c.VOLINTERNO  AS VARCHAR(15)),'')|| '|' ||",
+        "  COALESCE(CAST(c.PESOVAZIO   AS VARCHAR(15)),'')|| '|' ||",
+        "  COALESCE(CAST(c.CDPRO       AS VARCHAR(10)),'')",
+        "FROM FC0H100 c",
+        "JOIN FC0H000 h ON h.IDTIPOCAP = c.IDTIPOCAP",
+        "WHERE c.INDSTATUS = 'A'",
+        "ORDER BY h.DESCRICAO, c.NUMERO;",
+        "QUIT;"
+    )
+    $sqlCap | Set-Content -Path $script:SQL_TMP -Encoding ASCII
+    $raw = & $script:FB25 -user SYSDBA -password masterkey -input $script:SQL_TMP $script:DB 2>&1
+    $linhas = $raw | Where-Object {
+        $l = [string]$_
+        $l -match '\|' -and $l -notmatch '={5,}' -and $l -notmatch 'Database:'
+    } | ForEach-Object { ([string]$_).Trim() }
+
+    Write-Host "  Capsulas: $($linhas.Count)" -ForegroundColor Green
+
+    if ($linhas.Count -eq 0) { return }
+
+    $payload = [System.Collections.Generic.List[hashtable]]::new()
+    foreach ($linha in $linhas) {
+        $c = $linha.Split('|')
+        if ($c.Count -lt 3) { continue }
+        $volul = if ($c[2] -match '^\d') { [double]$c[2] } else { $null }
+        if ($null -eq $volul) { continue }
+        $payload.Add(@{
+            cliente_id      = $script:CLIENTE_ID
+            tipo            = $c[0].Trim()
+            numero          = $c[1].Trim()
+            vol_ul          = $volul
+            peso_vazio_mg   = if ($c[3] -match '^\d') { [double]$c[3] } else { $null }
+            cdpro_fc        = if ($c.Count -gt 4) { $c[4].Trim() } else { $null }
+            ativo           = $true
+            sincronizado_em = $agora
+        })
+    }
+
+    $url_cap = "$script:SUPABASE_URL/rest/v1/tipos_capsula"
+
+    # Remove existentes e re-insere
+    try {
+        Invoke-RestMethod -Uri "${url_cap}?cliente_id=eq.$script:CLIENTE_ID" `
+            -Method Delete -Headers $script:h_del -UserAgent "TAO-Suite-Sync/1.0" -ErrorAction Stop | Out-Null
+    } catch {
+        try { $s = $_.Exception.Response.GetResponseStream(); $d = (New-Object System.IO.StreamReader($s)).ReadToEnd() } catch { $d = "$_" }
+        Write-Host "  ERRO limpeza capsulas: $d" -ForegroundColor Red; return
+    }
+
+    $json = $payload | ConvertTo-Json -Depth 4 -Compress
+    try {
+        Invoke-RestMethod -Uri $url_cap -Method Post -Headers $script:h_ins `
+            -Body $json -UserAgent "TAO-Suite-Sync/1.0" -ErrorAction Stop | Out-Null
+        Write-Host "  Capsulas sincronizadas: $($payload.Count)" -ForegroundColor Green
+    } catch {
+        try { $s = $_.Exception.Response.GetResponseStream(); $d = (New-Object System.IO.StreamReader($s)).ReadToEnd() } catch { $d = "$_" }
+        Write-Host "  ERRO capsulas: $d" -ForegroundColor Red
+    }
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# EXECUCAO
+# ══════════════════════════════════════════════════════════════════════════════
+
+$agora = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+
+# ── 1. Extrai MPs ─────────────────────────────────────────────────────────────
+Write-Host "Extraindo Materias-Primas (GRUPO=M)..." -ForegroundColor Yellow
+$linhas_mp = Get-FCLinhas 'M'
+Write-Host "  MPs: $($linhas_mp.Count)" -ForegroundColor Green
+
+# ── 2. Extrai Embalagens ──────────────────────────────────────────────────────
+Write-Host "Extraindo Embalagens (GRUPO=E)..." -ForegroundColor Yellow
+$linhas_emb = Get-FCLinhas 'E'
+Write-Host "  Embalagens: $($linhas_emb.Count)" -ForegroundColor Green
+
+# ── 3. Monta payloads ────────────────────────────────────────────────────────
+$payload = [System.Collections.Generic.List[hashtable]]::new()
+foreach ($linha in $linhas_mp) {
+    $c = $linha.Split('|')
+    if ($c.Count -lt 8) { continue }
+    $payload.Add((Build-Ativo $c 'M' $agora $unidade_map_mp))
+}
+foreach ($linha in $linhas_emb) {
+    $c = $linha.Split('|')
+    if ($c.Count -lt 8) { continue }
+    $payload.Add((Build-Ativo $c 'E' $agora $unidade_map_emb))
+}
+
+Write-Host "Total para sync: $($payload.Count) registros" -ForegroundColor Cyan
+
+# ── 4. Sync ativos: DELETE + INSERT ──────────────────────────────────────────
 $BATCH    = 200
 $total    = $payload.Count
 $enviados = 0
 $erros    = 0
+$url      = "$SUPABASE_URL/rest/v1/ativos"
 
-$h_del = @{
-    "apikey"        = $SUPABASE_KEY
-    "Authorization" = "Bearer $SUPABASE_KEY"
-}
-$h_ins = @{
-    "apikey"        = $SUPABASE_KEY
-    "Authorization" = "Bearer $SUPABASE_KEY"
-    "Content-Type"  = "application/json"
-    "Prefer"        = "return=minimal"
-}
-$url = "$SUPABASE_URL/rest/v1/ativos"
-
-# 4a. Remove todos os ativos deste cliente (todos vêm do Firebird, sem risco de apagar manual)
-Write-Host "Removendo ativos FC existentes..." -ForegroundColor Yellow
-$del_url = "${url}?cliente_id=eq.${CLIENTE_ID}"
+Write-Host "Removendo registros existentes do cliente..." -ForegroundColor Yellow
 try {
-    Invoke-RestMethod -Uri $del_url -Method Delete -Headers $h_del -UserAgent "TAO-Suite-Sync/1.0" -ErrorAction Stop | Out-Null
+    Invoke-RestMethod -Uri "${url}?cliente_id=eq.${CLIENTE_ID}" `
+        -Method Delete -Headers $h_del -UserAgent "TAO-Suite-Sync/1.0" -ErrorAction Stop | Out-Null
     Write-Host "  Limpeza: OK" -ForegroundColor Green
 } catch {
-    try {
-        $stream  = $_.Exception.Response.GetResponseStream()
-        $detalhe = (New-Object System.IO.StreamReader($stream)).ReadToEnd()
-    } catch { $detalhe = "$_" }
-    Write-Host "  ERRO limpeza: $detalhe" -ForegroundColor Red
-    exit 1
+    try { $stream = $_.Exception.Response.GetResponseStream(); $detalhe = (New-Object System.IO.StreamReader($stream)).ReadToEnd() } catch { $detalhe = "$_" }
+    Write-Host "  ERRO limpeza: $detalhe" -ForegroundColor Red; exit 1
 }
 
-# 4b. Insere em lotes
-Write-Host "Inserindo $total ativos no Supabase em lotes de $BATCH..." -ForegroundColor Yellow
-
+Write-Host "Inserindo $total registros em lotes de $BATCH..." -ForegroundColor Yellow
 for ($i = 0; $i -lt $total; $i += $BATCH) {
     $fim  = [Math]::Min($i + $BATCH - 1, $total - 1)
     $lote = $payload[$i..$fim]
     $json = $lote | ConvertTo-Json -Depth 5 -Compress
-
     try {
         Invoke-RestMethod -Uri $url -Method Post -Headers $h_ins -Body $json -UserAgent "TAO-Suite-Sync/1.0" -ErrorAction Stop | Out-Null
         $enviados += $lote.Count
-        Write-Host "  Lote $([Math]::Floor($i/$BATCH)+1): $($lote.Count) registros OK" -ForegroundColor Green
+        Write-Host "  Lote $([Math]::Floor($i/$BATCH)+1): $($lote.Count) OK" -ForegroundColor Green
     } catch {
         $erros++
-        try {
-            $stream = $_.Exception.Response.GetResponseStream()
-            $detalhe = (New-Object System.IO.StreamReader($stream)).ReadToEnd()
-        } catch { $detalhe = "$_" }
+        try { $stream = $_.Exception.Response.GetResponseStream(); $detalhe = (New-Object System.IO.StreamReader($stream)).ReadToEnd() } catch { $detalhe = "$_" }
         Write-Host "  Lote $([Math]::Floor($i/$BATCH)+1): ERRO -- $detalhe" -ForegroundColor Red
     }
 }
 
-# ── 5. Resumo ─────────────────────────────────────────────────────────────────
+# ── 5. Sync capsulas ──────────────────────────────────────────────────────────
+Sync-Capsulas $agora
+
+# ── 6. Resumo ─────────────────────────────────────────────────────────────────
 Write-Host ""
 Write-Host "================================================" -ForegroundColor Cyan
 Write-Host "Sincronizacao concluida:" -ForegroundColor Cyan
-Write-Host "  Extraidos do Firebird : $total"
-Write-Host "  Enviados ao Supabase  : $enviados"
-if ($erros -gt 0) { Write-Host "  Erros de lote        : $erros" -ForegroundColor Red }
+Write-Host "  MPs         : $($linhas_mp.Count)"
+Write-Host "  Embalagens  : $($linhas_emb.Count)"
+Write-Host "  Total ativos: $total"
+Write-Host "  Enviados    : $enviados"
+if ($erros -gt 0) { Write-Host "  Erros       : $erros" -ForegroundColor Red }
 Write-Host "================================================" -ForegroundColor Cyan
 Write-Host ""

@@ -15,14 +15,18 @@ function tao_formula_page_orcamento_novo() {
     $formas_js = [];
     foreach ( $formas as $f ) {
         $formas_js[ $f['id'] ] = [
-            'id'          => $f['id'],
-            'nome'        => $f['nome'],
-            'tipo'        => $f['tipo'] ?? 'outro',
-            'volume'      => (float)( $f['volume'] ?? 0 ),
-            'unidVolume'  => $f['unidade_volume'] ?? 'g',
-            'nCapsulas'   => (int)( $f['n_capsulas'] ?? 0 ),
-            'custoFixo'   => (float)( $f['custo_fixo'] ?? 0 ),
-            'margemPct'   => (float)( $f['margem_pct'] ?? 30 ),
+            'id'            => $f['id'],
+            'nome'          => $f['nome'],
+            'tipo'          => $f['tipo'] ?? 'outro',
+            'volume'        => (float)( $f['volume'] ?? 0 ),
+            'unidVolume'    => $f['unidade_volume'] ?? 'g',
+            'nCapsulas'     => (int)( $f['n_capsulas'] ?? 0 ),
+            'custoFixo'     => (float)( $f['custo_fixo'] ?? 0 ),
+            'margemPct'     => (float)( $f['margem_pct'] ?? 30 ),
+            'tipoCapsula'   => $f['tipo_capsula'] ?? '',
+            'numeroCapsula' => $f['numero_capsula'] ?? '',
+            'volCapUl'      => isset( $f['vol_cap_ul'] ) ? (float)$f['vol_cap_ul'] : null,
+            'ftenchcap'     => (float)( $f['ftenchcap'] ?? 1 ),
         ];
     }
 
@@ -81,12 +85,12 @@ function tao_formula_page_orcamento_novo() {
         <table class="wp-list-table widefat taof-table" id="taof-itens-table">
             <thead>
                 <tr>
-                    <th style="width:28%">Ativo (Matéria-Prima)</th>
-                    <th style="width:12%">Dose</th>
+                    <th style="width:26%">Ativo (Matéria-Prima)</th>
+                    <th style="width:11%">Dose</th>
                     <th style="width:7%">Unid.</th>
-                    <th style="width:7%" title="Fator de Correção">FC</th>
-                    <th style="width:7%" title="Fator de Perda">FP</th>
-                    <th style="width:14%">Qtd. Total</th>
+                    <th style="width:6%" title="Fator de Perda">FP</th>
+                    <th style="width:10%">Qtd. Total</th>
+                    <th style="width:9%" title="Volume aparente por cápsula (µL)">VOLAPA</th>
                     <th style="width:13%" title="Custo por unidade padrão">Custo/unid</th>
                     <th style="width:10%;text-align:right">Subtotal</th>
                     <th style="width:2%"></th>
@@ -98,8 +102,9 @@ function tao_formula_page_orcamento_novo() {
         </table>
         </div>
 
-        <p style="margin-top:10px">
+        <p style="margin-top:10px;display:flex;gap:16px;align-items:center;flex-wrap:wrap">
             <button type="button" class="button" id="taof-btn-add-item">+ Adicionar Ativo</button>
+            <span id="taof-cap-aviso" style="display:none;font-size:13px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:5px 12px"></span>
         </p>
     </div>
 
@@ -202,9 +207,9 @@ function tao_formula_page_orcamento_novo() {
                     <option value="ml">ml</option>
                 </select>
             </td>
-            <td><input type="number" class="taof-orc-fc small-text" value="1" min="0.01" step="0.001"></td>
             <td><input type="number" class="taof-orc-fp small-text" value="1" min="0.01" step="0.001"></td>
             <td class="taof-orc-qtd-total" style="color:#475569;font-size:12px">—</td>
+            <td class="taof-orc-volapa" style="color:#6366f1;font-size:12px">—</td>
             <td class="taof-orc-custo-unit-label" style="color:#64748b;font-size:12px">—</td>
             <td class="taof-orc-subtotal" style="text-align:right;font-weight:600">R$ 0,00</td>
             <td><button type="button" class="taof-btn-del-item button button-small" style="color:#b91c1c" title="Remover">✕</button></td>

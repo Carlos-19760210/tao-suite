@@ -14,7 +14,7 @@ add_action( 'wp_ajax_tao_formula_search_ativos', function() {
 
     $term = urlencode( $q );
     $qs   = "/ativos?cliente_id=eq.$cliente_id&ativo=eq.true&nome=ilike.*{$term}*" .
-            "&select=id,nome,unidade,unidade_padrao,custo_por_unidade,fator_correcao,fator_perda,grupo" .
+            "&select=id,nome,unidade,unidade_padrao,custo_por_unidade,fator_correcao,fator_perda,densidade,diluicao,teor,grupo" .
             "&order=nome.asc&limit=25";
     if ( in_array( $grupo, [ 'M', 'E' ], true ) ) $qs .= "&grupo=eq.$grupo";
 
