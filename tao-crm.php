@@ -2511,8 +2511,8 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
             elseif ( isset( $m['stickerMessage'] ) )      { $tipo = 'sticker';  $conteudo = '[sticker]'; }
             else                                          { continue; }
 
-            // ── 1a. Mídia incoming: baixa da Evolution imediatamente ───────────
-            if ( $tipo !== 'text' && $tipo !== 'sticker' && ! $from_me ) {
+            // ── 1a. Mídia: baixa da Evolution — incoming sempre; fromMe só para documentos
+            if ( $tipo !== 'text' && $tipo !== 'sticker' && ( ! $from_me || $tipo === 'document' ) ) {
                 $midia = tao_crm_download_media( $inst, $msg['key'], $m );
             }
 

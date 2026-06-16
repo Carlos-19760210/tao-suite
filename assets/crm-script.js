@@ -544,8 +544,14 @@
             if(msg.conteudo) conteudo += '<div class="msg-caption">' + escHtml(msg.conteudo).replace(/\n/g,'<br>') + '</div>';
         } else if(tipo === 'audio' && msg.midia_url){
             conteudo = '<audio controls src="' + escHtml(msg.midia_url) + '"></audio>';
-        } else if((tipo === 'video' || tipo === 'document') && msg.midia_url){
-            conteudo = '<a href="' + escHtml(msg.midia_url) + '" target="_blank" class="msg-doc">📄 ' + escHtml(msg.conteudo||'arquivo') + '</a>';
+        } else if(tipo === 'video' && msg.midia_url){
+            conteudo = '<a href="' + escHtml(msg.midia_url) + '" target="_blank" class="msg-doc">🎥 ' + escHtml(msg.conteudo||'vídeo') + '</a>';
+        } else if(tipo === 'document'){
+            if(msg.midia_url){
+                conteudo = '<a href="' + escHtml(msg.midia_url) + '" target="_blank" class="msg-doc">📄 ' + escHtml(msg.conteudo||'arquivo') + '</a>';
+            } else {
+                conteudo = '<span class="msg-doc" style="opacity:.55;cursor:default" title="Arquivo não disponível para download">📄 ' + escHtml(msg.conteudo||'arquivo') + '</span>';
+            }
         } else {
             conteudo = escHtml(msg.conteudo||'').replace(/\n/g,'<br>');
         }
