@@ -2938,7 +2938,7 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
             $save_card_id = $card_id ?: $tracking_card_id;
             $skip_save    = false;
             if ( $from_me ) {
-                $tk = 'tao_crm_fwd_' . md5( $num . $conteudo );
+                $tk = 'tao_crm_fwd_' . md5( $num . sanitize_textarea_field( $conteudo ) );
                 if ( get_transient( $tk ) ) { delete_transient( $tk ); $skip_save = true; }
             }
             if ( ! $skip_save ) {

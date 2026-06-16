@@ -479,13 +479,17 @@
         $('#tao-crm-file-preview').hide();
     });
 
+    var _enviando = false;
     function enviarMensagem(){
+        if(_enviando) return;
         var texto = $('#tao-crm-msg-input').val().trim();
         if(!texto || !window.taoCrmCardId) return;
+        _enviando = true;
         var $btn = $('#tao-crm-send-btn').prop('disabled',true).text('Enviando...');
         crmPost(
             { action:'tao_crm_send_message', nonce:taoCrm.nonce, card_id:taoCrmCardId, mensagem:texto },
             function(resp){
+                _enviando = false;
                 $btn.prop('disabled',false).text('Enviar ▶');
                 if(resp.success){
                     $('#tao-crm-msg-input').val('');
@@ -496,7 +500,7 @@
                     }
                 } else { alert('Erro ao enviar: ' + (resp.data || 'Tente novamente')); }
             },
-            function(err){ $btn.prop('disabled',false).text('Enviar ▶'); alert('Erro: ' + err); }
+            function(err){ _enviando = false; $btn.prop('disabled',false).text('Enviar ▶'); alert('Erro: ' + err); }
         );
     }
 
@@ -544,14 +548,8 @@
             if(msg.conteudo) conteudo += '<div class="msg-caption">' + escHtml(msg.conteudo).replace(/\n/g,'<br>') + '</div>';
         } else if(tipo === 'audio' && msg.midia_url){
             conteudo = '<audio controls src="' + escHtml(msg.midia_url) + '"></audio>';
-        } else if(tipo === 'video' && msg.midia_url){
-            conteudo = '<a href="' + escHtml(msg.midia_url) + '" target="_blank" class="msg-doc">🎥 ' + escHtml(msg.conteudo||'vídeo') + '</a>';
-        } else if(tipo === 'document'){
-            if(msg.midia_url){
-                conteudo = '<a href="' + escHtml(msg.midia_url) + '" target="_blank" class="msg-doc">📄 ' + escHtml(msg.conteudo||'arquivo') + '</a>';
-            } else {
-                conteudo = '<span class="msg-doc" style="opacity:.55;cursor:default" title="Arquivo não disponível para download">📄 ' + escHtml(msg.conteudo||'arquivo') + '</span>';
-            }
+        } else if((tipo === 'video' || tipo === 'document') && msg.midia_url){
+            conteudo = '<a href="' + escHtml(msg.midia_url) + '" target="_blank" class="msg-doc">📄 ' + escHtml(msg.conteudo||'arquivo') + '</a>';
         } else {
             conteudo = escHtml(msg.conteudo||'').replace(/\n/g,'<br>');
         }
