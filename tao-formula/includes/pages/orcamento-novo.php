@@ -83,9 +83,6 @@ function tao_formula_page_orcamento_novo() {
                     </option>
                     <?php endforeach; ?>
                 </select>
-                <?php if ( empty($formas) ) : ?>
-                <small class="taof-warn">Nenhuma forma cadastrada. <a href="<?php echo esc_url(tao_formula_url('formula-formas')); ?>">Cadastrar →</a></small>
-                <?php endif; ?>
             </div>
             <div class="taof-field taof-ff-vol">
                 <label class="taof-label">Vol / Qtde</label>
@@ -110,6 +107,13 @@ function tao_formula_page_orcamento_novo() {
                        class="taof-inp taof-inp-num" value="1" min="1" step="1">
             </div>
         </div>
+
+        <?php if ( empty($formas) ) : ?>
+        <p class="taof-warn" style="margin:-6px 0 10px">
+            &#x26A0; Nenhuma forma farmacêutica cadastrada.
+            <a href="<?php echo esc_url(tao_formula_url('formula-formas')); ?>">Cadastrar &rarr;</a>
+        </p>
+        <?php endif; ?>
 
         <!-- Linha 3: Observações -->
         <div class="taof-row">
@@ -308,14 +312,14 @@ function tao_formula_page_orcamento_novo() {
     }
 
     /* ── Master flex rows ─────────────────────────────────── */
-    .taof-row { display:flex; gap:16px; margin-bottom:14px; align-items:flex-end; flex-wrap:wrap; }
+    .taof-row { display:flex !important; gap:16px; margin-bottom:14px; align-items:flex-end; flex-wrap:wrap; }
     .taof-row:last-child { margin-bottom:0; }
-    .taof-field { display:flex; flex-direction:column; gap:5px; }
+    .taof-field { display:flex !important; flex-direction:column !important; gap:4px !important; }
 
     /* Linha 2 — flex para suportar campo Tipo ocultável */
     .taof-row-forma {
-        display:flex; gap:12px; margin-bottom:14px;
-        align-items:flex-end; flex-wrap:wrap;
+        display:flex !important; gap:12px; margin-bottom:14px;
+        align-items:flex-end !important; flex-wrap:wrap;
     }
     .taof-ff-forma  { flex:1; min-width:180px; }
     .taof-ff-vol    { width:82px;  flex-shrink:0; }
@@ -329,18 +333,28 @@ function tao_formula_page_orcamento_novo() {
     }
 
     .taof-label {
-        font-size:11px; font-weight:700; text-transform:uppercase;
-        letter-spacing:.06em; color:#64748b; white-space:nowrap;
+        font-size:11px !important; font-weight:700 !important;
+        text-transform:uppercase !important; letter-spacing:.06em !important;
+        color:#64748b !important; white-space:nowrap !important;
+        display:block !important; margin:0 !important; padding:0 !important;
+        line-height:1.4 !important;
     }
     .taof-inp {
-        padding:8px 12px; border:1px solid #cbd5e1; border-radius:6px;
-        font-size:14px; line-height:1.4; box-sizing:border-box; width:100%;
-        background:#fff; color:#1e293b; height:38px;
+        padding:8px 12px !important; border:1px solid #cbd5e1 !important;
+        border-radius:6px !important; font-size:14px !important;
+        line-height:1.4 !important; box-sizing:border-box !important;
+        width:100% !important; background:#fff !important;
+        color:#1e293b !important; height:38px !important;
+        margin:0 !important; vertical-align:top !important;
+        appearance:auto !important; -webkit-appearance:auto !important;
     }
-    .taof-inp:focus { border-color:#0ea5e9; outline:none; box-shadow:0 0 0 3px rgba(14,165,233,.15); }
-    .taof-sel { cursor:pointer; }
-    .taof-inp-num { width:90px; }
-    textarea.taof-inp { height:auto; }
+    .taof-inp:focus {
+        border-color:#0ea5e9 !important; outline:none !important;
+        box-shadow:0 0 0 3px rgba(14,165,233,.15) !important;
+    }
+    .taof-sel { cursor:pointer !important; }
+    .taof-inp-num { width:90px !important; }
+    textarea.taof-inp { height:auto !important; resize:vertical !important; }
     .taof-badge-info {
         display:inline-block; padding:8px 12px; background:#f0f9ff;
         border:1px solid #bae6fd; border-radius:6px; font-size:14px;

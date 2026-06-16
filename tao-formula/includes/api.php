@@ -22,8 +22,12 @@ function tao_formula_is_master() {
 }
 
 function tao_formula_cliente_id() {
-    if ( function_exists( 'cbpm_current_cliente_id' ) ) return cbpm_current_cliente_id();
-    return null;
+    if ( function_exists( 'cbpm_current_cliente_id' ) ) {
+        $id = cbpm_current_cliente_id();
+        if ( $id ) return $id;
+    }
+    // Fallback para usuario master: usa o cliente_id configurado em Configuracoes
+    return get_option( 'tao_formula_default_cliente_id', null ) ?: null;
 }
 
 /**
