@@ -79,6 +79,12 @@ add_action( 'template_redirect', function() {
         'crm-automacoes' => 'tao-crm-automacoes',
         'crm-contatos'   => 'tao-crm-contatos',
         'usuarios'       => 'chatbot-platform-usuarios',
+        'formula'            => 'tao-formula',
+        'formula-dashboard'  => 'tao-formula',
+        'formula-orcamentos' => 'tao-formula-orcamentos',
+        'formula-formas'     => 'tao-formula-formas',
+        'formula-ativos'     => 'tao-formula-ativos',
+        'formula-config'     => 'tao-formula-config',
     ];
 
     $page_slug = $map[ $cbpm_page ] ?? 'chatbot-platform-dashboard';

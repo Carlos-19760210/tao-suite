@@ -21,7 +21,14 @@ function tao_crm_page_kanban() {
         } else {
             $ws_id = $todos_ws[0]['id'];
         }
-        wp_redirect( tao_crm_url( [ 'workspace_id' => $ws_id ] ) );
+        $redir_url = tao_crm_url( [ 'workspace_id' => $ws_id ] );
+        global $cbpm_is_frontend;
+        if ( ! empty( $cbpm_is_frontend ) ) {
+            // No frontend os headers já foram enviados; usa redirect via JS
+            echo '<script>location.replace(' . wp_json_encode( $redir_url ) . ');</script>';
+            return;
+        }
+        wp_redirect( $redir_url );
         exit;
     }
 
@@ -292,16 +299,10 @@ function tao_crm_page_kanban() {
                data-handoff="<?php echo ! empty( $card['atendimento_humano'] ) ? '1' : '0'; ?>"
                data-fechado="<?php echo ! empty( $card['fechado'] ) ? '1' : '0'; ?>"
                data-search="<?php echo esc_attr( mb_strtolower( ( $card['titulo'] ?: $card['contato_nome'] ) . ' ' . $card['contato_whatsapp'] . ' ' . $card['contato_nome'] ) ); ?>">
-                <?php
-                $_in_nome = trim( $card['contato_nome'] ?? '' );
-                $_in_tit  = trim( $card['titulo'] ?? '' );
-                if ( ! $_in_nome || $_in_nome === $card['contato_whatsapp'] ) $_in_nome = tao_crm_format_phone( $card['contato_whatsapp'] );
-                $_in_comp = ( $_in_tit && $_in_tit !== ( $card['contato_nome'] ?? '' ) && $_in_tit !== ( $card['contato_whatsapp'] ?? '' ) ) ? $_in_tit : '';
-                ?>
-                <div class="inbox-avatar"><?php echo mb_substr( $card['contato_nome'] ?? $card['contato_whatsapp'] ?? '?', 0, 1 ); ?></div>
+                <div class="inbox-avatar"><?php echo mb_substr( $card['contato_nome'] ?? '?', 0, 1 ); ?></div>
                 <div class="inbox-info">
                     <div class="inbox-name">
-                        <?php echo esc_html( $_in_nome ); ?><?php if ( $_in_comp ) : ?><span style="color:#94a3b8;font-size:.85em"> · <?php echo esc_html( $_in_comp ); ?></span><?php endif; ?>
+                        <?php echo esc_html( $card['titulo'] ?: $card['contato_nome'] ); ?>
                         <?php if ( $tem_nao_lida ) : ?><span class="inbox-unread-dot"></span><?php endif; ?>
                     </div>
                     <div class="inbox-meta">
@@ -405,16 +406,7 @@ function tao_crm_page_kanban() {
                         <?php if ( ! empty( $card['atendimento_humano'] ) ) : ?>
                         <span class="card-handoff-icon" title="Em atendimento humano">🙋</span>
                         <?php endif; ?>
-                        <?php
-                        $_kn = trim( $card['contato_nome'] ?? '' );
-                        $_kt = trim( $card['titulo'] ?? '' );
-                        if ( ! $_kn || $_kn === $card['contato_whatsapp'] ) $_kn = tao_crm_format_phone( $card['contato_whatsapp'] );
-                        $_kc = ( $_kt && $_kt !== ( $card['contato_nome'] ?? '' ) && $_kt !== ( $card['contato_whatsapp'] ?? '' ) ) ? $_kt : '';
-                        ?>
-                        <div class="card-title">
-                            <?php echo esc_html( $_kn ); ?>
-                            <?php if ( $_kc ) : ?><span style="display:block;font-size:.78em;color:#94a3b8;font-weight:400;margin-top:1px"><?php echo esc_html( $_kc ); ?></span><?php endif; ?>
-                        </div>
+                        <div class="card-title"><?php echo esc_html( $card['titulo'] ?: $card['contato_nome'] ); ?></div>
                         <div class="card-meta">
                             <span class="card-phone">
                                 <?php if ( function_exists( 'tao_crm_is_lid_num' ) && tao_crm_is_lid_num( $card['contato_whatsapp'] ) ) : ?>

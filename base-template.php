@@ -33,6 +33,15 @@ if ( $has_crm ) {
     $secoes['tao-crm-settings'] = [ 'fn' => 'tao_crm_page_settings',    'label' => 'CRM Configurações' ];
 }
 
+$has_formula = function_exists( 'tao_formula_page_dashboard' );
+if ( $has_formula ) {
+    $secoes['tao-formula']           = [ 'fn' => 'tao_formula_page_dashboard',  'label' => 'TAO Fórmulas — Dashboard' ];
+    $secoes['tao-formula-orcamentos']= [ 'fn' => 'tao_formula_page_orcamentos', 'label' => 'Orçamentos' ];
+    $secoes['tao-formula-formas']    = [ 'fn' => 'tao_formula_page_formas',     'label' => 'Formas Farmacêuticas' ];
+    $secoes['tao-formula-ativos']    = [ 'fn' => 'tao_formula_page_ativos',     'label' => 'Ativos' ];
+    $secoes['tao-formula-config']    = [ 'fn' => 'tao_formula_page_config',     'label' => 'TAO Fórmulas — Config' ];
+}
+
 $page_atual = $_GET['page'] ?? 'chatbot-platform';
 if ( ! isset( $secoes[ $page_atual ] ) ) $page_atual = 'chatbot-platform';
 $fn = $secoes[ $page_atual ]['fn'] ?? 'cbpm_page_clientes';
@@ -122,6 +131,26 @@ if ( $has_crm ) {
             ],
         ],
         'op-crm'  => $nav['operacao']['subs']['op-crm'],
+    ];
+}
+
+if ( $has_formula ) {
+    $nav['config']['subs']['cfg-formula'] = [
+        'label' => 'TAO F&oacute;rmulas',
+        'icon'  => '&#x1F9EA;',
+        'items' => [
+            [ 'slug' => 'tao-formula-formas',  'label' => 'Formas Farmac&ecirc;uticas', 'url' => cbpm_url('formula-formas') ],
+            [ 'slug' => 'tao-formula-ativos',  'label' => 'Ativos',                     'url' => cbpm_url('formula-ativos') ],
+            [ 'slug' => 'tao-formula-config',  'label' => 'Configura&ccedil;&otilde;es','url' => cbpm_url('formula-config') ],
+        ],
+    ];
+    $nav['operacao']['subs']['op-formula'] = [
+        'label' => 'TAO F&oacute;rmulas',
+        'icon'  => '&#x1F9EA;',
+        'items' => [
+            [ 'slug' => 'tao-formula',           'label' => 'Dashboard',           'url' => cbpm_url('formula-dashboard') ],
+            [ 'slug' => 'tao-formula-orcamentos','label' => 'Or&ccedil;amentos',   'url' => cbpm_url('formula-orcamentos') ],
+        ],
     ];
 }
 
@@ -349,6 +378,9 @@ foreach ( $nav as $gid => $group ) {
     <?php if ( in_array( $fn, [ 'tao_crm_page_kanban_full', 'tao_crm_page_inbox', 'tao_crm_page_settings' ], true ) && defined( 'TAO_CRM_URL' ) ): ?>
     <link rel="stylesheet" href="<?php echo esc_url( TAO_CRM_URL . 'assets/crm-style.css' ); ?>?v=<?php echo TAO_CRM_VERSION; ?>">
     <?php endif; ?>
+    <?php if ( strpos( $fn, 'tao_formula_' ) === 0 && defined( 'TAOF_PLUGIN_URL' ) ): ?>
+    <link rel="stylesheet" href="<?php echo esc_url( TAOF_PLUGIN_URL . 'assets/formula-style.css' ); ?>?v=<?php echo TAOF_VERSION; ?>">
+    <?php endif; ?>
 </head>
 <body>
 <?php
@@ -476,6 +508,17 @@ window.cbpm = {
 })();
 </script>
 <script src="<?php echo esc_url( CBPM_PLUGIN_URL . 'assets/script.js' ); ?>?v=<?php echo CBPM_VERSION; ?>"></script>
+<?php if ( strpos( $fn, 'tao_formula_' ) === 0 && defined( 'TAOF_PLUGIN_URL' ) ): ?>
+<script>
+window.taoFormula = <?php echo wp_json_encode( [
+    'ajaxUrl'     => admin_url( 'admin-ajax.php' ),
+    'nonce'       => wp_create_nonce( 'tao_formula_nonce' ),
+    'supabaseUrl' => tao_formula_supabase_url(),
+    'supabaseKey' => tao_formula_supabase_key(),
+] ); ?>;
+</script>
+<script src="<?php echo esc_url( TAOF_PLUGIN_URL . 'assets/formula-script.js' ); ?>?v=<?php echo TAOF_VERSION; ?>"></script>
+<?php endif; ?>
 <?php if ( in_array( $fn, [ 'tao_crm_page_kanban_full', 'tao_crm_page_inbox', 'tao_crm_page_settings' ], true ) && defined( 'TAO_CRM_URL' ) ): ?>
 <script>
 window.taoCrm = <?php echo wp_json_encode( [
