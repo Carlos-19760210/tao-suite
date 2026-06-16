@@ -38,9 +38,9 @@ function tao_formula_page_orcamento_novo() {
             'nome'       => $f['nome'],
             'tipo'       => $tipo,
             'tipoLabel'  => $tipos_display[ $tipo ] ?? $tipo,
-            'volume'     => (float)( $f['volume'] ?? 0 ),
+            'volume'     => $f['volume'] !== null ? (float)$f['volume'] : null,
             'unidVolume' => $f['unidade_volume'] ?? 'g',
-            'nCapsulas'  => (int)( $f['n_capsulas'] ?? 0 ),
+            'nCapsulas'  => $f['n_capsulas'] !== null ? (int)$f['n_capsulas'] : null,
             'custoFixo'  => (float)( $f['custo_fixo'] ?? 0 ),
             'margemPct'  => (float)( $f['margem_pct'] ?? 30 ),
             'ftenchcap'  => (float)( $f['ftenchcap'] ?? 1 ),
@@ -71,18 +71,14 @@ function tao_formula_page_orcamento_novo() {
             </div>
         </div>
 
-        <!-- Linha 2: Forma + Vol/Qtde + Tipo + Potes -->
-        <div class="taof-row">
-            <div class="taof-field" style="flex:4;min-width:220px">
+        <!-- Linha 2: Forma + Vol/Qtde + Tipo Cápsula (só caps) + Unidade + Potes -->
+        <div class="taof-row-forma">
+            <div class="taof-field taof-ff-forma">
                 <label class="taof-label">Forma Farmacêutica</label>
                 <select id="taof-forma-sel" name="forma_id" class="taof-inp taof-sel">
                     <option value="">— Selecione —</option>
                     <?php foreach ( $formas as $f ) : ?>
-                    <option value="<?php echo esc_attr($f['id']); ?>"
-                            data-tipo="<?php echo esc_attr($f['tipo'] ?? ''); ?>"
-                            data-vol="<?php echo esc_attr($f['volume'] ?? 0); ?>"
-                            data-ncap="<?php echo esc_attr($f['n_capsulas'] ?? 0); ?>"
-                            data-unid="<?php echo esc_attr($f['unidade_volume'] ?? 'g'); ?>">
+                    <option value="<?php echo esc_attr($f['id']); ?>">
                         <?php echo esc_html($f['nome']); ?>
                     </option>
                     <?php endforeach; ?>
@@ -91,16 +87,25 @@ function tao_formula_page_orcamento_novo() {
                 <small class="taof-warn">Nenhuma forma cadastrada. <a href="<?php echo esc_url(tao_formula_url('formula-formas')); ?>">Cadastrar →</a></small>
                 <?php endif; ?>
             </div>
-            <div class="taof-field" style="min-width:130px">
-                <label class="taof-label">Volume / Qtde</label>
-                <span id="taof-forma-vol-label" class="taof-badge-info">—</span>
+            <div class="taof-field taof-ff-vol">
+                <label class="taof-label">Vol / Qtde</label>
+                <input type="number" id="taof-forma-vol" name="forma_vol"
+                       class="taof-inp" min="1" step="any" placeholder="Ex: 30">
             </div>
-            <div class="taof-field" style="min-width:110px">
-                <label class="taof-label">Tipo</label>
-                <span id="taof-forma-tipo-label" class="taof-badge-info">—</span>
+            <div class="taof-field taof-ff-tipo" id="taof-col-tipo" style="display:none">
+                <label class="taof-label">Tipo Cápsula</label>
+                <select id="taof-forma-tipo" name="forma_tipo" class="taof-inp taof-sel">
+                    <option value="">— Selecione —</option>
+                </select>
             </div>
-            <div class="taof-field" style="width:100px;flex-shrink:0">
-                <label class="taof-label">Qtde Potes</label>
+            <div class="taof-field taof-ff-unid">
+                <label class="taof-label">Unidade</label>
+                <select id="taof-forma-unidade" name="forma_unidade" class="taof-inp taof-sel">
+                    <option value="">—</option>
+                </select>
+            </div>
+            <div class="taof-field taof-ff-potes">
+                <label class="taof-label">Potes</label>
                 <input type="number" id="taof-qtde-potes" name="qtde_potes"
                        class="taof-inp taof-inp-num" value="1" min="1" step="1">
             </div>
@@ -131,6 +136,7 @@ function tao_formula_page_orcamento_novo() {
                     <th class="col-fp" title="Fator de Perda">FP</th>
                     <th class="col-total">Total</th>
                     <th class="col-custo">Custo</th>
+                    <th class="col-qsp" title="Marcar como excipiente QSP (auto-calculado)">QSP</th>
                     <th class="col-del"></th>
                 </tr>
             </thead>
@@ -255,6 +261,9 @@ function tao_formula_page_orcamento_novo() {
             </td>
             <td class="col-total taof-orc-qtd-total" style="font-size:12px;color:#475569">—</td>
             <td class="col-custo taof-orc-subtotal" style="text-align:right;font-weight:600">R$&nbsp;0,00</td>
+            <td class="col-qsp" style="text-align:center">
+                <button type="button" class="taof-btn-qsp button button-small" title="Marcar como excipiente QSP">QSP</button>
+            </td>
             <td class="col-del">
                 <button type="button" class="taof-btn-del-item button button-small"
                         style="color:#b91c1c;padding:2px 6px" title="Remover">✕</button>
@@ -303,6 +312,22 @@ function tao_formula_page_orcamento_novo() {
     .taof-row:last-child { margin-bottom:0; }
     .taof-field { display:flex; flex-direction:column; gap:5px; }
 
+    /* Linha 2 — flex para suportar campo Tipo ocultável */
+    .taof-row-forma {
+        display:flex; gap:12px; margin-bottom:14px;
+        align-items:flex-end; flex-wrap:wrap;
+    }
+    .taof-ff-forma  { flex:1; min-width:180px; }
+    .taof-ff-vol    { width:82px;  flex-shrink:0; }
+    .taof-ff-tipo   { width:155px; flex-shrink:0; }
+    .taof-ff-unid   { width:80px;  flex-shrink:0; }
+    .taof-ff-potes  { width:68px;  flex-shrink:0; }
+    @media (max-width:700px) {
+        .taof-ff-forma,  .taof-ff-vol, .taof-ff-tipo,
+        .taof-ff-unid,   .taof-ff-potes { width:calc(50% - 6px); flex:none; }
+        .taof-ff-forma { width:100%; }
+    }
+
     .taof-label {
         font-size:11px; font-weight:700; text-transform:uppercase;
         letter-spacing:.06em; color:#64748b; white-space:nowrap;
@@ -310,11 +335,12 @@ function tao_formula_page_orcamento_novo() {
     .taof-inp {
         padding:8px 12px; border:1px solid #cbd5e1; border-radius:6px;
         font-size:14px; line-height:1.4; box-sizing:border-box; width:100%;
-        background:#fff; color:#1e293b;
+        background:#fff; color:#1e293b; height:38px;
     }
     .taof-inp:focus { border-color:#0ea5e9; outline:none; box-shadow:0 0 0 3px rgba(14,165,233,.15); }
     .taof-sel { cursor:pointer; }
     .taof-inp-num { width:90px; }
+    textarea.taof-inp { height:auto; }
     .taof-badge-info {
         display:inline-block; padding:8px 12px; background:#f0f9ff;
         border:1px solid #bae6fd; border-radius:6px; font-size:14px;
@@ -333,13 +359,28 @@ function tao_formula_page_orcamento_novo() {
     .taof-detail-table .taof-inp { padding:6px 8px; font-size:13px; }
 
     .col-cod   { width:7%;  min-width:55px; }
-    .col-prod  { width:35%; min-width:160px; }
+    .col-prod  { width:32%; min-width:160px; }
     .col-dose  { width:10%; min-width:80px; }
     .col-unid  { width:8%;  min-width:65px; }
     .col-fp    { width:6%;  min-width:45px; text-align:center; }
-    .col-total { width:12%; min-width:90px; }
-    .col-custo { width:13%; min-width:90px; text-align:right; }
+    .col-total { width:11%; min-width:85px; }
+    .col-custo { width:11%; min-width:85px; text-align:right; }
+    .col-qsp   { width:5%;  min-width:48px; text-align:center; }
     .col-del   { width:4%;  min-width:32px; text-align:center; }
+
+    /* QSP styles */
+    .taof-btn-qsp {
+        font-size:10px; padding:2px 6px; color:#64748b;
+        border-color:#cbd5e1; background:#f8fafc;
+    }
+    .taof-btn-qsp.ativo {
+        background:#0ea5e9; color:#fff; border-color:#0284c7;
+        font-weight:700;
+    }
+    .taof-row-qsp { background:#f0f9ff !important; }
+    .taof-row-qsp .taof-orc-dose {
+        background:#e0f2fe; color:#0369a1; font-style:italic;
+    }
 
     /* ── Autocomplete ─────────────────────────────────────── */
     .taof-ac-wrap { position:relative; }
