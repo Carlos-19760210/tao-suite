@@ -4,6 +4,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 // ── Busca de Ativos (autocomplete) ───────────────────────────────────────────
 
 add_action( 'wp_ajax_tao_formula_search_ativos', function() {
+    while ( ob_get_level() > 0 ) ob_end_clean();
     check_ajax_referer( 'tao_formula_nonce', 'nonce' );
     if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
 
@@ -14,7 +15,7 @@ add_action( 'wp_ajax_tao_formula_search_ativos', function() {
 
     $term  = urlencode( $q );
     $base  = "/ativos?cliente_id=eq.$cliente_id&ativo=eq.true" .
-             "&select=id,codigo_fc,nome,unidade,unidade_padrao,custo_por_unidade,fator_correcao,fator_perda,densidade,diluicao,teor,grupo" .
+             "&select=id,codigo_fc,nome,unidade,unidade_padrao,custo_por_unidade,preco_venda,fator_correcao,fator_perda,densidade,diluicao,teor,grupo" .
              "&order=nome.asc&limit=25";
     // Busca por nome OU por codigo_fc (permite digitar "10569" ou "cafeina")
     $qs = $base . "&or=(nome.ilike.*{$term}*,codigo_fc.ilike.*{$term}*)";

@@ -121,9 +121,32 @@ function cbpm_page_portal_home() {
         }
     }
 
+    // ══ TAO Fórmulas ══════════════════════════════════════════════════════
+    $has_formula   = function_exists( 'tao_formula_page_dashboard' );
+    $orc_pendentes = 0;
+    $orc_hoje      = 0;
+    $orc_aprovados = 0;
+    $orc_recentes  = [];
+    if ( $has_formula && function_exists( 'tao_formula_api' ) ) {
+        $cid_formula = function_exists( 'cbpm_current_cliente_id' ) ? cbpm_current_cliente_id() : null;
+        if ( $cid_formula ) {
+            $hoje_str = ( new DateTime( 'now', new DateTimeZone('America/Sao_Paulo') ) )->format('Y-m-d');
+            $ro = tao_formula_api( "/orcamentos?cliente_id=eq.$cid_formula&select=id,status,criado_em,nome_paciente,total_orcamento&order=criado_em.desc&limit=200" );
+            $orcs = $ro['ok'] ? ( $ro['data'] ?? [] ) : [];
+            foreach ( $orcs as $o ) {
+                if ( substr( $o['criado_em'] ?? '', 0, 10 ) === $hoje_str ) $orc_hoje++;
+                if ( ( $o['status'] ?? '' ) === 'pendente_revisao' ) $orc_pendentes++;
+                if ( ( $o['status'] ?? '' ) === 'aprovado_farma' )   $orc_aprovados++;
+            }
+            $orc_recentes = array_slice( $orcs, 0, 5 );
+        }
+    }
+
     // ── URLs ────────────────────────────────────────────────────────────────
-    $url_neo_dash = $is_frontend ? cbpm_url( 'neo-dashboard' ) : admin_url( 'admin.php?page=chatbot-platform' );
-    $url_crm_dash = $is_frontend ? cbpm_url( 'crm-dashboard' ) : admin_url( 'admin.php?page=tao-crm' );
+    $url_neo_dash     = $is_frontend ? cbpm_url( 'neo-dashboard' )     : admin_url( 'admin.php?page=chatbot-platform' );
+    $url_crm_dash     = $is_frontend ? cbpm_url( 'crm-dashboard' )     : admin_url( 'admin.php?page=tao-crm' );
+    $url_formula_dash = $is_frontend ? cbpm_url( 'formula-dashboard' ) : admin_url( 'admin.php?page=tao-formula' );
+    $url_formula_orc  = $is_frontend ? cbpm_url( 'formula-orcamentos' ): admin_url( 'admin.php?page=tao-formula-orcamentos' );
     $url_leads    = $is_frontend ? cbpm_url( 'leads' )         : admin_url( 'admin.php?page=chatbot-platform-leads' );
     $url_kanban   = $is_frontend ? cbpm_url( 'crm-kanban' )    : admin_url( 'admin.php?page=tao-crm-kanban' );
     $url_inbox    = $is_frontend ? cbpm_url( 'crm-inbox' )     : admin_url( 'admin.php?page=tao-crm-inbox' );
@@ -372,6 +395,71 @@ function cbpm_page_portal_home() {
             </div>
             <?php else : ?>
             <p class="ph-empty">Workspace CRM não configurado. <a href="<?php echo esc_url( $url_crm_dash ); ?>">Configurar</a></p>
+            <?php endif; ?>
+        </div>
+        <?php endif; ?>
+
+        <!-- ══ TAO Fórmulas ══════════════════════════════════════════════════ -->
+        <?php if ( $has_formula ) : ?>
+        <div class="ph-product-block">
+            <div class="ph-product-header">
+                <div class="ph-product-title">
+                    <span style="font-size:20px">&#x1F9EA;</span>
+                    <h2>TAO F&oacute;rmulas</h2>
+                    <span class="ph-product-badge" style="background:#fef3c7;color:#92400e">COTA&Ccedil;&Atilde;O MANIPULA&Ccedil;&Atilde;O</span>
+                </div>
+                <div class="ph-product-actions">
+                    <a href="<?php echo esc_url( $url_formula_orc ); ?>" class="ph-btn ph-btn-ghost">&#x1F4CB; Or&ccedil;amentos</a>
+                    <a href="<?php echo esc_url( $url_formula_dash ); ?>" class="ph-btn ph-btn-primary" style="background:#d97706;border-color:#d97706">Dashboard &#x2192;</a>
+                </div>
+            </div>
+            <div class="ph-kpi-row">
+                <div class="ph-kpi kpi-warn">
+                    <span class="kpi-label">Pendentes revis&atilde;o</span>
+                    <span class="kpi-value"><?php echo $orc_pendentes; ?></span>
+                    <span class="kpi-sub">aguardando farmac&ecirc;utico</span>
+                </div>
+                <div class="ph-kpi">
+                    <span class="kpi-label">Or&ccedil;amentos hoje</span>
+                    <span class="kpi-value"><?php echo $orc_hoje; ?></span>
+                    <span class="kpi-sub">novos pedidos</span>
+                </div>
+                <div class="ph-kpi kpi-green">
+                    <span class="kpi-label">Aprovados</span>
+                    <span class="kpi-value"><?php echo $orc_aprovados; ?></span>
+                    <span class="kpi-sub">prontos p/ envio</span>
+                </div>
+            </div>
+            <?php if ( ! empty( $orc_recentes ) ) : ?>
+            <p class="ph-recent-title">Or&ccedil;amentos recentes</p>
+            <table class="ph-recent-table">
+                <thead><tr><th>Paciente</th><th>Total</th><th>Status</th><th>Data</th></tr></thead>
+                <tbody>
+                <?php
+                $status_labels = [
+                    'pendente_revisao'  => ['label'=>'Pendente',  'class'=>'ph-status-novo'],
+                    'aprovado_farma'    => ['label'=>'Aprovado',  'class'=>'ph-status-fechado'],
+                    'enviado_paciente'  => ['label'=>'Enviado',   'class'=>'ph-status-contatado'],
+                    'aceito_paciente'   => ['label'=>'Aceito',    'class'=>'ph-status-fechado'],
+                    'rejeitado'         => ['label'=>'Rejeitado', 'class'=>'ph-status-perdido'],
+                ];
+                foreach ( $orc_recentes as $o ) :
+                    $st   = $o['status'] ?? 'pendente_revisao';
+                    $sl   = $status_labels[ $st ] ?? ['label'=>$st,'class'=>'ph-status-novo'];
+                    $dt   = ! empty( $o['criado_em'] ) ? wp_date( 'd/m H:i', strtotime( $o['criado_em'] ) ) : '—';
+                    $total= ! empty( $o['total_orcamento'] ) ? 'R$&nbsp;' . number_format( $o['total_orcamento'], 2, ',', '.' ) : '—';
+                ?>
+                <tr>
+                    <td><?php echo esc_html( $o['nome_paciente'] ?? '—' ); ?></td>
+                    <td><?php echo $total; ?></td>
+                    <td><span class="ph-status-pill <?php echo esc_attr($sl['class']); ?>"><?php echo esc_html($sl['label']); ?></span></td>
+                    <td class="ph-date-small"><?php echo esc_html( $dt ); ?></td>
+                </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+            <?php else : ?>
+            <p class="ph-empty">Nenhum or&ccedil;amento ainda. <a href="<?php echo esc_url($url_formula_orc); ?>">Ver or&ccedil;amentos</a></p>
             <?php endif; ?>
         </div>
         <?php endif; ?>

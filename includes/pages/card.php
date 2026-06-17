@@ -247,16 +247,7 @@ function tao_crm_page_card() {
             <div class="tao-crm-card-info" id="crm-panel-info">
 
                 <div class="card-info-header">
-                    <?php
-                    $_cn = trim( $card['contato_nome'] ?? '' );
-                    $_ct = trim( $card['titulo'] ?? '' );
-                    if ( ! $_cn || $_cn === $card['contato_whatsapp'] ) $_cn = tao_crm_format_phone( $card['contato_whatsapp'] );
-                    $_cc = ( $_ct && $_ct !== ( $card['contato_nome'] ?? '' ) && $_ct !== ( $card['contato_whatsapp'] ?? '' ) ) ? $_ct : '';
-                    ?>
-                    <h2 id="tao-crm-card-title-display">
-                        <?php echo esc_html( $_cn ); ?>
-                        <?php if ( $_cc ) : ?><small style="font-weight:400;font-size:.65em;color:#64748b;display:block;margin-top:2px"><?php echo esc_html( $_cc ); ?></small><?php endif; ?>
-                    </h2>
+                    <h2 id="tao-crm-card-title-display"><?php echo esc_html( $card['titulo'] ?: $card['contato_nome'] ); ?></h2>
                     <?php if ( $estagio_atual ) : ?>
                     <span class="card-stage-badge" style="background:<?php echo esc_attr( $estagio_atual['cor'] ?? '#6366f1' ); ?>">
                         <?php echo esc_html( $estagio_atual['nome'] ); ?>

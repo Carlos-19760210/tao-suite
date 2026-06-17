@@ -139,7 +139,8 @@ function tao_formula_page_orcamento_novo() {
                     <th class="col-unid">Unid.</th>
                     <th class="col-fp" title="Fator de Perda">FP</th>
                     <th class="col-total">Total</th>
-                    <th class="col-custo">Custo</th>
+                    <th class="col-venda">Venda/un</th>
+                    <th class="col-custo">Subtotal</th>
                     <th class="col-qsp" title="Marcar como excipiente QSP (auto-calculado)">QSP</th>
                     <th class="col-del"></th>
                 </tr>
@@ -264,6 +265,7 @@ function tao_formula_page_orcamento_novo() {
                 <span class="taof-orc-fp-label" style="font-size:12px;color:#94a3b8">—</span>
             </td>
             <td class="col-total taof-orc-qtd-total" style="font-size:12px;color:#475569">—</td>
+            <td class="col-venda taof-orc-preco-venda" style="text-align:right;color:#0369a1;font-size:12px">—</td>
             <td class="col-custo taof-orc-subtotal" style="text-align:right;font-weight:600">R$&nbsp;0,00</td>
             <td class="col-qsp" style="text-align:center">
                 <button type="button" class="taof-btn-qsp button button-small" title="Marcar como excipiente QSP">QSP</button>
@@ -365,20 +367,21 @@ function tao_formula_page_orcamento_novo() {
 
     /* ── Detail table ─────────────────────────────────────── */
     .taof-table-scroll { overflow-x:auto; }
-    .taof-detail-table { border-collapse:collapse; min-width:680px; }
+    .taof-detail-table { border-collapse:collapse; min-width:760px; }
     .taof-detail-table th, .taof-detail-table td {
         padding:7px 8px; vertical-align:middle; border-bottom:1px solid #f1f5f9;
     }
     .taof-detail-table th { font-size:11px; color:#94a3b8; font-weight:600; background:#f8fafc; }
     .taof-detail-table .taof-inp { padding:6px 8px; font-size:13px; }
 
-    .col-cod   { width:7%;  min-width:55px; }
-    .col-prod  { width:32%; min-width:160px; }
-    .col-dose  { width:10%; min-width:80px; }
-    .col-unid  { width:8%;  min-width:65px; }
-    .col-fp    { width:6%;  min-width:45px; text-align:center; }
-    .col-total { width:11%; min-width:85px; }
-    .col-custo { width:11%; min-width:85px; text-align:right; }
+    .col-cod   { width:6%;  min-width:50px; }
+    .col-prod  { width:26%; min-width:150px; }
+    .col-dose  { width:9%;  min-width:75px; }
+    .col-unid  { width:7%;  min-width:60px; }
+    .col-fp    { width:5%;  min-width:40px; text-align:center; }
+    .col-total { width:10%; min-width:78px; }
+    .col-venda { width:10%; min-width:78px; text-align:right; }
+    .col-custo { width:10%; min-width:78px; text-align:right; }
     .col-qsp   { width:5%;  min-width:48px; text-align:center; }
     .col-del   { width:4%;  min-width:32px; text-align:center; }
 
@@ -399,7 +402,7 @@ function tao_formula_page_orcamento_novo() {
     /* ── Autocomplete ─────────────────────────────────────── */
     .taof-ac-wrap { position:relative; }
     .taof-ac-dropdown {
-        position:absolute; top:calc(100% + 2px); left:0; right:0; z-index:400;
+        position:fixed; z-index:99999;
         background:#fff; border:1px solid #e2e8f0; border-radius:8px;
         box-shadow:0 6px 16px rgba(0,0,0,.14); max-height:230px; overflow-y:auto;
     }
