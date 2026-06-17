@@ -760,31 +760,36 @@ function tao_crm_executar_automacao_item( $auto, $card_id ) {
  * $force_immediate = true → sai_fase: executa inline sem passar pela fila
  * delay = 0 → executa imediatamente; delay > 0 → agenda na fila
  */
-function tao_crm_disparar_automacoes( $card_id, $estagio_id, $tipo, $force_immediate = false ) {
+function tao_crm_disparar_automacoes( $card_id, $estagio_id, $tipo, $force_immediate = false, $ws_id = null ) {
     if ( ! $estagio_id ) return;
     $ra = tao_crm_api( "/crm_automacoes?estagio_id=eq.$estagio_id&tipo=eq.$tipo&ativo=eq.true&order=ordem.asc" );
     if ( ! $ra['ok'] || empty( $ra['data'] ) ) return;
     $now = time();
+    if ( ! $ws_id ) {
+        $rc   = tao_crm_api( "/crm_cards?id=eq.$card_id&select=workspace_id&limit=1" );
+        $ws_id = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? ( $rc['data'][0]['workspace_id'] ?? null ) : null;
+    }
+    $proximo = $ws_id ? tao_crm_proximo_horario_comercial( $ws_id ) : $now;
     foreach ( $ra['data'] as $auto ) {
         $delay = intval( $auto['delay_minutos'] ?? 0 );
-        if ( $force_immediate || $delay === 0 ) {
+        if ( $force_immediate || ( $delay === 0 && $proximo <= $now ) ) {
             // Dedup via transient: impede re-disparo imediato da mesma automação no mesmo card
-            // (ex: dois webhooks paralelos chamando disparar_automacoes quase ao mesmo tempo)
             if ( ! $force_immediate ) {
                 $dk = 'tao_crm_auto_' . md5( $card_id . $auto['id'] );
                 if ( get_transient( $dk ) ) continue;
-                set_transient( $dk, 1, 300 ); // 5 min
+                set_transient( $dk, 1, 300 );
             }
             tao_crm_executar_automacao_item( $auto, $card_id );
         } else {
-            // Dedup: não insere se já existe entrada pendente para este card+automacao
+            // delay > 0 OU delay = 0 fora do horário comercial → enfileira
+            $executar_em = ( $delay === 0 ) ? $proximo : $now + $delay * 60;
             $rq = tao_crm_api( "/crm_automacoes_fila?automacao_id=eq.{$auto['id']}&card_id=eq.$card_id&executado_em=is.null&limit=1" );
             if ( $rq['ok'] && ! empty( $rq['data'] ) ) continue;
             tao_crm_api( '/crm_automacoes_fila', 'POST', [
                 'automacao_id' => $auto['id'],
                 'card_id'      => $card_id,
                 'estagio_id'   => $estagio_id,
-                'executar_em'  => gmdate( 'c', $now + $delay * 60 ),
+                'executar_em'  => gmdate( 'c', $executar_em ),
             ] );
         }
     }
@@ -818,6 +823,8 @@ function tao_crm_processar_fila_fn() {
             continue;
         }
         $auto = $ra['data'][0];
+        $fila_ws_id = $auto['workspace_id'] ?? null;
+        if ( $fila_ws_id && ! tao_crm_esta_em_horario( $fila_ws_id ) ) continue;
         if ( in_array( $auto['tipo'], [ 'entrar_fase', 'tempo_na_fase' ] ) ) {
             $rcc = tao_crm_api( "/crm_cards?id=eq.{$item['card_id']}&select=estagio_id" );
             if ( ! $rcc['ok'] || empty( $rcc['data'] ) || $rcc['data'][0]['estagio_id'] !== $item['estagio_id'] ) {
@@ -2059,6 +2066,40 @@ function tao_crm_esta_em_horario( $ws_id ) {
     }
 }
 
+function tao_crm_proximo_horario_comercial( $ws_id ) {
+    $h = tao_crm_get_horario_ws( $ws_id );
+    if ( empty( $h['ativo'] ) ) return time();
+    try {
+        $tz  = new DateTimeZone( $h['timezone'] ?: 'America/Sao_Paulo' );
+        $now = new DateTime( 'now', $tz );
+        for ( $i = 0; $i < 8; $i++ ) {
+            $day = clone $now;
+            if ( $i > 0 ) {
+                $day->modify( "+{$i} days" );
+                $day->setTime( 0, 0, 0 );
+            }
+            $dow = (string) (int) $day->format( 'w' );
+            $dia = $h['dias'][ $dow ] ?? null;
+            if ( ! $dia || empty( $dia['ativo'] ) ) continue;
+            $y = (int) $day->format( 'Y' );
+            $m = (int) $day->format( 'm' );
+            $d = (int) $day->format( 'd' );
+            $ab = DateTime::createFromFormat( 'H:i', $dia['abertura'], $tz );
+            $ab->setDate( $y, $m, $d );
+            $fe = DateTime::createFromFormat( 'H:i', $dia['fechamento'], $tz );
+            $fe->setDate( $y, $m, $d );
+            if ( $i === 0 && $now >= $ab && $now < $fe ) return time(); // já está aberto
+            if ( $i === 0 && $now < $ab ) return $ab->getTimestamp();    // abre mais tarde hoje
+            if ( $i > 0 ) return $ab->getTimestamp();                    // próximo dia útil
+        }
+        $fb = new DateTime( 'tomorrow', $tz );
+        $fb->setTime( 8, 0, 0 );
+        return $fb->getTimestamp();
+    } catch ( Exception $e ) {
+        return time();
+    }
+}
+
 function tao_crm_log_error( $type, $msg, $context = [] ) {
     $log = get_option( 'tao_crm_error_log', [] );
     if ( ! is_array( $log ) ) $log = [];
@@ -2849,8 +2890,8 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
                         ] );
                     }
                     tao_crm_lock_chatbot( $num_plain, $WS_ID );
-                    tao_crm_disparar_automacoes( $card_id, $card_estagio_id, 'entrar_fase' );
-                    tao_crm_disparar_automacoes( $card_id, $card_estagio_id, 'tempo_na_fase' );
+                    tao_crm_disparar_automacoes( $card_id, $card_estagio_id, 'entrar_fase', false, $WS_ID );
+                    tao_crm_disparar_automacoes( $card_id, $card_estagio_id, 'tempo_na_fase', false, $WS_ID );
                     $gestor_ids = array_unique( array_merge(
                         (array) get_option( 'tao_crm_gestores_global', [] ),
                         (array) get_option( 'tao_crm_gestores_ws_' . $WS_ID, [] )
@@ -2886,8 +2927,8 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
                         tao_crm_log_error( 'dispatch', '[3b] card criado OK id=' . substr($card_id,0,8) );
                         if ( $contato_id ) tao_crm_api( '/rpc/crm_contato_novo_atendimento', 'POST', [ 'p_id' => $contato_id ] );
                         tao_crm_lock_chatbot( $num_plain, $WS_ID );
-                        tao_crm_disparar_automacoes( $card_id, $HANDOFF_STAGE_ID, 'entrar_fase' );
-                        tao_crm_disparar_automacoes( $card_id, $HANDOFF_STAGE_ID, 'tempo_na_fase' );
+                        tao_crm_disparar_automacoes( $card_id, $HANDOFF_STAGE_ID, 'entrar_fase', false, $WS_ID );
+                        tao_crm_disparar_automacoes( $card_id, $HANDOFF_STAGE_ID, 'tempo_na_fase', false, $WS_ID );
                         $gestor_ids = array_unique( array_merge(
                             (array) get_option( 'tao_crm_gestores_global', [] ),
                             (array) get_option( 'tao_crm_gestores_ws_' . $WS_ID, [] )
@@ -2923,8 +2964,8 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
                         ] );
                         if ( $de ) tao_crm_disparar_automacoes( $card_id, $de, 'sair_fase', true );
                         if ( $de ) tao_crm_cancelar_fila( $card_id, $de );
-                        tao_crm_disparar_automacoes( $card_id, $HANDOFF_STAGE_ID, 'entrar_fase' );
-                        tao_crm_disparar_automacoes( $card_id, $HANDOFF_STAGE_ID, 'tempo_na_fase' );
+                        tao_crm_disparar_automacoes( $card_id, $HANDOFF_STAGE_ID, 'entrar_fase', false, $WS_ID );
+                        tao_crm_disparar_automacoes( $card_id, $HANDOFF_STAGE_ID, 'tempo_na_fase', false, $WS_ID );
                         tao_crm_lock_chatbot( $num_plain, $WS_ID );
                         $card_estagio_id = $HANDOFF_STAGE_ID;
                     }
@@ -2962,8 +3003,8 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
                         $card_estagio_id = $HANDOFF_STAGE_ID;
                         if ( $contato_id ) tao_crm_api( '/rpc/crm_contato_novo_atendimento', 'POST', [ 'p_id' => $contato_id ] );
                         tao_crm_lock_chatbot( $num, $WS_ID );
-                        tao_crm_disparar_automacoes( $card_id, $HANDOFF_STAGE_ID, 'entrar_fase' );
-                        tao_crm_disparar_automacoes( $card_id, $HANDOFF_STAGE_ID, 'tempo_na_fase' );
+                        tao_crm_disparar_automacoes( $card_id, $HANDOFF_STAGE_ID, 'entrar_fase', false, $WS_ID );
+                        tao_crm_disparar_automacoes( $card_id, $HANDOFF_STAGE_ID, 'tempo_na_fase', false, $WS_ID );
                     }
                 }
             }
@@ -3050,7 +3091,7 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
                 tao_crm_api( "/crm_cards?id=eq.$save_card_id", 'PATCH', $patch_card );
                 // Automações de mensagem só para cards em atendimento humano ativo
                 if ( $card_id && $card_estagio_id ) {
-                    tao_crm_disparar_automacoes( $card_id, $card_estagio_id, 'recebeu_mensagem' );
+                    tao_crm_disparar_automacoes( $card_id, $card_estagio_id, 'recebeu_mensagem', false, $WS_ID );
                 }
             }
 
