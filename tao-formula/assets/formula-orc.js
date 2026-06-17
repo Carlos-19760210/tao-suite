@@ -364,8 +364,8 @@
 
         if (custoCapsula > 0) {
             var totalCaps = getVol() * getPotes() * r.nPerDose;
-            $('#taof-caps-custo-label').text(
-                '(' + totalCaps + ' un &times; R$ ' + fmt(r.cap.venda_unit) + '/un)'
+            $('#taof-caps-custo-label').html(
+                '(' + totalCaps + ' un &times; R$&nbsp;' + fmt(r.cap.venda_unit) + '/un)'
             );
             $('#taof-res-caps-custo').text('R$ ' + fmt(custoCapsula));
             $('#taof-row-caps-custo').show();

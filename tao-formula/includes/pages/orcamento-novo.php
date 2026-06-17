@@ -15,38 +15,78 @@ function tao_formula_page_orcamento_novo() {
         $rc           = tao_formula_api( "/tipos_capsula?cliente_id=eq.$cliente_id&ativo=eq.true&order=tipo.asc,numero.asc&select=tipo,numero,vol_ul,peso_vazio_mg,cdpro_fc" );
         $capsulas_raw = $rc['ok'] ? ( $rc['data'] ?? [] ) : [];
 
-        // Preços das cápsulas: busca ativos com "INCOLOR" no nome e associa por número + tipo
+        // ── Preços das cápsulas ──────────────────────────────────────────
+        // 1ª tentativa: busca direta por cdpro_fc → ativos.codigo
+        $preco_por_codigo = [];
+        $codigos = array_values( array_filter( array_column( $capsulas_raw, 'cdpro_fc' ) ) );
+        if ( ! empty( $codigos ) ) {
+            $in = implode( ',', $codigos );
+            $ra = tao_formula_api( "/ativos?cliente_id=eq.$cliente_id&codigo=in.($in)&select=codigo,venda_unit" );
+            if ( $ra['ok'] ) {
+                foreach ( $ra['data'] ?? [] as $a ) {
+                    if ( ( $a['venda_unit'] ?? 0 ) > 0 ) {
+                        $preco_por_codigo[ $a['codigo'] ] = (float) $a['venda_unit'];
+                    }
+                }
+            }
+        }
+
+        // 2ª tentativa (fallback): produtos com "INCOLOR" no nome (padrão de busca do cliente)
         $incolor_ativos = [];
         if ( ! empty( $capsulas_raw ) ) {
             $ri = tao_formula_api( "/ativos?cliente_id=eq.$cliente_id&nome=ilike.*INCOLOR*&select=codigo,nome,venda_unit" );
             $incolor_ativos = $ri['ok'] ? ( $ri['data'] ?? [] ) : [];
         }
 
+        // 3ª tentativa (fallback geral): qualquer ativo com "CAP" no nome (para busca por número)
+        $cap_ativos = [];
+        if ( ! empty( $capsulas_raw ) ) {
+            $rg = tao_formula_api( "/ativos?cliente_id=eq.$cliente_id&nome=ilike.*CAP*&select=codigo,nome,venda_unit&limit=200" );
+            $cap_ativos = $rg['ok'] ? ( $rg['data'] ?? [] ) : [];
+        }
+
         $capsulas = [];
         foreach ( $capsulas_raw as $c ) {
-            $numero     = (string)( $c['numero'] ?? '' );
-            $tipo_up    = strtoupper( $c['tipo'] ?? '' );
+            $numero  = (string)( $c['numero'] ?? '' );
+            $tipo_up = strtoupper( $c['tipo'] ?? '' );
+            $cdpro   = $c['cdpro_fc'] ?? '';
             $venda_unit = 0.0;
-            $num_pat    = '/\b' . preg_quote( $numero, '/' ) . '\b/';
+            $num_pat = '/\b' . preg_quote( $numero, '/' ) . '\b/';
 
-            // Passo 1: bate tipo + número
-            foreach ( $incolor_ativos as $ia ) {
-                $nome = strtoupper( $ia['nome'] ?? '' );
-                if ( strpos( $nome, 'CAP' ) === false ) continue;
-                if ( ! preg_match( $num_pat, $nome ) ) continue;
-                if ( $tipo_up && strpos( $nome, $tipo_up ) === false &&
-                     strpos( $nome, substr( $tipo_up, 0, 3 ) ) === false ) continue;
-                $venda_unit = (float)( $ia['venda_unit'] ?? 0 );
-                break;
+            // 1. Direto por código
+            if ( $cdpro && isset( $preco_por_codigo[ $cdpro ] ) ) {
+                $venda_unit = $preco_por_codigo[ $cdpro ];
             }
-            // Passo 2 (fallback): só número se tipo não bateu
+
+            // 2. INCOLOR: tipo + número, depois só número
             if ( $venda_unit == 0 ) {
-                foreach ( $incolor_ativos as $ia ) {
-                    $nome = strtoupper( $ia['nome'] ?? '' );
-                    if ( strpos( $nome, 'CAP' ) === false ) continue;
-                    if ( ! preg_match( $num_pat, $nome ) ) continue;
-                    $venda_unit = (float)( $ia['venda_unit'] ?? 0 );
-                    break;
+                foreach ( [ true, false ] as $usaTipo ) {
+                    foreach ( $incolor_ativos as $ia ) {
+                        $nome = strtoupper( $ia['nome'] ?? '' );
+                        if ( ! preg_match( $num_pat, $nome ) ) continue;
+                        if ( $usaTipo && $tipo_up &&
+                             strpos( $nome, $tipo_up ) === false &&
+                             strpos( $nome, substr( $tipo_up, 0, 3 ) ) === false ) continue;
+                        $venda_unit = (float)( $ia['venda_unit'] ?? 0 );
+                        break;
+                    }
+                    if ( $venda_unit > 0 ) break;
+                }
+            }
+
+            // 3. Qualquer produto "CAP": tipo + número, depois só número
+            if ( $venda_unit == 0 ) {
+                foreach ( [ true, false ] as $usaTipo ) {
+                    foreach ( $cap_ativos as $ia ) {
+                        $nome = strtoupper( $ia['nome'] ?? '' );
+                        if ( ! preg_match( $num_pat, $nome ) ) continue;
+                        if ( $usaTipo && $tipo_up &&
+                             strpos( $nome, $tipo_up ) === false &&
+                             strpos( $nome, substr( $tipo_up, 0, 3 ) ) === false ) continue;
+                        $venda_unit = (float)( $ia['venda_unit'] ?? 0 );
+                        break;
+                    }
+                    if ( $venda_unit > 0 ) break;
                 }
             }
 
@@ -55,7 +95,7 @@ function tao_formula_page_orcamento_novo() {
                 'numero'        => $numero,
                 'vol_ul'        => (float) $c['vol_ul'],
                 'peso_vazio_mg' => (float)( $c['peso_vazio_mg'] ?? 0 ),
-                'cdpro_fc'      => $c['cdpro_fc'] ?? '',
+                'cdpro_fc'      => $cdpro,
                 'venda_unit'    => $venda_unit,
             ];
         }
