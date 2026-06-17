@@ -110,9 +110,15 @@
             }
 
             // VOLAPA para ingredientes especiais: o produto continua sendo um pó com massa e densidade
-            var volapa_special = (isCap && densidade > 0 && qtd_g_per_dose > 0)
-                ? (qtd_g_per_dose * 1000 / densidade)
-                : 0;
+            // Fallback quando concentracao=0: usa dose diretamente como mg (aproximação)
+            var volapa_special = 0;
+            if (isCap && densidade > 0 && dose > 0) {
+                if (qtd_g_per_dose > 0) {
+                    volapa_special = qtd_g_per_dose * 1000 / densidade;
+                } else {
+                    volapa_special = dose / densidade;
+                }
+            }
 
             $row.find('.taof-orc-qtd-total').text(fmt(qtd_total_mg, 2) + ' mg (' + doseLabel + ')');
             $row.find('.taof-orc-subtotal').text('R$ ' + fmt(subtotal));
