@@ -2961,8 +2961,47 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
                 }
             }
 
-            // ── 5. Sem card nem tracking → sem mais nada a fazer ────────────────
-            if ( ! $card_id && ! $tracking_card_id ) continue;
+            // ── 5. Sem card nem tracking → armazena msg pendente e pula ─────────
+            // Mensagens recebidas antes do card existir ficam em transient (1h)
+            // e são flushadas ao card assim que ele aparecer num dispatch seguinte.
+            if ( ! $card_id && ! $tracking_card_id ) {
+                if ( ! $from_me && $conteudo ) {
+                    $_pk      = 'tao_crm_pending_' . md5( $WS_ID . $num_plain );
+                    $_pending = get_transient( $_pk ) ?: [];
+                    $_pending[] = [
+                        'tipo'           => $tipo,
+                        'conteudo'       => $conteudo,
+                        'midia_url'      => $midia,
+                        'remetente_nome' => $msg['pushName'] ?? $num,
+                        'enviado_em'     => gmdate( 'c' ),
+                        'wamid'          => $msg['key']['id'] ?? null,
+                    ];
+                    set_transient( $_pk, $_pending, HOUR_IN_SECONDS );
+                }
+                continue;
+            }
+
+            // ── 5b. Flush de mensagens pendentes (recebidas antes do card existir) ──
+            $_flush_card = $card_id ?: $tracking_card_id;
+            $_pk_flush   = 'tao_crm_pending_' . md5( $WS_ID . $num_plain );
+            $_pending_flush = get_transient( $_pk_flush );
+            if ( $_pending_flush ) {
+                delete_transient( $_pk_flush );
+                foreach ( $_pending_flush as $_pm ) {
+                    tao_crm_api( '/crm_mensagens', 'POST', [
+                        'card_id'        => $_flush_card,
+                        'workspace_id'   => $WS_ID,
+                        'direcao'        => 'in',
+                        'tipo'           => $_pm['tipo'],
+                        'conteudo'       => $_pm['conteudo'],
+                        'midia_url'      => $_pm['midia_url'] ?? null,
+                        'remetente_nome' => $_pm['remetente_nome'],
+                        'enviado_em'     => $_pm['enviado_em'],
+                        'wamid'          => $_pm['wamid'] ?? null,
+                        'status_entrega' => null,
+                    ], [ 'Prefer' => 'return=minimal' ] );
+                }
+            }
 
             // ── 6. Salva mensagem (dedup: atendente já marcou via transient) ─────
             $save_card_id = $card_id ?: $tracking_card_id;
