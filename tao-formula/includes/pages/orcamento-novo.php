@@ -95,6 +95,17 @@ function tao_formula_page_orcamento_novo() {
                     <option value="">— Selecione —</option>
                 </select>
             </div>
+            <div class="taof-field taof-ff-caps" id="taof-col-caps" style="display:none">
+                <label class="taof-label">Cáps/dose</label>
+                <div style="display:flex;align-items:center;gap:4px">
+                    <input type="number" id="taof-caps-por-dose" value="1" min="1" max="12"
+                           class="taof-inp taof-inp-num" style="width:58px"
+                           title="Cápsulas por dose (calculado automaticamente)">
+                    <button type="button" id="taof-caps-auto-btn"
+                            style="padding:2px 7px;font-size:12px;cursor:pointer;border:1px solid #ccc;border-radius:3px;background:#f5f5f5;line-height:1.6"
+                            title="Recalcular automaticamente">&#8635;</button>
+                </div>
+            </div>
             <div class="taof-field taof-ff-unid">
                 <label class="taof-label">Unidade</label>
                 <select id="taof-forma-unidade" name="forma_unidade" class="taof-inp taof-sel">
