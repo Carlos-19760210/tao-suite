@@ -109,11 +109,16 @@
                 doseLabel = fmt(qtd_esp_total, 0) + ' ' + doseUnit;
             }
 
+            // VOLAPA para ingredientes especiais: o produto continua sendo um pó com massa e densidade
+            var volapa_special = (isCap && densidade > 0 && qtd_g_per_dose > 0)
+                ? (qtd_g_per_dose * 1000 / densidade)
+                : 0;
+
             $row.find('.taof-orc-qtd-total').text(fmt(qtd_total_mg, 2) + ' mg (' + doseLabel + ')');
             $row.find('.taof-orc-subtotal').text('R$ ' + fmt(subtotal));
             $row.data({ subtotal: subtotal, 'qtd-total-g': qtd_total_g,
                 'qtd-em-padrao': qtd_em_padrao, 'qtd-unit': unidPadrao,
-                dose: dose, 'dose-unit': doseUnit, 'volapa-ul': 0 });
+                dose: dose, 'dose-unit': doseUnit, 'volapa-ul': volapa_special });
             calcularTotais();
             return;
         }
