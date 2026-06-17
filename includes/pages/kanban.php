@@ -349,6 +349,31 @@ function tao_crm_page_kanban() {
                 $cards_lembretes[ $row['card_id'] ] = true;
             }
         }
+
+        // Valores de campos customizados (batch) — usado para busca e para "Número da Requisição" no título
+        $cards_campos_values = [];  // card_id => [ campo_id => valor, … ]
+        $req_num_campo_id    = null;
+        if ( ! empty( $card_ids ) ) {
+            $ids_str = implode( ',', $card_ids );
+            $rv_batch = tao_crm_api( "/crm_cards_valores?card_id=in.($ids_str)&select=card_id,campo_id,valor" );
+            foreach ( ( $rv_batch['ok'] ? ( $rv_batch['data'] ?? [] ) : [] ) as $row ) {
+                $cards_campos_values[ $row['card_id'] ][ $row['campo_id'] ] = $row['valor'];
+            }
+            // Descobre o campo_id de "Número da Requisição" pelo nome (case-insensitive, 1ª ocorrência)
+            $todos_campo_ids = [];
+            foreach ( $cards_campos_values as $_cv ) {
+                foreach ( array_keys( $_cv ) as $_cid ) { $todos_campo_ids[ $_cid ] = true; }
+            }
+            if ( ! empty( $todos_campo_ids ) ) {
+                $rcd_k = tao_crm_api( '/crm_campos_definicao?id=in.(' . implode( ',', array_keys( $todos_campo_ids ) ) . ')&select=id,nome' );
+                foreach ( ( $rcd_k['ok'] ? ( $rcd_k['data'] ?? [] ) : [] ) as $cd ) {
+                    if ( mb_stripos( $cd['nome'], 'Requisi' ) !== false ) {
+                        $req_num_campo_id = $cd['id'];
+                        break;
+                    }
+                }
+            }
+        }
         ?>
 
         <div class="tao-crm-board-wrap">
@@ -392,7 +417,13 @@ function tao_crm_page_kanban() {
                          data-movido-em="<?php echo esc_attr( $card['movido_em'] ?? '' ); ?>"
                          data-tags="<?php echo esc_attr( wp_json_encode( $card_tag_ids_arr ) ); ?>"
                          data-tem-lembrete="<?php echo $card_tem_lembrete ? '1' : '0'; ?>"
-                         data-search="<?php echo esc_attr( mb_strtolower( ( $card['titulo'] ?: $card['contato_nome'] ) . ' ' . $card['contato_whatsapp'] . ' ' . $card['contato_nome'] ) ); ?>"
+                         <?php
+                             $_card_campos_vals = $cards_campos_values[ $card['id'] ] ?? [];
+                             $_req_num = $req_num_campo_id ? ( $_card_campos_vals[ $req_num_campo_id ] ?? '' ) : '';
+                             $_campos_txt = implode( ' ', $_card_campos_vals );
+                             $_search_str = mb_strtolower( ( $card['titulo'] ?: $card['contato_nome'] ) . ' ' . $card['contato_whatsapp'] . ' ' . $card['contato_nome'] . ' ' . $_campos_txt );
+                         ?>
+                         data-search="<?php echo esc_attr( $_search_str ); ?>"
                          onclick="window.location='<?php echo esc_url( $card_url ); ?>'">
                         <label class="crm-card-checkbox-wrap" onclick="event.stopPropagation()" title="Selecionar">
                             <input type="checkbox" class="crm-card-checkbox" data-card-id="<?php echo esc_attr( $card['id'] ); ?>">
@@ -406,7 +437,10 @@ function tao_crm_page_kanban() {
                         <?php if ( ! empty( $card['atendimento_humano'] ) ) : ?>
                         <span class="card-handoff-icon" title="Em atendimento humano">🙋</span>
                         <?php endif; ?>
-                        <div class="card-title"><?php echo esc_html( $card['titulo'] ?: $card['contato_nome'] ); ?></div>
+                        <div class="card-title">
+                            <?php if ( $_req_num ) : ?><span class="card-req-num">#<?php echo esc_html( $_req_num ); ?></span> <?php endif; ?>
+                            <?php echo esc_html( $card['titulo'] ?: $card['contato_nome'] ); ?>
+                        </div>
                         <div class="card-meta">
                             <span class="card-phone">
                                 <?php if ( function_exists( 'tao_crm_is_lid_num' ) && tao_crm_is_lid_num( $card['contato_whatsapp'] ) ) : ?>
