@@ -1,4 +1,4 @@
-/* TAO Formulas — Orcamento v1.8 */
+/* TAO Formulas — Orcamento v2.0 */
 (function ($) {
     'use strict';
     if (!document.getElementById('taof-orc-form')) return;
@@ -68,48 +68,79 @@
 
     // ── Calculo por linha ─────────────────────────────────────────────
     function calcularLinha($row) {
-        if ($row.hasClass('taof-row-qsp')) {
-            // Linha QSP: quantidade e custo calculados em calcularTotais
+        if ($row.hasClass('taof-row-qsp')) { calcularTotais(); return; }
+        var dose         = parseFloat($row.find('.taof-orc-dose').val()) || 0;
+        var doseUnit     = $row.find('.taof-orc-dose-unit').val() || 'mg';
+        var unidPadrao   = $row.data('unid-padrao') || 'mg';
+        var fp           = parseFloat($row.data('fp'))           || 1;
+        var diluicao     = parseFloat($row.data('diluicao'))     || 1;
+        var teor         = parseFloat($row.data('teor'))         || 100;
+        var densidade    = parseFloat($row.data('densidade'))    || 1;
+        var vendaUnit    = parseFloat($row.data('venda-unit'))   || 0;
+        var concentracao = parseFloat($row.data('concentracao')) || 0;
+        var mult         = getMultiplicador();
+        var isCap        = formaAtual && (formaAtual.tipo === 'cap' || formaAtual.tipo === 'duo_cap');
+        var isSpecial    = (doseUnit === 'UI' || doseUnit === 'UFC');
+
+        if (isSpecial) {
+            // concentracao = UFC ou UI por grama do produto (campo Supabase, vem do lote FC03140)
+            var qtd_g_per_dose = concentracao > 0 ? dose / concentracao : 0;
+            var qtd_total_g    = qtd_g_per_dose * mult;
+            var qtd_total_mg   = qtd_total_g * 1000;
+            var qtd_esp_total  = dose * mult; // total UFC/UI em todas as doses
+
+            var qtd_em_padrao;
+            if      (unidPadrao === 'g')        qtd_em_padrao = qtd_total_g;
+            else if (unidPadrao === 'mg')        qtd_em_padrao = qtd_total_mg;
+            else if (unidPadrao === doseUnit)    qtd_em_padrao = qtd_esp_total;
+            else                                 qtd_em_padrao = qtd_total_g;
+            var subtotal = qtd_em_padrao * vendaUnit;
+
+            // Label amigavel: >= 1 Blh exibe em bilhoes, >= 1 Mlh em milhoes
+            var doseLabel;
+            if      (qtd_esp_total >= 1e9) doseLabel = fmt(qtd_esp_total / 1e9, 2) + ' Blh ' + doseUnit;
+            else if (qtd_esp_total >= 1e6) doseLabel = fmt(qtd_esp_total / 1e6, 2) + ' Mlh ' + doseUnit;
+            else                           doseLabel = fmt(qtd_esp_total, 0) + ' ' + doseUnit;
+
+            $row.find('.taof-orc-qtd-total').text(fmt(qtd_total_mg, 2) + ' mg (' + doseLabel + ')');
+            $row.find('.taof-orc-subtotal').text('R$ ' + fmt(subtotal));
+            $row.data({ subtotal: subtotal, 'qtd-total-g': qtd_total_g,
+                'qtd-em-padrao': qtd_em_padrao, 'qtd-unit': unidPadrao,
+                dose: dose, 'dose-unit': doseUnit, 'volapa-ul': 0 });
             calcularTotais();
             return;
         }
-        var dose      = parseFloat($row.find('.taof-orc-dose').val()) || 0;
-        var doseUnit  = $row.find('.taof-orc-dose-unit').val() || 'mg';
-        var fp        = parseFloat($row.data('fp')) || 1;
-        var vendaUnit = parseFloat($row.data('venda-unit')) || 0;
-        var unidPadrao= $row.data('unid-padrao') || 'g';
-        var diluicao  = parseFloat($row.data('diluicao')) || 1;
-        var teor      = parseFloat($row.data('teor')) || 100;
-        var densidade = parseFloat($row.data('densidade')) || 1;
-        var mult      = getMultiplicador();
-        var isCap     = formaAtual && (formaAtual.tipo === 'cap' || formaAtual.tipo === 'duo_cap');
-        var isUI      = (doseUnit === 'UI' || doseUnit === 'UFC');
 
-        var dose_mg_unit    = isUI ? dose : toMg(dose, doseUnit);
-        var qtd_mg_per_unit = dose_mg_unit * diluicao / (teor / 100) * fp;
-        var qtd_total_mg    = qtd_mg_per_unit * mult;
-        var qtd_total_g     = qtd_total_mg / 1000;
-        var volapa_uL       = (isCap && !isUI && densidade > 0) ? (qtd_mg_per_unit / densidade) : 0;
+        // Unidades de massa: mg, g, mcg, ml
+        var dose_mg;
+        if      (doseUnit === 'mg')  dose_mg = dose;
+        else if (doseUnit === 'g')   dose_mg = dose * 1000;
+        else if (doseUnit === 'mcg') dose_mg = dose / 1000;
+        else if (doseUnit === 'ml')  dose_mg = dose * densidade * 1000;
+        else                         dose_mg = dose;
 
-        var qtd_em_unid;
-        if      (unidPadrao === 'g')   qtd_em_unid = qtd_total_g;
-        else if (unidPadrao === 'mg')  qtd_em_unid = qtd_total_mg;
-        else if (unidPadrao === 'mcg') qtd_em_unid = qtd_total_mg * 1000;
-        else                           qtd_em_unid = qtd_total_g;
+        // FC: QTREAL = dose_mg x DILUICAO / (TEOR/100)  — FP nao entra no VOLAPA
+        var dose_mg_dil  = dose_mg * diluicao;
+        var dose_mg_real = dose_mg_dil / (teor / 100);
+        var volapa_uL    = (isCap && densidade > 0) ? (dose_mg_real / densidade) : 0;
+        var qtd_total_mg = dose_mg_real * fp * mult;
+        var qtd_total_g  = qtd_total_mg / 1000;
 
-        var subtotal = qtd_em_unid * vendaUnit;
-        var totalLabel = unidPadrao === 'g'  ? fmt(qtd_total_g, 4) + ' g'
-                       : unidPadrao === 'mg' ? fmt(qtd_total_mg, 3) + ' mg'
-                       : fmt(qtd_em_unid, 3) + ' ' + unidPadrao;
-        if (isUI) totalLabel += ' (est.)';
+        var qtd_em_padrao;
+        if      (unidPadrao === 'mg')  qtd_em_padrao = qtd_total_mg;
+        else if (unidPadrao === 'g')   qtd_em_padrao = qtd_total_g;
+        else if (unidPadrao === 'mcg') qtd_em_padrao = qtd_total_mg * 1000;
+        else                           qtd_em_padrao = qtd_total_g;
 
+        var subtotal   = qtd_em_padrao * vendaUnit;
+        var totalLabel = doseUnit === 'ml'
+            ? fmt(dose_mg_real * fp * mult / (densidade * 1000), 3) + ' ml'
+            : fmt(qtd_total_mg, 2) + ' mg';
         $row.find('.taof-orc-qtd-total').text(totalLabel);
         $row.find('.taof-orc-subtotal').text('R$ ' + fmt(subtotal));
-        $row.data({
-            subtotal: subtotal, 'qtd-total-g': qtd_total_g,
-            'qtd-em-padrao': qtd_em_unid, 'qtd-unit': unidPadrao,
-            dose: dose, 'dose-unit': doseUnit, 'volapa-ul': volapa_uL
-        });
+        $row.data({ subtotal: subtotal, 'qtd-total-g': qtd_total_g,
+            'qtd-em-padrao': qtd_em_padrao, 'qtd-unit': unidPadrao,
+            dose: dose, 'dose-unit': doseUnit, 'volapa-ul': volapa_uL });
         calcularTotais();
     }
 
@@ -153,7 +184,7 @@
         var qtdEmUnid  = unidPadrao === 'g' ? qspG : unidPadrao === 'mg' ? qspMg : qspG;
         var subtotal   = qtdEmUnid * vendaUnit;
 
-        $row.find('.taof-orc-qtd-total').text(fmt(qspG, 3) + ' g (QSP)');
+        $row.find('.taof-orc-qtd-total').text(fmt(qspG * 1000, 2) + ' mg (QSP)');
         $row.find('.taof-orc-subtotal').text('R$ ' + fmt(subtotal));
         $row.data({ subtotal: subtotal, 'qtd-total-g': qspG, 'volapa-ul': 0 });
     }
@@ -186,7 +217,7 @@
         var subtotal   = qtdEmUnid * vendaUnit;
 
         $row.find('.taof-orc-qtd-total').text(
-            fmt(qspTotalG, 4) + ' g (' + fmt(qspVOLAPAPerCap, 1) + ' µL/caps QSP)'
+            fmt(qspTotalMg, 2) + ' mg (' + fmt(qspVOLAPAPerCap, 1) + ' µL/caps QSP)'
         );
         $row.find('.taof-orc-subtotal').text('R$ ' + fmt(subtotal));
         $row.data({ subtotal: subtotal, 'qtd-total-g': qspTotalG, 'volapa-ul': qspVOLAPAPerDose });
@@ -454,16 +485,17 @@
                 parseFloat(a.fator_perda || 1).toLocaleString('pt-BR', { minimumFractionDigits: 3 })
             );
             $row.data({
-                'ativo-id':    a.id,
-                'ativo-nome':  a.nome,
-                'codigo-fc':   a.codigo_fc  || '',
-                'unid-padrao': a.unidade_padrao,
-                'custo-unit':  a.custo_por_unidade,
-                'venda-unit':  a.preco_venda,
-                'diluicao':    parseFloat(a.diluicao)   || 1,
-                'teor':        parseFloat(a.teor)        || 100,
-                'densidade':   parseFloat(a.densidade)   || 1,
-                'fp':          parseFloat(a.fator_perda) || 1,
+                'ativo-id':     a.id,
+                'ativo-nome':   a.nome,
+                'codigo-fc':    a.codigo_fc   || '',
+                'unid-padrao':  a.unidade_padrao,
+                'custo-unit':   a.custo_por_unidade,
+                'venda-unit':   a.preco_venda,
+                'diluicao':     parseFloat(a.diluicao)      || 1,
+                'teor':         parseFloat(a.teor)           || 100,
+                'densidade':    parseFloat(a.densidade)      || 1,
+                'fp':           parseFloat(a.fator_perda)    || 1,
+                'concentracao': parseFloat(a.concentracao)   || 0,
             });
             var vendaLabel = parseFloat(a.preco_venda) > 0
                 ? 'R$ ' + fmt(a.preco_venda, 4) + '/' + (a.unidade_padrao || 'g')
@@ -471,6 +503,7 @@
             $row.find('.taof-orc-preco-venda').text(vendaLabel);
             var u = a.unidade_padrao;
             if (['mg', 'mcg', 'g', 'UI', 'UFC', 'ml'].indexOf(u) === -1) u = 'mg';
+            if (u === 'g') u = 'mg'; // pos vendidos em g sao prescritos em mg
             $row.find('.taof-orc-dose-unit').val(u);
             $dd.hide().empty();
             calcularLinha($row);

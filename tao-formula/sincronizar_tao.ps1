@@ -34,6 +34,7 @@ $unidade_map_mp = @{
     'MG'   = 'mg';  'MEQ'  = 'mg'
     'MCG'  = 'mcg'; 'UG'   = 'mcg'; 'NG'   = 'mcg'
     'UI'   = 'UI';  'IU'   = 'UI';  'U'    = 'UI'
+    'UFC'  = 'UFC'
     'ML'   = 'g';   'UN'   = 'mg';  'CAP'  = 'mg';  'CAPS' = 'mg'
 }
 $unidade_map_emb = @{
@@ -47,7 +48,7 @@ $unidade_map_emb = @{
 # 0=CDPRO 1=NOME_LIMPO 2=NOME_ORIG 3=UNIDA 4=ESTAT 5=PRCOM 6=PRCOMCTB
 # 7=PRVEN 8=CATEGORIA 9=PRINCIPIOATIVO 10=DENSIDADE 11=FATOR
 # 12=CDDCB 13=DOMIN 14=UNIDMIN 15=DOMAX 16=UNIDM 17=OBSCOMPO
-# 18=DILUICAO 19=TEOR
+# 18=DILUICAO 19=TEOR 20=QTBLH 21=QTMLH 22=QTUFC 23=QTUI  (do lote mais recente com conc.)
 function Build-Ativo($c, $grupo, $agora, $unidade_map) {
     $unidade     = $c[3].Trim()
     $unid_key    = $unidade.ToUpper()
@@ -55,13 +56,25 @@ function Build-Ativo($c, $grupo, $agora, $unidade_map) {
                        if ($grupo -eq 'E') { 'un' } else { 'mg' }
                    }
 
-    # diluicao e teor (colunas 18 e 19, adicionadas na v1.2)
+    # diluicao e teor (colunas 18 e 19)
     $diluicao_raw = if ($c.Count -gt 18) { $c[18].Trim() } else { '1' }
     $teor_raw     = if ($c.Count -gt 19) { $c[19].Trim() } else { '100' }
     $diluicao_val = if ($diluicao_raw -match '^\d') { [double]$diluicao_raw } else { 1.0 }
     $teor_val     = if ($teor_raw     -match '^\d') { [double]$teor_raw     } else { 100.0 }
     if ($diluicao_val -le 0) { $diluicao_val = 1.0 }
     if ($teor_val     -le 0) { $teor_val     = 100.0 }
+
+    # concentracao UFC/UI por grama — lote mais recente com dados (FC03140)
+    # 20=QTBLH(bilhoes) 21=QTMLH(milhoes) 22=QTUFC(absoluto) 23=QTUI(absoluto)
+    $qtblh = if ($c.Count -gt 20 -and $c[20].Trim() -match '^\d') { [double]$c[20].Trim() } else { 0.0 }
+    $qtmlh = if ($c.Count -gt 21 -and $c[21].Trim() -match '^\d') { [double]$c[21].Trim() } else { 0.0 }
+    $qtufc = if ($c.Count -gt 22 -and $c[22].Trim() -match '^\d') { [double]$c[22].Trim() } else { 0.0 }
+    $qtui  = if ($c.Count -gt 23 -and $c[23].Trim() -match '^\d') { [double]$c[23].Trim() } else { 0.0 }
+    $concentracao_val = $null
+    if     ($qtblh -gt 0) { $concentracao_val = $qtblh * 1000000000.0 }  # BLH x 10^9 = UFC/g
+    elseif ($qtmlh -gt 0) { $concentracao_val = $qtmlh * 1000000.0    }  # MLH x 10^6 = UFC ou UI/g
+    elseif ($qtufc -gt 0) { $concentracao_val = $qtufc                 }  # UFC ja absoluto
+    elseif ($qtui  -gt 0) { $concentracao_val = $qtui                  }  # UI ja absoluto
 
     return @{
         cliente_id         = $script:CLIENTE_ID
@@ -97,6 +110,7 @@ function Build-Ativo($c, $grupo, $agora, $unidade_map) {
         uni_dose_max       = if ($c.Count -gt 16) { $c[16].Trim() } else { $null }
         dose_maxima_padrao = $null
         observacoes        = if ($c.Count -gt 17) { $c[17].Trim() } else { "" }
+        concentracao       = $concentracao_val
         ativo              = $true
         sincronizado_em    = $agora
         atualizado_em      = $agora
@@ -111,28 +125,38 @@ function Get-FCLinhas($grupo) {
 
     $sqlLinhas = @(
         "SELECT",
-        "  CAST(p.CDPRO AS VARCHAR(10))                || '|' ||",
-        "  TRIM(REPLACE(p.DESCR, '@', ''))              || '|' ||",
-        "  TRIM(p.DESCR)                                || '|' ||",
-        "  COALESCE(TRIM(p.UNIDA), '')                  || '|' ||",
-        "  COALESCE(CAST(e.ESTAT     AS VARCHAR(20)),'')|| '|' ||",
-        "  COALESCE(CAST(p.PRCOM     AS VARCHAR(20)),'')|| '|' ||",
-        "  COALESCE(CAST(e.PRCOMCTB  AS VARCHAR(20)),'')|| '|' ||",
-        "  COALESCE(CAST(p.PRVEN     AS VARCHAR(20)),'')|| '|' ||",
-        "  COALESCE(TRIM(p.CATEGORIA), '')              || '|' ||",
-        "  COALESCE(TRIM(p.PRINCIPIOATIVO), '')         || '|' ||",
-        "  COALESCE(CAST(p.DENSIDADE AS VARCHAR(15)),'')|| '|' ||",
-        "  COALESCE(CAST(p.FATOR     AS VARCHAR(15)),'')|| '|' ||",
-        "  COALESCE(TRIM(p.CDDCB), '')                  || '|' ||",
-        "  COALESCE(CAST(p.DOMIN     AS VARCHAR(15)),'')|| '|' ||",
-        "  COALESCE(TRIM(p.UNIDMIN), '')                || '|' ||",
-        "  COALESCE(CAST(p.DOMAX     AS VARCHAR(15)),'')|| '|' ||",
-        "  COALESCE(TRIM(p.UNIDM), '')                  || '|' ||",
-        "  COALESCE(TRIM(p.OBSCOMPO), '')               || '|' ||",
-        "  COALESCE(CAST(p.DILUICAO  AS VARCHAR(15)),'')|| '|' ||",
-        "  COALESCE(CAST(p.TEOR      AS VARCHAR(15)),'')",
+        "  CAST(p.CDPRO AS VARCHAR(10))                    || '|' ||",
+        "  TRIM(REPLACE(p.DESCR, '@', ''))                  || '|' ||",
+        "  TRIM(p.DESCR)                                    || '|' ||",
+        "  COALESCE(TRIM(p.UNIDA), '')                      || '|' ||",
+        "  COALESCE(CAST(e.ESTAT     AS VARCHAR(20)),'')    || '|' ||",
+        "  COALESCE(CAST(p.PRCOM     AS VARCHAR(20)),'')    || '|' ||",
+        "  COALESCE(CAST(e.PRCOMCTB  AS VARCHAR(20)),'')    || '|' ||",
+        "  COALESCE(CAST(p.PRVEN     AS VARCHAR(20)),'')    || '|' ||",
+        "  COALESCE(TRIM(p.CATEGORIA), '')                  || '|' ||",
+        "  COALESCE(TRIM(p.PRINCIPIOATIVO), '')             || '|' ||",
+        "  COALESCE(CAST(p.DENSIDADE AS VARCHAR(15)),'')    || '|' ||",
+        "  COALESCE(CAST(p.FATOR     AS VARCHAR(15)),'')    || '|' ||",
+        "  COALESCE(TRIM(p.CDDCB), '')                      || '|' ||",
+        "  COALESCE(CAST(p.DOMIN     AS VARCHAR(15)),'')    || '|' ||",
+        "  COALESCE(TRIM(p.UNIDMIN), '')                    || '|' ||",
+        "  COALESCE(CAST(p.DOMAX     AS VARCHAR(15)),'')    || '|' ||",
+        "  COALESCE(TRIM(p.UNIDM), '')                      || '|' ||",
+        "  COALESCE(TRIM(p.OBSCOMPO), '')                   || '|' ||",
+        "  COALESCE(CAST(p.DILUICAO  AS VARCHAR(15)),'')    || '|' ||",
+        "  COALESCE(CAST(p.TEOR      AS VARCHAR(15)),'')    || '|' ||",
+        "  COALESCE(CAST(lot.QTBLH   AS VARCHAR(30)),'')    || '|' ||",
+        "  COALESCE(CAST(lot.QTMLH   AS VARCHAR(30)),'')    || '|' ||",
+        "  COALESCE(CAST(lot.QTUFC   AS VARCHAR(30)),'')    || '|' ||",
+        "  COALESCE(CAST(lot.QTUI    AS VARCHAR(30)),'')",
         "FROM FC03000 p",
         $filtroEstoque,
+        "LEFT JOIN FC03140 lot ON lot.CDFIL=1 AND lot.CDPRO=p.CDPRO",
+        "  AND lot.CTLOT = (",
+        "    SELECT MAX(l2.CTLOT) FROM FC03140 l2",
+        "    WHERE l2.CDFIL=1 AND l2.CDPRO=p.CDPRO",
+        "      AND (l2.QTBLH > 0 OR l2.QTMLH > 0 OR l2.QTUFC > 0 OR l2.QTUI > 0)",
+        "  )",
         "WHERE p.SITUA = 'A' AND p.GRUPO = '$grupo' $whereEstoque",
         "ORDER BY TRIM(REPLACE(p.DESCR, '@', ''));",
         "QUIT;"
