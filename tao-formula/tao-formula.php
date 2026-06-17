@@ -2,14 +2,14 @@
 /**
  * Plugin Name: TAO Fórmulas
  * Description: Módulo de cotação para farmácia de manipulação — TAO Suite
- * Version:     1.1.7
+ * Version:     1.1.8
  * Author:      TAO Suite
  * Text Domain: tao-formula
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'TAOF_VERSION',    '1.1.7' );
+define( 'TAOF_VERSION',    '1.1.8' );
 define( 'TAOF_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'TAOF_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 

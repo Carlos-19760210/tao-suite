@@ -300,9 +300,21 @@
         var isCap = formaAtual && (formaAtual.tipo === 'cap' || formaAtual.tipo === 'duo_cap');
         if (!isCap || !capsulas.length) { $('#taof-card-capsulas').hide(); return null; }
 
+        // Forma é cápsula: card sempre visível — mostra placeholder se doses ainda não informadas
+        $('#taof-card-capsulas').show();
+
         var forceN = getNPerDoseForced();
         var r = calcularCapsulaIdeal(forceN);
-        if (!r) { $('#taof-card-capsulas').hide(); return null; }
+        if (!r) {
+            $('#taof-cap-sugerida').html('<em style="color:#94a3b8">Informe as doses para calcular a cápsula</em>');
+            $('#taof-caps-nome').text('—');
+            $('#taof-caps-vol').text('—');
+            $('#taof-caps-volapa').text('—');
+            $('#taof-caps-total-un').text('—');
+            $('#taof-caps-preco-un').text('—');
+            $('#taof-caps-subtotal').text('R$ 0,00');
+            return null;
+        }
 
         // Modo auto: atualiza o campo sem disparar evento
         if (!forceN) { $('#taof-caps-por-dose').val(r.nPerDose); }
@@ -338,8 +350,6 @@
         $('#taof-caps-total-un').html('<strong>' + totalCaps + '</strong> un');
         $('#taof-caps-preco-un').text(c.venda_unit > 0 ? 'R$ ' + fmt(c.venda_unit) : '—');
         $('#taof-caps-subtotal').text('R$ ' + fmt(custoCapsula));
-
-        $('#taof-card-capsulas').show();
 
         r.custoCapsula = custoCapsula;
         return r;
