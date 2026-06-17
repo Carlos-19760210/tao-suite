@@ -764,15 +764,23 @@ function tao_crm_disparar_automacoes( $card_id, $estagio_id, $tipo, $force_immed
     if ( ! $estagio_id ) return;
     $ra = tao_crm_api( "/crm_automacoes?estagio_id=eq.$estagio_id&tipo=eq.$tipo&ativo=eq.true&order=ordem.asc" );
     if ( ! $ra['ok'] || empty( $ra['data'] ) ) return;
-    $now = time();
-    if ( ! $ws_id ) {
-        $rc   = tao_crm_api( "/crm_cards?id=eq.$card_id&select=workspace_id&limit=1" );
-        $ws_id = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? ( $rc['data'][0]['workspace_id'] ?? null ) : null;
-    }
-    $proximo = $ws_id ? tao_crm_proximo_horario_comercial( $ws_id ) : $now;
+    $now     = time();
+    $proximo = null; // calculado lazy só quando encontrar enviar_mensagem
     foreach ( $ra['data'] as $auto ) {
         $delay = intval( $auto['delay_minutos'] ?? 0 );
-        if ( $force_immediate || ( $delay === 0 && $proximo <= $now ) ) {
+        // Restrição de horário comercial aplica-se somente a envios de mensagem
+        $fora_horario = false;
+        if ( ! $force_immediate && ( $auto['acao'] ?? '' ) === 'enviar_mensagem' ) {
+            if ( $proximo === null ) {
+                if ( ! $ws_id ) {
+                    $rc    = tao_crm_api( "/crm_cards?id=eq.$card_id&select=workspace_id&limit=1" );
+                    $ws_id = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? ( $rc['data'][0]['workspace_id'] ?? null ) : null;
+                }
+                $proximo = $ws_id ? tao_crm_proximo_horario_comercial( $ws_id ) : $now;
+            }
+            $fora_horario = ( $proximo > $now );
+        }
+        if ( $force_immediate || ( $delay === 0 && ! $fora_horario ) ) {
             // Dedup via transient: impede re-disparo imediato da mesma automação no mesmo card
             if ( ! $force_immediate ) {
                 $dk = 'tao_crm_auto_' . md5( $card_id . $auto['id'] );
@@ -781,7 +789,7 @@ function tao_crm_disparar_automacoes( $card_id, $estagio_id, $tipo, $force_immed
             }
             tao_crm_executar_automacao_item( $auto, $card_id );
         } else {
-            // delay > 0 OU delay = 0 fora do horário comercial → enfileira
+            // delay > 0 OU enviar_mensagem fora do horário comercial → enfileira
             $executar_em = ( $delay === 0 ) ? $proximo : $now + $delay * 60;
             $rq = tao_crm_api( "/crm_automacoes_fila?automacao_id=eq.{$auto['id']}&card_id=eq.$card_id&executado_em=is.null&limit=1" );
             if ( $rq['ok'] && ! empty( $rq['data'] ) ) continue;
@@ -823,8 +831,10 @@ function tao_crm_processar_fila_fn() {
             continue;
         }
         $auto = $ra['data'][0];
-        $fila_ws_id = $auto['workspace_id'] ?? null;
-        if ( $fila_ws_id && ! tao_crm_esta_em_horario( $fila_ws_id ) ) continue;
+        if ( ( $auto['acao'] ?? '' ) === 'enviar_mensagem' ) {
+            $fila_ws_id = $auto['workspace_id'] ?? null;
+            if ( $fila_ws_id && ! tao_crm_esta_em_horario( $fila_ws_id ) ) continue;
+        }
         if ( in_array( $auto['tipo'], [ 'entrar_fase', 'tempo_na_fase' ] ) ) {
             $rcc = tao_crm_api( "/crm_cards?id=eq.{$item['card_id']}&select=estagio_id" );
             if ( ! $rcc['ok'] || empty( $rcc['data'] ) || $rcc['data'][0]['estagio_id'] !== $item['estagio_id'] ) {
