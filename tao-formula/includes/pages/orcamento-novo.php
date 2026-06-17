@@ -586,6 +586,11 @@ function tao_formula_page_orcamento_novo() {
     window.taofOrcFormasMap = <?php echo wp_json_encode( $formas_js ); ?>;
     window.taofCapsulas   = <?php echo wp_json_encode( array_values( $capsulas ) ); ?>;
     window.taofOrcListUrl = <?php echo wp_json_encode( $url_lista ); ?>;
+    window.taofDbgCapsulas = <?php echo count($capsulas); ?>;
+    window.taofDbgFormas   = <?php echo count($formas_js); ?>;
     </script>
+    <div id="taof-dbg-badge" style="position:fixed;bottom:8px;right:8px;background:#0f172a;color:#94a3b8;padding:3px 8px;border-radius:4px;font-size:10px;z-index:9999;font-family:monospace">
+        TAO Fórmulas <?php echo TAOF_VERSION; ?> · <?php echo count($capsulas); ?> caps · <?php echo count($formas_js); ?> formas
+    </div>
     <?php
 }

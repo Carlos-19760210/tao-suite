@@ -52,6 +52,7 @@ add_action( 'admin_enqueue_scripts', function( $hook ) {
     ] );
     // JS extra somente na página de novo orçamento
     if ( strpos( $hook, 'tao-formula-orc-novo' ) !== false ) {
-        wp_enqueue_script( 'tao-formula-orc-js', TAOF_PLUGIN_URL . 'assets/formula-orc.js', ['jquery', 'tao-formula-js'], TAOF_VERSION, true );
+        $orc_ver = filemtime( TAOF_PLUGIN_DIR . 'assets/formula-orc.js' ) ?: TAOF_VERSION;
+        wp_enqueue_script( 'tao-formula-orc-js', TAOF_PLUGIN_URL . 'assets/formula-orc.js', ['jquery', 'tao-formula-js'], $orc_ver, true );
     }
 } );
