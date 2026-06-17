@@ -12,8 +12,53 @@ function tao_formula_page_orcamento_novo() {
         $r        = tao_formula_api( "/formas_farmaceuticas?cliente_id=eq.$cliente_id&ativo=eq.true&order=nome.asc" );
         $formas   = $r['ok'] ? ( $r['data'] ?? [] ) : [];
 
-        $rc       = tao_formula_api( "/tipos_capsula?cliente_id=eq.$cliente_id&ativo=eq.true&order=tipo.asc,numero.asc&select=tipo,numero,vol_ul,peso_vazio_mg" );
-        $capsulas = $rc['ok'] ? ( $rc['data'] ?? [] ) : [];
+        $rc           = tao_formula_api( "/tipos_capsula?cliente_id=eq.$cliente_id&ativo=eq.true&order=tipo.asc,numero.asc&select=tipo,numero,vol_ul,peso_vazio_mg,cdpro_fc" );
+        $capsulas_raw = $rc['ok'] ? ( $rc['data'] ?? [] ) : [];
+
+        // Preços das cápsulas: busca ativos com "INCOLOR" no nome e associa por número + tipo
+        $incolor_ativos = [];
+        if ( ! empty( $capsulas_raw ) ) {
+            $ri = tao_formula_api( "/ativos?cliente_id=eq.$cliente_id&nome=ilike.*INCOLOR*&select=codigo,nome,venda_unit" );
+            $incolor_ativos = $ri['ok'] ? ( $ri['data'] ?? [] ) : [];
+        }
+
+        $capsulas = [];
+        foreach ( $capsulas_raw as $c ) {
+            $numero     = (string)( $c['numero'] ?? '' );
+            $tipo_up    = strtoupper( $c['tipo'] ?? '' );
+            $venda_unit = 0.0;
+            $num_pat    = '/\b' . preg_quote( $numero, '/' ) . '\b/';
+
+            // Passo 1: bate tipo + número
+            foreach ( $incolor_ativos as $ia ) {
+                $nome = strtoupper( $ia['nome'] ?? '' );
+                if ( strpos( $nome, 'CAP' ) === false ) continue;
+                if ( ! preg_match( $num_pat, $nome ) ) continue;
+                if ( $tipo_up && strpos( $nome, $tipo_up ) === false &&
+                     strpos( $nome, substr( $tipo_up, 0, 3 ) ) === false ) continue;
+                $venda_unit = (float)( $ia['venda_unit'] ?? 0 );
+                break;
+            }
+            // Passo 2 (fallback): só número se tipo não bateu
+            if ( $venda_unit == 0 ) {
+                foreach ( $incolor_ativos as $ia ) {
+                    $nome = strtoupper( $ia['nome'] ?? '' );
+                    if ( strpos( $nome, 'CAP' ) === false ) continue;
+                    if ( ! preg_match( $num_pat, $nome ) ) continue;
+                    $venda_unit = (float)( $ia['venda_unit'] ?? 0 );
+                    break;
+                }
+            }
+
+            $capsulas[] = [
+                'tipo'          => $c['tipo'],
+                'numero'        => $numero,
+                'vol_ul'        => (float) $c['vol_ul'],
+                'peso_vazio_mg' => (float)( $c['peso_vazio_mg'] ?? 0 ),
+                'cdpro_fc'      => $c['cdpro_fc'] ?? '',
+                'venda_unit'    => $venda_unit,
+            ];
+        }
     }
 
     $tipos_display = [
@@ -203,6 +248,11 @@ function tao_formula_page_orcamento_novo() {
                            title="Pré-preenchido da forma, editável por orçamento">
                 </td>
                 <td id="taof-res-custo-fixo" class="taof-res-val">R$&nbsp;0,00</td>
+            </tr>
+            <tr id="taof-row-caps-custo" style="display:none">
+                <td>(+) Cápsulas <small id="taof-caps-custo-label" style="color:#64748b"></small></td>
+                <td></td>
+                <td id="taof-res-caps-custo" class="taof-res-val">R$&nbsp;0,00</td>
             </tr>
             <tr class="taof-subtotal-row">
                 <td>(=) Valor Sub-Total</td>

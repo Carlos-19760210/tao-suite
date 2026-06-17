@@ -293,11 +293,11 @@
 
     function sugerirCapsula() {
         var isCap = formaAtual && (formaAtual.tipo === 'cap' || formaAtual.tipo === 'duo_cap');
-        if (!isCap || !capsulas.length) { $('#taof-cap-sugerida').hide(); return; }
+        if (!isCap || !capsulas.length) { $('#taof-cap-sugerida').hide(); return null; }
 
         var forceN = getNPerDoseForced();
         var r = calcularCapsulaIdeal(forceN);
-        if (!r) { $('#taof-cap-sugerida').hide(); return; }
+        if (!r) { $('#taof-cap-sugerida').hide(); return null; }
 
         // Modo auto: atualiza o campo sem disparar evento (jQuery .val() nao dispara input/change)
         if (!forceN) { $('#taof-caps-por-dose').val(r.nPerDose); }
@@ -315,13 +315,15 @@
             fmt(r.volapa, 1) + '&nbsp;/&nbsp;' + fmt(r.volTotal, 0) +
             '&nbsp;&micro;L (' + fmt(pct, 0) + '%)</span>'
         ).show();
+
+        return r;
     }
 
     // ── Totais ────────────────────────────────────────────────────────
     function calcularTotais() {
         // 1. Sugestao de capsula primeiro: atualiza #taof-caps-por-dose em modo auto
         //    antes de atualizarQSPRow (que usa nPerDose para calcular QSP)
-        sugerirCapsula();
+        var r = sugerirCapsula();
 
         // 2. Atualiza linha QSP (usa caps-por-dose ja atualizado acima)
         atualizarQSPRow();
@@ -335,13 +337,25 @@
             calculado += parseFloat($(this).data('subtotal-emb')) || 0;
         });
 
-        // 4. Custo fixo multiplicado por capsulas/dose (para formas de capsula)
+        // 4. Custo fixo (base, sem multiplicador)
         var isCap = formaAtual && (formaAtual.tipo === 'cap' || formaAtual.tipo === 'duo_cap');
-        var nCapsPerDose = isCap ? (Math.max(1, parseInt($('#taof-caps-por-dose').val()) || 1)) : 1;
-        var custoFixoBase = getCustoFixo();
-        var custoFixo     = custoFixoBase * nCapsPerDose;
+        var custoFixo = getCustoFixo();
 
-        var subtotal  = calculado + custoFixo;
+        // 5. Custo das capsulas: venda_unit da capsula incolor × total de capsulas do lote
+        var custoCapsula = 0;
+        if (r && r.cap && r.cap.venda_unit > 0) {
+            var totalCaps = getVol() * getPotes() * r.nPerDose;
+            custoCapsula  = r.cap.venda_unit * totalCaps;
+            $('#taof-caps-custo-label').text(
+                '(' + totalCaps + ' un × R$ ' + fmt(r.cap.venda_unit) + '/un)'
+            );
+            $('#taof-res-caps-custo').text('R$ ' + fmt(custoCapsula));
+            $('#taof-row-caps-custo').show();
+        } else {
+            $('#taof-row-caps-custo').hide();
+        }
+
+        var subtotal  = calculado + custoFixo + custoCapsula;
         var acrescPct = parseFloat($('#taof-acrescimo-pct').val()) || 0;
         var desctPct  = parseFloat($('#taof-desconto-pct').val())  || 0;
         var acrescVal = subtotal * acrescPct / 100;
@@ -349,11 +363,7 @@
         var final     = subtotal + acrescVal - desctVal;
 
         $('#taof-res-calculado').text('R$ ' + fmt(calculado));
-        var custoLabel = 'R$ ' + fmt(custoFixo);
-        if (isCap && nCapsPerDose > 1) {
-            custoLabel += ' (' + fmt(custoFixoBase) + ' × ' + nCapsPerDose + ' cáps)';
-        }
-        $('#taof-res-custo-fixo').text(custoLabel);
+        $('#taof-res-custo-fixo').text('R$ ' + fmt(custoFixo));
         $('#taof-res-subtotal').text('R$ ' + fmt(subtotal));
         $('#taof-res-acrescimo').text('R$ ' + fmt(acrescVal));
         $('#taof-res-desconto').text('R$ ' + fmt(desctVal));
