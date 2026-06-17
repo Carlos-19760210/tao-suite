@@ -110,14 +110,11 @@
             }
 
             // VOLAPA para ingredientes especiais: o produto continua sendo um pó com massa e densidade
-            // Fallback quando concentracao=0: usa dose diretamente como mg (aproximação)
+            // Fallback quando concentracao=0: usa 10 BLH/g (10e9 UFC/g) como referência para probióticos
             var volapa_special = 0;
             if (isCap && densidade > 0 && dose > 0) {
-                if (qtd_g_per_dose > 0) {
-                    volapa_special = qtd_g_per_dose * 1000 / densidade;
-                } else {
-                    volapa_special = dose / densidade;
-                }
+                var conc_efetiva = concentracao > 0 ? concentracao : 10e9;
+                volapa_special = (dose_ufc / conc_efetiva) * 1000 / densidade;
             }
 
             $row.find('.taof-orc-qtd-total').text(fmt(qtd_total_mg, 2) + ' mg (' + doseLabel + ')');
