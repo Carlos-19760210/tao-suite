@@ -293,29 +293,50 @@
 
     function sugerirCapsula() {
         var isCap = formaAtual && (formaAtual.tipo === 'cap' || formaAtual.tipo === 'duo_cap');
-        if (!isCap || !capsulas.length) { $('#taof-cap-sugerida').hide(); return null; }
+        if (!isCap || !capsulas.length) { $('#taof-card-capsulas').hide(); return null; }
 
         var forceN = getNPerDoseForced();
         var r = calcularCapsulaIdeal(forceN);
-        if (!r) { $('#taof-cap-sugerida').hide(); return null; }
+        if (!r) { $('#taof-card-capsulas').hide(); return null; }
 
-        // Modo auto: atualiza o campo sem disparar evento (jQuery .val() nao dispara input/change)
+        // Modo auto: atualiza o campo sem disparar evento
         if (!forceN) { $('#taof-caps-por-dose').val(r.nPerDose); }
 
-        var c   = r.cap, n = r.nPerDose, pct = r.pct;
-        var cor = pct > 100 ? '#dc2626' : (pct > 85 ? '#d97706' : '#16a34a');
+        var c    = r.cap, n = r.nPerDose, pct = r.pct;
+        var cor  = pct > 100 ? '#dc2626' : (pct > 85 ? '#d97706' : '#16a34a');
         var tipo = c.tipo.charAt(0).toUpperCase() + c.tipo.slice(1).toLowerCase();
-        var doses = n > 1
-            ? ' &mdash; <strong style="color:#d97706">' + n + ' c&aacute;ps./dose</strong>'
-            : '';
+
+        // Header: resumo fill da capsula
         $('#taof-cap-sugerida').html(
-            '&#128138; <strong>' + tipo + ' N&ordm;&nbsp;' + c.numero + '</strong> (' + c.vol_ul + '&nbsp;&micro;L)' +
-            doses +
+            tipo + ' N&ordm;&nbsp;' + c.numero + ' (' + c.vol_ul + '&nbsp;&micro;L)' +
             ' &mdash; <span style="color:' + cor + '">' +
             fmt(r.volapa, 1) + '&nbsp;/&nbsp;' + fmt(r.volTotal, 0) +
-            '&nbsp;&micro;L (' + fmt(pct, 0) + '%)</span>'
-        ).show();
+            '&nbsp;&micro;L (' + fmt(pct, 0) + '% cheio)</span>'
+        );
 
+        // Linha da tabela de cápsulas
+        var totalCaps    = getVol() * getPotes() * n;
+        var custoCapsula = (c.venda_unit > 0) ? c.venda_unit * totalCaps : 0;
+        var nDoseLabel   = n > 1
+            ? '<strong style="color:#d97706">' + n + ' cáps/dose</strong>'
+            : '1 cáps/dose';
+
+        $('#taof-caps-nome').html(
+            tipo + ' N&ordm;&nbsp;' + c.numero +
+            (n > 1 ? ' &nbsp;<span style="color:#d97706;font-size:11px">(' + n + '&times;)</span>' : '')
+        );
+        $('#taof-caps-vol').text(c.vol_ul + ' µL');
+        $('#taof-caps-volapa').html(
+            fmt(r.volapa, 1) + ' µL ' +
+            '<span style="color:' + cor + ';font-size:11px">(' + fmt(pct, 0) + '%)</span>'
+        );
+        $('#taof-caps-total-un').html('<strong>' + totalCaps + '</strong> un');
+        $('#taof-caps-preco-un').text(c.venda_unit > 0 ? 'R$ ' + fmt(c.venda_unit) : '—');
+        $('#taof-caps-subtotal').text('R$ ' + fmt(custoCapsula));
+
+        $('#taof-card-capsulas').show();
+
+        r.custoCapsula = custoCapsula;
         return r;
     }
 
@@ -337,17 +358,14 @@
             calculado += parseFloat($(this).data('subtotal-emb')) || 0;
         });
 
-        // 4. Custo fixo (base, sem multiplicador)
-        var isCap = formaAtual && (formaAtual.tipo === 'cap' || formaAtual.tipo === 'duo_cap');
-        var custoFixo = getCustoFixo();
+        // 4. Custo fixo e cápsulas
+        var custoFixo    = getCustoFixo();
+        var custoCapsula = r ? (r.custoCapsula || 0) : 0;
 
-        // 5. Custo das capsulas: venda_unit da capsula incolor × total de capsulas do lote
-        var custoCapsula = 0;
-        if (r && r.cap && r.cap.venda_unit > 0) {
+        if (custoCapsula > 0) {
             var totalCaps = getVol() * getPotes() * r.nPerDose;
-            custoCapsula  = r.cap.venda_unit * totalCaps;
             $('#taof-caps-custo-label').text(
-                '(' + totalCaps + ' un × R$ ' + fmt(r.cap.venda_unit) + '/un)'
+                '(' + totalCaps + ' un &times; R$ ' + fmt(r.cap.venda_unit) + '/un)'
             );
             $('#taof-res-caps-custo').text('R$ ' + fmt(custoCapsula));
             $('#taof-row-caps-custo').show();
@@ -386,16 +404,15 @@
                 .val(defaultVol || '')
                 .attr('placeholder', isCap ? 'No. caps.' : 'Qtde');
 
-            // Tipo Capsula e Caps/dose: somente para cap/duo_cap
+            // Tipo Capsula: somente para cap/duo_cap
             if (isCap) {
                 popularTipoCapsula();
                 $colTipo.show();
-                $('#taof-col-caps').show();
                 $('#taof-caps-por-dose').removeData('manual').val(1);
             } else {
                 $('#taof-forma-tipo').empty();
                 $colTipo.hide();
-                $('#taof-col-caps').hide();
+                $('#taof-card-capsulas').hide();
                 $('#taof-caps-por-dose').removeData('manual').val(1);
             }
 
@@ -408,7 +425,7 @@
             $('#taof-forma-vol').val('').attr('placeholder', 'Ex: 30');
             $('#taof-forma-tipo').empty();
             $colTipo.hide();
-            $('#taof-col-caps').hide();
+            $('#taof-card-capsulas').hide();
             $('#taof-caps-por-dose').removeData('manual').val(1);
             $('#taof-forma-unidade').empty().append('<option value="">-</option>');
             $('#taof-custo-fixo-inp').val('0.00');

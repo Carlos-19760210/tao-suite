@@ -140,17 +140,6 @@ function tao_formula_page_orcamento_novo() {
                     <option value="">— Selecione —</option>
                 </select>
             </div>
-            <div class="taof-field taof-ff-caps" id="taof-col-caps" style="display:none">
-                <label class="taof-label">Cáps/dose</label>
-                <div style="display:flex;align-items:center;gap:4px">
-                    <input type="number" id="taof-caps-por-dose" value="1" min="1" max="12"
-                           class="taof-inp taof-inp-num" style="width:58px"
-                           title="Cápsulas por dose (calculado automaticamente)">
-                    <button type="button" id="taof-caps-auto-btn"
-                            style="padding:2px 7px;font-size:12px;cursor:pointer;border:1px solid #ccc;border-radius:3px;background:#f5f5f5;line-height:1.6"
-                            title="Recalcular automaticamente">&#8635;</button>
-                </div>
-            </div>
             <div class="taof-field taof-ff-unid">
                 <label class="taof-label">Unidade</label>
                 <select id="taof-forma-unidade" name="forma_unidade" class="taof-inp taof-sel">
@@ -206,7 +195,49 @@ function tao_formula_page_orcamento_novo() {
         </div>
         <div class="taof-table-footer">
             <button type="button" class="button" id="taof-btn-add-item">+ Adicionar Ativo</button>
-            <span id="taof-cap-sugerida" style="display:none"></span>
+        </div>
+    </div>
+
+    <!-- ══ DETAIL — Cápsulas (só para formas de cápsula) ══════════════ -->
+    <div class="taof-orc-card" id="taof-card-capsulas" style="display:none">
+        <div class="taof-card-hdr" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+            <h3 style="margin:0">Cápsulas</h3>
+            <span id="taof-cap-sugerida" style="font-size:12px;color:#475569"></span>
+        </div>
+        <div class="taof-table-scroll">
+        <table class="wp-list-table widefat taof-detail-table">
+            <thead>
+                <tr>
+                    <th>Cápsula</th>
+                    <th style="width:80px">Volume</th>
+                    <th style="width:110px">VOLAPA/dose</th>
+                    <th style="width:130px">Cáps/dose</th>
+                    <th style="width:90px">Total lote</th>
+                    <th style="width:90px">Preço/un</th>
+                    <th style="width:100px;text-align:right">Subtotal</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td id="taof-caps-nome" style="font-weight:500;color:#334155">—</td>
+                    <td id="taof-caps-vol">—</td>
+                    <td id="taof-caps-volapa">—</td>
+                    <td>
+                        <div style="display:flex;align-items:center;gap:4px">
+                            <input type="number" id="taof-caps-por-dose" value="1" min="1" max="12"
+                                   class="taof-inp taof-inp-num" style="width:56px"
+                                   title="Cápsulas por dose (calculado automaticamente)">
+                            <button type="button" id="taof-caps-auto-btn"
+                                    style="padding:2px 6px;font-size:11px;cursor:pointer;border:1px solid #ccc;border-radius:3px;background:#f5f5f5;line-height:1.6"
+                                    title="Recalcular automaticamente">&#8635;</button>
+                        </div>
+                    </td>
+                    <td id="taof-caps-total-un">—</td>
+                    <td id="taof-caps-preco-un" style="color:#475569">—</td>
+                    <td id="taof-caps-subtotal" style="text-align:right;font-weight:500">R$ 0,00</td>
+                </tr>
+            </tbody>
+        </table>
         </div>
     </div>
 
