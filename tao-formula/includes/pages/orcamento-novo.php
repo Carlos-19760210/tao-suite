@@ -258,6 +258,7 @@ function tao_formula_page_orcamento_novo() {
                     <option value="g">g</option>
                     <option value="UI">UI</option>
                     <option value="UFC">UFC</option>
+                    <option value="BLH">BLH</option>
                     <option value="ml">ml</option>
                 </select>
             </td>

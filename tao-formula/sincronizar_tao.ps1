@@ -34,7 +34,7 @@ $unidade_map_mp = @{
     'MG'   = 'mg';  'MEQ'  = 'mg'
     'MCG'  = 'mcg'; 'UG'   = 'mcg'; 'NG'   = 'mcg'
     'UI'   = 'UI';  'IU'   = 'UI';  'U'    = 'UI'
-    'UFC'  = 'UFC'
+    'UFC'  = 'UFC'; 'BLH'  = 'BLH'
     'ML'   = 'g';   'UN'   = 'mg';  'CAP'  = 'mg';  'CAPS' = 'mg'
 }
 $unidade_map_emb = @{
@@ -43,13 +43,72 @@ $unidade_map_emb = @{
     'G'    = 'g';   'MG'   = 'mg';  'ML'   = 'g';   'L'    = 'g'
 }
 
+# ── Helper: busca concentracoes UFC/UI de FC15110 usando NRORC mais recente ──
+function Get-FCConcentracoes() {
+    # Passo 1: MAX NRORC por produto (query leve, GROUP BY simples)
+    $sql1 = @(
+        "SELECT CAST(CDPRO AS VARCHAR(10)) || '|' || CAST(MAX(NRORC) AS VARCHAR(10))",
+        "FROM FC15110",
+        "WHERE CDFIL=1 AND (QTBLH > 0 OR QTMLH > 0 OR QTUFC > 0 OR QTUI > 0)",
+        "GROUP BY CDPRO;",
+        "QUIT;"
+    )
+    $sql1 | Set-Content -Path $script:SQL_TMP -Encoding ASCII
+    $raw1 = & $script:FB25 -user SYSDBA -password masterkey -input $script:SQL_TMP $script:DB 2>&1
+    # Monta hashtable CDPRO -> MAX_NRORC
+    $maxNrorc = @{}
+    $raw1 | Where-Object { $_ -match '\|' -and $_ -notmatch '={5,}' -and $_ -notmatch 'Database:' } | ForEach-Object {
+        $p = ([string]$_).Trim().Split('|')
+        if ($p.Count -ge 2 -and $p[0].Trim() -match '^\d' -and $p[1].Trim() -match '^\d') {
+            $maxNrorc[$p[0].Trim()] = [int]$p[1].Trim()
+        }
+    }
+
+    # Passo 2: busca todas as linhas com concentracao, filtra no PowerShell pelo MAX NRORC
+    $sql2 = @(
+        "SELECT",
+        "  CAST(CDPRO  AS VARCHAR(10))  || '|' ||",
+        "  CAST(NRORC  AS VARCHAR(10))  || '|' ||",
+        "  CAST(COALESCE(QTBLH,0) AS VARCHAR(30)) || '|' ||",
+        "  CAST(COALESCE(QTMLH,0) AS VARCHAR(30)) || '|' ||",
+        "  CAST(COALESCE(QTUFC,0) AS VARCHAR(30)) || '|' ||",
+        "  CAST(COALESCE(QTUI ,0) AS VARCHAR(30))",
+        "FROM FC15110",
+        "WHERE CDFIL=1 AND (QTBLH > 0 OR QTMLH > 0 OR QTUFC > 0 OR QTUI > 0);",
+        "QUIT;"
+    )
+    $sql2 | Set-Content -Path $script:SQL_TMP -Encoding ASCII
+    $raw2 = & $script:FB25 -user SYSDBA -password masterkey -input $script:SQL_TMP $script:DB 2>&1
+
+    $map = @{}
+    $raw2 | Where-Object { $_ -match '\|' -and $_ -notmatch '={5,}' -and $_ -notmatch 'Database:' } | ForEach-Object {
+        $p = ([string]$_).Trim().Split('|')
+        if ($p.Count -lt 6) { return }
+        $cdpro = $p[0].Trim()
+        $nrorc = if ($p[1].Trim() -match '^\d') { [int]$p[1].Trim() } else { 0 }
+        # Ignora se nao e o NRORC mais recente para este produto
+        if (-not $maxNrorc.ContainsKey($cdpro) -or $nrorc -ne $maxNrorc[$cdpro]) { return }
+        $qtblh = if ($p[2].Trim() -match '^\d') { [double]$p[2].Trim() } else { 0.0 }
+        $qtmlh = if ($p[3].Trim() -match '^\d') { [double]$p[3].Trim() } else { 0.0 }
+        $qtufc = if ($p[4].Trim() -match '^\d') { [double]$p[4].Trim() } else { 0.0 }
+        $qtui  = if ($p[5].Trim() -match '^\d') { [double]$p[5].Trim() } else { 0.0 }
+        $conc  = $null
+        if     ($qtblh -gt 0) { $conc = $qtblh * 1000000000.0 }
+        elseif ($qtmlh -gt 0) { $conc = $qtmlh * 1000000.0    }
+        elseif ($qtufc -gt 0) { $conc = $qtufc                 }
+        elseif ($qtui  -gt 0) { $conc = $qtui                  }
+        if ($null -ne $conc) { $map[$cdpro] = $conc }
+    }
+    return $map
+}
+
 # ── Helper: monta objeto ativo para o Supabase ───────────────────────────────
 # Colunas do SELECT (0-based):
 # 0=CDPRO 1=NOME_LIMPO 2=NOME_ORIG 3=UNIDA 4=ESTAT 5=PRCOM 6=PRCOMCTB
 # 7=PRVEN 8=CATEGORIA 9=PRINCIPIOATIVO 10=DENSIDADE 11=FATOR
 # 12=CDDCB 13=DOMIN 14=UNIDMIN 15=DOMAX 16=UNIDM 17=OBSCOMPO
-# 18=DILUICAO 19=TEOR 20=QTBLH 21=QTMLH 22=QTUFC 23=QTUI  (do lote mais recente com conc.)
-function Build-Ativo($c, $grupo, $agora, $unidade_map) {
+# 18=DILUICAO 19=TEOR
+function Build-Ativo($c, $grupo, $agora, $unidade_map, $concMap) {
     $unidade     = $c[3].Trim()
     $unid_key    = $unidade.ToUpper()
     $unid_padrao = if ($unidade_map.ContainsKey($unid_key)) { $unidade_map[$unid_key] } else {
@@ -64,17 +123,9 @@ function Build-Ativo($c, $grupo, $agora, $unidade_map) {
     if ($diluicao_val -le 0) { $diluicao_val = 1.0 }
     if ($teor_val     -le 0) { $teor_val     = 100.0 }
 
-    # concentracao UFC/UI por grama — lote mais recente com dados (FC03140)
-    # 20=QTBLH(bilhoes) 21=QTMLH(milhoes) 22=QTUFC(absoluto) 23=QTUI(absoluto)
-    $qtblh = if ($c.Count -gt 20 -and $c[20].Trim() -match '^\d') { [double]$c[20].Trim() } else { 0.0 }
-    $qtmlh = if ($c.Count -gt 21 -and $c[21].Trim() -match '^\d') { [double]$c[21].Trim() } else { 0.0 }
-    $qtufc = if ($c.Count -gt 22 -and $c[22].Trim() -match '^\d') { [double]$c[22].Trim() } else { 0.0 }
-    $qtui  = if ($c.Count -gt 23 -and $c[23].Trim() -match '^\d') { [double]$c[23].Trim() } else { 0.0 }
-    $concentracao_val = $null
-    if     ($qtblh -gt 0) { $concentracao_val = $qtblh * 1000000000.0 }  # BLH x 10^9 = UFC/g
-    elseif ($qtmlh -gt 0) { $concentracao_val = $qtmlh * 1000000.0    }  # MLH x 10^6 = UFC ou UI/g
-    elseif ($qtufc -gt 0) { $concentracao_val = $qtufc                 }  # UFC ja absoluto
-    elseif ($qtui  -gt 0) { $concentracao_val = $qtui                  }  # UI ja absoluto
+    # concentracao UFC/UI por grama — lookup no mapa pre-carregado de FC15110
+    $cdpro_str        = $c[0].Trim()
+    $concentracao_val = if ($concMap.ContainsKey($cdpro_str)) { $concMap[$cdpro_str] } else { $null }
 
     return @{
         cliente_id         = $script:CLIENTE_ID
@@ -119,9 +170,8 @@ function Build-Ativo($c, $grupo, $agora, $unidade_map) {
 
 # ── Helper: extrai linhas do Firebird para um GRUPO ──────────────────────────
 function Get-FCLinhas($grupo) {
-    $filtroEstoque = if ($grupo -eq 'M') { "JOIN FC03100 e ON e.CDPRO = p.CDPRO AND e.CDFIL = 1" } `
-                     else                { "LEFT JOIN FC03100 e ON e.CDPRO = p.CDPRO AND e.CDFIL = 1" }
-    $whereEstoque  = if ($grupo -eq 'M') { "AND e.ESTAT > 0" } else { "" }
+    $filtroEstoque = "JOIN FC03100 e ON e.CDPRO = p.CDPRO AND e.CDFIL = 1"
+    $whereEstoque  = ""
 
     $sqlLinhas = @(
         "SELECT",
@@ -144,19 +194,9 @@ function Get-FCLinhas($grupo) {
         "  COALESCE(TRIM(p.UNIDM), '')                      || '|' ||",
         "  COALESCE(TRIM(p.OBSCOMPO), '')                   || '|' ||",
         "  COALESCE(CAST(p.DILUICAO  AS VARCHAR(15)),'')    || '|' ||",
-        "  COALESCE(CAST(p.TEOR      AS VARCHAR(15)),'')    || '|' ||",
-        "  COALESCE(CAST(lot.QTBLH   AS VARCHAR(30)),'')    || '|' ||",
-        "  COALESCE(CAST(lot.QTMLH   AS VARCHAR(30)),'')    || '|' ||",
-        "  COALESCE(CAST(lot.QTUFC   AS VARCHAR(30)),'')    || '|' ||",
-        "  COALESCE(CAST(lot.QTUI    AS VARCHAR(30)),'')",
+        "  COALESCE(CAST(p.TEOR      AS VARCHAR(15)),'')",
         "FROM FC03000 p",
         $filtroEstoque,
-        "LEFT JOIN FC03140 lot ON lot.CDFIL=1 AND lot.CDPRO=p.CDPRO",
-        "  AND lot.CTLOT = (",
-        "    SELECT MAX(l2.CTLOT) FROM FC03140 l2",
-        "    WHERE l2.CDFIL=1 AND l2.CDPRO=p.CDPRO",
-        "      AND (l2.QTBLH > 0 OR l2.QTMLH > 0 OR l2.QTUFC > 0 OR l2.QTUI > 0)",
-        "  )",
         "WHERE p.SITUA = 'A' AND p.GRUPO = '$grupo' $whereEstoque",
         "ORDER BY TRIM(REPLACE(p.DESCR, '@', ''));",
         "QUIT;"
@@ -246,6 +286,11 @@ function Sync-Capsulas($agora) {
 
 $agora = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
+# ── 0. Pre-carrega concentracoes UFC/UI de FC15110 ────────────────────────────
+Write-Host "Carregando concentracoes UFC/UI (FC15110)..." -ForegroundColor Yellow
+$concMap = Get-FCConcentracoes
+Write-Host "  Produtos com concentracao: $($concMap.Count)" -ForegroundColor Green
+
 # ── 1. Extrai MPs ─────────────────────────────────────────────────────────────
 Write-Host "Extraindo Materias-Primas (GRUPO=M)..." -ForegroundColor Yellow
 $linhas_mp = Get-FCLinhas 'M'
@@ -261,12 +306,12 @@ $payload = [System.Collections.Generic.List[hashtable]]::new()
 foreach ($linha in $linhas_mp) {
     $c = $linha.Split('|')
     if ($c.Count -lt 8) { continue }
-    $payload.Add((Build-Ativo $c 'M' $agora $unidade_map_mp))
+    $payload.Add((Build-Ativo $c 'M' $agora $unidade_map_mp $concMap))
 }
 foreach ($linha in $linhas_emb) {
     $c = $linha.Split('|')
     if ($c.Count -lt 8) { continue }
-    $payload.Add((Build-Ativo $c 'E' $agora $unidade_map_emb))
+    $payload.Add((Build-Ativo $c 'E' $agora $unidade_map_emb $concMap))
 }
 
 Write-Host "Total para sync: $($payload.Count) registros" -ForegroundColor Cyan

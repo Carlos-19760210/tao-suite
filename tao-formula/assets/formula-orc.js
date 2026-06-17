@@ -80,14 +80,15 @@
         var concentracao = parseFloat($row.data('concentracao')) || 0;
         var mult         = getMultiplicador();
         var isCap        = formaAtual && (formaAtual.tipo === 'cap' || formaAtual.tipo === 'duo_cap');
-        var isSpecial    = (doseUnit === 'UI' || doseUnit === 'UFC');
+        var isSpecial    = (doseUnit === 'UI' || doseUnit === 'UFC' || doseUnit === 'BLH');
 
         if (isSpecial) {
-            // concentracao = UFC ou UI por grama do produto (campo Supabase, vem do lote FC03140)
-            var qtd_g_per_dose = concentracao > 0 ? dose / concentracao : 0;
+            // BLH: dose em bilhoes — converte para UFC antes de dividir pela concentracao (UFC/g)
+            var dose_ufc       = (doseUnit === 'BLH') ? dose * 1e9 : dose;
+            var qtd_g_per_dose = concentracao > 0 ? dose_ufc / concentracao : 0;
             var qtd_total_g    = qtd_g_per_dose * mult;
             var qtd_total_mg   = qtd_total_g * 1000;
-            var qtd_esp_total  = dose * mult; // total UFC/UI em todas as doses
+            var qtd_esp_total  = dose * mult; // total na unidade original (BLH ou UFC/UI)
 
             var qtd_em_padrao;
             if      (unidPadrao === 'g')        qtd_em_padrao = qtd_total_g;
@@ -96,11 +97,17 @@
             else                                 qtd_em_padrao = qtd_total_g;
             var subtotal = qtd_em_padrao * vendaUnit;
 
-            // Label amigavel: >= 1 Blh exibe em bilhoes, >= 1 Mlh em milhoes
+            // Label amigavel
             var doseLabel;
-            if      (qtd_esp_total >= 1e9) doseLabel = fmt(qtd_esp_total / 1e9, 2) + ' Blh ' + doseUnit;
-            else if (qtd_esp_total >= 1e6) doseLabel = fmt(qtd_esp_total / 1e6, 2) + ' Mlh ' + doseUnit;
-            else                           doseLabel = fmt(qtd_esp_total, 0) + ' ' + doseUnit;
+            if (doseUnit === 'BLH') {
+                doseLabel = fmt(qtd_esp_total, 2) + ' Blh UFC';
+            } else if (qtd_esp_total >= 1e9) {
+                doseLabel = fmt(qtd_esp_total / 1e9, 2) + ' Blh ' + doseUnit;
+            } else if (qtd_esp_total >= 1e6) {
+                doseLabel = fmt(qtd_esp_total / 1e6, 2) + ' Mlh ' + doseUnit;
+            } else {
+                doseLabel = fmt(qtd_esp_total, 0) + ' ' + doseUnit;
+            }
 
             $row.find('.taof-orc-qtd-total').text(fmt(qtd_total_mg, 2) + ' mg (' + doseLabel + ')');
             $row.find('.taof-orc-subtotal').text('R$ ' + fmt(subtotal));
@@ -502,7 +509,7 @@
                 : '—';
             $row.find('.taof-orc-preco-venda').text(vendaLabel);
             var u = a.unidade_padrao;
-            if (['mg', 'mcg', 'g', 'UI', 'UFC', 'ml'].indexOf(u) === -1) u = 'mg';
+            if (['mg', 'mcg', 'g', 'UI', 'UFC', 'BLH', 'ml'].indexOf(u) === -1) u = 'mg';
             if (u === 'g') u = 'mg'; // pos vendidos em g sao prescritos em mg
             $row.find('.taof-orc-dose-unit').val(u);
             $dd.hide().empty();
