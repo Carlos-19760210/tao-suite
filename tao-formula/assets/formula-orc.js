@@ -611,8 +611,8 @@
             var u = a.unidade_padrao;
             if (['mg', 'mcg', 'g', 'UI', 'UFC', 'BLH', 'ml'].indexOf(u) === -1) u = 'mg';
             if (u === 'g') u = 'mg'; // pos vendidos em g sao prescritos em mg
-            // Produtos com concentracao UFC/g usam BLH como unidade de prescrição padrão
-            if (parseFloat(a.concentracao) > 0 && u !== 'UI') u = 'BLH';
+            // Probióticos UFC ou BLH: sempre prescrevem em BLH (bilhoes) para facilitar entrada
+            if (u === 'UFC' || u === 'BLH') u = 'BLH';
             $row.find('.taof-orc-dose-unit').val(u);
             $dd.hide().empty();
             calcularLinha($row);
