@@ -768,6 +768,13 @@ function tao_crm_disparar_automacoes( $card_id, $estagio_id, $tipo, $force_immed
     foreach ( $ra['data'] as $auto ) {
         $delay = intval( $auto['delay_minutos'] ?? 0 );
         if ( $force_immediate || $delay === 0 ) {
+            // Dedup via transient: impede re-disparo imediato da mesma automação no mesmo card
+            // (ex: dois webhooks paralelos chamando disparar_automacoes quase ao mesmo tempo)
+            if ( ! $force_immediate ) {
+                $dk = 'tao_crm_auto_' . md5( $card_id . $auto['id'] );
+                if ( get_transient( $dk ) ) continue;
+                set_transient( $dk, 1, 300 ); // 5 min
+            }
             tao_crm_executar_automacao_item( $auto, $card_id );
         } else {
             // Dedup: não insere se já existe entrada pendente para este card+automacao
