@@ -153,7 +153,7 @@ function tao_crm_page_card() {
         if ( $e['id'] === $card['estagio_id'] ) { $estagio_atual = $e; break; }
     }
 
-    $kanban_url = tao_crm_url( [ 'pipeline_id' => $card['pipeline_id'] ] );
+    $kanban_url = tao_crm_url( [ 'workspace_id' => $card['workspace_id'], 'pipeline_id' => $card['pipeline_id'] ] );
 
     ?>
     <div class="wrap tao-crm-wrap">
@@ -427,23 +427,19 @@ function tao_crm_page_card() {
                 </div>
                 <?php endif; ?>
 
-                <!-- Campos de outros estágios com valores -->
+                <!-- Campos de outros estágios com valores (editáveis inline) -->
                 <?php if ( ! empty( $campos_outros_def ) ) : ?>
-                <div class="card-campos-outros">
-                    <details>
-                        <summary class="campos-outros-toggle">
-                            Dados de outras fases (<?php echo count( $campos_outros_def ); ?>)
-                        </summary>
-                        <?php foreach ( $campos_outros_def as $cid => $def ) :
-                            $val = $valores[ $cid ] ?? '';
-                        ?>
-                        <div class="campo-item campo-readonly" data-campo-id="<?php echo esc_attr( $cid ); ?>">
-                            <label class="campo-label"><?php echo esc_html( $def['nome'] ); ?></label>
-                            <?php echo tao_crm_render_campo_input( $def, $val, $card_id ); ?>
-                            <span class="campo-saved" style="display:none">✔ salvo</span>
-                        </div>
-                        <?php endforeach; ?>
-                    </details>
+                <div class="card-campos-section">
+                    <h3 class="campos-title">&#x1F4CB; Dados do negócio</h3>
+                    <?php foreach ( $campos_outros_def as $cid => $def ) :
+                        $val = $valores[ $cid ] ?? '';
+                    ?>
+                    <div class="campo-item" data-campo-id="<?php echo esc_attr( $cid ); ?>">
+                        <label class="campo-label"><?php echo esc_html( $def['nome'] ); ?></label>
+                        <?php echo tao_crm_render_campo_input( $def, $val, $card_id ); ?>
+                        <span class="campo-saved" style="display:none">✔ salvo</span>
+                    </div>
+                    <?php endforeach; ?>
                 </div>
                 <?php endif; ?>
 
@@ -1023,7 +1019,7 @@ function tao_crm_page_card() {
     var taoCrmGanhoStageId = <?php echo wp_json_encode( $ganho_stage_id ); ?>;
     var taoCrmGanhoCampos  = <?php echo wp_json_encode( $ganho_campos_js ); ?>;
     var taoCrmGanhoValores = <?php echo wp_json_encode( $ganho_valores_js ); ?>;
-    var taoCrmKanbanUrl    = <?php echo wp_json_encode( function_exists( 'cbpm_url' ) ? cbpm_url( 'crm-kanban', [ 'workspace_id' => $card['workspace_id'], 'pipeline_id' => $card['pipeline_id'] ] ) : '' ); ?>;
+    var taoCrmKanbanUrl    = <?php echo wp_json_encode( tao_crm_url( [ 'workspace_id' => $card['workspace_id'], 'pipeline_id' => $card['pipeline_id'] ] ) ); ?>;
     var taoCrmCardTagIds   = <?php echo wp_json_encode( $card_tag_ids ); ?>;
     var taoCrmAllTags      = <?php echo wp_json_encode( $all_tags ); ?>;
     var taoCrmLembretes    = <?php echo wp_json_encode( $lembretes ); ?>;
