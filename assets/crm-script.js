@@ -1240,6 +1240,29 @@
             if(_getInterval() > 0) _scheduleKanbanPoll();
         });
 
+        var _kRefreshing = false;
+        function _softRefreshKanban(){
+            if(_kRefreshing) return;
+            _kRefreshing = true;
+            var $board = $('#tao-crm-board');
+            var scrollLeft = $board[0] ? $board[0].scrollLeft : 0;
+            $board.css({ opacity:'0.4', transition:'opacity 0.15s' });
+            fetch(window.location.href, { credentials:'same-origin' })
+                .then(function(r){ return r.text(); })
+                .then(function(html){
+                    var doc = (new DOMParser()).parseFromString(html, 'text/html');
+                    var newBoard = doc.getElementById('tao-crm-board');
+                    if(newBoard && $board[0]){
+                        $board[0].innerHTML = newBoard.innerHTML;
+                        $board[0].scrollLeft = scrollLeft;
+                    }
+                    var m = html.match(/taoCrmLoadedAt\s*=\s*"([^"]+)"/);
+                    if(m) _kSince = m[1];
+                    $board.css({ opacity:'1' });
+                    _kRefreshing = false;
+                })
+                .catch(function(){ $board.css({ opacity:'1' }); _kRefreshing = false; location.reload(); });
+        }
         function _doKanbanCheck(){
             crmPost(
                 { action:'tao_crm_kanban_check', nonce:taoCrm.nonce, pipeline_id:taoCrmPipelineId, since:_kSince },
@@ -1265,7 +1288,7 @@
                             }
                         }
                     }
-                    if(last && _kSince && last > _kSince){ location.reload(); }
+                    if(last && _kSince && last > _kSince){ _softRefreshKanban(); }
                 }
             );
         }
