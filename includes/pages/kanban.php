@@ -359,19 +359,14 @@ function tao_crm_page_kanban() {
             foreach ( ( $rv_batch['ok'] ? ( $rv_batch['data'] ?? [] ) : [] ) as $row ) {
                 $cards_campos_values[ $row['card_id'] ][ $row['campo_id'] ] = $row['valor'];
             }
-            // Descobre o campo_id de "Número da Requisição" pelo nome (case-insensitive, 1ª ocorrência)
-            $todos_campo_ids = [];
-            foreach ( $cards_campos_values as $_cv ) {
-                foreach ( array_keys( $_cv ) as $_cid ) { $todos_campo_ids[ $_cid ] = true; }
-            }
-            if ( ! empty( $todos_campo_ids ) ) {
-                $rcd_k = tao_crm_api( '/crm_campos_definicao?id=in.(' . implode( ',', array_keys( $todos_campo_ids ) ) . ')&select=id,nome' );
-                foreach ( ( $rcd_k['ok'] ? ( $rcd_k['data'] ?? [] ) : [] ) as $cd ) {
-                    if ( mb_stripos( $cd['nome'], 'Requisi' ) !== false ) {
-                        $req_num_campo_id = $cd['id'];
-                        break;
-                    }
-                }
+        }
+        // Descobre o campo_id de "Número da Requisição" por nome direto — independe de
+        // quais campos têm valores preenchidos nos cards da view atual
+        $rcd_req = tao_crm_api( '/crm_campos_definicao?nome=ilike.*Requisi*&select=id,nome&limit=5' );
+        foreach ( ( $rcd_req['ok'] ? ( $rcd_req['data'] ?? [] ) : [] ) as $cd ) {
+            if ( mb_stripos( $cd['nome'], 'Requisi' ) !== false ) {
+                $req_num_campo_id = $cd['id'];
+                break;
             }
         }
         ?>
