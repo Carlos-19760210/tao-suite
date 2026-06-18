@@ -44,6 +44,8 @@ if ( $has_formula ) {
 }
 
 $page_atual = $_GET['page'] ?? 'chatbot-platform';
+// O plugin mapeia slug 'negocios' → 'chatbot-platform', mas queremos Negócios e não Visão Geral
+if ( get_query_var( 'cbpm_page', '' ) === 'negocios' ) $page_atual = 'chatbot-platform-negocios';
 if ( ! isset( $secoes[ $page_atual ] ) ) $page_atual = 'chatbot-platform';
 $fn = $secoes[ $page_atual ]['fn'] ?? 'cbpm_page_clientes';
 
