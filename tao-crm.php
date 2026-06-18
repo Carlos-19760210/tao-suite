@@ -810,10 +810,21 @@ function tao_crm_cancelar_fila( $card_id, $estagio_id = null ) {
 
 add_action( 'tao_crm_processar_fila', 'tao_crm_processar_fila_fn' );
 function tao_crm_processar_fila_fn() {
+    // Lock global: impede execuções simultâneas em requests paralelos.
+    // Não é 100% atômico no MySQL, mas o claim por item abaixo garante a segurança real.
+    $lock_val = uniqid( 'fila_', true );
+    if ( false !== get_transient( 'tao_crm_fila_lock' ) ) return;
+    set_transient( 'tao_crm_fila_lock', $lock_val, 55 );
+    // Confirma que este processo ganhou o lock (reduz race condition do get+set)
+    if ( get_transient( 'tao_crm_fila_lock' ) !== $lock_val ) return;
+
     // Usa formato Z (ex: 2026-06-12T23:00:00Z) — evita o + do fuso que quebra a URL do Supabase
     $agora = gmdate( 'Y-m-d\TH:i:s\Z' );
     $r = tao_crm_api( "/crm_automacoes_fila?executado_em=is.null&executar_em=lte.$agora&limit=50&order=executar_em.asc" );
-    if ( ! $r['ok'] || empty( $r['data'] ) ) return;
+    if ( ! $r['ok'] || empty( $r['data'] ) ) {
+        delete_transient( 'tao_crm_fila_lock' );
+        return;
+    }
     $executados = []; // dedup por card_id|automacao_id neste ciclo
     foreach ( $r['data'] as $item ) {
         $dedup_key = $item['card_id'] . '|' . $item['automacao_id'];
@@ -831,6 +842,7 @@ function tao_crm_processar_fila_fn() {
             continue;
         }
         $auto = $ra['data'][0];
+        // Horário comercial: pula sem marcar — item permanece na fila para próxima janela
         if ( ( $auto['acao'] ?? '' ) === 'enviar_mensagem' ) {
             $fila_ws_id = $auto['workspace_id'] ?? null;
             if ( $fila_ws_id && ! tao_crm_esta_em_horario( $fila_ws_id ) ) continue;
@@ -844,14 +856,24 @@ function tao_crm_processar_fila_fn() {
                 continue;
             }
         }
+        // Claim atômico: PATCH com filtro executado_em=is.null + return=representation.
+        // O PostgreSQL serializa UPDATEs concorrentes na mesma linha — só um processo
+        // vence; o outro recebe array vazio e é descartado, prevenindo envio duplicado.
+        $claim = tao_crm_api(
+            "/crm_automacoes_fila?id=eq.{$item['id']}&executado_em=is.null",
+            'PATCH',
+            [ 'executado_em' => gmdate( 'c' ), 'resultado' => 'processando', 'detalhe' => '' ],
+            [ 'Prefer' => 'return=representation' ]
+        );
+        if ( ! $claim['ok'] || empty( $claim['data'] ) ) continue; // Outro processo venceu
         $executados[ $dedup_key ] = true;
         $res = tao_crm_executar_automacao_item( $auto, $item['card_id'] );
         tao_crm_api( "/crm_automacoes_fila?id=eq.{$item['id']}", 'PATCH', [
-            'executado_em' => gmdate( 'c' ),
-            'resultado'    => $res['ok'] ? 'ok' : 'erro',
-            'detalhe'      => $res['detalhe'] ?? '',
+            'resultado' => $res['ok'] ? 'ok' : 'erro',
+            'detalhe'   => $res['detalhe'] ?? '',
         ] );
     }
+    delete_transient( 'tao_crm_fila_lock' );
 }
 
 function tao_crm_processar_agendadas_fn() {
