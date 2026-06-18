@@ -360,10 +360,13 @@ function tao_crm_page_kanban() {
                 $cards_campos_values[ $row['card_id'] ][ $row['campo_id'] ] = $row['valor'];
             }
         }
-        // Descobre o campo_id de "Número da Requisição" por nome direto — independe de
-        // quais campos têm valores preenchidos nos cards da view atual
-        $rcd_req = tao_crm_api( '/crm_campos_definicao?nome=ilike.*Requisi*&select=id,nome&limit=5' );
+        // Descobre o campo_id de "Número Requisição" por nome direto — independe de
+        // quais campos têm valores nos cards da view atual.
+        // Exclui campos de pergunta (nome com '?') para não confundir com
+        // "Número da Requisição está correto?" ou similares.
+        $rcd_req = tao_crm_api( '/crm_campos_definicao?nome=ilike.*Requisi*&select=id,nome&limit=10' );
         foreach ( ( $rcd_req['ok'] ? ( $rcd_req['data'] ?? [] ) : [] ) as $cd ) {
+            if ( mb_strpos( $cd['nome'], '?' ) !== false ) continue;
             if ( mb_stripos( $cd['nome'], 'Requisi' ) !== false ) {
                 $req_num_campo_id = $cd['id'];
                 break;
