@@ -16,16 +16,16 @@ function tao_formula_page_orcamento_novo() {
         $capsulas_raw = $rc['ok'] ? ( $rc['data'] ?? [] ) : [];
 
         // ── Preços das cápsulas ──────────────────────────────────────────
-        // 1ª tentativa: busca direta por cdpro_fc → ativos.codigo
+        // 1ª tentativa: busca direta por cdpro_fc → ativos.codigo_fc
         $preco_por_codigo = [];
         $codigos = array_values( array_filter( array_column( $capsulas_raw, 'cdpro_fc' ) ) );
         if ( ! empty( $codigos ) ) {
             $in = implode( ',', $codigos );
-            $ra = tao_formula_api( "/ativos?cliente_id=eq.$cliente_id&codigo=in.($in)&select=codigo,venda_unit" );
+            $ra = tao_formula_api( "/ativos?cliente_id=eq.$cliente_id&codigo_fc=in.($in)&select=codigo_fc,venda_unit" );
             if ( $ra['ok'] ) {
                 foreach ( $ra['data'] ?? [] as $a ) {
                     if ( ( $a['venda_unit'] ?? 0 ) > 0 ) {
-                        $preco_por_codigo[ $a['codigo'] ] = (float) $a['venda_unit'];
+                        $preco_por_codigo[ $a['codigo_fc'] ] = (float) $a['venda_unit'];
                     }
                 }
             }
@@ -589,8 +589,16 @@ function tao_formula_page_orcamento_novo() {
     window.taofDbgCapsulas = <?php echo count($capsulas); ?>;
     window.taofDbgFormas   = <?php echo count($formas_js); ?>;
     </script>
-    <div id="taof-dbg-badge" style="position:fixed;bottom:8px;right:8px;background:#0f172a;color:#94a3b8;padding:3px 8px;border-radius:4px;font-size:10px;z-index:9999;font-family:monospace">
-        TAO Fórmulas <?php echo TAOF_VERSION; ?> · <?php echo count($capsulas); ?> caps · <?php echo count($formas_js); ?> formas
+    <?php
+    $caps_com_preco = array_filter( $capsulas, fn($c) => ($c['venda_unit'] ?? 0) > 0 );
+    $caps_sem_preco = array_filter( $capsulas, fn($c) => ($c['venda_unit'] ?? 0) == 0 );
+    $ex_sem = array_slice( array_values($caps_sem_preco), 0, 3 );
+    ?>
+    <div id="taof-dbg-badge" style="position:fixed;bottom:8px;right:8px;background:#0f172a;color:#94a3b8;padding:4px 8px;border-radius:4px;font-size:10px;z-index:9999;font-family:monospace;max-width:340px">
+        TAO Fórmulas <?php echo TAOF_VERSION; ?> · <?php echo count($capsulas); ?> caps (<?php echo count($caps_com_preco); ?> c/ preço · <?php echo count($caps_sem_preco); ?> s/ preço)<br>
+        <?php if ( $ex_sem ): ?>
+        sem preço: <?php foreach($ex_sem as $c) echo htmlspecialchars($c['tipo'].' N'.$c['numero'].' cdpro='.$c['cdpro_fc']).' | '; ?>
+        <?php endif; ?>
     </div>
     <?php
 }
