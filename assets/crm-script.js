@@ -1610,7 +1610,12 @@ var taoCrmItens = {
         this.itens.forEach(function(it){ grand += parseFloat(it.total||0); });
         $('#crm-itens-grand-total').text(taoCrmItens.fmtBRL(grand));
         $('#crm-itens-footer').css('display', grand > 0 ? 'flex' : 'none');
-        $('#crm-valor-oportunidade').val(grand.toFixed(2));
+        window._crmItensTotal = grand;
+        if (typeof window.atualizarOportunidade === 'function') {
+            window.atualizarOportunidade();
+        } else {
+            $('#crm-valor-oportunidade').val(grand.toFixed(2));
+        }
     },
 
     renderLista: function(){

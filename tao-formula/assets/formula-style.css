@@ -1,5 +1,62 @@
-/* TAO Fórmulas — Admin styles */
-.taof-wrap { max-width: 1100px; }
+/* TAO Fórmulas — Styles (admin + frontend) */
+.taof-wrap { max-width: 1100px; margin: 0 auto; padding: 0 16px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+
+/* ── Cabeçalho de página ─────────────────────────────────────────── */
+.taof-pg-hdr { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 20px 0 16px; flex-wrap: wrap; }
+.taof-pg-title { margin: 0; font-size: 22px; font-weight: 700; color: #1e293b; }
+
+/* ── Botões ──────────────────────────────────────────────────────── */
+.taof-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 7px 14px; border-radius: 6px; border: 1px solid #cbd5e1;
+    background: #f8fafc; color: #334155; font-size: 13px; font-weight: 500;
+    cursor: pointer; text-decoration: none; line-height: 1.4; white-space: nowrap;
+    transition: background .15s;
+}
+.taof-btn:hover { background: #f1f5f9; color: #1e293b; text-decoration: none; }
+.taof-btn-primary { background: #2563eb; border-color: #2563eb; color: #fff; }
+.taof-btn-primary:hover { background: #1d4ed8; color: #fff; }
+.taof-btn-danger { background: #fff; border-color: #fca5a5; color: #b91c1c; }
+.taof-btn-danger:hover { background: #fee2e2; }
+.taof-btn-sm { padding: 4px 10px; font-size: 12px; }
+
+/* ── Filtros ─────────────────────────────────────────────────────── */
+.taof-filter-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+.taof-filter-tab {
+    padding: 5px 14px; border-radius: 20px; border: 1px solid #e2e8f0;
+    background: #f8fafc; color: #475569; font-size: 12px; font-weight: 500;
+    text-decoration: none; transition: background .15s;
+}
+.taof-filter-tab:hover { background: #e2e8f0; color: #1e293b; text-decoration: none; }
+.taof-filter-active { background: #1e293b; border-color: #1e293b; color: #fff !important; }
+
+/* ── Tabela de listagem ──────────────────────────────────────────── */
+.taof-table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid #e2e8f0; }
+.taof-list-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.taof-list-table thead th {
+    background: #f8fafc; padding: 10px 14px; text-align: left;
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .4px; color: #64748b; border-bottom: 1px solid #e2e8f0;
+    white-space: nowrap;
+}
+.taof-list-table tbody tr { border-bottom: 1px solid #f1f5f9; transition: background .1s; }
+.taof-list-table tbody tr:last-child { border-bottom: none; }
+.taof-list-table tbody tr:hover { background: #f8fafc; }
+.taof-list-table td { padding: 10px 14px; color: #334155; vertical-align: middle; }
+.taof-col-r { text-align: right !important; }
+.taof-col-c { text-align: center !important; }
+.taof-td-nome { font-weight: 600; }
+.taof-td-fone { font-family: monospace; font-size: 12px; color: #64748b; }
+.taof-td-total { font-weight: 700; color: #0f172a; }
+.taof-td-dt { font-size: 12px; color: #94a3b8; white-space: nowrap; }
+.taof-td-acoes { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+.taof-td-sem-acao { color: #cbd5e1; font-size: 13px; }
+
+/* ── Badge de status ─────────────────────────────────────────────── */
+.taof-badge {
+    display: inline-block; padding: 2px 10px; border-radius: 20px;
+    font-size: 11px; font-weight: 600; white-space: nowrap;
+}
 
 /* KPI cards */
 .taof-kpi-row { display: flex; gap: 14px; flex-wrap: wrap; margin: 20px 0; }
@@ -48,3 +105,18 @@
 
 /* Nova forma btn */
 .taof-btn-nova { margin-left: 8px !important; }
+
+/* ── Autocomplete dropdown (global — usado em orc-novo e outros) ─── */
+.taof-ac-dropdown {
+    position: fixed; z-index: 99999;
+    background: #fff; border: 1px solid #d1d5db; border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.12); max-height: 260px; overflow-y: auto;
+}
+.taof-ac-item {
+    padding: 8px 12px; cursor: pointer; font-size: 13px; color: #1e293b;
+    border-bottom: 1px solid #f1f5f9;
+}
+.taof-ac-item:hover,
+.taof-ac-item.taof-ac-hl { background: #dbeafe; color: #1d4ed8; }
+.taof-ac-item:last-child { border-bottom: none; }
+.taof-ac-item small { display: block; color: #94a3b8; font-size: 11px; margin-top: 2px; }

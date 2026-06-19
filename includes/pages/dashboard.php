@@ -76,8 +76,9 @@ function tao_crm_page_dashboard() {
     $taxa = $total_fechados > 0 ? round( count( $ganhos ) / $total_fechados * 100 ) : 0;
 
     // Total em oportunidades (cards abertos) e receita gerada (ganhos)
-    $total_oportunidades = array_sum( array_column( $abertos, 'valor_oportunidade' ) );
-    $receita_gerada      = array_sum( array_column( $ganhos,  'valor_oportunidade' ) );
+    $total_oportunidades = array_sum( array_column( $abertos,  'valor_oportunidade' ) );
+    $receita_gerada      = array_sum( array_column( $ganhos,   'valor_oportunidade' ) );
+    $valor_perdidos      = array_sum( array_column( $perdidos, 'valor_oportunidade' ) );
 
     // ── Dados para Gráfico 5: Receita por semana (ganhos) ────────────────────
     $receita_labels = [];
@@ -337,6 +338,24 @@ function tao_crm_page_dashboard() {
                     <span class="wa-status-dot"></span><span style="color:#94a3b8;font-size:14px">…</span>
                 </span>
                 <span class="kpi-sub" id="crm-wa-kpi-sub">Verificando</span>
+            </div>
+        </div>
+
+        <!-- Ganhos vs Perdidos -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
+            <div class="crm-dash-kpi-card" style="border-left:4px solid #10b981;background:#f0fdf4">
+                <span class="kpi-label">&#x2705; Neg&oacute;cios ganhos</span>
+                <span class="kpi-value" style="color:#10b981;font-size:32px"><?php echo count( $ganhos ); ?></span>
+                <span class="kpi-sub" style="font-size:13px;color:#166534;font-weight:600">
+                    R$&nbsp;<?php echo number_format( $receita_gerada, 0, ',', '.' ); ?> em receita
+                </span>
+            </div>
+            <div class="crm-dash-kpi-card" style="border-left:4px solid #ef4444;background:#fff5f5">
+                <span class="kpi-label">&#x274C; Neg&oacute;cios perdidos</span>
+                <span class="kpi-value" style="color:#ef4444;font-size:32px"><?php echo count( $perdidos ); ?></span>
+                <span class="kpi-sub" style="font-size:13px;color:#991b1b;font-weight:600">
+                    R$&nbsp;<?php echo number_format( $valor_perdidos, 0, ',', '.' ); ?> em oportunidades
+                </span>
             </div>
         </div>
 

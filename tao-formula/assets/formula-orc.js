@@ -3,11 +3,14 @@
     'use strict';
     if (!document.getElementById('taof-orc-form')) return;
 
-    var formasMap  = window.taofOrcFormasMap || {};
-    var capsulas   = window.taofCapsulas || [];
-    var formaAtual = null;
-    var ajaxUrl    = (typeof taoFormula !== 'undefined') ? taoFormula.ajaxUrl : '/wp-admin/admin-ajax.php';
-    var nonce      = (typeof taoFormula !== 'undefined') ? taoFormula.nonce   : '';
+    var formasMap   = window.taofOrcFormasMap || {};
+    var capsulas    = window.taofCapsulas || [];
+    var formaAtual  = null;
+    var ajaxUrl     = (typeof taoFormula !== 'undefined') ? taoFormula.ajaxUrl : '/wp-admin/admin-ajax.php';
+    var nonce       = (typeof taoFormula !== 'undefined') ? taoFormula.nonce   : '';
+    var IS_MODAL    = !! window.taofIsModal;
+    var EDIT_ORC_ID = window.taofEditOrcId || '';
+    var EDIT_DATA   = window.taofEditData  || null;
 
     // ── Formato BR ────────────────────────────────────────────────────
     function fmt(n, dec) {
@@ -23,8 +26,12 @@
     function getVol()     { return Math.max(1, parseFloat($('#taof-forma-vol').val()) || 1); }
     function getPotes()   { return Math.max(1, parseInt($('#taof-qtde-potes').val()) || 1); }
     function getUnidade() { return $('#taof-forma-unidade').val() || 'g'; }
+    function getVolDose() { return parseFloat($('#taof-vol-dose').val()) || 0; }
     function getMultiplicador() { return getVol() * getPotes(); }
     function getCustoFixo() { return parseFloat($('#taof-custo-fixo-inp').val()) || 0; }
+
+    var LIQUID_TIPOS = ['solucao', 'locao', 'shampoo', 'floral'];
+    function isLiquidForm() { return formaAtual && LIQUID_TIPOS.indexOf(formaAtual.tipo) !== -1; }
 
     // ── Popula Tipo Capsula (somente para cap / duo_cap) ──────────────
     function popularTipoCapsula() {
@@ -78,9 +85,34 @@
         var densidade    = parseFloat($row.data('densidade'))    || 1;
         var vendaUnit    = parseFloat($row.data('venda-unit'))   || 0;
         var concentracao = parseFloat($row.data('concentracao')) || 0;
-        var mult         = getMultiplicador();
-        var isCap        = formaAtual && (formaAtual.tipo === 'cap' || formaAtual.tipo === 'duo_cap');
-        var isSpecial    = (doseUnit === 'UI' || doseUnit === 'UFC' || doseUnit === 'BLH');
+        var isCap     = formaAtual && (formaAtual.tipo === 'cap' || formaAtual.tipo === 'duo_cap');
+        var volDose   = getVolDose();
+        var mult      = (isLiquidForm() && volDose > 0)
+                        ? (getVol() / volDose) * getPotes()
+                        : getMultiplicador();
+        var isSpecial = (doseUnit === 'UI' || doseUnit === 'UFC' || doseUnit === 'BLH');
+
+        // ── % (percentual do peso total da fórmula) ──────────────────────
+        if (doseUnit === '%') {
+            var unid_pct = getUnidade();
+            var dens_pct = densidade;
+            var totalG_pct = unid_pct === 'ml'
+                ? getVol() * getPotes() * dens_pct
+                : getVol() * getPotes();
+            var qty_g_nom  = (dose / 100) * totalG_pct;
+            var qty_g_real = qty_g_nom * diluicao / (teor / 100);
+            var qty_g_fp   = qty_g_real * fp;
+            var qty_mg_fp  = qty_g_fp * 1000;
+            var qtdEmUnid_pct = unidPadrao === 'g' ? qty_g_fp : qty_mg_fp;
+            var subtotal_pct  = qtdEmUnid_pct * vendaUnit;
+            $row.find('.taof-orc-qtd-total').text(fmt(qty_mg_fp, 2) + ' mg (' + fmt(dose, 3) + '%)');
+            $row.find('.taof-orc-subtotal').text('R$ ' + fmt(subtotal_pct));
+            $row.data({ subtotal: subtotal_pct, 'qtd-total-g': qty_g_fp,
+                'qtd-em-padrao': qtdEmUnid_pct, 'qtd-unit': unidPadrao,
+                dose: dose, 'dose-unit': '%', 'volapa-ul': 0 });
+            calcularTotais();
+            return;
+        }
 
         if (isSpecial) {
             // BLH: dose em bilhoes — converte para UFC antes de dividir pela concentracao (UFC/g)
@@ -162,6 +194,7 @@
     // ── QSP: atualiza a linha marcada como excipiente ─────────────────
     // Chamado DENTRO de calcularTotais (sem recursao)
     function atualizarQSPRow() {
+        if (_loadingEdit) return;   // durante carga de edição, usa subtotal salvo
         var $qspRow = $('#taof-itens-body .taof-item-row.taof-row-qsp');
         if (!$qspRow.length || !formaAtual) return;
 
@@ -391,12 +424,75 @@
             $('#taof-row-caps-custo').hide();
         }
 
+        // Custo fixo: predefinido na forma (R$ ou %) ou auto-calculado
+        var $fixoInp   = $('#taof-custo-fixo-inp');
+        var $fixoPct   = $('#taof-custo-fixo-pct');
+        var $fixoBadge = $('#taof-custo-fixo-predef-badge');
+        var cfTipo     = formaAtual ? (formaAtual.custoFixoTipo || '') : '';
+
+        if (cfTipo === 'R') {
+            custoFixo = formaAtual.custoFixo || 0;
+            $fixoInp.val(custoFixo.toFixed(2)).prop('readonly', true);
+            $fixoPct.hide();
+            $fixoBadge.text('fixo pela forma').show();
+        } else if (cfTipo === 'pct') {
+            var pctPredef = formaAtual.custoFixo || 0;
+            custoFixo = Math.round((calculado + custoCapsula) * pctPredef / 100 * 100) / 100;
+            $fixoInp.val(custoFixo.toFixed(2)).prop('readonly', true);
+            $fixoPct.hide();
+            $fixoBadge.text(fmt(pctPredef) + '% sobre MP').show();
+        } else {
+            $fixoInp.prop('readonly', false);
+            $fixoPct.show();
+            $fixoBadge.hide();
+            var pctFixo = parseFloat($fixoPct.val()) || 30;
+            var sugPct  = Math.round((calculado + custoCapsula) * pctFixo / 100 * 100) / 100;
+            if (!$fixoInp.data('manual')) {
+                $fixoInp.val(sugPct.toFixed(2));
+                custoFixo = sugPct;
+            }
+        }
+
         var subtotal  = calculado + custoFixo + custoCapsula;
+
+        // Acréscimo: % → valor (auto) ou valor → % (manual)
+        var $acrInp   = $('#taof-acrescimo-val-inp');
         var acrescPct = parseFloat($('#taof-acrescimo-pct').val()) || 0;
-        var desctPct  = parseFloat($('#taof-desconto-pct').val())  || 0;
-        var acrescVal = subtotal * acrescPct / 100;
-        var desctVal  = subtotal * desctPct  / 100;
-        var final     = subtotal + acrescVal - desctVal;
+        var acrescVal;
+        if ($acrInp.data('manual')) {
+            acrescVal = parseFloat($acrInp.val()) || 0;
+            if (subtotal > 0) $('#taof-acrescimo-pct').val((acrescVal / subtotal * 100).toFixed(1));
+        } else {
+            acrescVal = subtotal * acrescPct / 100;
+            $acrInp.val(acrescVal.toFixed(2));
+        }
+
+        // Desconto: % → valor (auto) ou valor → % (manual)
+        var $dscInp  = $('#taof-desconto-val-inp');
+        var desctPct = parseFloat($('#taof-desconto-pct').val()) || 0;
+        var desctVal;
+        if ($dscInp.data('manual')) {
+            desctVal = parseFloat($dscInp.val()) || 0;
+            if (subtotal > 0) $('#taof-desconto-pct').val((desctVal / subtotal * 100).toFixed(1));
+        } else {
+            desctVal = subtotal * desctPct / 100;
+            $dscInp.val(desctVal.toFixed(2));
+        }
+
+        var final = subtotal + acrescVal - desctVal;
+
+        // Valor mínimo da forma
+        var valorMinimo = formaAtual ? (formaAtual.valorMinimo || 0) : 0;
+        if (valorMinimo > 0 && final < valorMinimo) {
+            final = valorMinimo;
+            $('#taof-row-val-minimo').show();
+            $('#taof-val-minimo-num').text('R$ ' + fmt(valorMinimo));
+        } else {
+            $('#taof-row-val-minimo').hide();
+        }
+
+        // Info excipiente base para cápsulas sem QSP
+        atualizarInfoExcipiente();
 
         $('#taof-res-calculado').text('R$ ' + fmt(calculado));
         $('#taof-res-custo-fixo').text('R$ ' + fmt(custoFixo));
@@ -405,6 +501,9 @@
         $('#taof-res-desconto').text('R$ ' + fmt(desctVal));
         $('#taof-res-final').html('<strong>R$ ' + fmt(final) + '</strong>');
     }
+
+    // Flag para bloquear recálculo de linhas durante loadEditData
+    var _loadingEdit = false;
 
     // ── Forma select ──────────────────────────────────────────────────
     $('#taof-forma-sel').on('change', function () {
@@ -437,8 +536,15 @@
             // Unidade
             popularUnidade(formaAtual.tipo);
 
-            // Custo fixo editavel por orcamento
-            $('#taof-custo-fixo-inp').val(parseFloat(formaAtual.custoFixo || 0).toFixed(2));
+            // Vol/dose: visível apenas para formas líquidas (solução, loção, xarope...)
+            $('#taof-col-vol-dose').toggle(isLiquidForm());
+            if (!isLiquidForm()) $('#taof-vol-dose').val('');
+
+            // Custo fixo: reseta para novo modo (predefinido ou auto)
+            $('#taof-custo-fixo-inp').removeData('manual').prop('readonly', false).val('0.00');
+            $('#taof-custo-fixo-pct').show().val(formaAtual.margemPct || 30);
+            $('#taof-custo-fixo-predef-badge').hide();
+            $('#taof-row-val-minimo').hide();
         } else {
             $('#taof-forma-vol').val('').attr('placeholder', 'Ex: 30');
             $('#taof-forma-tipo').empty();
@@ -446,17 +552,46 @@
             $('#taof-card-capsulas').hide();
             $('#taof-caps-por-dose').removeData('manual').val(1);
             $('#taof-forma-unidade').empty().append('<option value="">-</option>');
+            $('#taof-col-vol-dose').hide();
+            $('#taof-vol-dose').val('');
             $('#taof-custo-fixo-inp').val('0.00');
         }
 
-        $('#taof-itens-body .taof-item-row').each(function () { calcularLinha($(this)); });
+        if (!_loadingEdit) $('#taof-itens-body .taof-item-row').each(function () { calcularLinha($(this)); });
     });
 
-    // Recalcula quando atendente altera Vol/Qtde, Tipo Capsula, Unidade ou Potes
-    $('#taof-forma-vol, #taof-forma-tipo, #taof-forma-unidade, #taof-qtde-potes').on('input change', function () {
-        $('#taof-itens-body .taof-item-row').each(function () { calcularLinha($(this)); });
+    // Recalcula quando atendente altera Vol/Qtde, Tipo Capsula, Unidade, Potes ou Vol/dose
+    $('#taof-forma-vol, #taof-forma-tipo, #taof-forma-unidade, #taof-qtde-potes, #taof-vol-dose').on('input change', function () {
+        if (!_loadingEdit) $('#taof-itens-body .taof-item-row').each(function () { calcularLinha($(this)); });
     });
-    $('#taof-acrescimo-pct, #taof-desconto-pct, #taof-custo-fixo-inp').on('input change', calcularTotais);
+    // Acréscimo: % recalcula valor; valor direto marca manual
+    $('#taof-acrescimo-pct').on('input change', function () {
+        $('#taof-acrescimo-val-inp').removeData('manual');
+        calcularTotais();
+    });
+    $('#taof-acrescimo-val-inp').on('input', function () {
+        $(this).data('manual', true);
+        calcularTotais();
+    });
+    // Desconto: idem
+    $('#taof-desconto-pct').on('input change', function () {
+        $('#taof-desconto-val-inp').removeData('manual');
+        calcularTotais();
+    });
+    $('#taof-desconto-val-inp').on('input', function () {
+        $(this).data('manual', true);
+        calcularTotais();
+    });
+    // Custo fixo: marca como manual quando o usuário edita o valor
+    $('#taof-custo-fixo-inp').on('input', function () {
+        $(this).data('manual', true);
+        calcularTotais();
+    });
+    // Alterar o % reseta o flag manual e recalcula
+    $('#taof-custo-fixo-pct').on('input change', function () {
+        $('#taof-custo-fixo-inp').removeData('manual');
+        calcularTotais();
+    });
 
     // Caps/dose: override manual ativa multiplicador; botao auto redefine para calculo automatico
     $('#taof-caps-por-dose').on('input change', function () {
@@ -494,18 +629,72 @@
     });
 
     // ── Adicionar linha de ativo ──────────────────────────────────────
-    $('#taof-btn-add-item').on('click', function () {
+    function adicionarLinha() {
         var frag = document.getElementById('taof-item-tpl').content.cloneNode(true);
         $('#taof-itens-body').append(frag);
         var $row = $('#taof-itens-body .taof-item-row').last();
         $row.data({ subtotal: 0, 'volapa-ul': 0, 'qtd-total-g': 0 });
         initRow($row);
-    });
+        // Foca o campo de busca imediatamente
+        setTimeout(function () { $row.find('.taof-orc-ativo-search').focus(); }, 30);
+        return $row;
+    }
+
+    $('#taof-btn-add-item').on('click', adicionarLinha);
 
     function initRow($row) {
         $row.on('input change', '.taof-orc-dose, .taof-orc-dose-unit', function () { calcularLinha($row); });
         $row.on('click', '.taof-btn-del-item', function () { $row.remove(); calcularTotais(); });
+        // Enter/Tab na dose: QSP → cria nova linha; demais → navega entre linhas
+        $row.on('keydown', '.taof-orc-dose', function (e) {
+            if (e.key !== 'Enter' && !(e.key === 'Tab' && !e.shiftKey)) return;
+            if ($row.hasClass('taof-row-qsp')) {
+                e.preventDefault();
+                adicionarLinha();
+                return;
+            }
+            var $nonQsp = $('#taof-itens-body .taof-item-row:not(.taof-row-qsp)');
+            var idx = $nonQsp.index($row);
+            if (idx < $nonQsp.length - 1) {
+                e.preventDefault();
+                $nonQsp.eq(idx + 1).find('.taof-orc-ativo-search').focus();
+            } else {
+                var $qsp = $('#taof-itens-body .taof-item-row.taof-row-qsp');
+                if ($qsp.length) { e.preventDefault(); $qsp.find('.taof-orc-dose').focus(); }
+            }
+        });
         initAtivoAC($row);
+    }
+
+    // ── Info excipiente base para cápsulas sem QSP ───────────────────
+    function atualizarInfoExcipiente() {
+        var $info = $('#taof-info-excipiente');
+        if (!$info.length) return;
+        var isCap = formaAtual && (formaAtual.tipo === 'cap' || formaAtual.tipo === 'duo_cap');
+        var temQsp = $('#taof-itens-body .taof-item-row.taof-row-qsp').length > 0;
+        if (!isCap || temQsp) { $info.hide(); return; }
+
+        var r = calcularCapsulaIdeal(getNPerDoseForced());
+        if (!r) { $info.hide(); return; }
+
+        var ftench   = formaAtual.ftenchcap || 1;
+        var sumVOLAPA = 0;
+        $('#taof-itens-body .taof-item-row:not(.taof-row-qsp)').each(function () {
+            sumVOLAPA += parseFloat($(this).data('volapa-ul')) || 0;
+        });
+        var availPerDose = r.cap.vol_ul * r.nPerDose * ftench;
+        var restante_uL  = Math.max(0, availPerDose - sumVOLAPA);
+        if (restante_uL <= 0) { $info.hide(); return; }
+
+        // Converte µL → mg usando densidade 1 g/mL (approx)
+        var restante_mg_dose  = restante_uL;                    // ρ≈1: 1µL ≈ 1mg
+        var restante_mg_total = restante_mg_dose * getVol() * getPotes();
+
+        $info.html(
+            '<span style="color:#0369a1">⚠ Excipiente base (10577): <strong>~' + fmt(restante_mg_total, 0) + ' mg</strong>' +
+            ' (' + fmt(restante_uL, 1) + ' µL/dose disponível)</span>' +
+            ' <em style="color:#94a3b8;font-size:11px">— adicione o excipiente manualmente para calcular o custo</em>'
+        ).show();
     }
 
     // ── Helper: posiciona dropdown em position:fixed ──────────────────
@@ -515,11 +704,48 @@
         $dd.css({ top: r.bottom + 2, left: r.left, width: r.width });
     }
 
+    // ── selecionarAtivo — partilhado por AC e auto-excipiente ────────
+    function selecionarAtivo($row, a) {
+        var $s = $row.find('.taof-orc-ativo-search');
+        $s.val(a.nome).css({ 'border-color': '', 'background-color': '' });
+        $s.removeAttr('placeholder');
+        $s.attr('placeholder', 'Buscar ativo...');
+        $row.find('.taof-orc-ativo-id').val(a.id);
+        $row.find('.taof-orc-cod').text(a.codigo_fc || '—');
+        $row.find('.taof-orc-fp-label').text(
+            parseFloat(a.fator_perda || 1).toLocaleString('pt-BR', { minimumFractionDigits: 3 })
+        );
+        $row.data({
+            'ativo-id':     a.id,
+            'ativo-nome':   a.nome,
+            'codigo-fc':    a.codigo_fc   || '',
+            'unid-padrao':  a.unidade_padrao,
+            'preco-compra': parseFloat(a.preco_compra)   || 0,
+            'custo-unit':   a.custo_por_unidade,
+            'venda-unit':   a.preco_venda,
+            'diluicao':     parseFloat(a.diluicao)      || 1,
+            'teor':         parseFloat(a.teor)           || 100,
+            'densidade':    parseFloat(a.densidade)      || 1,
+            'fp':           parseFloat(a.fator_perda)    || 1,
+            'concentracao': parseFloat(a.concentracao)   || 0,
+        });
+        var vendaLabel = parseFloat(a.preco_venda) > 0
+            ? 'R$ ' + fmt(a.preco_venda, 4) + '/' + (a.unidade_padrao || 'g')
+            : '—';
+        $row.find('.taof-orc-preco-venda').text(vendaLabel);
+        var u = a.unidade_padrao;
+        if (['mg', 'mcg', 'g', 'UI', 'UFC', 'BLH', 'ml'].indexOf(u) === -1) u = 'mg';
+        if (u === 'g') u = 'mg';
+        if (u === 'UFC' || u === 'BLH') u = 'BLH';
+        $row.find('.taof-orc-dose-unit').val(u);
+        $row.find('.taof-ac-dropdown').hide().empty();
+        calcularLinha($row);
+    }
+
     // ── Autocomplete — Ativos ─────────────────────────────────────────
     function initAtivoAC($row) {
         var $inp   = $row.find('.taof-orc-ativo-search');
         var $dd    = $row.find('.taof-ac-dropdown');
-        var $idFld = $row.find('.taof-orc-ativo-id');
         var timer  = null;
 
         $inp.on('input', function () {
@@ -559,11 +785,19 @@
                                     : 'sem preço venda';
                                 var info = (a.codigo_fc ? '[' + a.codigo_fc + '] ' : '') + venda;
                                 if (a.diluicao && a.diluicao != 1) info += ' · dil 1:' + a.diluicao;
-                                var $item = $('<div class="taof-ac-item">').html(
+                                var $item = $('<div class="taof-ac-item" data-sel="1">').html(
                                     '<span>' + $('<span>').text(a.nome).html() + '</span>' +
                                     '<small>' + $('<span>').text(info).html() + '</small>'
                                 );
-                                $item.on('mousedown', function (e) { e.preventDefault(); selecionarAtivo(a); });
+                                $item.data('ativo-obj', a).on('mousedown', function (e) {
+                                    e.preventDefault();
+                                    var origName = $inp.val().trim();
+                                    var wasEmpty = !$row.find('.taof-orc-ativo-id').val();
+                                    selecionarAtivo($row, a);
+                                    if (wasEmpty && origName && origName.toUpperCase() !== a.nome.toUpperCase()) {
+                                        $.post(ajaxUrl, { action: 'tao_formula_salvar_sinonimo', nonce: nonce, ativo_id: a.id, sinonimo: origName.toUpperCase() });
+                                    }
+                                });
                                 $dd.append($item);
                             });
                         }
@@ -584,39 +818,37 @@
             }, 280);
         });
 
-        function selecionarAtivo(a) {
-            $inp.val(a.nome);
-            $idFld.val(a.id);
-            $row.find('.taof-orc-cod').text(a.codigo_fc || '—');
-            $row.find('.taof-orc-fp-label').text(
-                parseFloat(a.fator_perda || 1).toLocaleString('pt-BR', { minimumFractionDigits: 3 })
-            );
-            $row.data({
-                'ativo-id':     a.id,
-                'ativo-nome':   a.nome,
-                'codigo-fc':    a.codigo_fc   || '',
-                'unid-padrao':  a.unidade_padrao,
-                'custo-unit':   a.custo_por_unidade,
-                'venda-unit':   a.preco_venda,
-                'diluicao':     parseFloat(a.diluicao)      || 1,
-                'teor':         parseFloat(a.teor)           || 100,
-                'densidade':    parseFloat(a.densidade)      || 1,
-                'fp':           parseFloat(a.fator_perda)    || 1,
-                'concentracao': parseFloat(a.concentracao)   || 0,
-            });
-            var vendaLabel = parseFloat(a.preco_venda) > 0
-                ? 'R$ ' + fmt(a.preco_venda, 4) + '/' + (a.unidade_padrao || 'g')
-                : '—';
-            $row.find('.taof-orc-preco-venda').text(vendaLabel);
-            var u = a.unidade_padrao;
-            if (['mg', 'mcg', 'g', 'UI', 'UFC', 'BLH', 'ml'].indexOf(u) === -1) u = 'mg';
-            if (u === 'g') u = 'mg'; // pos vendidos em g sao prescritos em mg
-            // Probióticos UFC ou BLH: sempre prescrevem em BLH (bilhoes) para facilitar entrada
-            if (u === 'UFC' || u === 'BLH') u = 'BLH';
-            $row.find('.taof-orc-dose-unit').val(u);
-            $dd.hide().empty();
-            calcularLinha($row);
-        }
+        // Navegação por teclado no dropdown
+        $inp.on('keydown', function (e) {
+            if (!$dd.is(':visible')) return;
+            var $items = $dd.find('.taof-ac-item[data-sel]');
+            var $cur   = $items.filter('.taof-ac-hl');
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                $items.removeClass('taof-ac-hl');
+                var $nxt = $cur.length ? $cur.nextAll('[data-sel]').first() : $();
+                ($nxt.length ? $nxt : $items.first()).addClass('taof-ac-hl');
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                $items.removeClass('taof-ac-hl');
+                var $prv = $cur.length ? $cur.prevAll('[data-sel]').first() : $();
+                ($prv.length ? $prv : $items.last()).addClass('taof-ac-hl');
+            } else if (e.key === 'Enter') {
+                var $sel = $items.filter('.taof-ac-hl');
+                if ($sel.length) {
+                    e.preventDefault();
+                    var aObj2 = $sel.data('ativo-obj');
+                    var origName2 = $inp.val().trim();
+                    var wasEmpty2 = !$row.find('.taof-orc-ativo-id').val();
+                    selecionarAtivo($row, aObj2);
+                    if (wasEmpty2 && origName2 && origName2.toUpperCase() !== aObj2.nome.toUpperCase()) {
+                        $.post(ajaxUrl, { action: 'tao_formula_salvar_sinonimo', nonce: nonce, ativo_id: aObj2.id, sinonimo: origName2.toUpperCase() });
+                    }
+                }
+            } else if (e.key === 'Escape') {
+                $dd.hide().empty();
+            }
+        });
 
         $inp.on('blur',  function () { setTimeout(function () { $dd.hide(); }, 150); });
         $inp.on('focus', function () { if ($dd.children().length) { positionDropdown($inp, $dd); $dd.show(); } });
@@ -650,10 +882,11 @@
                 $.getJSON(ajaxUrl, { action: 'tao_formula_search_ativos', nonce: nonce, q: q, grupo: 'E' },
                 function (resp) {
                     $dd.empty();
-                    if (!resp.success || !resp.data.length) {
-                        $dd.append('<div class="taof-ac-item" style="color:#94a3b8">Nenhuma embalagem.</div>');
+                    var lista = (resp && Array.isArray(resp.data)) ? resp.data : [];
+                    if (!lista.length) {
+                        $dd.append('<div class="taof-ac-item" style="color:#94a3b8">Nenhuma embalagem encontrada.</div>');
                     } else {
-                        $.each(resp.data, function (_, a) {
+                        $.each(lista, function (_, a) {
                             var $item = $('<div class="taof-ac-item">').html(
                                 '<span>' + $('<span>').text(a.nome).html() + '</span>' +
                                 '<small>R$ ' + fmt(a.custo_por_unidade, 4) + '/un</small>'
@@ -671,6 +904,8 @@
                     }
                     positionDropdown($inp, $dd);
                     $dd.show();
+                }).fail(function(jqXHR) {
+                    console.error('[TAO Fórmula] embalagem search fail:', jqXHR.responseText && jqXHR.responseText.slice(0,300));
                 });
             }, 280);
         });
@@ -684,6 +919,85 @@
         var $row = $('#taof-emb-body .taof-emb-row').last();
         $row.data('subtotal-emb', 0);
         initEmbRow($row);
+    });
+
+    // ── Sugestão automática de embalagem ─────────────────────────────
+    function preencherEmbRow($row, a) {
+        $row.find('.taof-emb-search').val(a.nome);
+        $row.find('.taof-emb-id').val(a.id);
+        $row.data({ 'emb-id': a.id, 'emb-nome': a.nome, 'custo-unit': a.custo_por_unidade || 0 });
+        $row.find('.taof-emb-custo-label').text('R$ ' + fmt(a.custo_por_unidade || 0, 4) + '/un');
+        calcularEmb($row);
+    }
+
+    function sugerirEmbalagem() {
+        if (!formaAtual) return;
+        if ($('#taof-emb-body .taof-emb-row').length > 0) return; // não sobrescreve existente
+
+        var tipo = formaAtual.tipo;
+        var vol  = getVol();
+
+        var embs = (window.taofEmbalagens || []).filter(function (e) {
+            return e.tipos.indexOf(tipo) !== -1;
+        });
+        if (!embs.length) return;
+
+        var melhor;
+        if (tipo === 'cap' || tipo === 'duo_cap') {
+            // Para cápsulas: sugerir pote com volume >= qtde_caps × 0,35ml (aprox. vol cap #0)
+            var totalCaps = vol * getPotes();
+            var volEstimado = totalCaps * 0.35; // ~0.35ml por cápsula #0 (estimativa conservadora)
+            embs.sort(function (a, b) { return a.vol - b.vol; });
+            melhor = embs.filter(function (e) { return e.vol >= volEstimado; })[0] || embs[embs.length - 1];
+        } else {
+            // Menor embalagem que comporta o volume
+            embs.sort(function (a, b) { return a.vol - b.vol; });
+            melhor = embs.filter(function (e) { return e.vol >= vol; })[0] || embs[embs.length - 1];
+        }
+        if (!melhor) return;
+
+        // Adiciona linha e busca no cadastro de ativos pelo código FC
+        $('#taof-btn-add-emb').trigger('click');
+        var $row = $('#taof-emb-body .taof-emb-row').last();
+        $row.find('.taof-emb-search').val('⏳ ' + melhor.nome + '…');
+
+        $.getJSON(ajaxUrl, {
+            action: 'tao_formula_search_ativos',
+            nonce:  nonce,
+            q:      String(melhor.codigo),
+            grupo:  ''
+        }, function (resp) {
+            var lista = (resp && Array.isArray(resp.data)) ? resp.data : [];
+            var ativo = null;
+            // Prefere correspondência exata de codigo_fc
+            for (var i = 0; i < lista.length; i++) {
+                if (String(lista[i].codigo_fc) === String(melhor.codigo)) { ativo = lista[i]; break; }
+            }
+            if (!ativo && lista.length) ativo = lista[0];
+
+            if (ativo) {
+                preencherEmbRow($row, ativo);
+            } else {
+                // Produto não cadastrado: preenche só o nome como referência
+                $row.find('.taof-emb-search').val(melhor.nome + ' (sem cadastro)');
+                $row.find('.taof-emb-custo-label').text('Cód. ' + melhor.codigo + ' — cadastre o ativo');
+            }
+        }).fail(function () {
+            $row.find('.taof-emb-search').val(melhor.nome);
+        });
+    }
+
+    // Aciona sugestão quando forma + volume estão preenchidos
+    $('#taof-forma-vol').on('change blur', function () {
+        setTimeout(sugerirEmbalagem, 100);
+    });
+    $('#taof-forma-sel').on('change', function () {
+        // Remove sugestão automática anterior (se linha estiver vazia/sem id)
+        $('#taof-emb-body .taof-emb-row').each(function () {
+            var $r = $(this);
+            if (!$r.data('emb-id')) $r.remove();
+        });
+        setTimeout(sugerirEmbalagem, 200);
     });
 
     // ── Salvar ────────────────────────────────────────────────────────
@@ -722,6 +1036,7 @@
                 volapa_ul:        $r.data('volapa-ul'),
                 custo_por_unidade: parseFloat($r.data('custo-unit')) || 0,
                 preco_venda:       parseFloat($r.data('venda-unit')) || 0,
+                unid_padrao:       $r.data('unid-padrao') || ($r.hasClass('taof-row-qsp') ? 'g' : 'mg'),
                 subtotal:          parseFloat($r.data('subtotal'))    || 0
             });
         });
@@ -745,17 +1060,22 @@
         var calculado = itens.reduce(function (s, i) { return s + (i.subtotal || 0); }, 0);
         var custoFixo = getCustoFixo();
         var subtotal  = calculado + custoFixo;
+        var acrescVal = parseFloat($('#taof-acrescimo-val-inp').val()) || 0;
+        var desctVal  = parseFloat($('#taof-desconto-val-inp').val())  || 0;
         var acrescPct = parseFloat($('#taof-acrescimo-pct').val()) || 0;
         var desctPct  = parseFloat($('#taof-desconto-pct').val())  || 0;
-        var final     = subtotal + (subtotal * acrescPct / 100) - (subtotal * desctPct / 100);
+        var final     = subtotal + acrescVal - desctVal;
 
         $btn.prop('disabled', true);
         $sp.css('visibility', 'visible');
         $msg.hide();
 
-        $.post(ajaxUrl, {
-            action:          'tao_formula_save_orcamento',
+        var saveAction = EDIT_ORC_ID ? 'tao_formula_update_orcamento' : 'tao_formula_save_orcamento';
+        var postData = {
+            action:          saveAction,
             nonce:           nonce,
+            orc_id:          EDIT_ORC_ID || '',
+            card_id:         window.taofCardId || '',
             nome_paciente:   $('#taof-nome-paciente').val(),
             whatsapp:        $('#taof-whatsapp').val(),
             forma_id:        $('#taof-forma-sel').val() || '',
@@ -771,19 +1091,322 @@
             total_orcamento: final,
             observacoes:     $('#taof-observacoes').val(),
             itens:           JSON.stringify(itens)
-        }, function (resp) {
+        };
+
+        $.post(ajaxUrl, postData, function (resp) {
             $sp.css('visibility', 'hidden');
             $btn.prop('disabled', false);
             if (resp.success) {
-                window.location.href = window.taofOrcListUrl;
+                if (IS_MODAL) {
+                    window.parent.postMessage({
+                        taofSaved: true,
+                        orcId:     resp.data.id,
+                        numero:    resp.data.numero,
+                        isEdit:    !! EDIT_ORC_ID
+                    }, '*');
+                } else {
+                    window.location.href = window.taofOrcListUrl;
+                }
             } else {
                 $msg.text('Erro: ' + (resp.data || 'desconhecido')).addClass('err').show();
             }
-        }).fail(function () {
+        }).fail(function (xhr) {
             $sp.css('visibility', 'hidden');
             $btn.prop('disabled', false);
-            $msg.text('Falha na requisicao.').addClass('err').show();
+            var det = xhr && xhr.status ? 'HTTP ' + xhr.status : 'sem resposta';
+            var body = xhr && xhr.responseText ? xhr.responseText.substring(0, 120) : '';
+            $msg.text('Falha na requisição (' + det + ')' + (body ? ': ' + body : '')).addClass('err').show();
         });
     });
+
+    // ── Análise de Preços ─────────────────────────────────────────────
+    var _analiseCompraTotal = 0; // para simulação
+
+    function renderLinha(nome, unid, precoComp, precoCusto, precoVenda, subtotalVenda, isTotal, isSep) {
+        if (isSep) return '<tr><td colspan="7" style="padding:4px 16px;background:#f8fafc;font-size:11px;color:#64748b;font-weight:600">' + nome + '</td></tr>';
+        var margem    = precoComp > 0 ? precoVenda / precoComp : null;
+        var margBruta = precoComp > 0 ? precoVenda - precoComp : null;
+        var mTxt = margem !== null
+            ? fmt(margem, 2) + 'x <small>(' + fmt((margem - 1) * 100, 1) + '%)</small>'
+            : '<span style="color:#94a3b8">—</span>';
+        var bTxt, bStyle = '';
+        if (margBruta !== null) {
+            bTxt   = 'R$&nbsp;' + fmt(margBruta, 4);
+            bStyle = margBruta < 0 ? 'color:#dc2626' : (margBruta > 0 ? 'color:#16a34a' : '');
+        } else { bTxt = '<span style="color:#94a3b8">—</span>'; }
+        var boldSt = isTotal ? 'font-weight:700;background:#f8fafc;border-top:2px solid #e2e8f0' : '';
+        return '<tr style="' + boldSt + '">' +
+            '<td>' + $('<span>').text(nome).html() + '</td>' +
+            '<td>' + (precoComp  > 0 ? 'R$&nbsp;' + fmt(precoComp,  4) + (unid ? '/' + unid : '') : '<span style="color:#94a3b8">—</span>') + '</td>' +
+            '<td>' + (precoCusto > 0 ? 'R$&nbsp;' + fmt(precoCusto, 4) + (unid ? '/' + unid : '') : '<span style="color:#94a3b8">—</span>') + '</td>' +
+            '<td>' + (precoVenda > 0 ? 'R$&nbsp;' + fmt(precoVenda, 4) + (unid ? '/' + unid : '') : '<span style="color:#94a3b8">—</span>') + '</td>' +
+            '<td>' + (subtotalVenda > 0 ? 'R$&nbsp;' + fmt(subtotalVenda) : '<span style="color:#94a3b8">—</span>') + '</td>' +
+            '<td>' + mTxt + '</td>' +
+            '<td style="' + bStyle + '">' + bTxt + '</td>' +
+            '</tr>';
+    }
+
+    function abrirAnalise() {
+        var rows = '', totalCompra = 0, totalCusto = 0, totalVenda = 0;
+        var temItemSemCompra = false;
+
+        // ── MPs ───────────────────────────────────────────────────────
+        var mpLinhas = [];
+        $('#taof-itens-body .taof-item-row').each(function () {
+            var $r = $(this);
+            if (!$r.data('ativo-id')) return;
+            var nome       = $r.data('ativo-nome') || '—';
+            var unid       = $r.data('unid-padrao') || 'g';
+            var precoComp  = parseFloat($r.data('preco-compra')) || 0;
+            var precoCusto = parseFloat($r.data('custo-unit'))   || 0;
+            var precoVenda = parseFloat($r.data('venda-unit'))   || 0;
+            var qtd        = parseFloat($r.data('qtd-em-padrao')) || 0;
+            var subtotalV  = parseFloat($r.data('subtotal'))     || 0;
+            var subtotalC  = precoComp > 0 ? qtd * precoComp : 0;
+            if (precoComp <= 0) temItemSemCompra = true;
+            totalCompra += subtotalC;
+            totalCusto  += qtd * precoCusto;
+            totalVenda  += subtotalV;
+            mpLinhas.push({ nome: nome, unid: unid, precoComp: precoComp, precoCusto: precoCusto, precoVenda: precoVenda, subtotalV: subtotalV });
+        });
+
+        if (!mpLinhas.length) { alert('Adicione ativos para analisar os preços.'); return; }
+
+        rows += renderLinha('Matérias-Primas', '', 0, 0, 0, 0, false, true);
+        mpLinhas.forEach(function (l) {
+            rows += renderLinha(l.nome, l.unid, l.precoComp, l.precoCusto, l.precoVenda, l.subtotalV, false, false);
+        });
+
+        // ── Cápsulas ──────────────────────────────────────────────────
+        var capR = (formaAtual && (formaAtual.tipo === 'cap' || formaAtual.tipo === 'duo_cap'))
+                   ? calcularCapsulaIdeal(getNPerDoseForced()) : null;
+        if (capR) {
+            var totalCaps = getVol() * getPotes() * capR.nPerDose;
+            var capVenda  = capR.cap.venda_unit || 0;
+            var capSub    = totalCaps * capVenda;
+            totalVenda   += capSub;
+            var capNome   = capR.cap.tipo.charAt(0).toUpperCase() + capR.cap.tipo.slice(1).toLowerCase() +
+                            ' Nº' + capR.cap.numero + ' (' + totalCaps + ' un)';
+            rows += renderLinha('Embalagens & Cápsulas', '', 0, 0, 0, 0, false, true);
+            rows += renderLinha(capNome, 'un', 0, 0, capVenda, capSub, false, false);
+        }
+
+        // ── Embalagens ────────────────────────────────────────────────
+        var embHdr = !capR;
+        $('#taof-emb-body .taof-emb-row').each(function () {
+            var $r = $(this);
+            if (!$r.data('emb-id')) return;
+            if (embHdr) { rows += renderLinha('Embalagens', '', 0, 0, 0, 0, false, true); embHdr = false; }
+            var nome  = $r.data('emb-nome') || '—';
+            var custo = parseFloat($r.data('custo-unit')) || 0;
+            var qty   = parseInt($r.find('.taof-emb-qty').val()) || 0;
+            var sub   = parseFloat($r.data('subtotal-emb')) || 0;
+            totalVenda += sub;
+            rows += renderLinha(nome, 'un', 0, custo, custo, sub, false, false);
+        });
+
+        // Custo fixo + valor final real
+        var custoFixoReal = getCustoFixo();
+        var acrescPct = parseFloat($('#taof-acrescimo-pct').val()) || 0;
+        var desctPct  = parseFloat($('#taof-desconto-pct').val())  || 0;
+        var subtotalBase = totalVenda + custoFixoReal + (capR ? (capR.custoCapsula || 0) : 0);
+        // Pega o valor final já calculado da tela
+        var valorFinalTxt = $('#taof-res-final strong').text().replace('R$', '').replace(/\./g,'').replace(',','.').trim();
+        var valorFinal = parseFloat(valorFinalTxt) || 0;
+
+        // ── Total ────────────────────────────────────────────────────
+        rows += renderLinha('TOTAL', '', totalCompra > 0 ? totalCompra : 0, totalCusto, 0, valorFinal, true, false);
+
+        _analiseCompraTotal = totalCompra;
+
+        $('#taof-analise-body').html(rows);
+
+        // Simulação
+        var margemAtual = totalCompra > 0 ? valorFinal / totalCompra : 0;
+        $('#taof-sim-margem-atual').text(fmt(margemAtual, 2) + 'x (' + fmt(margemAtual * 100, 0) + '%)');
+        $('#taof-sim-range').val(margemAtual.toFixed(2));
+        $('#taof-sim-inp').val(margemAtual.toFixed(2));
+        simularMargem(margemAtual);
+
+        if (temItemSemCompra) {
+            $('#taof-sim-aviso').show();
+        } else {
+            $('#taof-sim-aviso').hide();
+        }
+
+        $('#taof-modal-analise').show();
+        document.body.style.overflow = 'hidden';
+    }
+
+    function simularMargem(mult) {
+        if (!_analiseCompraTotal) { $('#taof-sim-novo').text('—'); return; }
+        var novo = _analiseCompraTotal * mult;
+        var cor  = mult < 1 ? '#dc2626' : (mult >= 2 ? '#16a34a' : '#d97706');
+        $('#taof-sim-novo').html('<strong style="color:' + cor + '">R$&nbsp;' + fmt(novo) + '</strong>');
+    }
+
+    $(document).on('input', '#taof-sim-range', function () {
+        var v = parseFloat($(this).val());
+        $('#taof-sim-inp').val(v.toFixed(2));
+        simularMargem(v);
+    });
+    $(document).on('input', '#taof-sim-inp', function () {
+        var v = Math.max(0.01, parseFloat($(this).val()) || 0);
+        $('#taof-sim-range').val(v);
+        simularMargem(v);
+    });
+
+    $('#taof-btn-analise').on('click', abrirAnalise);
+
+    $('#taof-modal-analise').on('click', '#taof-analise-fechar, .taof-analise-overlay', function () {
+        $('#taof-modal-analise').hide();
+        document.body.style.overflow = '';
+    });
+
+    // ── Botão fechar modal ────────────────────────────────────────────
+    $('#taof-modal-close-btn').on('click', function () {
+        window.parent.postMessage({ taofClosed: true }, '*');
+    });
+
+    // ── Modo edição: carregar dados existentes ────────────────────────
+    // Cancelar no modal fecha sem navegar
+    $('#taof-cancel-btn').on('click', function () {
+        window.parent.postMessage({ taofClosed: true }, '*');
+    });
+
+    function loadEditData(data) {
+        if (!data) return;
+        _loadingEdit = true;
+
+        // Paciente
+        $('#taof-nome-paciente').val(data.nome_paciente || '');
+        $('#taof-whatsapp').val(data.whatsapp || '');
+
+        // Forma farmacêutica
+        if (data.forma_id && formasMap[data.forma_id]) {
+            $('#taof-forma-sel').val(data.forma_id).trigger('change');
+            // Aguarda o change popular unidade, então define os valores
+            setTimeout(function () {
+                if (data.forma_vol)      $('#taof-forma-vol').val(data.forma_vol).trigger('input');
+                if (data.forma_unidade)  $('#taof-forma-unidade').val(data.forma_unidade);
+                if (data.qtde_potes)     $('#taof-qtde-potes').val(data.qtde_potes).trigger('input');
+            }, 50);
+        }
+
+        // Itens MP e Embalagem
+        var itens = data.itens || [];
+        $('#taof-itens-body').empty();
+
+        itens.forEach(function (item) {
+            if (item.tipo !== 'mp') return;
+            var $row = adicionarLinha();
+
+            var $srch = $row.find('.taof-orc-ativo-search');
+            $srch.val(item.nome || '');
+            $row.find('.taof-orc-ativo-id').val(item.ativo_id || '');
+            $row.find('.taof-orc-cod').text(item.codigo_fc || '—');
+
+            // Marcar visualmente itens sem ativo associado
+            if (!item.ativo_id && item.nome) {
+                $srch.css({ 'border-color': '#f97316', 'background-color': '#fff7ed' })
+                     .attr('placeholder', '⚠ Não associado — busque o ativo');
+                // Ao focar pela 1ª vez: dispara busca automática com o nome da receita
+                $srch.one('focus', function() { $(this).trigger('input'); });
+            }
+            $row.find('.taof-orc-fp-label').text(
+                parseFloat(item.fp || 1).toLocaleString('pt-BR', { minimumFractionDigits: 3 })
+            );
+            var vendaUnit = parseFloat(item.preco_venda) || 0;
+            // Para QSP: se unid_padrao foi salvo como 'mg' por fallback errado mas
+            // o subtotal salvo é consistente com cálculo em 'g', corrige para 'g'
+            var unidPadrao = item.unid_padrao || (item.is_qsp ? 'g' : (item.qtd_unit || 'mg'));
+            if (item.is_qsp && unidPadrao === 'mg' && item.preco_venda > 0 && item.qtd_total_g > 0 && item.subtotal > 0) {
+                var subComG = item.qtd_total_g * parseFloat(item.preco_venda);
+                if (Math.abs(item.subtotal - subComG) / item.subtotal < 0.2) unidPadrao = 'g';
+            }
+            $row.find('.taof-orc-preco-venda').text(
+                vendaUnit > 0 ? 'R$ ' + fmt(vendaUnit, 4) + '/' + unidPadrao : '—'
+            );
+            $row.data({
+                'ativo-id':   item.ativo_id || '',
+                'ativo-nome': item.nome || '',
+                'codigo-fc':  item.codigo_fc || '',
+                'unid-padrao': unidPadrao,
+                'custo-unit':  parseFloat(item.custo_por_unidade || 0),
+                'venda-unit':  vendaUnit,
+                'diluicao':    parseFloat(item.diluicao || 1),
+                'teor':        parseFloat(item.teor || 100),
+                'densidade':   1,
+                'fp':          parseFloat(item.fp || 1),
+            });
+            $row.find('.taof-orc-dose-unit').val(item.dose_unit || 'mg');
+
+            if (item.is_qsp) {
+                toggleQSP($row, true);
+                // Restaura subtotal salvo para o primeiro calcularTotais não recalcular via atualizarQSPRow
+                var sub = parseFloat(item.subtotal || 0);
+                var qtdG = parseFloat(item.qtd_total_g || 0);
+                $row.data({ subtotal: sub, 'qtd-total-g': qtdG });
+                $row.find('.taof-orc-qtd-total').text(fmt(qtdG * 1000, 2) + ' mg (QSP)');
+                $row.find('.taof-orc-subtotal').text('R$ ' + fmt(sub));
+            } else {
+                $row.find('.taof-orc-dose').val(item.dose || 0);
+                var sub = parseFloat(item.subtotal || 0);
+                var qtdG = parseFloat(item.qtd_total_g || 0);
+                $row.data({ subtotal: sub, 'qtd-total-g': qtdG, 'volapa-ul': parseFloat(item.volapa_ul || 0),
+                            dose: parseFloat(item.dose || 0), 'dose-unit': item.dose_unit || 'mg' });
+                $row.find('.taof-orc-qtd-total').text(fmt(qtdG * 1000, 2) + ' mg');
+                $row.find('.taof-orc-subtotal').text('R$ ' + fmt(sub));
+            }
+        });
+
+        // Embalagens
+        itens.forEach(function (item) {
+            if (item.tipo !== 'emb') return;
+            var frag = document.getElementById('taof-emb-tpl').content.cloneNode(true);
+            $('#taof-emb-body').append(frag);
+            var $row = $('#taof-emb-body .taof-emb-row').last();
+            $row.data({ 'emb-id': item.ativo_id || '', 'emb-nome': item.nome || '',
+                        'custo-unit': parseFloat(item.custo_por_unidade || 0),
+                        'subtotal-emb': parseFloat(item.subtotal || 0) });
+            $row.find('.taof-emb-search').val(item.nome || '');
+            $row.find('.taof-emb-id').val(item.ativo_id || '');
+            $row.find('.taof-emb-qty').val(item.quantidade || 1);
+            $row.find('.taof-emb-custo-label').text('R$ ' + fmt(item.custo_por_unidade, 4) + '/un');
+            $row.find('.taof-emb-subtotal').text('R$ ' + fmt(item.subtotal, 2));
+            initEmbRow($row);
+        });
+
+        // Custo fixo / acréscimo / desconto
+        if (data.custo_fixo_aplicado !== undefined && data.custo_fixo_aplicado !== null) {
+            $('#taof-custo-fixo-inp').val(parseFloat(data.custo_fixo_aplicado).toFixed(2)).data('manual', true);
+        }
+        if (data.margem_aplicada) {
+            $('#taof-acrescimo-pct').val(parseFloat(data.margem_aplicada).toFixed(1));
+            $('#taof-acrescimo-val-inp').removeData('manual');
+        }
+        if (data.desconto_pct) {
+            $('#taof-desconto-pct').val(parseFloat(data.desconto_pct).toFixed(1));
+            $('#taof-desconto-val-inp').removeData('manual');
+        }
+
+        // Obs
+        $('#taof-observacoes').val(data.observacoes || '');
+
+        setTimeout(function () {
+            calcularTotais();   // _loadingEdit ainda true → atualizarQSPRow pula; usa subtotal salvo
+            _loadingEdit = false;
+            // Foca no 1º ativo não associado (ativo_id vazio mas tem nome)
+            var $primeiro = $('#taof-itens-body .taof-item-row').filter(function() {
+                return !$(this).find('.taof-orc-ativo-id').val() &&
+                        $(this).find('.taof-orc-ativo-search').val();
+            }).first().find('.taof-orc-ativo-search');
+            if ($primeiro.length) $primeiro.focus();
+        }, 200);
+    }
+
+    if (EDIT_DATA) {
+        loadEditData(EDIT_DATA);
+    }
 
 })(jQuery);

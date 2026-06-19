@@ -124,12 +124,30 @@ function tao_formula_page_formas() {
 
                     <tr>
                         <th>
-                            <label for="taof-custo-fixo">Custo Fixo (R$)</label>
-                            <span class="taof-help" title="Honorários fixos da forma — somado ao custo dos ativos para compor o preço final">?</span>
+                            <label>Custo Fixo da Forma</label>
+                            <span class="taof-help" title="Quando definido (R$ ou %), é exibido no orçamento e o cálculo automático é desativado">?</span>
                         </th>
                         <td>
-                            <input type="number" id="taof-custo-fixo" name="custo_fixo" class="small-text" step="0.01" min="0" placeholder="0,00">
-                            <p class="description">Honorários de manipulação cobrados por forma</p>
+                            <select id="taof-custo-fixo-tipo" name="custo_fixo_tipo" style="margin-bottom:6px;width:100%;max-width:340px">
+                                <option value="">Calcular automaticamente no orçamento</option>
+                                <option value="R">Valor fixo (R$) — define o custo de manipulação</option>
+                                <option value="pct">Percentual (% sobre MPs)</option>
+                            </select>
+                            <div id="taof-custo-fixo-val-row" style="display:none;margin-top:4px;display:flex;align-items:center;gap:6px">
+                                <input type="number" id="taof-custo-fixo" name="custo_fixo" class="small-text" step="0.01" min="0" placeholder="0,00">
+                                <span id="taof-custo-fixo-unit" style="font-size:13px;color:#475569">R$</span>
+                            </div>
+                            <p class="description" id="taof-custo-fixo-desc" style="display:none">Exibido no orçamento ao selecionar esta forma — cálculo automático desativado</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>
+                            <label for="taof-valor-minimo">Valor Mínimo (R$)</label>
+                            <span class="taof-help" title="Se o total calculado for inferior a este valor, prevalece o valor mínimo">?</span>
+                        </th>
+                        <td>
+                            <input type="number" id="taof-valor-minimo" name="valor_minimo" class="small-text" step="0.01" min="0" placeholder="0,00">
+                            <p class="description">Se o total calculado for inferior, prevalece este valor</p>
                         </td>
                     </tr>
                     <tr>
@@ -166,6 +184,7 @@ function tao_formula_page_formas() {
                 <th>Volume / Cápsulas</th>
                 <th>Cápsula</th>
                 <th style="text-align:right">Custo Fixo</th>
+                <th style="text-align:right">Val. Mín.</th>
                 <th style="text-align:right">Margem</th>
                 <th style="text-align:center">Ações</th>
             </tr>
@@ -194,6 +213,8 @@ function tao_formula_page_formas() {
             data-unidade-volume="<?php echo esc_attr($f['unidade_volume'] ?? 'g'); ?>"
             data-n-capsulas="<?php echo esc_attr($f['n_capsulas'] ?? ''); ?>"
             data-custo-fixo="<?php echo esc_attr($f['custo_fixo'] ?? 0); ?>"
+            data-custo-fixo-tipo="<?php echo esc_attr($f['custo_fixo_tipo'] ?? ''); ?>"
+            data-valor-minimo="<?php echo esc_attr($f['valor_minimo'] ?? ''); ?>"
             data-margem-pct="<?php echo esc_attr($f['margem_pct'] ?? 30); ?>"
             data-tipo-capsula="<?php echo esc_attr($f['tipo_capsula'] ?? ''); ?>"
             data-numero-capsula="<?php echo esc_attr($f['numero_capsula'] ?? ''); ?>"
@@ -203,7 +224,25 @@ function tao_formula_page_formas() {
             <td><?php echo esc_html($tipo_lbl); ?></td>
             <td><?php echo esc_html($vol_str); ?></td>
             <td style="font-size:13px;color:#475569"><?php echo esc_html($cap_str); ?></td>
-            <td style="text-align:right">R$&nbsp;<?php echo number_format((float)($f['custo_fixo']??0), 2, ',', '.'); ?></td>
+            <td style="text-align:right;font-size:12px">
+                <?php
+                $cf_tipo = $f['custo_fixo_tipo'] ?? '';
+                $cf_val  = (float)($f['custo_fixo'] ?? 0);
+                if ( $cf_tipo === 'R' ) {
+                    echo '<span style="color:#0369a1;font-weight:600">R$&nbsp;' . number_format($cf_val,2,',','.') . '</span><br><small style="color:#94a3b8">fixo</small>';
+                } elseif ( $cf_tipo === 'pct' ) {
+                    echo '<span style="color:#7c3aed;font-weight:600">' . number_format($cf_val,1,',','.') . '%</span><br><small style="color:#94a3b8">sobre MP</small>';
+                } else {
+                    echo '<span style="color:#94a3b8;font-size:11px">automático</span>';
+                }
+                ?>
+            </td>
+            <td style="text-align:right;font-size:12px">
+                <?php
+                $vm = $f['valor_minimo'] ?? null;
+                echo $vm !== null && $vm > 0 ? 'R$&nbsp;' . number_format((float)$vm,2,',','.') : '<span style="color:#94a3b8">—</span>';
+                ?>
+            </td>
             <td style="text-align:right"><?php echo number_format((float)($f['margem_pct']??30), 1, ',', '.'); ?>%</td>
             <td style="text-align:center">
                 <button class="button button-small taof-btn-edit" data-row>✏️ Editar</button>

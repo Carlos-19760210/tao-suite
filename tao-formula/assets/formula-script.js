@@ -45,6 +45,22 @@
         }
     }
 
+    function toggleCustoFixoTipo() {
+        var t = $('#taof-custo-fixo-tipo').val();
+        var show = t === 'R' || t === 'pct';
+        $('#taof-custo-fixo-val-row').toggle(show);
+        $('#taof-custo-fixo-desc').toggle(show);
+        if (t === 'pct') {
+            $('#taof-custo-fixo-unit').text('%');
+            $('#taof-custo-fixo').attr('placeholder', '30');
+        } else {
+            $('#taof-custo-fixo-unit').text('R$');
+            $('#taof-custo-fixo').attr('placeholder', '0,00');
+        }
+    }
+
+    $('#taof-custo-fixo-tipo').on('change', toggleCustoFixoTipo);
+
     // Popula o select de número conforme o tipo de cápsula selecionado
     function popularNumeros(tipoSel, numeroAtual) {
         $capNumero.empty().append('<option value="">— Selecione o tamanho —</option>');
@@ -93,8 +109,11 @@
             $('#taof-volume').val(data.volume);
             $('#taof-unidade-volume').val(data.unidadeVolume || 'g');
             $('#taof-ncap').val(data.nCapsulas);
+            $('#taof-custo-fixo-tipo').val(data.custoFixoTipo || '');
             $('#taof-custo-fixo').val(data.custoFixo);
+            $('#taof-valor-minimo').val(data.valorMinimo || '');
             $('#taof-margem').val(data.margemPct);
+            toggleCustoFixoTipo();
             // Campos de cápsula
             $capTipo.val(data.tipoCapsula || '');
             $('#taof-ftenchcap').val(data.ftenchcap || 1);
@@ -107,6 +126,7 @@
             $capNumero.empty().append('<option value="">— Selecione o tamanho —</option>');
             $capVolUl.val('');
             $capVolInfo.text('');
+            toggleCustoFixoTipo();
         }
         toggleTipo();
         $modal.show();
@@ -132,6 +152,8 @@
             unidadeVolume: $tr.data('unidade-volume'),
             nCapsulas:     $tr.data('n-capsulas'),
             custoFixo:     $tr.data('custo-fixo'),
+            custoFixoTipo: $tr.data('custo-fixo-tipo'),
+            valorMinimo:   $tr.data('valor-minimo'),
             margemPct:     $tr.data('margem-pct'),
             tipoCapsula:   $tr.data('tipo-capsula'),
             numeroCapsula: $tr.data('numero-capsula'),

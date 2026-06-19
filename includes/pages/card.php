@@ -331,6 +331,12 @@ function tao_crm_page_card() {
                             <strong style="font-size:13px">&#x1F6D2; Itens do Neg&oacute;cio</strong>
                             <?php if ( empty( $card['fechado'] ) ) : ?>
                             <button type="button" id="crm-item-add" class="button button-small" style="font-size:11px">+ Item</button>
+                            <?php if ( function_exists( 'tao_formula_can_access' ) && tao_formula_can_access() ) : ?>
+                            <button type="button" id="crm-formula-novo-btn" class="button button-small"
+                                    style="font-size:11px;background:#0ea5e9;border-color:#0284c7;color:#fff">
+                                &#x1F9EA; Or&ccedil;amento
+                            </button>
+                            <?php endif; ?>
                             <?php endif; ?>
                         </div>
                         <div id="crm-itens-loading" style="display:none;font-size:12px;color:#6b7280;padding:4px 0">Carregando...</div>
@@ -340,6 +346,63 @@ function tao_crm_page_card() {
                             <strong id="crm-itens-grand-total" style="color:#1e293b">R$ 0,00</strong>
                         </div>
                     </div>
+
+                    <!-- Orçamentos Fórmula -->
+                    <?php if ( function_exists( 'tao_formula_can_access' ) && tao_formula_can_access() ) : ?>
+                    <div class="crm-itens-section" id="crm-formulas-section" style="margin-top:10px">
+                        <div class="crm-itens-header">
+                            <strong style="font-size:13px">&#x1F9EA; Or&ccedil;amentos F&oacute;rmula</strong>
+                            <div style="display:flex;gap:5px">
+                                <button type="button" id="crm-formula-reprocessar-btn"
+                                        class="button button-small"
+                                        style="font-size:11px;display:none"
+                                        title="Re-tenta associar ativos pendentes usando sinônimos atuais">
+                                    &#x1F504; Reprocessar
+                                </button>
+                                <button type="button" id="crm-formula-excluir-sel-btn"
+                                        class="button button-small"
+                                        style="font-size:11px;display:none;color:#dc2626;border-color:#fca5a5"
+                                        title="Excluir orçamentos selecionados">
+                                    &#x1F5D1; Excluir selecionados
+                                </button>
+                                <button type="button" id="crm-formula-enviar-btn"
+                                        class="button button-primary button-small"
+                                        style="font-size:11px;display:none">
+                                    &#x1F4E4; Enviar WhatsApp
+                                </button>
+                            </div>
+                        </div>
+                        <div id="crm-formulas-list" style="font-size:12px;color:#94a3b8;padding:4px 0;max-height:280px;overflow-y:auto">
+                            Carregando...
+                        </div>
+
+                        <?php if ( empty( $card['fechado'] ) ) : ?>
+                        <!-- Upload Receita IA -->
+                        <div id="crm-receita-section" style="margin-top:10px;border-top:1px solid #f1f5f9;padding-top:8px">
+                            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                                <strong style="font-size:12px;color:#475569">&#x1F52C; Processar Receita (IA)</strong>
+                                <span id="crm-receita-status" style="font-size:11px"></span>
+                            </div>
+                            <div id="crm-receita-dropzone"
+                                 style="border:2px dashed #cbd5e1;border-radius:6px;padding:14px 10px;text-align:center;cursor:pointer;transition:border-color .2s;background:#f8fafc">
+                                <div style="color:#94a3b8;font-size:12px;line-height:1.6">
+                                    &#x1F4CE; Arraste, <strong>cole (Ctrl+V)</strong> ou
+                                    <label for="crm-receita-file" style="color:#0ea5e9;cursor:pointer;text-decoration:underline">selecione o arquivo</label>
+                                    <br><span style="font-size:11px">JPG &bull; PNG &bull; PDF</span>
+                                </div>
+                                <input type="file" id="crm-receita-file" accept="image/*,.pdf" style="display:none">
+                            </div>
+                            <div id="crm-receita-preview" style="display:none;margin-top:6px;font-size:12px;color:#475569;background:#f1f5f9;border-radius:4px;padding:6px 8px"></div>
+                            <div style="margin-top:6px;display:flex;gap:6px">
+                                <button type="button" id="crm-receita-processar" class="button button-primary button-small" style="display:none;font-size:11px">
+                                    &#x1F916; Gerar Or&ccedil;amento
+                                </button>
+                                <button type="button" id="crm-receita-limpar" class="button button-small" style="display:none;font-size:11px">✕</button>
+                            </div>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                    <?php endif; ?>
 
                     <!-- Etiquetas (Tags) -->
                     <?php if ( ! empty( $all_tags ) ) : ?>
@@ -548,7 +611,31 @@ function tao_crm_page_card() {
                 </div>
                 <?php endif; ?>
 
+            </div><!-- /tao-crm-card-info -->
+
+            <!-- ── Modal iframe: TAO Fórmula ──────────────────────────── -->
+            <?php if ( function_exists( 'tao_formula_can_access' ) && tao_formula_can_access() ) : ?>
+            <div id="taof-crm-modal"
+                 style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:99998;align-items:center;justify-content:center">
+                <div style="position:relative;width:98vw;max-width:1260px;height:93vh;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.45)">
+                    <iframe id="taof-crm-iframe" src=""
+                            style="width:100%;height:100%;border:none;display:block"></iframe>
+                </div>
             </div>
+            <?php
+                $taof_novo_url = admin_url( 'admin.php?page=tao-formula-orc-novo' );
+                $taof_nonce    = wp_create_nonce( 'tao_formula_nonce' );
+            ?>
+            <script>
+            window.taofNovoUrl  = <?php echo wp_json_encode( $taof_novo_url ); ?>;
+            window.taofNonce    = <?php echo wp_json_encode( $taof_nonce ); ?>;
+            window.taofAjaxUrl  = <?php echo wp_json_encode( admin_url('admin-ajax.php') ); ?>;
+            window.taofCrmCardId   = <?php echo wp_json_encode( $card_id ); ?>;
+            window.taofCrmNome     = <?php echo wp_json_encode( $card['contato_nome'] ?? '' ); ?>;
+            window.taofCrmWa       = <?php echo wp_json_encode( $card['contato_whatsapp'] ?? '' ); ?>;
+            window.taofCrmFechado  = <?php echo empty( $card['fechado'] ) ? 'false' : 'true'; ?>;
+            </script>
+            <?php endif; ?>
 
             <!-- Divisor arrastável -->
             <div class="crm-panel-resizer" id="crm-panel-resizer" title="Arraste para redimensionar"></div>
@@ -982,6 +1069,29 @@ function tao_crm_page_card() {
 
     <script>
     var taoCrmCardId       = <?php echo wp_json_encode( $card_id ); ?>;
+    window._crmItensTotal    = 0;
+    window._crmFormulasTotal = 0;
+    window.atualizarOportunidade = (function () {
+        var _timer;
+        return function () {
+            var tot = (window._crmItensTotal || 0) + (window._crmFormulasTotal || 0);
+            var inp = document.getElementById('crm-valor-oportunidade');
+            if (!inp) return;
+            inp.value = tot > 0 ? tot.toFixed(2) : '';
+            clearTimeout(_timer);
+            _timer = setTimeout(function () {
+                if (!window.taoCrm || !taoCrmCardId) return;
+                var p = new URLSearchParams({
+                    action: 'tao_crm_update_card',
+                    card_id: taoCrmCardId,
+                    field: 'valor_oportunidade',
+                    value: inp.value,
+                    _wpnonce: taoCrm.nonce
+                });
+                fetch(taoCrm.ajax_url, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: p });
+            }, 800);
+        };
+    })();
     var taoCrmLastMsg      = <?php echo wp_json_encode( end( $msgs ) ? end( $msgs )['enviado_em'] : '' ); ?>;
     var taoCrmCurrentStage = <?php echo wp_json_encode( $card['estagio_id'] ); ?>;
     var taoCrmWorkspaceId  = <?php echo wp_json_encode( $card['workspace_id'] ); ?>;
@@ -1360,6 +1470,572 @@ function tao_crm_page_card() {
 
     }); // DOMContentLoaded
     </script>
+
+    <?php if ( function_exists( 'tao_formula_can_access' ) && tao_formula_can_access() ) : ?>
+    <script>
+    (function () {
+        if (!window.taofNovoUrl) return;
+
+        var modal         = document.getElementById('taof-crm-modal');
+        var iframe        = document.getElementById('taof-crm-iframe');
+        var novoBtn       = document.getElementById('crm-formula-novo-btn');
+        var enviarBtn     = document.getElementById('crm-formula-enviar-btn');
+        var reprocessarBtn= document.getElementById('crm-formula-reprocessar-btn');
+        var exclSelBtn    = document.getElementById('crm-formula-excluir-sel-btn');
+        var listDiv       = document.getElementById('crm-formulas-list');
+        var cardId   = window.taofCrmCardId;
+        var baseUrl  = window.taofNovoUrl;
+        var taofNonce= window.taofNonce;
+        var ajaxUrl  = window.taofAjaxUrl;
+
+        // ── Abre modal ────────────────────────────────────────────────
+        function abrirModal(src) {
+            iframe.src = src;
+            modal.style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+        }
+
+        function fecharModal() {
+            modal.style.display = 'none';
+            iframe.src = '';
+            document.body.style.overflow = '';
+        }
+
+        // Botão Novo Orçamento
+        if (novoBtn) {
+            novoBtn.addEventListener('click', function () {
+                var src = baseUrl
+                    + '&modal=1'
+                    + '&card_id=' + encodeURIComponent(cardId)
+                    + '&nome='    + encodeURIComponent(window.taofCrmNome  || '')
+                    + '&whatsapp='+ encodeURIComponent(window.taofCrmWa    || '');
+                abrirModal(src);
+            });
+        }
+
+        // Clique fora do iframe fecha modal
+        modal.addEventListener('click', function (e) {
+            if (e.target === modal) fecharModal();
+        });
+
+        // postMessage do iframe
+        window.addEventListener('message', function (e) {
+            if (!e.data || !e.data.taofSaved && !e.data.taofClosed) return;
+            fecharModal();
+            if (e.data.taofSaved) carregarFormulas();
+        });
+
+        // ── Carrega lista de orçamentos do card ───────────────────────
+        function statusLabel(st) {
+            var m = {
+                pendente_revisao: ['⏳ Pendente', '#fef3c7', '#92400e'],
+                aprovado_farma:   ['✅ Aprovado',  '#dcfce7', '#166534'],
+                enviado_paciente: ['📤 Enviado',   '#dbeafe', '#1d4ed8'],
+                aceito_paciente:  ['🎉 Aceito',    '#dcfce7', '#166534'],
+                rejeitado:        ['❌ Rejeitado', '#fee2e2', '#991b1b'],
+            };
+            return m[st] || [st, '#f1f5f9', '#475569'];
+        }
+
+        function carregarFormulas() {
+            if (!listDiv) return;
+            listDiv.innerHTML = '<span style="color:#94a3b8">Carregando...</span>';
+            if (enviarBtn)      enviarBtn.style.display      = 'none';
+            if (reprocessarBtn) reprocessarBtn.style.display = 'none';
+            if (exclSelBtn)     exclSelBtn.style.display     = 'none';
+
+            var params = new URLSearchParams({
+                action:  'tao_formula_get_orcamentos_card',
+                nonce:   taofNonce,
+                card_id: cardId
+            });
+            fetch(ajaxUrl + '?' + params.toString())
+                .then(function(r){ return r.text(); })
+                .then(function(txt) {
+                    var resp;
+                    try { resp = JSON.parse(txt); }
+                    catch(e) {
+                        console.error('[TAO Fórmula] resposta não-JSON (raw):', txt.slice(0, 800));
+                        throw e;
+                    }
+                    if (!resp.success || !Array.isArray(resp.data) || !resp.data.length) {
+                        listDiv.innerHTML = '<span style="color:#94a3b8;font-size:12px">Nenhum orçamento.</span>';
+                        return;
+                    }
+                    var html = '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+                    var anyCheck = false;
+                    var anyPendente = false;
+                    resp.data.forEach(function (o) {
+                        var sl   = statusLabel(o.status);
+                        var dt   = o.criado_em ? new Date(o.criado_em).toLocaleDateString('pt-BR') : '—';
+                        var tot  = parseFloat(o.total_orcamento || 0).toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
+                        var canSend = (o.status !== 'rejeitado');
+                        if (canSend) anyCheck = true;
+                        // Extrai primeiro ativo dos itens para compor descrição
+                        var itens = [];
+                        try { itens = typeof o.itens === 'string' ? JSON.parse(o.itens) : (o.itens || []); } catch(e){}
+                        var priAtivo = '';
+                        for (var ii = 0; ii < itens.length; ii++) { if (itens[ii].nome) { priAtivo = itens[ii].nome; break; } }
+                        if (!anyPendente) {
+                            for (var jj = 0; jj < itens.length; jj++) { if (!itens[jj].ativo_id) { anyPendente = true; break; } }
+                        }
+                        var descOrc = (o.forma_nome || '—') + (priAtivo ? ' — ' + priAtivo : '');
+                        var editUrl = baseUrl
+                            + '&modal=1'
+                            + '&orc_id='  + encodeURIComponent(o.id)
+                            + '&card_id=' + encodeURIComponent(cardId);
+                        html += '<tr style="border-bottom:1px solid #f1f5f9">'
+                            + '<td style="padding:5px 2px;width:20px">'
+                            + (canSend ? '<input type="checkbox" class="taof-orc-check" value="' + o.id + '" style="cursor:pointer">' : '')
+                            + '</td>'
+                            + '<td style="padding:5px 4px;font-weight:600;color:#0f172a">' + (o.numero_orcamento || '—') + '</td>'
+                            + '<td style="padding:5px 4px;color:#475569;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + descOrc.replace(/"/g,'&quot;') + '">' + descOrc + '</td>'
+                            + '<td style="padding:5px 4px;text-align:right;font-weight:700;color:#0f172a;white-space:nowrap">' + tot + '</td>'
+                            + '<td style="padding:5px 4px">'
+                            + '<span style="background:' + sl[1] + ';color:' + sl[2] + ';border-radius:10px;padding:1px 7px;font-size:10px;font-weight:600">' + sl[0] + '</span>'
+                            + '</td>'
+                            + '<td style="padding:5px 2px;color:#94a3b8">' + dt + '</td>'
+                            + '<td style="padding:5px 2px;white-space:nowrap">'
+                            + (!window.taofCrmFechado ? '<button class="button button-small taof-orc-editar" data-url="' + editUrl + '" style="font-size:10px;padding:2px 6px">✏</button> ' : '')
+                            + (!window.taofCrmFechado ? '<button class="button button-small taof-orc-excluir" data-id="' + o.id + '" data-num="' + (o.numero_orcamento||'') + '" style="font-size:10px;padding:2px 6px;color:#dc2626;border-color:#fca5a5">🗑</button>' : '')
+                            + '</td>'
+                            + '</tr>';
+                    });
+                    html += '</table>';
+                    listDiv.innerHTML = html;
+
+                    // Soma total das fórmulas e atualiza campo Valor
+                    var formulasTotal = resp.data.reduce(function(s, o) {
+                        return s + parseFloat(o.total_orcamento || 0);
+                    }, 0);
+                    window._crmFormulasTotal = formulasTotal;
+                    if (typeof window.atualizarOportunidade === 'function') window.atualizarOportunidade();
+
+                    if (enviarBtn)      enviarBtn.style.display      = anyCheck    ? 'inline-block' : 'none';
+                    if (reprocessarBtn) reprocessarBtn.style.display = anyPendente ? 'inline-block' : 'none';
+                    if (exclSelBtn)     exclSelBtn.style.display     = 'none'; // visível só quando há checks marcados
+
+                    // Atualizar visibilidade do Excluir selecionados ao marcar/desmarcar
+                    listDiv.querySelectorAll('.taof-orc-check').forEach(function(cb) {
+                        cb.addEventListener('change', function() {
+                            var algum = listDiv.querySelectorAll('.taof-orc-check:checked').length > 0;
+                            if (exclSelBtn) exclSelBtn.style.display = algum ? 'inline-block' : 'none';
+                        });
+                    });
+
+                    // Botões editar
+                    listDiv.querySelectorAll('.taof-orc-editar').forEach(function (btn) {
+                        btn.addEventListener('click', function () { abrirModal(this.dataset.url); });
+                    });
+
+                    // Botões excluir
+                    listDiv.querySelectorAll('.taof-orc-excluir').forEach(function (btn) {
+                        btn.addEventListener('click', function () {
+                            var num = this.dataset.num || 'este orçamento';
+                            if (!confirm('Excluir ' + num + '? Esta ação não pode ser desfeita.')) return;
+                            var id = this.dataset.id;
+                            var fd = new FormData();
+                            fd.append('action',  'tao_formula_excluir_orcamento');
+                            fd.append('nonce',   taofNonce);
+                            fd.append('orc_id',  id);
+                            fetch(ajaxUrl, { method:'POST', body:fd })
+                                .then(function(r){ return r.json(); })
+                                .then(function(r){ if (r.success) carregarFormulas(); });
+                        });
+                    });
+                })
+                .catch(function (e) {
+                    console.error('[TAO Fórmula] catch carregarFormulas:', e);
+                    listDiv.innerHTML = '<span style="color:#dc2626;font-size:12px">Erro ao carregar. Veja console (F12).</span>';
+                });
+        }
+
+        // ── Enviar WhatsApp ───────────────────────────────────────────
+        if (enviarBtn) {
+            enviarBtn.addEventListener('click', function () {
+                var checks = listDiv.querySelectorAll('.taof-orc-check:checked');
+                if (!checks.length) { alert('Selecione ao menos um orçamento para enviar.'); return; }
+                if (!confirm('Enviar ' + checks.length + ' orçamento(s) via WhatsApp?')) return;
+
+                var ids = Array.from(checks).map(function(c){ return c.value; });
+                enviarBtn.disabled = true;
+                enviarBtn.textContent = 'Enviando...';
+
+                var body = new URLSearchParams({ action: 'tao_crm_enviar_orcamento_formula', nonce: taoCrm.nonce, card_id: cardId });
+                ids.forEach(function(id){ body.append('orc_ids[]', id); });
+
+                fetch(ajaxUrl, { method: 'POST', body: body })
+                    .then(function(r){ return r.json(); })
+                    .then(function(resp) {
+                        enviarBtn.disabled = false;
+                        enviarBtn.textContent = '📤 Enviar WhatsApp';
+                        if (resp.success) {
+                            carregarFormulas();
+                            // Mostra mensagem no chat (reload parcial)
+                            setTimeout(function(){ location.reload(); }, 600);
+                        } else {
+                            alert('Erro: ' + (resp.data || 'desconhecido'));
+                        }
+                    })
+                    .catch(function() {
+                        enviarBtn.disabled = false;
+                        enviarBtn.textContent = '📤 Enviar WhatsApp';
+                        alert('Falha de comunicação ao enviar.');
+                    });
+            });
+        }
+
+        // ── Reprocessar ativos pendentes ──────────────────────────────
+        if (reprocessarBtn) {
+            reprocessarBtn.addEventListener('click', function () {
+                reprocessarBtn.disabled = true;
+                reprocessarBtn.textContent = 'Reprocessando...';
+                var fd = new FormData();
+                fd.append('action',  'tao_formula_reprocessar_orc');
+                fd.append('nonce',   taofNonce);
+                fd.append('card_id', cardId);
+                fetch(ajaxUrl, { method: 'POST', body: fd })
+                    .then(function(r){ return r.json(); })
+                    .then(function(resp) {
+                        reprocessarBtn.disabled = false;
+                        reprocessarBtn.textContent = '🔄 Reprocessar';
+                        if (resp.success) {
+                            carregarFormulas();
+                            var msg = resp.data && resp.data.atualizados
+                                ? resp.data.atualizados + ' ativo(s) associado(s) com sucesso!'
+                                : (resp.data && resp.data.message) || 'Concluído.';
+                            alert(msg);
+                        } else {
+                            alert('Erro: ' + (resp.data && resp.data.message ? resp.data.message : JSON.stringify(resp.data)));
+                        }
+                    })
+                    .catch(function() {
+                        reprocessarBtn.disabled = false;
+                        reprocessarBtn.textContent = '🔄 Reprocessar';
+                        alert('Falha de comunicação.');
+                    });
+            });
+        }
+
+        // ── Excluir selecionados ───────────────────────────────────────
+        if (exclSelBtn) {
+            exclSelBtn.addEventListener('click', function () {
+                var checks = Array.from(listDiv.querySelectorAll('.taof-orc-check:checked'));
+                if (!checks.length) return;
+                if (!confirm('Excluir ' + checks.length + ' orçamento(s) selecionado(s)? Esta ação não pode ser desfeita.')) return;
+                exclSelBtn.disabled = true;
+                exclSelBtn.textContent = 'Excluindo...';
+                var ids = checks.map(function(c){ return c.value; });
+                var promessas = ids.map(function(id) {
+                    var fd = new FormData();
+                    fd.append('action',  'tao_formula_excluir_orcamento');
+                    fd.append('nonce',   taofNonce);
+                    fd.append('orc_id',  id);
+                    return fetch(ajaxUrl, { method: 'POST', body: fd }).then(function(r){ return r.json(); });
+                });
+                Promise.all(promessas).then(function() {
+                    exclSelBtn.disabled = false;
+                    exclSelBtn.textContent = '🗑 Excluir selecionados';
+                    carregarFormulas();
+                }).catch(function() {
+                    exclSelBtn.disabled = false;
+                    exclSelBtn.textContent = '🗑 Excluir selecionados';
+                    carregarFormulas();
+                });
+            });
+        }
+
+        // Carrega ao abrir a página
+        carregarFormulas();
+
+        // ── Upload / Paste de Receita ─────────────────────────────────
+        (function () {
+            var dropzone    = document.getElementById('crm-receita-dropzone');
+            var fileInput   = document.getElementById('crm-receita-file');
+            var previewEl   = document.getElementById('crm-receita-preview');
+            var processBtn  = document.getElementById('crm-receita-processar');
+            var limparBtn   = document.getElementById('crm-receita-limpar');
+            var statusEl    = document.getElementById('crm-receita-status');
+            if (!dropzone) return;   // card fechado não tem o painel
+
+            function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+            var selectedFile = null;
+
+            function setFile(file) {
+                var ok = /^image\/(jpeg|png|gif|webp)$/.test(file.type) || file.type === 'application/pdf';
+                if (!ok) { setStatus('Tipo não suportado (use JPG, PNG ou PDF)', '#dc2626'); return; }
+                if (file.size > 20 * 1024 * 1024) { setStatus('Arquivo muito grande (máx 20MB)', '#dc2626'); return; }
+                selectedFile = file;
+                previewEl.style.display  = 'block';
+                previewEl.innerHTML      = '📄 <strong>' + escHtml(file.name || 'imagem') + '</strong> ('
+                                         + (file.size / 1024).toFixed(0) + ' KB)';
+                processBtn.style.display = 'inline-block';
+                limparBtn.style.display  = 'inline-block';
+                dropzone.style.borderColor = '#0ea5e9';
+                setStatus('', '');
+            }
+
+            function limpar() {
+                selectedFile = null;
+                previewEl.style.display  = 'none';
+                processBtn.style.display = 'none';
+                limparBtn.style.display  = 'none';
+                dropzone.style.borderColor = '#cbd5e1';
+                fileInput.value = '';
+                setStatus('', '');
+            }
+
+            function setStatus(msg, cor) {
+                if (!statusEl) return;
+                statusEl.textContent  = msg;
+                statusEl.style.color  = cor || '#64748b';
+            }
+
+            // Clique na zona abre o seletor (exceto no label que já abre)
+            dropzone.addEventListener('click', function (e) {
+                if (e.target.tagName !== 'LABEL') fileInput.click();
+            });
+
+            fileInput.addEventListener('change', function () {
+                if (this.files[0]) setFile(this.files[0]);
+            });
+
+            // Drag & Drop
+            dropzone.addEventListener('dragover',  function (e) { e.preventDefault(); dropzone.style.borderColor = '#0ea5e9'; });
+            dropzone.addEventListener('dragleave', function ()   { if (!selectedFile) dropzone.style.borderColor = '#cbd5e1'; });
+            dropzone.addEventListener('drop',      function (e)  { e.preventDefault(); if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]); });
+
+            // Paste (Ctrl+V) — captura imagem da área de transferência
+            document.addEventListener('paste', function (e) {
+                var items = e.clipboardData && e.clipboardData.items;
+                if (!items) return;
+                for (var i = 0; i < items.length; i++) {
+                    if (items[i].type.indexOf('image') !== -1) {
+                        var blob = items[i].getAsFile();
+                        if (blob) {
+                            setFile(new File([blob], 'receita-colada.png', { type: blob.type }));
+                        }
+                        break;
+                    }
+                }
+            });
+
+            limparBtn.addEventListener('click', limpar);
+
+            // Registro rápido de sinônimos não encontrados
+            function mostrarRegistroSinonimos(naoEnc) {
+                var section = document.getElementById('crm-receita-section');
+                var old = document.getElementById('crm-sin-reg-panel');
+                if (old) old.remove();
+                if (!naoEnc || !naoEnc.length) return;
+
+                var panel = document.createElement('div');
+                panel.id  = 'crm-sin-reg-panel';
+                panel.style.cssText = 'margin-top:10px;border:1px solid #fbbf24;border-radius:6px;padding:8px 10px;background:#fffbeb';
+
+                var html = '<div style="font-size:11px;font-weight:600;color:#92400e;margin-bottom:8px">⚠ ' + naoEnc.length + ' ativo(s) não encontrado(s) — associe ao ativo correto:</div>';
+                naoEnc.forEach(function(nome, i) {
+                    html += '<div class="crm-sin-item" style="display:flex;gap:6px;align-items:center;margin-bottom:6px" data-nome="' + escHtml(nome) + '" data-idx="' + i + '">' +
+                        '<span style="font-size:11px;color:#78350f;width:120px;min-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escHtml(nome) + '">' + escHtml(nome) + '</span>' +
+                        '<div style="flex:1;position:relative">' +
+                            '<input type="text" class="crm-sin-busca-input" placeholder="Buscar ativo (↑↓ Enter)…" style="width:100%;font-size:11px;padding:3px 6px;border:1px solid #d1d5db;border-radius:4px;box-sizing:border-box">' +
+                            '<div class="crm-sin-sugestoes" style="display:none;position:fixed;background:#fff;border:1px solid #d1d5db;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:999999;min-width:220px;max-height:180px;overflow-y:auto;font-size:11px"></div>' +
+                        '</div>' +
+                        '<button class="button button-small crm-sin-salvar-btn" disabled style="font-size:10px;padding:2px 8px;white-space:nowrap" data-ativo-id="" data-ativo-nome="">✓ Salvar</button>' +
+                        '<span class="crm-sin-msg" style="font-size:10px;color:#16a34a;min-width:20px"></span>' +
+                        '</div>';
+                });
+                panel.innerHTML = html;
+                section.appendChild(panel);
+
+                var items = Array.from(panel.querySelectorAll('.crm-sin-item'));
+
+                items.forEach(function(item, itemIdx) {
+                    var sinonimo  = item.dataset.nome;
+                    var input     = item.querySelector('.crm-sin-busca-input');
+                    var sugestoes = item.querySelector('.crm-sin-sugestoes');
+                    var salvarBtn = item.querySelector('.crm-sin-salvar-btn');
+                    var msgEl     = item.querySelector('.crm-sin-msg');
+                    var searchTimer, hlIdx = -1;
+
+                    function getOps() { return Array.from(sugestoes.querySelectorAll('.crm-sin-op')); }
+
+                    function setHL(idx) {
+                        var ops = getOps();
+                        ops.forEach(function(o){ o.style.background=''; });
+                        hlIdx = Math.max(-1, Math.min(idx, ops.length - 1));
+                        if (hlIdx >= 0) { ops[hlIdx].style.background='#dbeafe'; ops[hlIdx].scrollIntoView({block:'nearest'}); }
+                    }
+
+                    function posDD() {
+                        var r = input.getBoundingClientRect();
+                        sugestoes.style.top   = (r.bottom + 2) + 'px';
+                        sugestoes.style.left  = r.left + 'px';
+                        sugestoes.style.width = Math.max(220, r.width) + 'px';
+                    }
+
+                    function selectAtivo(id, nome) {
+                        input.value = nome;
+                        salvarBtn.dataset.ativoId   = id;
+                        salvarBtn.dataset.ativoNome = nome;
+                        salvarBtn.disabled = false;
+                        sugestoes.style.display = 'none';
+                        hlIdx = -1;
+                    }
+
+                    input.addEventListener('input', function() {
+                        clearTimeout(searchTimer);
+                        var q = this.value.trim();
+                        salvarBtn.disabled = true;
+                        salvarBtn.dataset.ativoId = '';
+                        if (q.length < 2) { sugestoes.style.display='none'; return; }
+                        searchTimer = setTimeout(function() {
+                            var fd = new FormData();
+                            fd.append('action', 'tao_formula_buscar_ativos');
+                            fd.append('nonce',  taofNonce);
+                            fd.append('q', q);
+                            fetch(ajaxUrl, { method:'POST', body:fd })
+                                .then(function(r){ return r.json(); })
+                                .then(function(r) {
+                                    if (!r.success || !r.data.length) { sugestoes.style.display='none'; return; }
+                                    sugestoes.innerHTML = r.data.map(function(a){
+                                        return '<div class="crm-sin-op" data-id="'+a.id+'" data-nome="'+escHtml(a.nome)+'" style="padding:5px 8px;cursor:pointer;border-bottom:1px solid #f1f5f9">' +
+                                            '<strong>'+escHtml(a.nome)+'</strong>' +
+                                            (a.codigo_fc ? '<span style="color:#94a3b8;font-size:10px;margin-left:4px">'+escHtml(a.codigo_fc)+'</span>' : '') +
+                                            '</div>';
+                                    }).join('');
+                                    hlIdx = -1;
+                                    posDD();
+                                    sugestoes.style.display = 'block';
+                                    getOps().forEach(function(op, i) {
+                                        op.addEventListener('mouseenter', function(){ setHL(i); });
+                                        op.addEventListener('mousedown',  function(e){
+                                            e.preventDefault(); // evita blur antes da seleção
+                                            selectAtivo(this.dataset.id, this.dataset.nome);
+                                        });
+                                    });
+                                });
+                        }, 280);
+                    });
+
+                    input.addEventListener('keydown', function(e) {
+                        var ops = getOps();
+                        var ddVisible = sugestoes.style.display !== 'none';
+                        if (ddVisible && ops.length) {
+                            if (e.key === 'ArrowDown') { e.preventDefault(); setHL(hlIdx + 1); return; }
+                            if (e.key === 'ArrowUp')   { e.preventDefault(); setHL(hlIdx - 1); return; }
+                            if (e.key === 'Enter' && hlIdx >= 0) {
+                                e.preventDefault();
+                                var op = ops[hlIdx];
+                                selectAtivo(op.dataset.id, op.dataset.nome);
+                                return;
+                            }
+                            if (e.key === 'Escape') { sugestoes.style.display='none'; hlIdx=-1; return; }
+                        }
+                        if (e.key === 'Enter' && salvarBtn.dataset.ativoId) {
+                            e.preventDefault();
+                            salvarBtn.click();
+                            return;
+                        }
+                        if (e.key === 'Tab') {
+                            sugestoes.style.display = 'none';
+                            var next = items[itemIdx + 1];
+                            if (next) { e.preventDefault(); next.querySelector('.crm-sin-busca-input').focus(); }
+                        }
+                    });
+
+                    input.addEventListener('blur', function() {
+                        setTimeout(function(){ sugestoes.style.display='none'; }, 160);
+                    });
+
+                    salvarBtn.addEventListener('click', function() {
+                        var aid = this.dataset.ativoId;
+                        if (!aid) return;
+                        var fd = new FormData();
+                        fd.append('action',   'tao_formula_salvar_sinonimo');
+                        fd.append('nonce',    taofNonce);
+                        fd.append('ativo_id', aid);
+                        fd.append('sinonimo', sinonimo);
+                        fetch(ajaxUrl, { method:'POST', body:fd })
+                            .then(function(r){ return r.json(); })
+                            .then(function(r) {
+                                if (r.success) {
+                                    salvarBtn.disabled = true;
+                                    msgEl.textContent  = '✓';
+                                    item.style.opacity = '0.5';
+                                    var next = items[itemIdx + 1];
+                                    if (next) next.querySelector('.crm-sin-busca-input').focus();
+                                } else {
+                                    msgEl.style.color  = '#dc2626';
+                                    msgEl.textContent  = 'Erro';
+                                }
+                            });
+                    });
+                });
+
+                document.addEventListener('click', function sinCloseDD(e) {
+                    if (!panel.contains(e.target)) {
+                        panel.querySelectorAll('.crm-sin-sugestoes').forEach(function(s){ s.style.display='none'; });
+                    }
+                });
+
+                // Foca no primeiro campo automaticamente
+                setTimeout(function(){ var f = panel.querySelector('.crm-sin-busca-input'); if(f) f.focus(); }, 80);
+            }
+
+            // Processar
+            processBtn.addEventListener('click', function () {
+                if (!selectedFile) return;
+                processBtn.disabled = true;
+                setStatus('🤖 Analisando receita…', '#0ea5e9');
+
+                var fd = new FormData();
+                fd.append('action',        'tao_formula_processar_receita');
+                fd.append('nonce',         taofNonce);
+                fd.append('card_id',       cardId);
+                fd.append('nome_paciente', window.taofCrmNome || '');
+                fd.append('whatsapp',      window.taofCrmWa  || '');
+                fd.append('receita_file',  selectedFile);
+
+                fetch(ajaxUrl, { method: 'POST', body: fd })
+                    .then(function (r) { return r.json(); })
+                    .then(function (resp) {
+                        processBtn.disabled = false;
+                        if (resp.success) {
+                            var d = resp.data;
+                            var msg;
+                            if (d.orcamentos && d.orcamentos.length) {
+                                var nums = d.orcamentos.map(function(o){ return o.numero; }).join(', ');
+                                msg = '✅ ' + d.total + ' orçamento(s) criado(s): ' + nums;
+                            } else {
+                                msg = '✅ ' + (d.numero || 'Orçamento') + ' criado!';
+                            }
+                            if (d.nao_encontrados && d.nao_encontrados.length) {
+                                msg += ' ⚠ Revisar: ' + d.nao_encontrados.join(', ');
+                            }
+                            setStatus(msg, '#16a34a');
+                            limpar();
+                            carregarFormulas();
+                            // UI para registrar sinônimos dos não encontrados
+                            if (d.nao_encontrados && d.nao_encontrados.length) {
+                                mostrarRegistroSinonimos(d.nao_encontrados);
+                            }
+                        } else {
+                            var err = resp.data && resp.data.message ? resp.data.message : JSON.stringify(resp.data);
+                            setStatus('❌ ' + err, '#dc2626');
+                        }
+                    })
+                    .catch(function () {
+                        processBtn.disabled = false;
+                        setStatus('❌ Falha de comunicação', '#dc2626');
+                    });
+            });
+        })();
+
+    })();
+    </script>
+    <?php endif; ?>
     <?php
 }
 

@@ -10,11 +10,11 @@ function tao_formula_page_orcamentos() {
 
     $status_opts = [
         ''                  => 'Todos',
-        'pendente_revisao'  => '⏳ Pendentes',
-        'aprovado_farma'    => '✅ Aprovados',
-        'enviado_paciente'  => '📤 Enviados',
-        'aceito_paciente'   => '🎉 Aceitos',
-        'rejeitado'         => '❌ Rejeitados',
+        'pendente_revisao'  => 'Pendentes',
+        'aprovado_farma'    => 'Aprovados',
+        'enviado_paciente'  => 'Enviados',
+        'aceito_paciente'   => 'Aceitos',
+        'rejeitado'         => 'Rejeitados',
     ];
 
     if ( $cliente_id ) {
@@ -25,77 +25,116 @@ function tao_formula_page_orcamentos() {
     }
 
     $st_map = [
-        'pendente_revisao' => ['⏳ Pendente',  '#fef3c7','#92400e'],
-        'aprovado_farma'   => ['✅ Aprovado',   '#dcfce7','#166534'],
-        'enviado_paciente' => ['📤 Enviado',    '#dbeafe','#1d4ed8'],
-        'aceito_paciente'  => ['🎉 Aceito',     '#dcfce7','#166534'],
-        'rejeitado'        => ['❌ Rejeitado',  '#fee2e2','#991b1b'],
+        'pendente_revisao' => ['Pendente',  '#fef3c7','#92400e', '⏳'],
+        'aprovado_farma'   => ['Aprovado',  '#dcfce7','#166534', '✅'],
+        'enviado_paciente' => ['Enviado',   '#dbeafe','#1d4ed8', '📤'],
+        'aceito_paciente'  => ['Aceito',    '#dcfce7','#166534', '🎉'],
+        'rejeitado'        => ['Rejeitado', '#fee2e2','#991b1b', '❌'],
     ];
 
     $base_url = tao_formula_url( 'formula-orcamentos' );
     $novo_url = tao_formula_url( 'formula-novo-orc' );
     ?>
-    <div class="wrap taof-wrap">
-    <h1 class="wp-heading-inline">📋 Orçamentos</h1>
-    <a href="<?php echo esc_url($novo_url); ?>" class="page-title-action button button-primary">+ Novo Orçamento</a>
-    <hr class="wp-header-end">
+    <div class="taof-wrap">
 
-    <!-- Filtro de status -->
-    <ul class="subsubsub" style="margin-bottom:12px">
+    <!-- ── Cabeçalho ─────────────────────────────────────────────────── -->
+    <div class="taof-pg-hdr">
+        <h1 class="taof-pg-title">📋 Orçamentos</h1>
+        <a href="<?php echo esc_url($novo_url); ?>" class="taof-btn taof-btn-primary">+ Novo Orçamento</a>
+    </div>
+
+    <!-- ── Filtros de status ──────────────────────────────────────────── -->
+    <div class="taof-filter-bar">
     <?php foreach ( $status_opts as $val => $lbl ) :
-        $qs_url = $val ? add_query_arg('status', $val, $base_url) : $base_url;
-        $active = $filtro_st === $val ? ' style="font-weight:700"' : '';
+        $url    = $val ? add_query_arg('status', $val, $base_url) : $base_url;
+        $active = $filtro_st === $val ? ' taof-filter-active' : '';
     ?>
-        <li><a href="<?php echo esc_url($qs_url); ?>"<?php echo $active; ?>><?php echo esc_html($lbl); ?></a><?php echo $val !== 'rejeitado' ? ' |' : ''; ?></li>
+        <a href="<?php echo esc_url($url); ?>" class="taof-filter-tab<?php echo $active; ?>"><?php echo esc_html($lbl); ?></a>
     <?php endforeach; ?>
-    </ul>
+    </div>
 
     <?php if ( empty($orcamentos) ) : ?>
         <div class="taof-empty-state"><p>Nenhum orçamento encontrado.</p></div>
     <?php else : ?>
-    <table class="wp-list-table widefat fixed striped taof-table">
+
+    <!-- ── Tabela ────────────────────────────────────────────────────── -->
+    <div class="taof-table-wrap">
+    <table class="taof-list-table">
         <thead>
             <tr>
                 <th>Paciente</th>
                 <th>WhatsApp</th>
                 <th>Forma</th>
-                <th style="text-align:right">Total</th>
+                <th class="taof-col-r">Total</th>
                 <th>Status</th>
                 <th>Data</th>
-                <th style="text-align:center">Ações</th>
+                <th class="taof-col-c">Ações</th>
             </tr>
         </thead>
         <tbody>
         <?php foreach ( $orcamentos as $o ) :
             $st  = $o['status'] ?? 'pendente_revisao';
-            $stl = $st_map[$st] ?? [$st,'#f1f5f9','#475569'];
+            $stl = $st_map[$st] ?? [$st,'#f1f5f9','#475569',''];
             $dt  = ! empty($o['criado_em']) ? wp_date('d/m/Y H:i', strtotime($o['criado_em'])) : '—';
         ?>
         <tr>
-            <td><?php echo esc_html($o['nome_paciente']??'—'); ?></td>
-            <td><?php echo esc_html($o['whatsapp']??'—'); ?></td>
+            <td class="taof-td-nome"><?php echo esc_html($o['nome_paciente']??'—'); ?></td>
+            <td class="taof-td-fone"><?php echo esc_html($o['whatsapp']??'—'); ?></td>
             <td><?php echo esc_html($o['forma_nome']??'—'); ?></td>
-            <td style="text-align:right">R$&nbsp;<?php echo number_format((float)($o['total_orcamento']??0),2,',','.'); ?></td>
-            <td><span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;background:<?php echo esc_attr($stl[1]); ?>;color:<?php echo esc_attr($stl[2]); ?>"><?php echo esc_html($stl[0]); ?></span></td>
-            <td style="font-size:12px;color:#64748b"><?php echo esc_html($dt); ?></td>
-            <td style="text-align:center">
+            <td class="taof-col-r taof-td-total">R$&nbsp;<?php echo number_format((float)($o['total_orcamento']??0),2,',','.'); ?></td>
+            <td>
+                <span class="taof-badge" style="background:<?php echo esc_attr($stl[1]); ?>;color:<?php echo esc_attr($stl[2]); ?>">
+                    <?php echo esc_html($stl[3].' '.$stl[0]); ?>
+                </span>
+            </td>
+            <td class="taof-td-dt"><?php echo esc_html($dt); ?></td>
+            <td class="taof-col-c taof-td-acoes">
                 <?php if ( $st === 'pendente_revisao' ) : ?>
-                <button class="button button-small button-primary taof-orc-aprovar"
+                <button class="taof-btn taof-btn-sm taof-btn-primary taof-orc-aprovar"
                         data-id="<?php echo esc_attr($o['id']); ?>">✅ Aprovar</button>
-                <button class="button button-small taof-orc-rejeitar"
-                        data-id="<?php echo esc_attr($o['id']); ?>" style="color:#b91c1c">❌ Rejeitar</button>
+                <button class="taof-btn taof-btn-sm taof-btn-danger taof-orc-rejeitar"
+                        data-id="<?php echo esc_attr($o['id']); ?>">❌ Rejeitar</button>
                 <?php elseif ( $st === 'aprovado_farma' ) : ?>
-                <button class="button button-small taof-orc-enviar"
+                <button class="taof-btn taof-btn-sm taof-orc-enviar"
                         data-id="<?php echo esc_attr($o['id']); ?>">📤 Marcar Enviado</button>
                 <?php else : ?>
-                <span style="font-size:11px;color:#94a3b8">—</span>
+                <span class="taof-td-sem-acao">—</span>
                 <?php endif; ?>
             </td>
         </tr>
         <?php endforeach; ?>
         </tbody>
     </table>
+    </div>
     <?php endif; ?>
     </div>
+
+    <script>
+    (function($){
+        var ajaxUrl = (typeof taoFormula !== 'undefined') ? taoFormula.ajaxUrl : '/wp-admin/admin-ajax.php';
+        var nonce   = (typeof taoFormula !== 'undefined') ? taoFormula.nonce : '';
+
+        function updateStatus(id, status, $btn) {
+            $btn.prop('disabled', true).text('...');
+            $.post(ajaxUrl, { action:'tao_formula_update_orc_status', nonce:nonce, id:id, status:status },
+            function(r) {
+                if (r.success) location.reload();
+                else { alert('Erro: ' + (r.data||'?')); $btn.prop('disabled',false); }
+            });
+        }
+
+        $(document).on('click', '.taof-orc-aprovar', function() {
+            if (!confirm('Aprovar este orçamento?')) return;
+            updateStatus($(this).data('id'), 'aprovado_farma', $(this));
+        });
+        $(document).on('click', '.taof-orc-rejeitar', function() {
+            if (!confirm('Rejeitar este orçamento?')) return;
+            updateStatus($(this).data('id'), 'rejeitado', $(this));
+        });
+        $(document).on('click', '.taof-orc-enviar', function() {
+            updateStatus($(this).data('id'), 'enviado_paciente', $(this));
+        });
+    })(jQuery);
+    </script>
     <?php
 }
