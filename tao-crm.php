@@ -1713,6 +1713,87 @@ function tao_crm_ajax_get_csat_stats() {
 
 // ─── AJAX: INBOX — cards com mensagens não lidas ──────────────────────────────
 
+// ─── AJAX: Enviar orçamento(s) de fórmula via WhatsApp ───────────────────────
+add_action( 'wp_ajax_tao_crm_enviar_orcamento_formula', 'tao_crm_ajax_enviar_orcamento_formula' );
+function tao_crm_ajax_enviar_orcamento_formula() {
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+    if ( ! function_exists( 'cbpm_can_access' ) || ! cbpm_can_access() ) wp_send_json_error( 'Acesso negado' );
+
+    $card_id = sanitize_text_field( $_POST['card_id'] ?? '' );
+    $orc_ids = array_filter( array_map( 'sanitize_text_field', (array) ( $_POST['orc_ids'] ?? [] ) ) );
+    if ( ! $card_id || empty( $orc_ids ) ) wp_send_json_error( 'Dados inválidos' );
+
+    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=contato_whatsapp,workspace_id,instancia_id,contato_nome&limit=1" );
+    if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( 'Card não encontrado' );
+    $card    = $rc['data'][0];
+    $evo_cfg = tao_crm_get_evo_creds( $card );
+    if ( ! $evo_cfg ) wp_send_json_error( 'Sem Evolution configurado para este card' );
+
+    if ( ! function_exists( 'tao_formula_api' ) ) wp_send_json_error( 'Plugin TAO Fórmulas não ativo' );
+
+    $ids_str = implode( ',', $orc_ids );
+    $ro = tao_formula_api(
+        "/orcamentos?id=in.($ids_str)" .
+        "&select=numero_orcamento,forma_nome,forma_vol,forma_unidade,qtde_potes," .
+        "total_orcamento,itens,observacoes,nome_paciente&order=criado_em.asc"
+    );
+    if ( ! $ro['ok'] || empty( $ro['data'] ) ) wp_send_json_error( 'Orçamentos não encontrados' );
+    $orcs = $ro['data'];
+
+    $nome    = $card['contato_nome'] ?? 'cliente';
+    $rodape  = get_option( 'tao_formula_msg_rodape',
+        "- Trabalhamos com entrega ( *Segunda a sexta* ), mediante taxa, via motoboy e SEDEX/DHL\n" .
+        "- Acima de R\$ 100,00 parcelamos em 3 x no cartão\n" .
+        "- Prazo de entrega: 2 a 3 dias úteis após aprovação do orçamento\n\n" .
+        "*-->> CASO TENHA UMA PROPOSTA MELHOR, NOS ENCAMINHE QUE FAREMOS O POSSÍVEL TE ATENDER!*\n\n" .
+        "Caso tenha interesse em fechar, nos informe se será *ENTREGA* ou *RETIRADA*. " .
+        "Se for entrega, informe o *endereço* e a *forma de pagamento*.\n\nAtt,\nMagis-TAO"
+    );
+
+    $blocos = [];
+    $total_geral = 0;
+    foreach ( $orcs as $o ) {
+        $numero  = $o['numero_orcamento'] ?? '—';
+        $total   = (float) ( $o['total_orcamento'] ?? 0 );
+        $total_geral += $total;
+        $itens   = is_string( $o['itens'] ) ? json_decode( $o['itens'], true ) : ( $o['itens'] ?? [] );
+        $descr   = function_exists( 'tao_formula_build_descricao' )
+            ? tao_formula_build_descricao( $o['forma_nome'] ?? '', $o['forma_vol'] ?? 0, $o['forma_unidade'] ?? 'g', $itens, $o['qtde_potes'] ?? 1 )
+            : 'FORMULA MANIPULADA - ' . strtoupper( $o['forma_nome'] ?? '' );
+        $blocos[] = "ORC:{$numero}\n{$descr}\nValor R\$: " . number_format( $total, 2, ',', '.' );
+    }
+
+    $total_fmt = number_format( $total_geral, 2, ',', '.' );
+    $msg  = "Prezado(a) *{$nome}*,\n\n";
+    $msg .= "Seguem detalhes da sua solicitação de orçamento:\n\n\n";
+    $msg .= implode( "\n\n", $blocos ) . "\n\n";
+    $msg .= "TOTAL A VISTA: R\$ {$total_fmt}\n\n";
+    $msg .= $rodape;
+
+    $ok = tao_crm_evolution_send_with_retry( $evo_cfg, $card['contato_whatsapp'], $msg );
+    if ( ! $ok ) wp_send_json_error( 'Falha ao enviar via Evolution' );
+
+    $user = wp_get_current_user();
+    tao_crm_api( '/crm_mensagens', 'POST', [
+        'card_id'        => $card_id,
+        'workspace_id'   => $card['workspace_id'],
+        'direcao'        => 'out',
+        'tipo'           => 'text',
+        'conteudo'       => $msg,
+        'remetente_nome' => $user->display_name,
+        'enviado_em'     => gmdate( 'c' ),
+    ], [ 'Prefer' => 'return=representation' ] );
+
+    foreach ( $orc_ids as $oid ) {
+        tao_formula_api( "/orcamentos?id=eq.$oid", 'PATCH', [
+            'status'        => 'enviado_paciente',
+            'atualizado_em' => gmdate( 'c' ),
+        ] );
+    }
+
+    wp_send_json_success( 'Mensagem enviada' );
+}
+
 add_action( 'wp_ajax_tao_crm_inbox_count', 'tao_crm_ajax_inbox_count' );
 function tao_crm_ajax_inbox_count() {
     check_ajax_referer( 'tao_crm_nonce', 'nonce' );
@@ -2625,18 +2706,7 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
             // ── Opt-out: ignora número que pediu exclusão da lista ────────────────
             if ( ! $from_me && tao_crm_num_opt_out( $num ) ) continue;
 
-            // ── Detecta pedido de opt-out na mensagem entrante ────────────────────
-            if ( ! $from_me && $tipo === 'text' ) {
-                static $optout_kws = [ 'stop', 'parar', 'cancelar mensagens', 'nao quero mais', 'não quero mais', 'descadastrar', 'remover da lista' ];
-                $ct_lc = mb_strtolower( $conteudo );
-                foreach ( $optout_kws as $kw ) {
-                    if ( strpos( $ct_lc, $kw ) !== false ) {
-                        tao_crm_set_opt_out( $num );
-                        tao_crm_evolution_send( $inst, $num, 'Você foi removido da nossa lista. Para voltar ao atendimento, envie qualquer mensagem.' );
-                        continue 2;
-                    }
-                }
-            }
+            // opt-out: verificado APÓS o check de atendimento humano (mais abaixo)
 
             // ── CSAT: detecta resposta 1-5 de cliente pendente ──────────────────────
             if ( ! $from_me && $tipo === 'text' && preg_match( '/^\s*[1-5]\s*$/', $conteudo ) ) {
@@ -2676,6 +2746,19 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
                 }
             }
             tao_crm_log_error( 'dispatch', '[2] card_humano=' . ( $card_id ? substr($card_id,0,8) : 'none' ) . ' n8n_blocked=' . ( $_n8n_blocked_by_card ? 'sim' : 'nao' ), [ 'num' => $num_plain, 'from_me' => $from_me, 'msg' => mb_substr($conteudo,0,80) ] );
+
+            // ── Detecta pedido de opt-out — somente se não há atendimento humano ativo ─
+            if ( ! $from_me && $tipo === 'text' && ! $_n8n_blocked_by_card ) {
+                $optout_kws = [ 'stop', 'parar', 'cancelar mensagens', 'nao quero mais', 'não quero mais', 'descadastrar', 'remover da lista' ];
+                $ct_lc = mb_strtolower( $conteudo );
+                foreach ( $optout_kws as $kw ) {
+                    if ( strpos( $ct_lc, $kw ) !== false ) {
+                        tao_crm_set_opt_out( $num );
+                        tao_crm_evolution_send( $inst, $num, 'Você foi removido da nossa lista. Para voltar ao atendimento, envie qualquer mensagem.' );
+                        continue 2; // pula para próxima mensagem no foreach($msgs)
+                    }
+                }
+            }
 
             // ── 2c. Busca card aberto de tracking (Pós Vendas, sem bloquear chatbot) ─
             // Busca em TODAS as instâncias para garantir que cards de pós-vendas sejam detectados
