@@ -1328,7 +1328,7 @@ function tao_formula_parse_descricao_itens( $descr, $cliente_id ) {
         $nome_enc = rawurlencode( $nome );
         $ra  = tao_formula_api(
             "/ativos?cliente_id=eq.{$cliente_id}&nome=ilike.*{$nome_enc}*" .
-            "&select=id,nome,codigo_fc,preco_venda,custo_por_unidade,unidade_padrao,fator_perda,diluicao,teor,densidade&limit=1"
+            "&select=id,nome,codigo_fc,preco_venda,custo_por_unidade,unidade_padrao,fator_perda,diluicao,teor,densidade,concentracao&limit=1"
         );
 
         $ativo_id    = '';
@@ -1339,6 +1339,8 @@ function tao_formula_parse_descricao_itens( $descr, $cliente_id ) {
         $fp          = 1.0;
         $diluicao_at = 1.0;
         $teor_at     = 100.0;
+        $densidade_at = 1.0;
+        $conc_at      = 0.0;
 
         $nome_prescricao = strtoupper( $nome ); // sempre preserva o nome da prescrição
         $nome_db         = $nome_prescricao;   // fallback = nome prescrição se não achar no banco
@@ -1354,6 +1356,8 @@ function tao_formula_parse_descricao_itens( $descr, $cliente_id ) {
             $fp          = (float)(  $at['fator_perda']        ?? 1 );
             $diluicao_at = (float)(  $at['diluicao']           ?? 1 );
             $teor_at     = (float)(  $at['teor']               ?? 100 );
+            $densidade_at = (float)( $at['densidade']          ?? 1 ) ?: 1.0;
+            $conc_at      = (float)( $at['concentracao']       ?? 0 );
         }
 
         $itens[] = [
@@ -1373,6 +1377,8 @@ function tao_formula_parse_descricao_itens( $descr, $cliente_id ) {
             'diluicao'          => $diluicao_at,
             'teor'              => $teor_at,
             'fp'                => $fp,
+            'densidade'         => $densidade_at,
+            'concentracao'      => $conc_at,
             'qtd_total_g'       => 0.0,
             'volapa_ul'         => 0.0,
             'custo_por_unidade' => $preco_custo,
@@ -1383,6 +1389,130 @@ function tao_formula_parse_descricao_itens( $descr, $cliente_id ) {
     }
 
     return [ $forma_vol, $forma_unidade, $itens ];
+}
+
+/**
+ * Cápsula ideal + custo da cápsula + custo do excipiente (QSP) para import.
+ * Port fiel do motor JS (formula-orc.js): VOLAPA por dose → cápsula gelatinosa ideal → custos.
+ * Modifica $itens_mp por referência (volapa_ul, subtotal do excipiente, campos de cápsula).
+ */
+function tao_formula_calc_capsula_import( array &$itens_mp, $forma, $forma_vol, $qtde_potes, $cliente_id ) {
+    $out    = [ 'custo_capsula' => 0.0, 'excipiente_subtotal' => 0.0, 'capsula' => null, 'n_per_dose' => 1 ];
+    $ftench = (float) ( $forma['ftenchcap'] ?? 1 ) ?: 1.0;
+    $forma_vol  = max( 1.0, (float) $forma_vol );
+    $qtde_potes = max( 1, (int) $qtde_potes );
+
+    // 1) VOLAPA por dose de cada ativo (não-QSP) — mesma fórmula do JS
+    $sum_volapa = 0.0;
+    foreach ( $itens_mp as &$item ) {
+        if ( ( $item['tipo'] ?? 'mp' ) !== 'mp' || ! empty( $item['is_qsp'] ) ) continue;
+        $dose = (float) ( $item['dose'] ?? 0 );
+        $unit = $item['dose_unit'] ?? 'mg';
+        $dens = (float) ( $item['densidade'] ?? 1 ) ?: 1.0;
+        $dil  = (float) ( $item['diluicao'] ?? 1 );
+        $teor = (float) ( $item['teor'] ?? 100 );
+        $conc = (float) ( $item['concentracao'] ?? 0 );
+        $volapa = 0.0;
+
+        if ( $unit === '%' ) {
+            $volapa = 0.0;
+        } elseif ( in_array( $unit, [ 'UI', 'UFC', 'BLH' ], true ) ) {
+            if ( $dens > 0 && $dose > 0 ) {
+                $dose_ufc     = ( $unit === 'BLH' ) ? $dose * 1e9 : $dose;
+                $conc_efetiva = $conc > 0 ? $conc : 10e9;
+                $volapa       = ( $dose_ufc / $conc_efetiva ) * 1000 / $dens;
+            }
+        } else {
+            switch ( strtolower( $unit ) ) {
+                case 'g':   $dose_mg = $dose * 1000; break;
+                case 'mcg': $dose_mg = $dose / 1000; break;
+                case 'ml':  $dose_mg = $dose * $dens * 1000; break;
+                default:    $dose_mg = $dose; break;
+            }
+            $dose_mg_real = $dose_mg * $dil / max( 0.001, $teor / 100 );
+            $volapa       = $dens > 0 ? $dose_mg_real / $dens : 0.0;
+        }
+        $item['volapa_ul'] = round( $volapa, 6 );
+        $sum_volapa       += $volapa;
+    }
+    unset( $item );
+    if ( $sum_volapa <= 0 ) return $out;
+
+    // 2) Cápsulas gelatinosas + preço (cdpro_fc → ativo preco_venda)
+    $rc = tao_formula_api(
+        "/tipos_capsula?cliente_id=eq.{$cliente_id}&ativo=eq.true&tipo=ilike.gelatinosa&select=numero,vol_ul,cdpro_fc&order=vol_ul.asc"
+    );
+    $caps_raw = $rc['ok'] ? ( $rc['data'] ?? [] ) : [];
+    if ( empty( $caps_raw ) ) return $out;
+
+    $cdpros = array_filter( array_map( fn($c) => (string) ( $c['cdpro_fc'] ?? '' ), $caps_raw ) );
+    $preco_cap = [];
+    if ( $cdpros ) {
+        $in = implode( ',', array_unique( $cdpros ) );
+        $rp = tao_formula_api( "/ativos?cliente_id=eq.{$cliente_id}&codigo_fc=in.($in)&select=codigo_fc,preco_venda" );
+        foreach ( ( $rp['ok'] ? ( $rp['data'] ?? [] ) : [] ) as $a ) {
+            $preco_cap[ (string) $a['codigo_fc'] ] = (float) ( $a['preco_venda'] ?? 0 );
+        }
+    }
+    $caps = [];
+    foreach ( $caps_raw as $c ) {
+        $vol = (float) ( $c['vol_ul'] ?? 0 );
+        if ( $vol <= 0 ) continue;
+        $caps[] = [ 'numero' => $c['numero'] ?? '', 'vol_ul' => $vol, 'venda_unit' => $preco_cap[ (string) ( $c['cdpro_fc'] ?? '' ) ] ?? 0.0 ];
+    }
+    if ( empty( $caps ) ) return $out;
+    usort( $caps, fn($a, $b) => $a['vol_ul'] <=> $b['vol_ul'] );
+
+    // 3) Cápsula ideal: menor n (1..6) e menor cápsula que cabe
+    $sel = null; $n_per = 1;
+    for ( $n = 1; $n <= 6 && ! $sel; $n++ ) {
+        foreach ( $caps as $c ) {
+            if ( $c['vol_ul'] * $n * $ftench >= $sum_volapa ) { $sel = $c; $n_per = $n; break; }
+        }
+    }
+    if ( ! $sel ) {
+        $sel   = end( $caps );
+        $n_per = max( 1, (int) ceil( $sum_volapa / ( $sel['vol_ul'] * $ftench ) ) );
+    }
+
+    // 4) Custo da cápsula
+    $total_caps    = $forma_vol * $qtde_potes * $n_per;
+    $custo_capsula = $sel['venda_unit'] > 0 ? round( $sel['venda_unit'] * $total_caps, 2 ) : 0.0;
+
+    // 5) Excipiente (QSP): completa o volume disponível
+    $avail_per_dose = $sel['vol_ul'] * $n_per * $ftench;
+    $qsp_volapa     = max( 0.0, $avail_per_dose - $sum_volapa );
+    $excip_subtotal = 0.0;
+    foreach ( $itens_mp as &$item ) {
+        if ( ( $item['tipo'] ?? 'mp' ) !== 'mp' || empty( $item['is_qsp'] ) ) continue;
+        $qsp_dens = (float) ( $item['densidade'] ?? 1 ) ?: 1.0;
+        $qsp_mg   = $qsp_volapa * $qsp_dens * $forma_vol * $qtde_potes;
+        $qsp_g    = $qsp_mg / 1000;
+        $unid     = strtolower( $item['unid_padrao'] ?? 'g' );
+        $qtd_em_u = $unid === 'g' ? $qsp_g : $qsp_mg;
+        $excip_subtotal = round( $qtd_em_u * (float) ( $item['preco_venda'] ?? 0 ), 4 );
+        $item['qtd_total_g']     = $qsp_g;
+        $item['volapa_ul']       = round( $qsp_volapa, 6 );
+        $item['subtotal']        = $excip_subtotal;
+        break;
+    }
+    unset( $item );
+
+    // Anota a cápsula escolhida em todos os ativos (informativo p/ exibição)
+    foreach ( $itens_mp as &$item ) {
+        if ( ( $item['tipo'] ?? 'mp' ) === 'mp' ) {
+            $item['capsula_tipo']    = 'gelatinosa';
+            $item['capsula_numero']  = $sel['numero'];
+            $item['n_caps_por_dose'] = $n_per;
+        }
+    }
+    unset( $item );
+
+    $out['custo_capsula']       = $custo_capsula;
+    $out['excipiente_subtotal'] = $excip_subtotal;
+    $out['capsula']             = $sel;
+    $out['n_per_dose']          = $n_per;
+    return $out;
 }
 
 add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
@@ -1501,6 +1631,8 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
                     'diluicao'          => (float) ( $exc['diluicao']    ?? 1 ),
                     'teor'              => (float) ( $exc['teor']        ?? 100 ),
                     'fp'                => (float) ( $exc['fator_perda'] ?? 1 ),
+                    'densidade'         => (float) ( $exc['densidade']   ?? 1 ) ?: 1.0,
+                    'concentracao'      => 0.0,
                     'qtd_total_g'       => 0.0,
                     'volapa_ul'         => 0.0,
                     'custo_por_unidade' => (float) ( $exc['custo_por_unidade'] ?? 0 ),
@@ -1509,9 +1641,16 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
                     'subtotal'          => 0.0,
                 ];
             }
+
+            // Cápsula ideal + custo da cápsula + custo do excipiente (QSP) — port do motor JS
+            $cap_calc       = tao_formula_calc_capsula_import( $itens_mp, $forma, $forma_vol, $qtde_potes, $cliente_id );
+            $custo_capsula  = $cap_calc['custo_capsula'];
+            $excip_subtotal = $cap_calc['excipiente_subtotal'];
         }
 
         // ── 3. Calcula subtotal de cada MP (replica JS calcularLinha, caso mg/g/mcg) ─
+        $custo_capsula  = $custo_capsula  ?? 0.0;
+        $excip_subtotal = $excip_subtotal ?? 0.0;
         $total_insumos = 0.0;
         foreach ( $itens_mp as &$item ) {
             if ( $item['tipo'] !== 'mp' || $item['is_qsp'] ) continue;
@@ -1545,6 +1684,9 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
         }
         unset( $item );
 
+        // Excipiente (QSP) entra como insumo
+        $total_insumos += $excip_subtotal;
+
         // ── 4. Sugere embalagem ───────────────────────────────────────────────────────
         $itens_emb = [];
         $total_emb = 0.0;
@@ -1555,7 +1697,7 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
                 $total_emb   = $emb['subtotal'];
             }
         }
-        $calculado = $total_insumos + $total_emb;
+        $calculado = $total_insumos + $total_emb + $custo_capsula;
 
         // ── 5. Custo fixo da forma ────────────────────────────────────────────────────
         $custo_fixo = 0.0;
