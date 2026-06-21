@@ -14,8 +14,8 @@ function tao_caixa_page_adquirentes() {
     ?>
     <div class="wrap taoc-wrap">
         <div class="taoc-bar">
-            <h1>&#x1F3E6; Adquirentes (Operadoras)</h1>
-            <button class="taoc-btn taoc-btn-primary" data-caixa-new data-modal="taoc-adq-modal" data-title="Nova Operadora">+ Nova Operadora</button>
+            <h1>&#x1F3E6; Operadoras de Cartão</h1>
+            <button class="taoc-btn taoc-btn-primary" data-caixa-new data-modal="taoc-adq-modal" data-title="Nova Operadora de Cartão">+ Nova Operadora</button>
         </div>
 
         <?php if ( ! $cid ) : ?>
@@ -25,7 +25,7 @@ function tao_caixa_page_adquirentes() {
         <?php if ( empty( $rows ) ) : ?>
         <div class="taoc-empty">
             <p>Nenhuma operadora cadastrada.</p>
-            <button class="taoc-btn taoc-btn-primary" data-caixa-new data-modal="taoc-adq-modal" data-title="Nova Operadora">+ Cadastrar primeira</button>
+            <button class="taoc-btn taoc-btn-primary" data-caixa-new data-modal="taoc-adq-modal" data-title="Nova Operadora de Cartão">+ Cadastrar primeira</button>
         </div>
         <?php else : ?>
         <table class="taoc-table">

@@ -45,8 +45,10 @@ if ( $has_formula ) {
 
 $has_caixa = function_exists( 'tao_caixa_page_dashboard' );
 if ( $has_caixa ) {
-    $secoes['tao-caixa-dashboard']   = [ 'fn' => 'tao_caixa_page_dashboard',   'label' => 'TAO Caixa' ];
-    $secoes['tao-caixa-adquirentes'] = [ 'fn' => 'tao_caixa_page_adquirentes', 'label' => 'Caixa — Adquirentes' ];
+    $secoes['tao-caixa-dashboard']   = [ 'fn' => 'tao_caixa_page_dashboard',    'label' => 'TAO Caixa' ];
+    $secoes['tao-caixa-adquirentes'] = [ 'fn' => 'tao_caixa_page_adquirentes',  'label' => 'Caixa — Operadoras de Cartão' ];
+    $secoes['tao-caixa-taxas']       = [ 'fn' => 'tao_caixa_page_taxas',        'label' => 'Caixa — Taxas (MDR)' ];
+    $secoes['tao-caixa-formas']      = [ 'fn' => 'tao_caixa_page_formas_pgto',  'label' => 'Caixa — Formas de Pagamento' ];
 }
 
 $page_atual = $_GET['page'] ?? 'chatbot-platform';
@@ -169,7 +171,9 @@ if ( $has_caixa && function_exists( 'tao_caixa_pode_operar' ) && tao_caixa_pode_
         'label' => 'TAO Caixa',
         'icon'  => '&#x1F4B0;',
         'items' => [
-            [ 'slug' => 'tao-caixa-adquirentes', 'label' => 'Adquirentes', 'url' => cbpm_url('caixa-adquirentes') ],
+            [ 'slug' => 'tao-caixa-adquirentes', 'label' => 'Operadoras de Cart&atilde;o', 'url' => cbpm_url('caixa-adquirentes') ],
+            [ 'slug' => 'tao-caixa-taxas',       'label' => 'Taxas (MDR)',                 'url' => cbpm_url('caixa-taxas') ],
+            [ 'slug' => 'tao-caixa-formas',      'label' => 'Formas de Pagamento',         'url' => cbpm_url('caixa-formas') ],
         ],
     ];
     $nav['operacao']['subs']['op-caixa'] = [

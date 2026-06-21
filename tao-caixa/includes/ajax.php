@@ -49,3 +49,88 @@ add_action( 'wp_ajax_tao_caixa_delete_adquirente', function() {
     if ( ! $r['ok'] ) wp_send_json_error( 'Falha ao excluir: ' . ( $r['raw'] ?? '' ) );
     wp_send_json_success();
 } );
+
+// ── Taxas (MDR) ──────────────────────────────────────────────────────────────
+
+add_action( 'wp_ajax_tao_caixa_save_taxa', function() {
+    $cid = tao_caixa_ajax_guard();
+
+    $id   = sanitize_text_field( $_POST['id'] ?? '' );
+    $adq  = sanitize_text_field( $_POST['adquirente_id'] ?? '' );
+    $band = trim( sanitize_text_field( $_POST['bandeira'] ?? '' ) );
+    $mod  = ( ( $_POST['modalidade'] ?? 'credito' ) === 'debito' ) ? 'debito' : 'credito';
+    if ( ! $adq )  wp_send_json_error( 'Selecione a operadora de cartão' );
+    if ( $band === '' ) wp_send_json_error( 'Informe a bandeira' );
+
+    $payload = [
+        'adquirente_id'          => $adq,
+        'bandeira'               => $band,
+        'modalidade'             => $mod,
+        'parcelas'               => max( 1, (int) ( $_POST['parcelas'] ?? 1 ) ),
+        'taxa_pct'               => round( (float) str_replace( ',', '.', $_POST['taxa_pct'] ?? 0 ), 3 ),
+        'prazo_recebimento_dias' => max( 0, (int) ( $_POST['prazo_recebimento_dias'] ?? 1 ) ),
+        'ativo'                  => ( ( $_POST['ativo'] ?? '1' ) === '1' ),
+    ];
+
+    if ( $id ) {
+        $r = tao_caixa_api( "/caixa_taxas?id=eq.$id&cliente_id=eq.$cid", 'PATCH', $payload );
+    } else {
+        $payload['cliente_id'] = $cid;
+        $r = tao_caixa_api( '/caixa_taxas', 'POST', $payload );
+    }
+    if ( ! $r['ok'] ) wp_send_json_error( 'Falha ao salvar: ' . ( $r['raw'] ?? '' ) );
+    wp_send_json_success( $r['data'][0] ?? [] );
+} );
+
+add_action( 'wp_ajax_tao_caixa_delete_taxa', function() {
+    $cid = tao_caixa_ajax_guard();
+    $id  = sanitize_text_field( $_POST['id'] ?? '' );
+    if ( ! $id ) wp_send_json_error( 'ID inválido' );
+    $r = tao_caixa_api( "/caixa_taxas?id=eq.$id&cliente_id=eq.$cid", 'DELETE' );
+    if ( ! $r['ok'] ) wp_send_json_error( 'Falha ao excluir: ' . ( $r['raw'] ?? '' ) );
+    wp_send_json_success();
+} );
+
+// ── Formas de Pagamento ──────────────────────────────────────────────────────
+
+add_action( 'wp_ajax_tao_caixa_save_forma', function() {
+    $cid = tao_caixa_ajax_guard();
+
+    $id    = sanitize_text_field( $_POST['id'] ?? '' );
+    $nome  = trim( sanitize_text_field( $_POST['nome'] ?? '' ) );
+    if ( $nome === '' ) wp_send_json_error( 'Informe o nome da forma de pagamento' );
+
+    $tipos_ok = [ 'dinheiro', 'pix', 'debito', 'credito', 'boleto', 'link', 'outro' ];
+    $tipo = sanitize_text_field( $_POST['tipo'] ?? 'dinheiro' );
+    if ( ! in_array( $tipo, $tipos_ok, true ) ) $tipo = 'outro';
+    $adq = sanitize_text_field( $_POST['adquirente_id'] ?? '' );
+
+    $payload = [
+        'nome'                   => $nome,
+        'tipo'                   => $tipo,
+        'adquirente_id'          => $adq ?: null,
+        'prazo_recebimento_dias' => max( 0, (int) ( $_POST['prazo_recebimento_dias'] ?? 0 ) ),
+        'taxa_pct'               => round( (float) str_replace( ',', '.', $_POST['taxa_pct'] ?? 0 ), 3 ),
+        'conta_no_dinheiro'      => ( ( $_POST['conta_no_dinheiro'] ?? '0' ) === '1' ),
+        'ordem'                  => max( 0, (int) ( $_POST['ordem'] ?? 0 ) ),
+        'ativo'                  => ( ( $_POST['ativo'] ?? '1' ) === '1' ),
+    ];
+
+    if ( $id ) {
+        $r = tao_caixa_api( "/caixa_formas_pagamento?id=eq.$id&cliente_id=eq.$cid", 'PATCH', $payload );
+    } else {
+        $payload['cliente_id'] = $cid;
+        $r = tao_caixa_api( '/caixa_formas_pagamento', 'POST', $payload );
+    }
+    if ( ! $r['ok'] ) wp_send_json_error( 'Falha ao salvar: ' . ( $r['raw'] ?? '' ) );
+    wp_send_json_success( $r['data'][0] ?? [] );
+} );
+
+add_action( 'wp_ajax_tao_caixa_delete_forma', function() {
+    $cid = tao_caixa_ajax_guard();
+    $id  = sanitize_text_field( $_POST['id'] ?? '' );
+    if ( ! $id ) wp_send_json_error( 'ID inválido' );
+    $r = tao_caixa_api( "/caixa_formas_pagamento?id=eq.$id&cliente_id=eq.$cid", 'DELETE' );
+    if ( ! $r['ok'] ) wp_send_json_error( 'Falha ao excluir: ' . ( $r['raw'] ?? '' ) );
+    wp_send_json_success();
+} );

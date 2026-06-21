@@ -18,19 +18,19 @@ function tao_caixa_page_dashboard() {
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px">
             <a href="<?php echo esc_url( tao_caixa_url( 'caixa-adquirentes' ) ); ?>" class="taoc-card" style="display:block;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:18px;text-decoration:none;color:#1e293b">
                 <div style="font-size:22px">&#x1F3E6;</div>
-                <strong style="display:block;margin-top:6px">Adquirentes</strong>
-                <span style="font-size:12px;color:#64748b">Operadoras de cartão (Cielo, Rede…) e taxa de antecipação</span>
+                <strong style="display:block;margin-top:6px">Operadoras de Cartão</strong>
+                <span style="font-size:12px;color:#64748b">Cielo, Rede, Stone… e taxa de antecipação</span>
             </a>
-            <div class="taoc-card" style="background:#f8fafc;border:1px dashed #cbd5e1;border-radius:10px;padding:18px;color:#94a3b8">
+            <a href="<?php echo esc_url( tao_caixa_url( 'caixa-taxas' ) ); ?>" class="taoc-card" style="display:block;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:18px;text-decoration:none;color:#1e293b">
                 <div style="font-size:22px">&#x1F4CA;</div>
                 <strong style="display:block;margin-top:6px">Tabela de Taxas (MDR)</strong>
-                <span style="font-size:12px">Em breve</span>
-            </div>
-            <div class="taoc-card" style="background:#f8fafc;border:1px dashed #cbd5e1;border-radius:10px;padding:18px;color:#94a3b8">
+                <span style="font-size:12px;color:#64748b">Taxa e prazo por operadora × bandeira × parcelas</span>
+            </a>
+            <a href="<?php echo esc_url( tao_caixa_url( 'caixa-formas' ) ); ?>" class="taoc-card" style="display:block;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:18px;text-decoration:none;color:#1e293b">
                 <div style="font-size:22px">&#x1F4B3;</div>
                 <strong style="display:block;margin-top:6px">Formas de Pagamento</strong>
-                <span style="font-size:12px">Em breve</span>
-            </div>
+                <span style="font-size:12px;color:#64748b">Dinheiro, PIX, cartões, boleto…</span>
+            </a>
         </div>
     </div>
     <?php
