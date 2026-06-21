@@ -8,6 +8,16 @@
     var formaAtual  = null;
     var ajaxUrl     = (typeof taoFormula !== 'undefined') ? taoFormula.ajaxUrl : '/wp-admin/admin-ajax.php';
     var nonce       = (typeof taoFormula !== 'undefined') ? taoFormula.nonce   : '';
+
+    // Toast de feedback (ex.: sinônimo salvo) — visível para o usuário
+    function taofToast(msg) {
+        var t = document.createElement('div');
+        t.textContent = msg;
+        t.style.cssText = 'position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#16a34a;color:#fff;padding:8px 16px;border-radius:6px;font-size:13px;font-weight:600;z-index:2147483647;box-shadow:0 4px 14px rgba(0,0,0,.25);opacity:0;transition:opacity .2s';
+        document.body.appendChild(t);
+        requestAnimationFrame(function () { t.style.opacity = '1'; });
+        setTimeout(function () { t.style.opacity = '0'; setTimeout(function () { t.remove(); }, 250); }, 2800);
+    }
     var IS_MODAL    = !! window.taofIsModal;
     var EDIT_ORC_ID = window.taofEditOrcId || '';
     var EDIT_DATA   = window.taofEditData  || null;
@@ -805,7 +815,9 @@
                                     var wasEmpty = !$row.find('.taof-orc-ativo-id').val();
                                     selecionarAtivo($row, a, origName);
                                     if (wasEmpty && origName && origName.toUpperCase() !== a.nome.toUpperCase()) {
-                                        $.post(ajaxUrl, { action: 'tao_formula_salvar_sinonimo', nonce: nonce, ativo_id: a.id, sinonimo: origName.toUpperCase() });
+                                        $.post(ajaxUrl, { action: 'tao_formula_salvar_sinonimo', nonce: nonce, ativo_id: a.id, sinonimo: origName.toUpperCase() }, function () {
+                                            taofToast('✓ Sinônimo salvo: "' + origName.toUpperCase() + '" → ' + a.nome);
+                                        });
                                     }
                                 });
                                 $dd.append($item);
@@ -859,7 +871,9 @@
                     var wasEmpty2 = !$row.find('.taof-orc-ativo-id').val();
                     selecionarAtivo($row, aObj2, origName2);
                     if (wasEmpty2 && origName2 && origName2.toUpperCase() !== aObj2.nome.toUpperCase()) {
-                        $.post(ajaxUrl, { action: 'tao_formula_salvar_sinonimo', nonce: nonce, ativo_id: aObj2.id, sinonimo: origName2.toUpperCase() });
+                        $.post(ajaxUrl, { action: 'tao_formula_salvar_sinonimo', nonce: nonce, ativo_id: aObj2.id, sinonimo: origName2.toUpperCase() }, function () {
+                            taofToast('✓ Sinônimo salvo: "' + origName2.toUpperCase() + '" → ' + aObj2.nome);
+                        });
                     }
                 }
             } else if (e.key === 'Escape') {
