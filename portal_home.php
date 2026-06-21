@@ -9,6 +9,7 @@ function cbpm_page_portal_home() {
     // ── Período ────────────────────────────────────────────────────────────
     $periodo = sanitize_key( $_GET['periodo'] ?? '30d' );
     $periodos = [
+        'hoje'    => 'Hoje',
         '7d'      => 'Últimos 7 dias',
         '30d'     => 'Últimos 30 dias',
         '90d'     => 'Últimos 90 dias',
@@ -21,6 +22,10 @@ function cbpm_page_portal_home() {
     $now = new DateTime( 'now', $tz );
 
     switch ( $periodo ) {
+        case 'hoje':
+            $date_from = $now->format( 'Y-m-d' ) . 'T00:00:00-03:00';
+            $dias_crm  = 1;
+            break;
         case '7d':
             $date_from = ( clone $now )->modify( '-6 days' )->format( 'Y-m-d' ) . 'T00:00:00-03:00';
             $dias_crm  = 7;
@@ -93,28 +98,52 @@ function cbpm_page_portal_home() {
             );
             $all_cards = $rc_all['ok'] ? ( $rc_all['data'] ?? [] ) : [];
 
-            $re_pipes = tao_crm_api( "/crm_pipelines?workspace_id=eq.$ws_id&select=id" );
-            $pipe_ids = array_column( $re_pipes['ok'] ? ( $re_pipes['data'] ?? [] ) : [], 'id' );
+            // Pipelines ordenados (p/ detectar Pós-vendas) + estágios com pipeline_id
+            $re_pipes  = tao_crm_api( "/crm_pipelines?workspace_id=eq.$ws_id&ativo=eq.true&select=id&order=ordem.asc" );
+            $pipe_ids  = array_column( $re_pipes['ok'] ? ( $re_pipes['data'] ?? [] ) : [], 'id' );
+
+            $pos_pl_id = get_option( 'tao_crm_pos_vendas_pipeline_' . $ws_id, '' );
+            if ( ! $pos_pl_id && count( $pipe_ids ) >= 2 ) $pos_pl_id = $pipe_ids[1];
+
             $estagios = [];
+            $pos_set = $vendas_set = $ganho_set = $perd_set = [];
             if ( $pipe_ids ) {
-                $re_est = tao_crm_api( "/crm_estagios?pipeline_id=in.(" . implode( ',', $pipe_ids ) . ")&select=id,tipo" );
+                $re_est = tao_crm_api( "/crm_estagios?pipeline_id=in.(" . implode( ',', $pipe_ids ) . ")&select=id,tipo,pipeline_id" );
                 foreach ( $re_est['ok'] ? ( $re_est['data'] ?? [] ) : [] as $e ) {
                     $estagios[ $e['id'] ] = $e['tipo'];
+                    if ( $pos_pl_id && ( $e['pipeline_id'] ?? '' ) === $pos_pl_id ) $pos_set[ $e['id'] ] = true;
+                    else                                                            $vendas_set[ $e['id'] ] = true;
+                    if ( ( $e['tipo'] ?? '' ) === 'ganho' )   $ganho_set[ $e['id'] ] = true;
+                    if ( ( $e['tipo'] ?? '' ) === 'perdido' ) $perd_set[ $e['id'] ] = true;
+                }
+            }
+
+            // Ganhos/perdidos por EVENTO no período (card cruzou Vendas → Pós-vendas)
+            $ganho_ids = $perd_ids = [];
+            $para_in = array_keys( $pos_set + $ganho_set + $perd_set );
+            if ( $para_in ) {
+                $rh = tao_crm_api(
+                    "/crm_cards_historico?para_estagio_id=in.(" . implode( ',', $para_in ) . ")" .
+                    "&criado_em=gte." . urlencode( $date_from ) .
+                    "&select=card_id,de_estagio_id,para_estagio_id&order=criado_em.desc&limit=5000"
+                );
+                foreach ( $rh['ok'] ? ( $rh['data'] ?? [] ) : [] as $h ) {
+                    $para = $h['para_estagio_id'] ?? ''; $de = $h['de_estagio_id'] ?? ''; $cid = $h['card_id'] ?? '';
+                    if ( ! $cid ) continue;
+                    if ( ( isset( $pos_set[ $para ] ) && isset( $vendas_set[ $de ] ) ) || isset( $ganho_set[ $para ] ) ) $ganho_ids[ $cid ] = true;
+                    if ( isset( $perd_set[ $para ] ) ) $perd_ids[ $cid ] = true;
                 }
             }
 
             $abertos_arr  = array_filter( $all_cards, fn($c) => empty( $c['fechado'] ) );
-            $fechados_arr = array_filter( $all_cards, fn($c) => ! empty( $c['fechado'] ) );
-            $ganhos_arr   = array_filter( $fechados_arr, fn($c) => ( $estagios[ $c['estagio_id'] ] ?? '' ) === 'ganho' );
-            $perdidos_arr = array_filter( $fechados_arr, fn($c) => ( $estagios[ $c['estagio_id'] ] ?? '' ) === 'perdido' );
             $handoff_arr  = array_filter( $abertos_arr,  fn($c) => ! empty( $c['atendimento_humano'] ) );
             $novos_arr    = array_filter( $all_cards,    fn($c) => ( $c['criado_em'] ?? '' ) >= $desde_crm );
 
             $abertos    = count( $abertos_arr );
             $novos_crm  = count( $novos_arr );
-            $ganhos_n   = count( $ganhos_arr );
-            $perdidos_n = count( $perdidos_arr );
-            $taxa       = count( $fechados_arr ) > 0 ? round( $ganhos_n / count( $fechados_arr ) * 100 ) : 0;
+            $ganhos_n   = count( $ganho_ids );
+            $perdidos_n = count( $perd_ids );
+            $taxa       = ( $ganhos_n + $perdidos_n ) > 0 ? round( $ganhos_n / ( $ganhos_n + $perdidos_n ) * 100 ) : 0;
             $opor       = array_sum( array_column( array_values( $abertos_arr ), 'valor_oportunidade' ) );
             $handoff    = count( $handoff_arr );
             $cards_recentes = array_slice( array_values( $abertos_arr ), 0, 5 );
@@ -328,7 +357,7 @@ function cbpm_page_portal_home() {
                 <div class="ph-kpi kpi-green">
                     <span class="kpi-label">Taxa de conversão</span>
                     <span class="kpi-value"><?php echo $taxa; ?>%</span>
-                    <span class="kpi-sub"><?php echo $ganhos_n; ?> ganhos / <?php echo ($ganhos_n + $perdidos_n); ?> fechados</span>
+                    <span class="kpi-sub"><?php echo $ganhos_n; ?> ganhos / <?php echo ($ganhos_n + $perdidos_n); ?> decididos</span>
                 </div>
                 <div class="ph-kpi kpi-amber">
                     <span class="kpi-label">Em oportunidades</span>
@@ -351,7 +380,7 @@ function cbpm_page_portal_home() {
             </div>
             <div class="ph-grid2">
                 <div class="ph-block-inner">
-                    <span class="ph-tag-label">Resultados — histórico geral</span>
+                    <span class="ph-tag-label">Resultados — <?php echo esc_html( $label_periodo ); ?> · ganho = foi p/ Pós-vendas</span>
                     <div style="display:flex;gap:20px;align-items:center;justify-content:space-around;padding:8px 0">
                         <div style="text-align:center">
                             <div style="font-size:32px;font-weight:800;color:#10b981"><?php echo $ganhos_n; ?></div>
