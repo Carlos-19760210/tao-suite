@@ -299,6 +299,24 @@
         var sorted  = pool.slice().sort(function (a, b) { return a.vol_ul - b.vol_ul; });
         if (!sorted.length) return null;
 
+        // Cápsula forçada manualmente (opção A): tamanho fixo, nº de cáps/dose automático
+        if (_forcedCapId) {
+            var fc = capsulas.filter(function (c) { return (c.tipo + '|' + c.numero) === _forcedCapId; })[0];
+            if (fc) {
+                var nF = forceN;
+                if (!nF) {
+                    nF = Math.ceil(totalVOLAPA / (fc.vol_ul * ftench)) || 1;
+                    for (var k = 1; k <= 6; k++) { if (fc.vol_ul * k * ftench >= totalVOLAPA) { nF = k; break; } }
+                }
+                return {
+                    cap: fc, nPerDose: nF,
+                    volTotal: fc.vol_ul * nF * ftench, volapa: totalVOLAPA,
+                    pct: totalVOLAPA / (fc.vol_ul * nF * ftench) * 100,
+                    overflow: (fc.vol_ul * nF * ftench < totalVOLAPA)
+                };
+            }
+        }
+
         if (forceN) {
             for (var i = 0; i < sorted.length; i++) {
                 if (sorted[i].vol_ul * forceN * ftench >= totalVOLAPA) {
@@ -342,12 +360,30 @@
         return $input.data('manual') ? Math.max(1, parseInt($input.val()) || 1) : null;
     }
 
+    // Popula o seletor de cápsula (uma vez) com "Automático" + todas as cápsulas
+    function popularCapsulaSelect() {
+        var $sel = $('#taof-caps-select');
+        if (!$sel.length || $sel.data('pop')) return;
+        var html = '<option value="auto">Automático</option>';
+        capsulas.slice().sort(function (a, b) { return a.vol_ul - b.vol_ul; }).forEach(function (c) {
+            var tipo = c.tipo.charAt(0).toUpperCase() + c.tipo.slice(1).toLowerCase();
+            html += '<option value="' + c.tipo + '|' + c.numero + '">' + tipo + ' Nº ' + c.numero + ' (' + c.vol_ul + ' µL)</option>';
+        });
+        $sel.html(html).data('pop', true);
+        $sel.on('change', function () {
+            _forcedCapId = (this.value === 'auto') ? null : this.value;
+            calcularTotais();
+        });
+    }
+
     function sugerirCapsula() {
         var isCap = formaAtual && (formaAtual.tipo === 'cap' || formaAtual.tipo === 'duo_cap');
         if (!isCap || !capsulas.length) { $('#taof-card-capsulas').hide(); return null; }
 
         // Forma é cápsula: card sempre visível — mostra placeholder se doses ainda não informadas
         $('#taof-card-capsulas').show();
+        popularCapsulaSelect();
+        if ($('#taof-caps-select').length) { $('#taof-caps-select').val(_forcedCapId || 'auto'); }
 
         var forceN = getNPerDoseForced();
         var r = calcularCapsulaIdeal(forceN);
@@ -519,6 +555,7 @@
 
     // Flag para bloquear recálculo de linhas durante loadEditData
     var _loadingEdit = false;
+    var _forcedCapId = null;   // cápsula forçada manualmente (tipo|numero) ou null = automático
 
     // ── Forma select ──────────────────────────────────────────────────
     $('#taof-forma-sel').on('change', function () {
@@ -1312,6 +1349,7 @@
     function loadEditData(data) {
         if (!data) return;
         _loadingEdit = true;
+        _forcedCapId = null;   // começa em Automático ao abrir um orçamento
 
         // Paciente
         $('#taof-nome-paciente').val(data.nome_paciente || '');

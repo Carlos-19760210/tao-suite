@@ -329,7 +329,7 @@ function tao_formula_page_orcamento_novo() {
             </thead>
             <tbody>
                 <tr>
-                    <td id="taof-caps-nome" style="font-weight:500;color:#334155">—</td>
+                    <td style="font-weight:500;color:#334155"><select id="taof-caps-select" class="taof-inp" style="width:100%;min-width:150px;font-size:11px" title="Automático ou escolha a cápsula manualmente"></select></td>
                     <td id="taof-caps-vol">—</td>
                     <td id="taof-caps-volapa">—</td>
                     <td>
