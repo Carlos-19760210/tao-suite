@@ -290,10 +290,10 @@
         });
         if (totalVOLAPA <= 0) return null;
 
-        var tipoSel = $('#taof-forma-tipo').val();
+        var tipoSel = $('#taof-forma-tipo').val() || 'gelatinosa';   // sem nada específico → gelatinosa
         var ftench  = formaAtual ? (formaAtual.ftenchcap || 1) : 1;
         var pool    = capsulas.filter(function (c) {
-            return !tipoSel || c.tipo.toLowerCase() === tipoSel.toLowerCase();
+            return c.tipo.toLowerCase() === tipoSel.toLowerCase();
         });
         if (!pool.length) pool = capsulas.slice();
         var sorted  = pool.slice().sort(function (a, b) { return a.vol_ul - b.vol_ul; });
