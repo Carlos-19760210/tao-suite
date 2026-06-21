@@ -87,6 +87,8 @@ add_action( 'template_redirect', function() {
         'formula-formas'     => 'tao-formula-formas',
         'formula-ativos'     => 'tao-formula-ativos',
         'formula-config'     => 'tao-formula-config',
+        'caixa'              => 'tao-caixa-dashboard',
+        'caixa-adquirentes'  => 'tao-caixa-adquirentes',
     ];
 
     $page_slug = $map[ $cbpm_page ] ?? 'chatbot-platform-dashboard';

@@ -43,6 +43,12 @@ if ( $has_formula ) {
     $secoes['tao-formula-config']    = [ 'fn' => 'tao_formula_page_config',         'label' => 'TAO Fórmulas — Config' ];
 }
 
+$has_caixa = function_exists( 'tao_caixa_page_dashboard' );
+if ( $has_caixa ) {
+    $secoes['tao-caixa-dashboard']   = [ 'fn' => 'tao_caixa_page_dashboard',   'label' => 'TAO Caixa' ];
+    $secoes['tao-caixa-adquirentes'] = [ 'fn' => 'tao_caixa_page_adquirentes', 'label' => 'Caixa — Adquirentes' ];
+}
+
 $page_atual = $_GET['page'] ?? 'chatbot-platform';
 // O plugin mapeia slug 'negocios' → 'chatbot-platform', mas queremos Negócios e não Visão Geral
 if ( get_query_var( 'cbpm_page', '' ) === 'negocios' ) $page_atual = 'chatbot-platform-negocios';
@@ -154,6 +160,23 @@ if ( $has_formula ) {
             [ 'slug' => 'tao-formula',            'label' => 'Dashboard',              'url' => cbpm_url('formula-dashboard') ],
             [ 'slug' => 'tao-formula-orcamentos', 'label' => 'Or&ccedil;amentos',      'url' => cbpm_url('formula-orcamentos') ],
             [ 'slug' => 'tao-formula-orc-novo',   'label' => '+ Novo Or&ccedil;amento','url' => cbpm_url('formula-novo-orc') ],
+        ],
+    ];
+}
+
+if ( $has_caixa && function_exists( 'tao_caixa_pode_operar' ) && tao_caixa_pode_operar() ) {
+    $nav['config']['subs']['cfg-caixa'] = [
+        'label' => 'TAO Caixa',
+        'icon'  => '&#x1F4B0;',
+        'items' => [
+            [ 'slug' => 'tao-caixa-adquirentes', 'label' => 'Adquirentes', 'url' => cbpm_url('caixa-adquirentes') ],
+        ],
+    ];
+    $nav['operacao']['subs']['op-caixa'] = [
+        'label' => 'TAO Caixa',
+        'icon'  => '&#x1F4B0;',
+        'items' => [
+            [ 'slug' => 'tao-caixa-dashboard', 'label' => 'Dashboard', 'url' => cbpm_url('caixa') ],
         ],
     ];
 }
