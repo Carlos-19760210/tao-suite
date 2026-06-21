@@ -1545,7 +1545,9 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
     foreach ( $orcs as $orc ) {
         $numero = sanitize_text_field( $orc['numero'] ?? '' );
         $descr  = sanitize_text_field( $orc['descricao'] ?? '' );
-        $valor  = (float) ( $orc['valor'] ?? 0 );
+        $valor  = (float) ( $orc['valor'] ?? 0 );                       // valor FINAL (com desconto)
+        $valor_bruto = (float) ( $orc['valor_bruto'] ?? $valor );       // valor antes do desconto
+        if ( $valor_bruto < $valor ) $valor_bruto = $valor;
         if ( ! $numero || $valor <= 0 ) { $erros[] = "Linha inválida: $numero"; continue; }
 
         // Verifica duplicata
@@ -1697,9 +1699,11 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
                 $total_emb   = $emb['subtotal'];
             }
         }
-        $calculado = $total_insumos + $total_emb + $custo_capsula;
+        // Valor Calculado = insumos + embalagem (SEM cápsula — cápsula é linha própria)
+        $calculado = $total_insumos + $total_emb;
 
-        // ── 5. Custo fixo da forma ────────────────────────────────────────────────────
+        // ── 5. Custo fixo da forma (base = calculado + cápsulas, igual ao motor JS) ───
+        $base_fixo  = $calculado + $custo_capsula;
         $custo_fixo = 0.0;
         if ( $forma ) {
             $cf_tipo = $forma['custo_fixo_tipo'] ?? '';
@@ -1707,13 +1711,15 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
             if ( $cf_tipo === 'R' ) {
                 $custo_fixo = $cf_val;
             } elseif ( $cf_tipo === 'pct' ) {
-                $custo_fixo = round( $calculado * $cf_val / 100, 2 );
+                $custo_fixo = round( $base_fixo * $cf_val / 100, 2 );
             } else {
                 $margem_pct = (float)( $forma['margem_pct'] ?? 30 );
-                $custo_fixo = round( $calculado * $margem_pct / 100, 2 );
+                $custo_fixo = round( $base_fixo * $margem_pct / 100, 2 );
             }
         }
-        $subtotal_calc = round( $calculado + $custo_fixo, 2 );
+
+        // Sub-Total = Valor Calculado + Cápsulas + Custo Fixo
+        $subtotal_calc = round( $calculado + $custo_capsula + $custo_fixo, 2 );
 
         // Valor mínimo da forma
         if ( $forma ) {
@@ -1721,38 +1727,18 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
             if ( $val_min > 0 && $subtotal_calc < $val_min ) $subtotal_calc = $val_min;
         }
 
-        // ── 6. Acréscimo / Desconto para bater com valor importado ───────────────────
-        // Evita overflow nas colunas numéricas de %: se o % seria absurdo (> 999),
-        // absorve a diferença no custo_fixo em vez de usar percentual.
-        $acrescimo_pct = 0.0;
-        $desconto_pct  = 0.0;
-        if ( $subtotal_calc <= 0.005 ) {
-            // Sem cálculo possível: armazena total em custo_fixo
-            $custo_fixo    = $valor;
-            $calculado     = 0.0;
-            $subtotal_calc = $valor;
-        } else {
-            $diff = round( $valor - $subtotal_calc, 4 );
-            if ( $diff > 0.005 ) {
-                $pct = $diff / $subtotal_calc * 100;
-                if ( $pct <= 999 ) {
-                    $acrescimo_pct = round( $pct, 4 );
-                } else {
-                    // Acréscimo% muito alto → absorve diferença no custo_fixo
-                    $custo_fixo    = round( max( 0, $valor - $total_insumos - $total_emb ), 2 );
-                    $subtotal_calc = round( $total_insumos + $total_emb + $custo_fixo, 2 );
-                }
-            } elseif ( $diff < -0.005 ) {
-                $pct = abs($diff) / $subtotal_calc * 100;
-                if ( $pct <= 99 ) {
-                    $desconto_pct = round( $pct, 4 );
-                } else {
-                    // Desconto% alto → reduz custo_fixo ao mínimo necessário
-                    $custo_fixo    = round( max( 0, $valor - $total_insumos - $total_emb ), 2 );
-                    $subtotal_calc = round( $total_insumos + $total_emb + $custo_fixo, 2 );
-                }
-            }
+        // ── 6. Desconto = desconto informado; Acréscimo = resíduo até o valor bruto ──
+        // FINAL = $valor (com desconto). Bruto = $valor_bruto (antes do desconto).
+        $desconto_val  = max( 0.0, round( $valor_bruto - $valor, 2 ) );      // desconto informado
+        $acrescimo_val = round( $valor_bruto - $subtotal_calc, 2 );          // resíduo p/ chegar no bruto
+        if ( $acrescimo_val < 0 ) {
+            // Sub-Total já passou do bruto: zera acréscimo e ajusta desconto p/ bater no FINAL
+            $acrescimo_val = 0.0;
+            $desconto_val  = max( 0.0, round( $subtotal_calc - $valor, 2 ) );
         }
+        $acrescimo_pct = $subtotal_calc > 0.005 ? round( $acrescimo_val / $subtotal_calc * 100, 4 ) : 0.0;
+        $desconto_pct  = $subtotal_calc > 0.005 ? round( $desconto_val  / $subtotal_calc * 100, 4 ) : 0.0;
+        if ( $subtotal_calc <= 0.005 ) { $custo_fixo = $valor; $calculado = 0.0; }
 
         $observacoes = "[FC:{$numero}] {$descr}";
         $itens_todos = array_merge( $itens_mp, $itens_emb );

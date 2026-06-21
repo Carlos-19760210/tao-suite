@@ -405,6 +405,12 @@
         var cor  = pct > 100 ? '#dc2626' : (pct > 85 ? '#d97706' : '#16a34a');
         var tipo = c.tipo.charAt(0).toUpperCase() + c.tipo.slice(1).toLowerCase();
 
+        // Rótulo da opção "Automático" mostra a cápsula sugerida (não o texto genérico)
+        var $autoOpt = $('#taof-caps-select option[value="auto"]');
+        if ($autoOpt.length) {
+            $autoOpt.text('Automático — ' + tipo + ' Nº ' + c.numero + ' (' + c.vol_ul + ' µL)');
+        }
+
         // Header: resumo fill da capsula
         $('#taof-cap-sugerida').html(
             tipo + ' N&ordm;&nbsp;' + c.numero + ' (' + c.vol_ul + '&nbsp;&micro;L)' +

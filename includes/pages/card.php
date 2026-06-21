@@ -1858,11 +1858,13 @@ function tao_crm_page_card() {
                 var rest = part.substring(part.indexOf(numero) + numero.length).replace(/^\s*\/?\s*/, '').trim();
                 var valorMatch = rest.match(/Valor\s+R\$:\s*([\d.,]+)(?:\s*com\s+desconto\s+R\$:\s*([\d.,]+))?/i);
                 if (!valorMatch) return;
-                var valorStr = (valorMatch[2] || valorMatch[1]).replace(/\./g, '').replace(',', '.');
-                var valor = parseFloat(valorStr);
+                function parseBR(s) { return parseFloat(String(s).replace(/\./g, '').replace(',', '.')); }
+                var bruto = parseBR(valorMatch[1]);                          // valor antes do desconto
+                var valor = valorMatch[2] ? parseBR(valorMatch[2]) : bruto;  // valor FINAL (com desconto)
                 if (isNaN(valor) || valor <= 0) return;
+                if (isNaN(bruto) || bruto < valor) bruto = valor;
                 var descr = rest.substring(0, rest.toLowerCase().indexOf('valor r$')).trim().replace(/\s*\/\s*$/, '').trim();
-                results.push({ numero: numero, descricao: descr, valor: valor });
+                results.push({ numero: numero, descricao: descr, valor: valor, valor_bruto: bruto });
             });
             return results;
         }
