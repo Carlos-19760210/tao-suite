@@ -1708,13 +1708,12 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
         if ( $forma ) {
             $cf_tipo = $forma['custo_fixo_tipo'] ?? '';
             $cf_val  = (float)( $forma['custo_fixo'] ?? 0 );
-            if ( $cf_tipo === 'R' ) {
-                $custo_fixo = $cf_val;
-            } elseif ( $cf_tipo === 'pct' ) {
+            if ( $cf_tipo === 'pct' ) {
                 $custo_fixo = round( $base_fixo * $cf_val / 100, 2 );
             } else {
-                $margem_pct = (float)( $forma['margem_pct'] ?? 30 );
-                $custo_fixo = round( $base_fixo * $margem_pct / 100, 2 );
+                // 'R' ou sem regra → usa o valor fixo cadastrado na forma (0 se não houver).
+                // A margem NÃO vira custo fixo no import — o markup fica no Acréscimo.
+                $custo_fixo = $cf_val;
             }
         }
 
@@ -1729,8 +1728,8 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
 
         // ── 6. Opção 2: Desconto = informado; Acréscimo = FINAL − Desconto − Sub-Total ──
         // VALOR FINAL (total_orcamento) = $valor (com desconto), exibido direto do orçamento.
-        $desconto_val  = max( 0.0, round( $valor_bruto - $valor, 2 ) );          // desconto informado
-        $acrescimo_val = round( $valor - $desconto_val - $subtotal_calc, 2 );    // FINAL − Desconto − Sub-Total
+        $desconto_val  = max( 0.0, round( $valor_bruto - $valor, 2 ) );          // desconto informado (bruto − final)
+        $acrescimo_val = round( $valor - $subtotal_calc, 2 );                    // Acréscimo = VALOR FINAL − Sub-Total
         $acrescimo_pct = $subtotal_calc > 0.005 ? round( $acrescimo_val / $subtotal_calc * 100, 4 ) : 0.0;
         $desconto_pct  = $subtotal_calc > 0.005 ? round( $desconto_val  / $subtotal_calc * 100, 4 ) : 0.0;
         if ( $subtotal_calc <= 0.005 ) { $custo_fixo = $valor; $calculado = 0.0; }

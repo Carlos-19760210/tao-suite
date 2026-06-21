@@ -524,12 +524,12 @@
             $dscInp.val(desctVal.toFixed(2));
         }
 
-        // Acréscimo: importado (Opção 2) = VALOR FINAL − Desconto − Sub-Total; senão % ou manual
+        // Acréscimo: importado = VALOR FINAL − Sub-Total (auto); editável manualmente
         var $acrInp   = $('#taof-acrescimo-val-inp');
         var acrescPct = parseFloat($('#taof-acrescimo-pct').val()) || 0;
         var acrescVal;
-        if (_valorFinalTravado != null) {
-            acrescVal = _valorFinalTravado - desctVal - subtotal;
+        if (_valorFinalTravado != null && !$acrInp.data('manual')) {
+            acrescVal = _valorFinalTravado - subtotal;
             $acrInp.val(acrescVal.toFixed(2));
             if (subtotal > 0) $('#taof-acrescimo-pct').val((acrescVal / subtotal * 100).toFixed(1));
         } else if ($acrInp.data('manual')) {
@@ -540,8 +540,8 @@
             $acrInp.val(acrescVal.toFixed(2));
         }
 
-        // VALOR FINAL: importado = valor travado do orçamento; senão soma das linhas
-        var final = (_valorFinalTravado != null) ? _valorFinalTravado : (subtotal + acrescVal - desctVal);
+        // VALOR FINAL: importado com acréscimo automático = valor travado; se editar o acréscimo, soma das linhas
+        var final = (_valorFinalTravado != null && !$acrInp.data('manual')) ? _valorFinalTravado : (subtotal + acrescVal - desctVal);
 
         // Valor mínimo da forma
         var valorMinimo = formaAtual ? (formaAtual.valorMinimo || 0) : 0;
