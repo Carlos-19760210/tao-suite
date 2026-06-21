@@ -43,9 +43,13 @@ function tao_crm_page_dashboard() {
     $pipelines = $re_pipes['ok'] ? ( $re_pipes['data'] ?? [] ) : [];
     $all_pipe_ids = array_column( $pipelines, 'id' );
 
-    // Funil selecionado para o gráfico "Funil por estágio" (default = 1º funil)
-    $funil_id = sanitize_text_field( $_GET['funil'] ?? '' );
-    if ( ! $funil_id || ! in_array( $funil_id, $all_pipe_ids, true ) ) {
+    // Funil selecionado para o gráfico "Funil por estágio" (default = 1º funil; 'todos' = todos os funis)
+    $funil_param = sanitize_text_field( $_GET['funil'] ?? '' );
+    if ( $funil_param === 'todos' ) {
+        $funil_id = 'todos';
+    } elseif ( $funil_param && in_array( $funil_param, $all_pipe_ids, true ) ) {
+        $funil_id = $funil_param;
+    } else {
         $funil_id = $all_pipe_ids[0] ?? '';
     }
 
@@ -254,7 +258,7 @@ function tao_crm_page_dashboard() {
     foreach ( $abertos as $c ) {
         $est = $estagios[ $c['estagio_id'] ] ?? null;
         if ( ! $est ) continue;
-        if ( $funil_id && ( $est['pipeline_id'] ?? '' ) !== $funil_id ) continue; // filtro por funil
+        if ( $funil_id && $funil_id !== 'todos' && ( $est['pipeline_id'] ?? '' ) !== $funil_id ) continue; // filtro por funil
         $tipo_est = $est['tipo'] ?? 'normal';
         if ( in_array( $tipo_est, [ 'ganho', 'perdido' ] ) ) continue;
         $nome = $est['nome'];
@@ -414,6 +418,7 @@ function tao_crm_page_dashboard() {
                 <?php if ( count( $pipelines ) > 1 ) : ?>
                 <label style="font-size:13px;color:#64748b;margin-left:6px">Funil:</label>
                 <select name="funil" onchange="this.form.submit()">
+                    <option value="todos" <?php selected( $funil_id, 'todos' ); ?>>Todos os funis</option>
                     <?php foreach ( $pipelines as $pl ) : ?>
                     <option value="<?php echo esc_attr( $pl['id'] ); ?>" <?php selected( $funil_id, $pl['id'] ); ?>><?php echo esc_html( $pl['nome'] ); ?></option>
                     <?php endforeach; ?>
@@ -552,7 +557,7 @@ function tao_crm_page_dashboard() {
             <!-- 1. Funil por estágio -->
             <div class="crm-chart-box">
                 <?php
-                $funil_nome = '';
+                $funil_nome = $funil_id === 'todos' ? 'Todos os funis' : '';
                 foreach ( $pipelines as $pl ) { if ( $pl['id'] === $funil_id ) { $funil_nome = $pl['nome']; break; } }
                 ?>
                 <h3>&#x25B6; Funil por est&aacute;gio<?php echo $funil_nome ? ' &mdash; <span style="font-weight:400;color:#64748b">' . esc_html( $funil_nome ) . '</span>' : ''; ?></h3>
@@ -642,7 +647,7 @@ function tao_crm_page_dashboard() {
                 </div>
                 <?php else : ?>
                 <p style="color:#94a3b8;font-size:13px">Nenhuma campanha criada.</p>
-                <a href="<?php echo esc_url( admin_url( 'admin.php?page=tao-crm&section=campanhas&workspace_id=' . esc_attr( $ws_id ) ) ); ?>" class="button button-primary" style="font-size:12px">Criar primeira campanha</a>
+                <a href="<?php echo esc_url( function_exists( 'cbpm_url' ) ? cbpm_url( 'campanhas' ) : admin_url( 'admin.php?page=chatbot-platform-campanhas' ) ); ?>" class="button button-primary" style="font-size:12px">Criar primeira campanha</a>
                 <?php endif; ?>
             </div>
 
@@ -660,7 +665,7 @@ function tao_crm_page_dashboard() {
                 }
                 $card_link = '';
                 if ( ! empty( $lem['card_id'] ) ) {
-                    $card_link = admin_url( 'admin.php?page=tao-crm-card&card_id=' . $lem['card_id'] );
+                    $card_link = $card_link_for( $lem['card_id'] );
                 }
             ?>
             <div class="crm-lembrete-row">
