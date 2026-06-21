@@ -512,19 +512,7 @@
 
         var subtotal  = calculado + custoFixo + custoCapsula;
 
-        // Acréscimo: % → valor (auto) ou valor → % (manual)
-        var $acrInp   = $('#taof-acrescimo-val-inp');
-        var acrescPct = parseFloat($('#taof-acrescimo-pct').val()) || 0;
-        var acrescVal;
-        if ($acrInp.data('manual')) {
-            acrescVal = parseFloat($acrInp.val()) || 0;
-            if (subtotal > 0) $('#taof-acrescimo-pct').val((acrescVal / subtotal * 100).toFixed(1));
-        } else {
-            acrescVal = subtotal * acrescPct / 100;
-            $acrInp.val(acrescVal.toFixed(2));
-        }
-
-        // Desconto: % → valor (auto) ou valor → % (manual)
+        // Desconto: % → valor (auto) ou valor → % (manual) — calculado antes do acréscimo
         var $dscInp  = $('#taof-desconto-val-inp');
         var desctPct = parseFloat($('#taof-desconto-pct').val()) || 0;
         var desctVal;
@@ -536,7 +524,24 @@
             $dscInp.val(desctVal.toFixed(2));
         }
 
-        var final = subtotal + acrescVal - desctVal;
+        // Acréscimo: importado (Opção 2) = VALOR FINAL − Desconto − Sub-Total; senão % ou manual
+        var $acrInp   = $('#taof-acrescimo-val-inp');
+        var acrescPct = parseFloat($('#taof-acrescimo-pct').val()) || 0;
+        var acrescVal;
+        if (_valorFinalTravado != null) {
+            acrescVal = _valorFinalTravado - desctVal - subtotal;
+            $acrInp.val(acrescVal.toFixed(2));
+            if (subtotal > 0) $('#taof-acrescimo-pct').val((acrescVal / subtotal * 100).toFixed(1));
+        } else if ($acrInp.data('manual')) {
+            acrescVal = parseFloat($acrInp.val()) || 0;
+            if (subtotal > 0) $('#taof-acrescimo-pct').val((acrescVal / subtotal * 100).toFixed(1));
+        } else {
+            acrescVal = subtotal * acrescPct / 100;
+            $acrInp.val(acrescVal.toFixed(2));
+        }
+
+        // VALOR FINAL: importado = valor travado do orçamento; senão soma das linhas
+        var final = (_valorFinalTravado != null) ? _valorFinalTravado : (subtotal + acrescVal - desctVal);
 
         // Valor mínimo da forma
         var valorMinimo = formaAtual ? (formaAtual.valorMinimo || 0) : 0;
@@ -562,6 +567,7 @@
     // Flag para bloquear recálculo de linhas durante loadEditData
     var _loadingEdit = false;
     var _forcedCapId = null;   // cápsula forçada manualmente (tipo|numero) ou null = automático
+    var _valorFinalTravado = null;   // importado: VALOR FINAL fixo do orçamento (Opção 2)
 
     // ── Forma select ──────────────────────────────────────────────────
     $('#taof-forma-sel').on('change', function () {
@@ -1356,6 +1362,9 @@
         if (!data) return;
         _loadingEdit = true;
         _forcedCapId = null;   // começa em Automático ao abrir um orçamento
+        // Opção 2: orçamento importado tem VALOR FINAL travado (vem do texto importado)
+        _valorFinalTravado = (data.tipo_entrada === 'texto' && parseFloat(data.total_orcamento) > 0)
+            ? parseFloat(data.total_orcamento) : null;
 
         // Paciente
         $('#taof-nome-paciente').val(data.nome_paciente || '');

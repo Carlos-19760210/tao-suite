@@ -1727,15 +1727,10 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
             if ( $val_min > 0 && $subtotal_calc < $val_min ) $subtotal_calc = $val_min;
         }
 
-        // ── 6. Desconto = desconto informado; Acréscimo = resíduo até o valor bruto ──
-        // FINAL = $valor (com desconto). Bruto = $valor_bruto (antes do desconto).
-        $desconto_val  = max( 0.0, round( $valor_bruto - $valor, 2 ) );      // desconto informado
-        $acrescimo_val = round( $valor_bruto - $subtotal_calc, 2 );          // resíduo p/ chegar no bruto
-        if ( $acrescimo_val < 0 ) {
-            // Sub-Total já passou do bruto: zera acréscimo e ajusta desconto p/ bater no FINAL
-            $acrescimo_val = 0.0;
-            $desconto_val  = max( 0.0, round( $subtotal_calc - $valor, 2 ) );
-        }
+        // ── 6. Opção 2: Desconto = informado; Acréscimo = FINAL − Desconto − Sub-Total ──
+        // VALOR FINAL (total_orcamento) = $valor (com desconto), exibido direto do orçamento.
+        $desconto_val  = max( 0.0, round( $valor_bruto - $valor, 2 ) );          // desconto informado
+        $acrescimo_val = round( $valor - $desconto_val - $subtotal_calc, 2 );    // FINAL − Desconto − Sub-Total
         $acrescimo_pct = $subtotal_calc > 0.005 ? round( $acrescimo_val / $subtotal_calc * 100, 4 ) : 0.0;
         $desconto_pct  = $subtotal_calc > 0.005 ? round( $desconto_val  / $subtotal_calc * 100, 4 ) : 0.0;
         if ( $subtotal_calc <= 0.005 ) { $custo_fixo = $valor; $calculado = 0.0; }
