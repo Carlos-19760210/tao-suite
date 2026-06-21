@@ -23,8 +23,8 @@ function tao_caixa_page_dashboard() {
             </a>
             <a href="<?php echo esc_url( tao_caixa_url( 'caixa-taxas' ) ); ?>" class="taoc-card" style="display:block;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:18px;text-decoration:none;color:#1e293b">
                 <div style="font-size:22px">&#x1F4CA;</div>
-                <strong style="display:block;margin-top:6px">Tabela de Taxas (MDR)</strong>
-                <span style="font-size:12px;color:#64748b">Taxa e prazo por operadora × bandeira × parcelas</span>
+                <strong style="display:block;margin-top:6px">Taxas por Faixa de Parcelas</strong>
+                <span style="font-size:12px;color:#64748b">Taxa e prazo por forma × faixa (à vista / parcelado)</span>
             </a>
             <a href="<?php echo esc_url( tao_caixa_url( 'caixa-formas' ) ); ?>" class="taoc-card" style="display:block;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:18px;text-decoration:none;color:#1e293b">
                 <div style="font-size:22px">&#x1F4B3;</div>

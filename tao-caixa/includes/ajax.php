@@ -57,13 +57,15 @@ add_action( 'wp_ajax_tao_caixa_save_taxa', function() {
 
     $id    = sanitize_text_field( $_POST['id'] ?? '' );
     $forma = sanitize_text_field( $_POST['forma_pagamento_id'] ?? '' );
-    $band  = trim( sanitize_text_field( $_POST['bandeira'] ?? '' ) );
     if ( ! $forma ) wp_send_json_error( 'Selecione a forma de pagamento' );
+
+    $pmin = max( 1, (int) ( $_POST['parcela_min'] ?? 1 ) );
+    $pmax = max( $pmin, (int) ( $_POST['parcela_max'] ?? $pmin ) );
 
     $payload = [
         'forma_pagamento_id'     => $forma,
-        'bandeira'               => $band !== '' ? $band : null,
-        'parcelas'               => max( 1, (int) ( $_POST['parcelas'] ?? 1 ) ),
+        'parcela_min'            => $pmin,
+        'parcela_max'            => $pmax,
         'taxa_pct'               => round( (float) str_replace( ',', '.', $_POST['taxa_pct'] ?? 0 ), 3 ),
         'prazo_recebimento_dias' => max( 0, (int) ( $_POST['prazo_recebimento_dias'] ?? 1 ) ),
         'ativo'                  => ( ( $_POST['ativo'] ?? '1' ) === '1' ),

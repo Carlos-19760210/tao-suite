@@ -1,6 +1,13 @@
 <?php
 if ( ! defined( 'ABSPATH' ) ) exit;
 
+function tao_caixa_faixa_label( $min, $max ) {
+    $min = (int) $min; $max = (int) $max;
+    if ( $min <= 1 && $max <= 1 ) return '1x (à vista)';
+    if ( $min === $max )          return $min . 'x';
+    return $min . 'x a ' . $max . 'x';
+}
+
 function tao_caixa_page_taxas() {
     if ( ! tao_caixa_pode_operar() ) { echo '<div class="wrap"><p>Sem permissão para operar o caixa.</p></div>'; return; }
     tao_caixa_assets();
@@ -12,20 +19,18 @@ function tao_caixa_page_taxas() {
     $forma_filtro = sanitize_text_field( $_GET['forma'] ?? '' );
 
     if ( $cid ) {
-        // Só formas que cobram taxa variável por bandeira/parcelas (cartão)
         $rf     = tao_caixa_api( "/caixa_formas_pagamento?cliente_id=eq.$cid&order=nome.asc&select=id,nome,tipo" );
         $formas = $rf['ok'] ? ( $rf['data'] ?? [] ) : [];
         foreach ( $formas as $f ) $forma_map[ $f['id'] ] = $f['nome'];
 
         $flt = $forma_filtro ? "&forma_pagamento_id=eq.$forma_filtro" : '';
-        $rt    = tao_caixa_api( "/caixa_taxas?cliente_id=eq.$cid$flt&order=forma_pagamento_id.asc,bandeira.asc,parcelas.asc" );
+        $rt    = tao_caixa_api( "/caixa_taxas?cliente_id=eq.$cid$flt&order=forma_pagamento_id.asc,parcela_min.asc" );
         $taxas = $rt['ok'] ? ( $rt['data'] ?? [] ) : [];
     }
-    $bandeiras = [ 'Visa', 'Mastercard', 'Elo', 'American Express', 'Hipercard', 'Diners' ];
     ?>
     <div class="wrap taoc-wrap">
         <div class="taoc-bar">
-            <h1>&#x1F4CA; Tabela de Taxas (MDR)</h1>
+            <h1>&#x1F4CA; Taxas por Faixa de Parcelas</h1>
             <?php if ( $formas ) : ?>
             <button class="taoc-btn taoc-btn-primary" data-caixa-new data-modal="taoc-taxa-modal" data-title="Nova Taxa">+ Nova Taxa</button>
             <?php endif; ?>
@@ -47,21 +52,21 @@ function tao_caixa_page_taxas() {
         </div>
         <?php elseif ( empty( $taxas ) ) : ?>
         <div class="taoc-empty">
-            <p>Nenhuma taxa cadastrada.</p>
+            <p>Nenhuma faixa de taxa cadastrada.</p>
             <button class="taoc-btn taoc-btn-primary" data-caixa-new data-modal="taoc-taxa-modal" data-title="Nova Taxa">+ Cadastrar primeira</button>
         </div>
         <?php else : ?>
         <table class="taoc-table">
             <thead>
-                <tr><th>Forma de Pagamento</th><th>Bandeira</th><th style="text-align:center">Parcelas</th><th style="text-align:right">Taxa</th><th style="text-align:right">Prazo</th><th style="text-align:center">Status</th><th style="text-align:center;width:150px">Ações</th></tr>
+                <tr><th>Forma de Pagamento</th><th>Faixa de parcelas</th><th style="text-align:right">Taxa</th><th style="text-align:right">Prazo</th><th style="text-align:center">Status</th><th style="text-align:center;width:150px">Ações</th></tr>
             </thead>
             <tbody>
             <?php foreach ( $taxas as $t ) :
                 $json = wp_json_encode( [
                     'id'                     => $t['id'],
                     'forma_pagamento_id'     => $t['forma_pagamento_id'] ?? '',
-                    'bandeira'               => $t['bandeira'] ?? '',
-                    'parcelas'               => $t['parcelas'] ?? 1,
+                    'parcela_min'            => $t['parcela_min'] ?? 1,
+                    'parcela_max'            => $t['parcela_max'] ?? 1,
                     'taxa_pct'               => $t['taxa_pct'] ?? 0,
                     'prazo_recebimento_dias' => $t['prazo_recebimento_dias'] ?? 1,
                     'ativo'                  => ! empty( $t['ativo'] ) ? '1' : '0',
@@ -70,8 +75,7 @@ function tao_caixa_page_taxas() {
             ?>
                 <tr data-row data-id="<?php echo esc_attr( $t['id'] ); ?>" data-json='<?php echo esc_attr( $json ); ?>'>
                     <td><strong><?php echo esc_html( $forma_map[ $t['forma_pagamento_id'] ] ?? '—' ); ?></strong></td>
-                    <td><?php echo esc_html( $t['bandeira'] ?? '—' ); ?></td>
-                    <td style="text-align:center"><?php echo (int) ( $t['parcelas'] ?? 1 ); ?>x</td>
+                    <td><?php echo esc_html( tao_caixa_faixa_label( $t['parcela_min'] ?? 1, $t['parcela_max'] ?? 1 ) ); ?></td>
                     <td style="text-align:right"><?php echo number_format( (float) ( $t['taxa_pct'] ?? 0 ), 3, ',', '.' ); ?>%</td>
                     <td style="text-align:right"><?php echo (int) ( $t['prazo_recebimento_dias'] ?? 0 ); ?> d</td>
                     <td style="text-align:center"><span class="taoc-pill <?php echo $ativo ? 'on' : 'off'; ?>"><?php echo $ativo ? 'Ativa' : 'Inativa'; ?></span></td>
@@ -102,20 +106,20 @@ function tao_caixa_page_taxas() {
                         <?php endforeach; ?>
                     </select>
                 </div>
-                <div class="taoc-field">
-                    <label>Bandeira (vazio = não se aplica, ex.: PIX)</label>
-                    <input type="text" name="bandeira" list="taoc-bandeiras" placeholder="Visa, Mastercard, Elo…">
-                    <datalist id="taoc-bandeiras">
-                        <?php foreach ( $bandeiras as $b ) : ?><option value="<?php echo esc_attr( $b ); ?>"><?php endforeach; ?>
-                    </datalist>
+                <div class="taoc-field taoc-field-inline">
+                    <div style="flex:1">
+                        <label>De (parcela mínima)</label>
+                        <input type="number" name="parcela_min" min="1" max="24" step="1" value="1">
+                    </div>
+                    <div style="flex:1">
+                        <label>Até (parcela máxima)</label>
+                        <input type="number" name="parcela_max" min="1" max="24" step="1" value="1">
+                    </div>
                 </div>
-                <div class="taoc-field">
-                    <label>Parcelas (1 = à vista / débito)</label>
-                    <input type="number" name="parcelas" min="1" max="24" step="1" value="1">
-                </div>
+                <p style="font-size:11px;color:#94a3b8;margin:-4px 0 8px">Ex.: 1 a 1 = à vista · 2 a 3 = até 3x · 4 a 6 = de 4x a 6x</p>
                 <div class="taoc-field">
                     <label>Taxa (%) *</label>
-                    <input type="number" name="taxa_pct" step="0.001" min="0" placeholder="2,990" required>
+                    <input type="number" name="taxa_pct" step="0.001" min="0" placeholder="0,890" required>
                 </div>
                 <div class="taoc-field">
                     <label>Prazo de recebimento (dias)</label>
