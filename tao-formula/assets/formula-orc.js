@@ -862,10 +862,12 @@
                                     e.preventDefault();
                                     var origName = $inp.val().trim();
                                     var wasEmpty = !$row.find('.taof-orc-ativo-id').val();
+                                    // Salva o NOME ORIGINAL do ingrediente (como escrito na fórmula), não o texto buscado
+                                    var sinNome  = ($row.data('nome-prescricao') || origName || '').toString().trim().toUpperCase();
                                     selecionarAtivo($row, a, origName);
-                                    if (wasEmpty && origName && origName.toUpperCase() !== a.nome.toUpperCase()) {
-                                        $.post(ajaxUrl, { action: 'tao_formula_salvar_sinonimo', nonce: nonce, ativo_id: a.id, sinonimo: origName.toUpperCase() }, function () {
-                                            taofToast('✓ Sinônimo salvo: "' + origName.toUpperCase() + '" → ' + a.nome);
+                                    if (wasEmpty && sinNome && sinNome !== a.nome.toUpperCase()) {
+                                        $.post(ajaxUrl, { action: 'tao_formula_salvar_sinonimo', nonce: nonce, ativo_id: a.id, sinonimo: sinNome }, function () {
+                                            taofToast('✓ Sinônimo salvo: "' + sinNome + '" → ' + a.nome);
                                         });
                                     }
                                 });
@@ -918,10 +920,11 @@
                     var aObj2 = $sel.data('ativo-obj');
                     var origName2 = $inp.val().trim();
                     var wasEmpty2 = !$row.find('.taof-orc-ativo-id').val();
+                    var sinNome2  = ($row.data('nome-prescricao') || origName2 || '').toString().trim().toUpperCase();
                     selecionarAtivo($row, aObj2, origName2);
-                    if (wasEmpty2 && origName2 && origName2.toUpperCase() !== aObj2.nome.toUpperCase()) {
-                        $.post(ajaxUrl, { action: 'tao_formula_salvar_sinonimo', nonce: nonce, ativo_id: aObj2.id, sinonimo: origName2.toUpperCase() }, function () {
-                            taofToast('✓ Sinônimo salvo: "' + origName2.toUpperCase() + '" → ' + aObj2.nome);
+                    if (wasEmpty2 && sinNome2 && sinNome2 !== aObj2.nome.toUpperCase()) {
+                        $.post(ajaxUrl, { action: 'tao_formula_salvar_sinonimo', nonce: nonce, ativo_id: aObj2.id, sinonimo: sinNome2 }, function () {
+                            taofToast('✓ Sinônimo salvo: "' + sinNome2 + '" → ' + aObj2.nome);
                         });
                     }
                 }

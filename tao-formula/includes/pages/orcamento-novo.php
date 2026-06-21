@@ -388,7 +388,7 @@ function tao_formula_page_orcamento_novo() {
                            value="0" min="0" step="0.01" class="taof-money-inp"
                            title="Custo fixo — calculado automaticamente pelo % ao lado">
                     <input type="number" id="taof-custo-fixo-pct" value="30" min="0" max="200" step="any" inputmode="decimal"
-                           class="taof-pct-inp" style="width:60px" title="Percentual do custo fixo">%
+                           class="taof-pct-inp" style="width:80px" title="Percentual do custo fixo">%
                     <span id="taof-custo-fixo-predef-badge" style="display:none;font-size:11px;color:#0369a1;background:#f0f9ff;border:1px solid #bae6fd;padding:2px 8px;border-radius:4px;margin-left:4px"></span>
                 </td>
                 <td id="taof-res-custo-fixo" class="taof-res-val">R$&nbsp;0,00</td>
@@ -410,7 +410,7 @@ function tao_formula_page_orcamento_novo() {
                            value="0" min="0" step="0.01" class="taof-money-inp"
                            title="Valor do acréscimo (ou informe o %)">
                     <input type="number" id="taof-acrescimo-pct" name="acrescimo_pct"
-                           value="0" min="0" max="500" step="any" inputmode="decimal" class="taof-pct-inp" style="width:60px"> %
+                           value="0" min="0" max="500" step="any" inputmode="decimal" class="taof-pct-inp" style="width:80px"> %
                 </td>
                 <td id="taof-res-acrescimo" class="taof-res-val">R$&nbsp;0,00</td>
             </tr>
@@ -421,7 +421,7 @@ function tao_formula_page_orcamento_novo() {
                            value="0" min="0" step="0.01" class="taof-money-inp"
                            title="Valor do desconto (ou informe o %)">
                     <input type="number" id="taof-desconto-pct" name="desconto_pct"
-                           value="0" min="0" max="100" step="any" inputmode="decimal" class="taof-pct-inp" style="width:60px"> %
+                           value="0" min="0" max="100" step="any" inputmode="decimal" class="taof-pct-inp" style="width:80px"> %
                 </td>
                 <td id="taof-res-desconto" class="taof-res-val taof-res-desc">R$&nbsp;0,00</td>
             </tr>
