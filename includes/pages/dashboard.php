@@ -27,7 +27,7 @@ function tao_crm_page_dashboard() {
     // ── Buscar cards ──────────────────────────────────────────────────────────
     $rc_all = tao_crm_api(
         "/crm_cards?workspace_id=eq.$ws_id" .
-        "&select=id,fechado,estagio_id,responsavel_id,criado_em,movido_em,atendimento_humano,valor_oportunidade" .
+        "&select=id,fechado,estagio_id,pipeline_id,responsavel_id,criado_em,movido_em,atendimento_humano,valor_oportunidade,titulo,contato_nome" .
         "&limit=2000"
     );
     $all = $rc_all['ok'] ? ( $rc_all['data'] ?? [] ) : [];
@@ -60,6 +60,94 @@ function tao_crm_page_dashboard() {
         $wp_users[ $u->ID ] = $u->display_name;
     }
 
+    // ── Funil de Pós-vendas: pipeline e conjuntos de estágios ─────────────────
+    // "Ganho" nesta operação = card cruzou do funil de Vendas para o de Pós-vendas.
+    $pos_pl_id = get_option( 'tao_crm_pos_vendas_pipeline_' . $ws_id, '' );
+    if ( ! $pos_pl_id && count( $all_pipe_ids ) >= 2 ) {
+        // Mesma heurística do fechamento: 2º pipeline ativo = Pós-vendas
+        $rpl = tao_crm_api( "/crm_pipelines?workspace_id=eq.$ws_id&ativo=eq.true&order=ordem.asc&select=id&limit=2" );
+        $apl = $rpl['ok'] ? ( $rpl['data'] ?? [] ) : [];
+        if ( count( $apl ) >= 2 ) $pos_pl_id = $apl[1]['id'];
+    }
+
+    $pos_set = $vendas_set = $ganho_set = $perd_set = [];
+    foreach ( $estagios as $eid => $e ) {
+        if ( $pos_pl_id && ( $e['pipeline_id'] ?? '' ) === $pos_pl_id ) $pos_set[ $eid ] = true;
+        else                                                           $vendas_set[ $eid ] = true;
+        if ( ( $e['tipo'] ?? '' ) === 'ganho' )   $ganho_set[ $eid ] = true;
+        if ( ( $e['tipo'] ?? '' ) === 'perdido' ) $perd_set[ $eid ] = true;
+    }
+
+    // Mapa de cards p/ enriquecer as listas (nome, valor, responsável)
+    $card_map = [];
+    foreach ( $all as $c ) { $card_map[ $c['id'] ] = $c; }
+
+    // ── Eventos de ganho/perdido a partir do histórico (datados) ──────────────
+    // Janela: o maior entre o período selecionado e 56 dias (gráfico de 8 semanas).
+    $hist_days  = max( $dias, 56 );
+    $hist_desde = gmdate( 'c', strtotime( "-{$hist_days} days" ) );
+
+    $para_in = array_keys( $pos_set + $ganho_set + $perd_set );
+
+    $ganho_events      = []; // [ card_id => data_evento ] no período (distinct)
+    $perdido_events    = []; // [ card_id => data_evento ] no período (distinct)
+    $ganho_week_events = []; // [ [ 'dt'=>, 'card_id'=> ] ] últimas 8 semanas
+
+    if ( ! empty( $para_in ) ) {
+        $in_list = implode( ',', $para_in );
+        $rh = tao_crm_api(
+            "/crm_cards_historico?para_estagio_id=in.($in_list)" .
+            "&criado_em=gte." . urlencode( $hist_desde ) .
+            "&select=card_id,de_estagio_id,para_estagio_id,criado_em" .
+            "&order=criado_em.desc&limit=5000"
+        );
+        foreach ( ( $rh['ok'] ? ( $rh['data'] ?? [] ) : [] ) as $h ) {
+            $para = $h['para_estagio_id'] ?? '';
+            $de   = $h['de_estagio_id']   ?? '';
+            $cid  = $h['card_id']         ?? '';
+            $dt   = $h['criado_em']       ?? '';
+            if ( ! $cid || ! $dt ) continue;
+
+            // Ganho: cruzou Vendas → Pós-vendas, OU foi fechado em estágio tipo ganho (fluxo antigo)
+            $is_ganho   = ( isset( $pos_set[ $para ] ) && isset( $vendas_set[ $de ] ) ) || isset( $ganho_set[ $para ] );
+            $is_perdido = isset( $perd_set[ $para ] );
+
+            if ( $is_ganho ) {
+                $ganho_week_events[] = [ 'dt' => $dt, 'card_id' => $cid ];
+                if ( $dt >= $desde && ! isset( $ganho_events[ $cid ] ) ) $ganho_events[ $cid ] = $dt;
+            }
+            if ( $is_perdido && $dt >= $desde && ! isset( $perdido_events[ $cid ] ) ) {
+                $perdido_events[ $cid ] = $dt;
+            }
+        }
+    }
+
+    // Listas enriquecidas, ordenadas por data do evento (desc)
+    $tao_build_lista = function( $events ) use ( $card_map, $wp_users ) {
+        $rows = [];
+        foreach ( $events as $cid => $dt ) {
+            $c = $card_map[ $cid ] ?? [];
+            $rows[] = [
+                'id'     => $cid,
+                'titulo' => $c['titulo'] ?? ( $c['contato_nome'] ?? 'Card #' . substr( $cid, 0, 8 ) ),
+                'valor'  => floatval( $c['valor_oportunidade'] ?? 0 ),
+                'resp'   => $wp_users[ intval( $c['responsavel_id'] ?? 0 ) ] ?? '—',
+                'data'   => $dt,
+            ];
+        }
+        usort( $rows, fn( $a, $b ) => strcmp( $b['data'], $a['data'] ) );
+        return $rows;
+    };
+    $ganhos_per   = $tao_build_lista( $ganho_events );
+    $perdidos_per = $tao_build_lista( $perdido_events );
+
+    $n_ganhos_per   = count( $ganhos_per );
+    $n_perdidos_per = count( $perdidos_per );
+    $receita_per    = array_sum( array_column( $ganhos_per,   'valor' ) );
+    $valor_perd_per = array_sum( array_column( $perdidos_per, 'valor' ) );
+    $taxa_per = ( $n_ganhos_per + $n_perdidos_per ) > 0
+        ? round( $n_ganhos_per / ( $n_ganhos_per + $n_perdidos_per ) * 100 ) : 0;
+
     // ── Derivar listas ────────────────────────────────────────────────────────
     $abertos  = array_values( array_filter( $all, fn( $c ) => empty( $c['fechado'] ) ) );
     $fechados = array_values( array_filter( $all, fn( $c ) => ! empty( $c['fechado'] ) ) );
@@ -80,7 +168,7 @@ function tao_crm_page_dashboard() {
     $receita_gerada      = array_sum( array_column( $ganhos,   'valor_oportunidade' ) );
     $valor_perdidos      = array_sum( array_column( $perdidos, 'valor_oportunidade' ) );
 
-    // ── Dados para Gráfico 5: Receita por semana (ganhos) ────────────────────
+    // ── Dados para Gráfico 5: Receita por semana (eventos de ganho) ──────────
     $receita_labels = [];
     $receita_data   = [];
     for ( $s = 7; $s >= 0; $s-- ) {
@@ -89,9 +177,10 @@ function tao_crm_page_dashboard() {
         $ini_str = gmdate( 'c', $ini );
         $fim_str = gmdate( 'c', $fim );
         $val     = 0;
-        foreach ( $ganhos as $c ) {
-            $dt = $c['movido_em'] ?? $c['criado_em'] ?? '';
-            if ( $dt >= $ini_str && $dt <= $fim_str ) $val += floatval( $c['valor_oportunidade'] ?? 0 );
+        foreach ( $ganho_week_events as $ge ) {
+            if ( $ge['dt'] >= $ini_str && $ge['dt'] <= $fim_str ) {
+                $val += floatval( $card_map[ $ge['card_id'] ]['valor_oportunidade'] ?? 0 );
+            }
         }
         $receita_labels[] = gmdate( 'd/m', $ini );
         $receita_data[]   = round( $val, 2 );
@@ -135,8 +224,8 @@ function tao_crm_page_dashboard() {
     $chart_estagio_data   = array_column( array_values( $por_estagio_chart ), 'count' );
 
     // ── Dados para Gráfico 2: Donut conversão ────────────────────────────────
-    $chart_conv_data   = [ count( $ganhos ), count( $perdidos ), count( $em_and ), count( $abertos ) ];
-    $chart_conv_labels = [ 'Ganhos', 'Perdidos', 'Fechados (outros)', 'Em andamento' ];
+    $chart_conv_data   = [ $n_ganhos_per, $n_perdidos_per, count( $abertos ) ];
+    $chart_conv_labels = [ 'Ganhos (período)', 'Perdidos (período)', 'Em aberto agora' ];
     $chart_conv_colors = [ '#10b981', '#ef4444', '#f59e0b', '#6366f1' ];
 
     // ── Dados para Gráfico 3: Novos leads por semana (8 semanas) ─────────────
@@ -183,6 +272,13 @@ function tao_crm_page_dashboard() {
     $_dash_wss         = $_dash_is_master ? tao_crm_get_workspaces() : [];
     global $cbpm_is_frontend;
     $_dash_is_frontend = ! empty( $cbpm_is_frontend ) && function_exists( 'cbpm_url' );
+
+    // Link para abrir um card (mesmo padrão do kanban/portal)
+    $card_link_for = function( $cid ) use ( $_dash_is_frontend ) {
+        return $_dash_is_frontend
+            ? cbpm_url( 'crm-kanban', [ 'action' => 'card', 'id' => $cid ] )
+            : admin_url( 'admin.php?page=tao-crm-kanban&action=card&id=' . $cid );
+    };
 
     $dados_js = [
         'estagio'   => [ 'labels' => $chart_estagio_labels, 'data' => $chart_estagio_data ],
@@ -314,8 +410,8 @@ function tao_crm_page_dashboard() {
             </div>
             <div class="crm-dash-kpi-card kpi-green">
                 <span class="kpi-label">Taxa de conversão</span>
-                <span class="kpi-value"><?php echo $taxa; ?>%</span>
-                <span class="kpi-sub"><?php echo count( $ganhos ); ?> ganhos / <?php echo $total_fechados; ?> fechados</span>
+                <span class="kpi-value"><?php echo $taxa_per; ?>%</span>
+                <span class="kpi-sub"><?php echo $n_ganhos_per; ?> ganhos / <?php echo ( $n_ganhos_per + $n_perdidos_per ); ?> decididos (<?php echo $dias; ?>d)</span>
             </div>
             <div class="crm-dash-kpi-card kpi-amber">
                 <span class="kpi-label">Em aberto</span>
@@ -324,8 +420,8 @@ function tao_crm_page_dashboard() {
             </div>
             <div class="crm-dash-kpi-card kpi-green">
                 <span class="kpi-label">Receita gerada</span>
-                <span class="kpi-value">R$&nbsp;<?php echo number_format( $receita_gerada, 0, ',', '.' ); ?></span>
-                <span class="kpi-sub"><?php echo count( $ganhos ); ?> negócios ganhos</span>
+                <span class="kpi-value">R$&nbsp;<?php echo number_format( $receita_per, 0, ',', '.' ); ?></span>
+                <span class="kpi-sub"><?php echo $n_ganhos_per; ?> negócios ganhos (<?php echo $dias; ?>d)</span>
             </div>
             <div class="crm-dash-kpi-card <?php echo count( $handoff ) > 0 ? 'kpi-red' : ''; ?>">
                 <span class="kpi-label">Handoff ativo</span>
@@ -341,21 +437,49 @@ function tao_crm_page_dashboard() {
             </div>
         </div>
 
-        <!-- Ganhos vs Perdidos -->
+        <!-- Ganhos vs Perdidos (período) -->
+        <?php
+        // Renderiza a tabela clicável de cards de um resultado
+        $render_lista_cards = function( $rows, $cor ) use ( $card_link_for ) {
+            if ( empty( $rows ) ) return;
+            ?>
+            <details style="margin-top:12px">
+                <summary style="cursor:pointer;font-size:12px;font-weight:600;color:<?php echo esc_attr( $cor ); ?>">Ver lista (<?php echo count( $rows ); ?>)</summary>
+                <div style="max-height:260px;overflow:auto;margin-top:8px">
+                    <table class="crm-att-table">
+                        <thead><tr><th>Card</th><th>Valor</th><th>Data</th><th>Resp.</th></tr></thead>
+                        <tbody>
+                        <?php foreach ( $rows as $row ) : ?>
+                            <tr>
+                                <td><a href="<?php echo esc_url( $card_link_for( $row['id'] ) ); ?>" style="color:#6366f1;text-decoration:none;font-weight:600"><?php echo esc_html( $row['titulo'] ); ?></a></td>
+                                <td>R$&nbsp;<?php echo number_format( $row['valor'], 0, ',', '.' ); ?></td>
+                                <td><?php echo esc_html( $row['data'] ? wp_date( 'd/m', strtotime( $row['data'] ) ) : '—' ); ?></td>
+                                <td><?php echo esc_html( $row['resp'] ); ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </details>
+            <?php
+        };
+        ?>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
             <div class="crm-dash-kpi-card" style="border-left:4px solid #10b981;background:#f0fdf4">
-                <span class="kpi-label">&#x2705; Neg&oacute;cios ganhos</span>
-                <span class="kpi-value" style="color:#10b981;font-size:32px"><?php echo count( $ganhos ); ?></span>
+                <span class="kpi-label">&#x2705; Neg&oacute;cios ganhos &mdash; &uacute;ltimos <?php echo $dias; ?>d</span>
+                <span class="kpi-value" style="color:#10b981;font-size:32px"><?php echo $n_ganhos_per; ?></span>
                 <span class="kpi-sub" style="font-size:13px;color:#166534;font-weight:600">
-                    R$&nbsp;<?php echo number_format( $receita_gerada, 0, ',', '.' ); ?> em receita
+                    R$&nbsp;<?php echo number_format( $receita_per, 0, ',', '.' ); ?> em receita &middot; foram p/ Pós-vendas
                 </span>
+                <?php $render_lista_cards( $ganhos_per, '#166534' ); ?>
             </div>
             <div class="crm-dash-kpi-card" style="border-left:4px solid #ef4444;background:#fff5f5">
-                <span class="kpi-label">&#x274C; Neg&oacute;cios perdidos</span>
-                <span class="kpi-value" style="color:#ef4444;font-size:32px"><?php echo count( $perdidos ); ?></span>
+                <span class="kpi-label">&#x274C; Neg&oacute;cios perdidos &mdash; &uacute;ltimos <?php echo $dias; ?>d</span>
+                <span class="kpi-value" style="color:#ef4444;font-size:32px"><?php echo $n_perdidos_per; ?></span>
                 <span class="kpi-sub" style="font-size:13px;color:#991b1b;font-weight:600">
-                    R$&nbsp;<?php echo number_format( $valor_perdidos, 0, ',', '.' ); ?> em oportunidades
+                    R$&nbsp;<?php echo number_format( $valor_perd_per, 0, ',', '.' ); ?> em oportunidades
                 </span>
+                <?php $render_lista_cards( $perdidos_per, '#991b1b' ); ?>
             </div>
         </div>
 
