@@ -1923,7 +1923,8 @@ function tao_crm_page_card() {
             associarBtn.addEventListener('click', function () {
                 var pend = window._crmAtivosPendentes || [];
                 if (!pend.length) { alert('Nenhum ativo pendente de associação.'); return; }
-                mostrarRegistroSinonimos(pend);
+                if (typeof window._crmAssociarSinonimos !== 'function') { alert('Painel de associação indisponível.'); return; }
+                window._crmAssociarSinonimos(pend);
                 var panel = document.getElementById('crm-sin-reg-panel');
                 if (panel && !panel.querySelector('.crm-sin-aplicar')) {
                     var ap = document.createElement('button');
@@ -2236,6 +2237,8 @@ function tao_crm_page_card() {
                 // Foca no primeiro campo automaticamente
                 setTimeout(function(){ var f = panel.querySelector('.crm-sin-busca-input'); if(f) f.focus(); }, 80);
             }
+            // Expõe para o botão "Associar pendentes" (fora desta IIFE)
+            window._crmAssociarSinonimos = mostrarRegistroSinonimos;
 
             // Processar
             processBtn.addEventListener('click', function () {
