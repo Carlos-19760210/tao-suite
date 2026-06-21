@@ -38,11 +38,15 @@ function tao_crm_page_dashboard() {
     foreach ( $all as $c ) {
         if ( ! empty( $c['pipeline_id'] ) ) $pipe_ids_raw[] = $c['pipeline_id'];
     }
-    // Buscar estágios via workspace (independente de pipeline_id nos cards)
-    $re_pipes = tao_crm_api( "/crm_pipelines?workspace_id=eq.$ws_id&select=id" );
-    $all_pipe_ids = [];
-    foreach ( ( $re_pipes['ok'] ? ( $re_pipes['data'] ?? [] ) : [] ) as $p ) {
-        $all_pipe_ids[] = $p['id'];
+    // Buscar pipelines (com nome) para o seletor de funil + estágios
+    $re_pipes  = tao_crm_api( "/crm_pipelines?workspace_id=eq.$ws_id&order=ordem.asc&select=id,nome,ordem" );
+    $pipelines = $re_pipes['ok'] ? ( $re_pipes['data'] ?? [] ) : [];
+    $all_pipe_ids = array_column( $pipelines, 'id' );
+
+    // Funil selecionado para o gráfico "Funil por estágio" (default = 1º funil)
+    $funil_id = sanitize_text_field( $_GET['funil'] ?? '' );
+    if ( ! $funil_id || ! in_array( $funil_id, $all_pipe_ids, true ) ) {
+        $funil_id = $all_pipe_ids[0] ?? '';
     }
 
     $estagios = [];
@@ -168,6 +172,46 @@ function tao_crm_page_dashboard() {
     $receita_gerada      = array_sum( array_column( $ganhos,   'valor_oportunidade' ) );
     $valor_perdidos      = array_sum( array_column( $perdidos, 'valor_oportunidade' ) );
 
+    // ── Indicadores de performance: TMA e TMR ─────────────────────────────────
+    $fmt_dur = function( $s ) {
+        $s = (int) $s;
+        if ( $s <= 0 ) return '—';
+        if ( $s >= 86400 ) return round( $s / 86400, 1 ) . ' d';
+        if ( $s >= 3600 )  return round( $s / 3600, 1 ) . ' h';
+        if ( $s >= 60 )    return round( $s / 60 ) . ' min';
+        return $s . ' s';
+    };
+
+    // TMA = tempo médio do card (criação → resolução: ganho ou perdido) no período
+    $tma_secs = [];
+    foreach ( array_merge( array_keys( $ganho_events ), array_keys( $perdido_events ) ) as $cid ) {
+        $cri = $card_map[ $cid ]['criado_em'] ?? '';
+        $res = $ganho_events[ $cid ] ?? ( $perdido_events[ $cid ] ?? '' );
+        if ( $cri && $res ) { $d = strtotime( $res ) - strtotime( $cri ); if ( $d > 0 ) $tma_secs[] = $d; }
+    }
+    $tma_med = $tma_secs ? array_sum( $tma_secs ) / count( $tma_secs ) : 0;
+
+    // TMR = tempo médio até a 1ª resposta (1ª msg 'in' → 1ª msg 'out' seguinte), no período
+    $tmr_secs = [];
+    $rm = tao_crm_api(
+        "/crm_mensagens?workspace_id=eq.$ws_id&enviado_em=gte." . urlencode( $desde ) .
+        "&select=card_id,direcao,enviado_em&order=enviado_em.asc&limit=8000"
+    );
+    $msgs_by_card = [];
+    foreach ( ( $rm['ok'] ? ( $rm['data'] ?? [] ) : [] ) as $m ) {
+        $mc = $m['card_id'] ?? ''; if ( $mc ) $msgs_by_card[ $mc ][] = $m;
+    }
+    foreach ( $msgs_by_card as $msgs ) {
+        $first_in = null; $first_out = null;
+        foreach ( $msgs as $m ) {
+            $dir = $m['direcao'] ?? '';
+            if ( $first_in === null && $dir === 'in' ) { $first_in = $m['enviado_em']; continue; }
+            if ( $first_in !== null && $dir === 'out' && ( $m['enviado_em'] ?? '' ) >= $first_in ) { $first_out = $m['enviado_em']; break; }
+        }
+        if ( $first_in && $first_out ) { $d = strtotime( $first_out ) - strtotime( $first_in ); if ( $d >= 0 ) $tmr_secs[] = $d; }
+    }
+    $tmr_med = $tmr_secs ? array_sum( $tmr_secs ) / count( $tmr_secs ) : 0;
+
     // ── Dados para Gráfico 5: Receita por semana (eventos de ganho) ──────────
     $receita_labels = [];
     $receita_data   = [];
@@ -210,6 +254,7 @@ function tao_crm_page_dashboard() {
     foreach ( $abertos as $c ) {
         $est = $estagios[ $c['estagio_id'] ] ?? null;
         if ( ! $est ) continue;
+        if ( $funil_id && ( $est['pipeline_id'] ?? '' ) !== $funil_id ) continue; // filtro por funil
         $tipo_est = $est['tipo'] ?? 'normal';
         if ( in_array( $tipo_est, [ 'ganho', 'perdido' ] ) ) continue;
         $nome = $est['nome'];
@@ -366,6 +411,14 @@ function tao_crm_page_dashboard() {
                     <option value="<?php echo $v; ?>" <?php selected( $dias, $v ); ?>><?php echo $l; ?></option>
                     <?php endforeach; ?>
                 </select>
+                <?php if ( count( $pipelines ) > 1 ) : ?>
+                <label style="font-size:13px;color:#64748b;margin-left:6px">Funil:</label>
+                <select name="funil" onchange="this.form.submit()">
+                    <?php foreach ( $pipelines as $pl ) : ?>
+                    <option value="<?php echo esc_attr( $pl['id'] ); ?>" <?php selected( $funil_id, $pl['id'] ); ?>><?php echo esc_html( $pl['nome'] ); ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <?php endif; ?>
                 <a href="<?php echo esc_url( $kanban_url ); ?>" class="button button-secondary" style="font-size:13px">&#x1F5C2; Kanban</a>
                 <?php
                 $exp_url = add_query_arg( [
@@ -422,6 +475,16 @@ function tao_crm_page_dashboard() {
                 <span class="kpi-label">Receita gerada</span>
                 <span class="kpi-value">R$&nbsp;<?php echo number_format( $receita_per, 0, ',', '.' ); ?></span>
                 <span class="kpi-sub"><?php echo $n_ganhos_per; ?> negócios ganhos (<?php echo $dias; ?>d)</span>
+            </div>
+            <div class="crm-dash-kpi-card kpi-indigo" title="Tempo Médio de Atendimento: da criação do card até a resolução (ganho ou perdido)">
+                <span class="kpi-label">TMA</span>
+                <span class="kpi-value"><?php echo esc_html( $fmt_dur( $tma_med ) ); ?></span>
+                <span class="kpi-sub">criação &rarr; resolução (<?php echo count( $tma_secs ); ?> cards)</span>
+            </div>
+            <div class="crm-dash-kpi-card kpi-amber" title="Tempo Médio de Resposta: da 1ª mensagem do cliente até a 1ª resposta">
+                <span class="kpi-label">TMR</span>
+                <span class="kpi-value"><?php echo esc_html( $fmt_dur( $tmr_med ) ); ?></span>
+                <span class="kpi-sub">1ª resposta (<?php echo count( $tmr_secs ); ?> conversas)</span>
             </div>
             <div class="crm-dash-kpi-card <?php echo count( $handoff ) > 0 ? 'kpi-red' : ''; ?>">
                 <span class="kpi-label">Handoff ativo</span>
@@ -488,7 +551,11 @@ function tao_crm_page_dashboard() {
 
             <!-- 1. Funil por estágio -->
             <div class="crm-chart-box">
-                <h3>&#x25B6; Funil por est&aacute;gio</h3>
+                <?php
+                $funil_nome = '';
+                foreach ( $pipelines as $pl ) { if ( $pl['id'] === $funil_id ) { $funil_nome = $pl['nome']; break; } }
+                ?>
+                <h3>&#x25B6; Funil por est&aacute;gio<?php echo $funil_nome ? ' &mdash; <span style="font-weight:400;color:#64748b">' . esc_html( $funil_nome ) . '</span>' : ''; ?></h3>
                 <?php if ( empty( $chart_estagio_labels ) ) : ?>
                 <p style="color:#94a3b8;font-size:13px">Nenhum card aberto em fases ativas.</p>
                 <?php else : ?>
