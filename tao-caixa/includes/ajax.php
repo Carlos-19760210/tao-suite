@@ -55,17 +55,14 @@ add_action( 'wp_ajax_tao_caixa_delete_adquirente', function() {
 add_action( 'wp_ajax_tao_caixa_save_taxa', function() {
     $cid = tao_caixa_ajax_guard();
 
-    $id   = sanitize_text_field( $_POST['id'] ?? '' );
-    $adq  = sanitize_text_field( $_POST['adquirente_id'] ?? '' );
-    $band = trim( sanitize_text_field( $_POST['bandeira'] ?? '' ) );
-    $mod  = ( ( $_POST['modalidade'] ?? 'credito' ) === 'debito' ) ? 'debito' : 'credito';
-    if ( ! $adq )  wp_send_json_error( 'Selecione a operadora de cartão' );
-    if ( $band === '' ) wp_send_json_error( 'Informe a bandeira' );
+    $id    = sanitize_text_field( $_POST['id'] ?? '' );
+    $forma = sanitize_text_field( $_POST['forma_pagamento_id'] ?? '' );
+    $band  = trim( sanitize_text_field( $_POST['bandeira'] ?? '' ) );
+    if ( ! $forma ) wp_send_json_error( 'Selecione a forma de pagamento' );
 
     $payload = [
-        'adquirente_id'          => $adq,
-        'bandeira'               => $band,
-        'modalidade'             => $mod,
+        'forma_pagamento_id'     => $forma,
+        'bandeira'               => $band !== '' ? $band : null,
         'parcelas'               => max( 1, (int) ( $_POST['parcelas'] ?? 1 ) ),
         'taxa_pct'               => round( (float) str_replace( ',', '.', $_POST['taxa_pct'] ?? 0 ), 3 ),
         'prazo_recebimento_dias' => max( 0, (int) ( $_POST['prazo_recebimento_dias'] ?? 1 ) ),
@@ -105,9 +102,14 @@ add_action( 'wp_ajax_tao_caixa_save_forma', function() {
     if ( ! in_array( $tipo, $tipos_ok, true ) ) $tipo = 'outro';
     $adq = sanitize_text_field( $_POST['adquirente_id'] ?? '' );
 
+    $canais_ok = [ 'maquina', 'link', 'pix', 'dinheiro', 'boleto', 'manual', 'outro' ];
+    $canal = sanitize_text_field( $_POST['canal'] ?? '' );
+    if ( $canal !== '' && ! in_array( $canal, $canais_ok, true ) ) $canal = 'outro';
+
     $payload = [
         'nome'                   => $nome,
         'tipo'                   => $tipo,
+        'canal'                  => $canal !== '' ? $canal : null,
         'adquirente_id'          => $adq ?: null,
         'prazo_recebimento_dias' => max( 0, (int) ( $_POST['prazo_recebimento_dias'] ?? 0 ) ),
         'taxa_pct'               => round( (float) str_replace( ',', '.', $_POST['taxa_pct'] ?? 0 ), 3 ),

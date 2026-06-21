@@ -21,6 +21,10 @@ function tao_caixa_page_formas_pgto() {
         'dinheiro' => 'Dinheiro', 'pix' => 'PIX', 'debito' => 'Cartão Débito',
         'credito'  => 'Cartão Crédito', 'boleto' => 'Boleto', 'link' => 'Link de Pagamento', 'outro' => 'Outro',
     ];
+    $canais = [
+        'maquina' => 'Maquininha', 'link' => 'Link', 'pix' => 'PIX', 'dinheiro' => 'Dinheiro',
+        'boleto'  => 'Boleto', 'manual' => 'Manual', 'outro' => 'Outro',
+    ];
     ?>
     <div class="wrap taoc-wrap">
         <div class="taoc-bar">
@@ -40,7 +44,7 @@ function tao_caixa_page_formas_pgto() {
         <?php else : ?>
         <table class="taoc-table">
             <thead>
-                <tr><th>Nome</th><th>Tipo</th><th>Operadora</th><th style="text-align:right">Prazo</th><th style="text-align:right">Taxa fixa</th><th style="text-align:center">Status</th><th style="text-align:center;width:150px">Ações</th></tr>
+                <tr><th>Nome</th><th>Tipo</th><th>Canal</th><th>Operadora</th><th style="text-align:right">Prazo</th><th style="text-align:right">Taxa fixa</th><th style="text-align:center">Status</th><th style="text-align:center;width:200px">Ações</th></tr>
             </thead>
             <tbody>
             <?php foreach ( $formas as $f ) :
@@ -48,6 +52,7 @@ function tao_caixa_page_formas_pgto() {
                     'id'                     => $f['id'],
                     'nome'                   => $f['nome'] ?? '',
                     'tipo'                   => $f['tipo'] ?? 'dinheiro',
+                    'canal'                  => $f['canal'] ?? '',
                     'adquirente_id'          => $f['adquirente_id'] ?? '',
                     'prazo_recebimento_dias' => $f['prazo_recebimento_dias'] ?? 0,
                     'taxa_pct'               => $f['taxa_pct'] ?? 0,
@@ -55,16 +60,21 @@ function tao_caixa_page_formas_pgto() {
                     'ordem'                  => $f['ordem'] ?? 0,
                     'ativo'                  => ! empty( $f['ativo'] ) ? '1' : '0',
                 ] );
-                $ativo = ! empty( $f['ativo'] );
+                $ativo  = ! empty( $f['ativo'] );
+                $is_cartao = in_array( $f['tipo'] ?? '', [ 'debito', 'credito', 'link' ], true );
             ?>
                 <tr data-row data-id="<?php echo esc_attr( $f['id'] ); ?>" data-json='<?php echo esc_attr( $json ); ?>'>
                     <td><strong><?php echo esc_html( $f['nome'] ?? '' ); ?></strong></td>
                     <td><?php echo esc_html( $tipos[ $f['tipo'] ?? '' ] ?? $f['tipo'] ); ?></td>
+                    <td><?php echo esc_html( ! empty( $f['canal'] ) ? ( $canais[ $f['canal'] ] ?? $f['canal'] ) : '—' ); ?></td>
                     <td><?php echo esc_html( ! empty( $f['adquirente_id'] ) ? ( $adq_map[ $f['adquirente_id'] ] ?? '—' ) : '—' ); ?></td>
                     <td style="text-align:right"><?php echo (int) ( $f['prazo_recebimento_dias'] ?? 0 ); ?> d</td>
                     <td style="text-align:right"><?php echo number_format( (float) ( $f['taxa_pct'] ?? 0 ), 3, ',', '.' ); ?>%</td>
                     <td style="text-align:center"><span class="taoc-pill <?php echo $ativo ? 'on' : 'off'; ?>"><?php echo $ativo ? 'Ativa' : 'Inativa'; ?></span></td>
                     <td style="text-align:center">
+                        <?php if ( $is_cartao ) : ?>
+                        <a class="taoc-btn" href="<?php echo esc_url( tao_caixa_url( 'caixa-taxas', [ 'forma' => $f['id'] ] ) ); ?>" title="Taxas por bandeira/parcelas">Taxas</a>
+                        <?php endif; ?>
                         <button class="taoc-btn" data-caixa-edit data-modal="taoc-forma-modal">Editar</button>
                         <button class="taoc-btn taoc-btn-danger" data-caixa-del data-action="tao_caixa_delete_forma">Excluir</button>
                     </td>
@@ -90,6 +100,15 @@ function tao_caixa_page_formas_pgto() {
                     <label>Tipo *</label>
                     <select name="tipo">
                         <?php foreach ( $tipos as $val => $lbl ) : ?>
+                        <option value="<?php echo esc_attr( $val ); ?>"><?php echo esc_html( $lbl ); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="taoc-field">
+                    <label>Canal (para agrupar nos relatórios)</label>
+                    <select name="canal">
+                        <option value="">— Não definido —</option>
+                        <?php foreach ( $canais as $val => $lbl ) : ?>
                         <option value="<?php echo esc_attr( $val ); ?>"><?php echo esc_html( $lbl ); ?></option>
                         <?php endforeach; ?>
                     </select>
