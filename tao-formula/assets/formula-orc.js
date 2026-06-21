@@ -445,9 +445,14 @@
             $fixoInp.prop('readonly', false);
             $fixoPct.show();
             $fixoBadge.hide();
-            var pctFixo = parseFloat($fixoPct.val()) || 30;
-            var sugPct  = Math.round((calculado + custoCapsula) * pctFixo / 100 * 100) / 100;
-            if (!$fixoInp.data('manual')) {
+            var baseFixo = calculado + custoCapsula;
+            if ($fixoInp.data('manual')) {
+                // Valor fixo informado/importado: o % exibido reflete o valor calculado
+                custoFixo = parseFloat($fixoInp.val()) || 0;
+                $fixoPct.val(baseFixo > 0 ? (custoFixo / baseFixo * 100).toFixed(1) : '0');
+            } else {
+                var pctFixo = parseFloat($fixoPct.val()) || 30;
+                var sugPct  = Math.round(baseFixo * pctFixo / 100 * 100) / 100;
                 $fixoInp.val(sugPct.toFixed(2));
                 custoFixo = sugPct;
             }
@@ -705,7 +710,8 @@
     }
 
     // ── selecionarAtivo — partilhado por AC e auto-excipiente ────────
-    function selecionarAtivo($row, a) {
+    // origName: texto original digitado (nome da prescrição) — preservado mesmo após troca de ativo
+    function selecionarAtivo($row, a, origName) {
         var $s = $row.find('.taof-orc-ativo-search');
         $s.val(a.nome).css({ 'border-color': '', 'background-color': '' });
         $s.removeAttr('placeholder');
@@ -715,19 +721,23 @@
         $row.find('.taof-orc-fp-label').text(
             parseFloat(a.fator_perda || 1).toLocaleString('pt-BR', { minimumFractionDigits: 3 })
         );
+        // Preserva nome_prescricao: se já havia um (de importação), mantém; senão usa origName
+        var prescAtual = $row.data('nome-prescricao');
+        var novaPresc  = prescAtual || (origName ? origName.toUpperCase() : a.nome);
         $row.data({
-            'ativo-id':     a.id,
-            'ativo-nome':   a.nome,
-            'codigo-fc':    a.codigo_fc   || '',
-            'unid-padrao':  a.unidade_padrao,
-            'preco-compra': parseFloat(a.preco_compra)   || 0,
-            'custo-unit':   a.custo_por_unidade,
-            'venda-unit':   a.preco_venda,
-            'diluicao':     parseFloat(a.diluicao)      || 1,
-            'teor':         parseFloat(a.teor)           || 100,
-            'densidade':    parseFloat(a.densidade)      || 1,
-            'fp':           parseFloat(a.fator_perda)    || 1,
-            'concentracao': parseFloat(a.concentracao)   || 0,
+            'ativo-id':         a.id,
+            'ativo-nome':       a.nome,
+            'nome-prescricao':  novaPresc,
+            'codigo-fc':        a.codigo_fc   || '',
+            'unid-padrao':      a.unidade_padrao,
+            'preco-compra':     parseFloat(a.preco_compra)   || 0,
+            'custo-unit':       a.custo_por_unidade,
+            'venda-unit':       a.preco_venda,
+            'diluicao':         parseFloat(a.diluicao)      || 1,
+            'teor':             parseFloat(a.teor)           || 100,
+            'densidade':        parseFloat(a.densidade)      || 1,
+            'fp':               parseFloat(a.fator_perda)    || 1,
+            'concentracao':     parseFloat(a.concentracao)   || 0,
         });
         var vendaLabel = parseFloat(a.preco_venda) > 0
             ? 'R$ ' + fmt(a.preco_venda, 4) + '/' + (a.unidade_padrao || 'g')
@@ -793,7 +803,7 @@
                                     e.preventDefault();
                                     var origName = $inp.val().trim();
                                     var wasEmpty = !$row.find('.taof-orc-ativo-id').val();
-                                    selecionarAtivo($row, a);
+                                    selecionarAtivo($row, a, origName);
                                     if (wasEmpty && origName && origName.toUpperCase() !== a.nome.toUpperCase()) {
                                         $.post(ajaxUrl, { action: 'tao_formula_salvar_sinonimo', nonce: nonce, ativo_id: a.id, sinonimo: origName.toUpperCase() });
                                     }
@@ -820,7 +830,14 @@
 
         // Navegação por teclado no dropdown
         $inp.on('keydown', function (e) {
-            if (!$dd.is(':visible')) return;
+            if (!$dd.is(':visible')) {
+                // ArrowDown reabre a busca quando dropdown está fechado
+                if (e.key === 'ArrowDown' && $(this).val().trim().length >= 2) {
+                    e.preventDefault();
+                    $(this).trigger('input');
+                }
+                return;
+            }
             var $items = $dd.find('.taof-ac-item[data-sel]');
             var $cur   = $items.filter('.taof-ac-hl');
             if (e.key === 'ArrowDown') {
@@ -840,7 +857,7 @@
                     var aObj2 = $sel.data('ativo-obj');
                     var origName2 = $inp.val().trim();
                     var wasEmpty2 = !$row.find('.taof-orc-ativo-id').val();
-                    selecionarAtivo($row, aObj2);
+                    selecionarAtivo($row, aObj2, origName2);
                     if (wasEmpty2 && origName2 && origName2.toUpperCase() !== aObj2.nome.toUpperCase()) {
                         $.post(ajaxUrl, { action: 'tao_formula_salvar_sinonimo', nonce: nonce, ativo_id: aObj2.id, sinonimo: origName2.toUpperCase() });
                     }
@@ -850,8 +867,8 @@
             }
         });
 
-        $inp.on('blur',  function () { setTimeout(function () { $dd.hide(); }, 150); });
-        $inp.on('focus', function () { if ($dd.children().length) { positionDropdown($inp, $dd); $dd.show(); } });
+        // blur esvazia o dropdown para não reaparecer no próximo focus
+        $inp.on('blur',  function () { setTimeout(function () { $dd.hide().empty(); }, 150); });
     }
 
     // ── Embalagens ────────────────────────────────────────────────────
@@ -1006,20 +1023,24 @@
         var $btn = $('#taof-orc-salvar'), $sp = $('.taof-spinner'), $msg = $('.taof-msg');
         var itens = [], ok = true;
 
-        if (!formaAtual)           { alert('Selecione a forma farmaceutica.'); return; }
-        if (getVol() <= 0)         { alert('Informe o volume / quantidade.');  return; }
+        // Orçamentos importados por texto: dispensa forma obrigatória e itens sem ativo_id
+        var isTextoImport = !!(EDIT_DATA && EDIT_DATA.tipo_entrada === 'texto');
+        if (!formaAtual && !isTextoImport) { alert('Selecione a forma farmaceutica.'); return; }
+        if (getVol() <= 0 && !isTextoImport) { alert('Informe o volume / quantidade.'); return; }
 
-        var cap = (formaAtual.tipo === 'cap' || formaAtual.tipo === 'duo_cap')
+        var cap = (formaAtual && (formaAtual.tipo === 'cap' || formaAtual.tipo === 'duo_cap'))
                   ? calcularCapsulaIdeal() : null;
 
         $('#taof-itens-body .taof-item-row').each(function () {
             var $r    = $(this);
-            if (!$r.data('ativo-id')) { ok = false; return false; }
+            // Para ORCs importados por texto: permite salvar mesmo sem ativo_id associado
+            if (!$r.data('ativo-id') && !isTextoImport) { ok = false; return false; }
             var isQsp = $r.hasClass('taof-row-qsp');
             itens.push({
                 tipo:             'mp',
                 ativo_id:         $r.data('ativo-id'),
                 nome:             $r.data('ativo-nome'),
+                nome_prescricao:  $r.data('nome-prescricao') || $r.data('ativo-nome') || '',
                 codigo_fc:        $r.data('codigo-fc') || '',
                 is_qsp:           isQsp,
                 dose:             isQsp ? null : $r.data('dose'),
@@ -1055,7 +1076,7 @@
             });
         });
         if (!ok) { alert('Selecione a embalagem em todas as linhas.'); return; }
-        if (!itens.length) { alert('Adicione ao menos um ativo.'); return; }
+        if (!itens.length && !isTextoImport) { alert('Adicione ao menos um ativo.'); return; }
 
         var calculado = itens.reduce(function (s, i) { return s + (i.subtotal || 0); }, 0);
         var custoFixo = getCustoFixo();
@@ -1079,7 +1100,7 @@
             nome_paciente:   $('#taof-nome-paciente').val(),
             whatsapp:        $('#taof-whatsapp').val(),
             forma_id:        $('#taof-forma-sel').val() || '',
-            forma_nome:      formaAtual ? formaAtual.nome : '',
+            forma_nome:      formaAtual ? formaAtual.nome : (EDIT_DATA ? (EDIT_DATA.forma_nome || '') : ''),
             forma_vol:       getVol(),
             forma_tipo:      $('#taof-forma-tipo').val(),
             forma_unidade:   getUnidade(),
@@ -1328,16 +1349,17 @@
                 vendaUnit > 0 ? 'R$ ' + fmt(vendaUnit, 4) + '/' + unidPadrao : '—'
             );
             $row.data({
-                'ativo-id':   item.ativo_id || '',
-                'ativo-nome': item.nome || '',
-                'codigo-fc':  item.codigo_fc || '',
-                'unid-padrao': unidPadrao,
-                'custo-unit':  parseFloat(item.custo_por_unidade || 0),
-                'venda-unit':  vendaUnit,
-                'diluicao':    parseFloat(item.diluicao || 1),
-                'teor':        parseFloat(item.teor || 100),
-                'densidade':   1,
-                'fp':          parseFloat(item.fp || 1),
+                'ativo-id':        item.ativo_id || '',
+                'ativo-nome':      item.nome || '',
+                'nome-prescricao': item.nome_prescricao || item.nome || '',
+                'codigo-fc':       item.codigo_fc || '',
+                'unid-padrao':     unidPadrao,
+                'custo-unit':      parseFloat(item.custo_por_unidade || 0),
+                'venda-unit':      vendaUnit,
+                'diluicao':        parseFloat(item.diluicao || 1),
+                'teor':            parseFloat(item.teor || 100),
+                'densidade':       1,
+                'fp':              parseFloat(item.fp || 1),
             });
             $row.find('.taof-orc-dose-unit').val(item.dose_unit || 'mg');
 
@@ -1392,6 +1414,13 @@
 
         // Obs
         $('#taof-observacoes').val(data.observacoes || '');
+
+        // Orçamentos importados por texto SEM itens: exibir total_orcamento como custo fixo manual
+        // (para ORCs com itens, o calc engine usa os subtotais normalmente)
+        if (data.tipo_entrada === 'texto' && parseFloat(data.total_orcamento || 0) > 0 &&
+                (!data.itens || !data.itens.length)) {
+            $('#taof-custo-fixo-inp').val(parseFloat(data.total_orcamento).toFixed(2)).data('manual', true);
+        }
 
         setTimeout(function () {
             calcularTotais();   // _loadingEdit ainda true → atualizarQSPRow pula; usa subtotal salvo

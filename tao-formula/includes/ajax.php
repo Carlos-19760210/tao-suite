@@ -39,6 +39,7 @@ add_action( 'wp_ajax_tao_formula_search_ativos', function() {
 // ── Detalhe de um Ativo ───────────────────────────────────────────────────────
 
 add_action( 'wp_ajax_tao_formula_get_ativo', function() {
+    while ( ob_get_level() > 0 ) ob_end_clean();
     check_ajax_referer( 'tao_formula_nonce', 'nonce' );
     if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
 
@@ -112,7 +113,7 @@ function tao_formula_build_descricao( $forma_nome, $forma_vol, $forma_unidade, $
     $parts = [];
     foreach ( (array) $itens as $item ) {
         if ( ( $item['tipo'] ?? 'mp' ) !== 'mp' ) continue;
-        $nome = strtoupper( $item['nome'] ?? '' );
+        $nome = strtoupper( $item['nome_prescricao'] ?? $item['nome'] ?? '' );
         if ( ! $nome ) continue;
         if ( ! empty( $item['is_qsp'] ) ) {
             $parts[] = $nome . '@';
@@ -794,42 +795,65 @@ add_action( 'wp_ajax_tao_formula_reprocessar_orc', function () {
     $card_id    = sanitize_text_field( $_POST['card_id'] ?? '' );
     if ( ! $cliente_id || ! $card_id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
 
-    $ro = tao_formula_api( "/orcamentos?card_id=eq.$card_id&cliente_id=eq.$cliente_id&select=id,volume,itens" );
-    if ( ! $ro['ok'] || empty( $ro['data'] ) ) {
+    $ro = tao_formula_api( "/orcamentos?card_id=eq.$card_id&cliente_id=eq.$cliente_id&select=id,forma_vol,qtde_potes,itens" );
+    if ( ! $ro['ok'] ) {
+        wp_send_json_error( [ 'message' => 'Erro ao buscar orçamentos: ' . ( $ro['raw'] ?? '' ) ] );
+        return;
+    }
+    if ( empty( $ro['data'] ) ) {
         wp_send_json_success( [ 'atualizados' => 0, 'message' => 'Nenhum orçamento encontrado para este card.' ] );
+        return;
     }
 
-    $sel_at     = 'id,codigo_fc,nome,unidade_padrao,preco_venda,custo_por_unidade,diluicao,teor';
-    $total_upd  = 0;
+    $sel_at    = 'id,codigo_fc,nome,unidade_padrao,preco_venda,custo_por_unidade,fator_perda,diluicao,teor';
+    $total_upd = 0;
 
     foreach ( $ro['data'] as $orc ) {
-        $itens  = $orc['itens'] ?? [];
+        $itens = $orc['itens'] ?? [];
+        if ( is_string( $itens ) ) $itens = json_decode( $itens, true ) ?: [];
         if ( ! is_array( $itens ) ) continue;
-        $volume = max( 1, (float) ( $orc['volume'] ?? 30 ) );
+
+        $forma_vol  = max( 1.0, (float) ( $orc['forma_vol']  ?? 30 ) );
+        $qtde_potes = max( 1,   (int)   ( $orc['qtde_potes'] ?? 1  ) );
+        $mult       = $forma_vol * $qtde_potes;
 
         $modified = false;
         foreach ( $itens as &$item ) {
             if ( ! empty( $item['ativo_id'] ) || empty( $item['nome'] ) ) continue;
 
-            $nome = $item['nome'];
-            $at   = null;
+            // Nome da prescrição (pode estar em nome_prescricao ou em nome)
+            $nome_busca = $item['nome_prescricao'] ?? $item['nome'];
+            $nome_enc   = rawurlencode( $nome_busca );
+            $at         = null;
 
-            // 1) ilike no nome/codigo
-            $ra = tao_formula_api( '/ativos?cliente_id=eq.' . $cliente_id . '&or=(nome.ilike.*' . rawurlencode( $nome ) . '*,codigo_fc.ilike.*' . rawurlencode( $nome ) . '*)&select=' . $sel_at . '&limit=1' );
+            // 1) ILIKE direto no nome/codigo_fc
+            $ra = tao_formula_api(
+                '/ativos?cliente_id=eq.' . $cliente_id .
+                '&or=(nome.ilike.*' . $nome_enc . '*,codigo_fc.ilike.*' . $nome_enc . '*)' .
+                '&select=' . $sel_at . '&limit=1'
+            );
             if ( $ra['ok'] && ! empty( $ra['data'] ) ) $at = $ra['data'][0];
 
-            // 2) Sinônimo exato
+            // 2) Sinônimo — correspondência exata (case-insensitive)
             if ( ! $at ) {
-                $rs = tao_formula_api( '/ativos_sinonimos?cliente_id=eq.' . $cliente_id . '&sinonimo=ilike.' . rawurlencode( strtolower( $nome ) ) . '&select=ativo_id&limit=1' );
+                $rs = tao_formula_api(
+                    '/ativos_sinonimos?cliente_id=eq.' . $cliente_id .
+                    '&sinonimo=ilike.' . rawurlencode( $nome_busca ) .
+                    '&select=ativo_id&limit=1'
+                );
                 if ( $rs['ok'] && ! empty( $rs['data'] ) ) {
                     $ra2 = tao_formula_api( '/ativos?id=eq.' . $rs['data'][0]['ativo_id'] . '&cliente_id=eq.' . $cliente_id . '&select=' . $sel_at . '&limit=1' );
                     if ( $ra2['ok'] && ! empty( $ra2['data'] ) ) $at = $ra2['data'][0];
                 }
             }
 
-            // 3) Sinônimo substring
-            if ( ! $at && mb_strlen( $nome ) >= 3 ) {
-                $rs = tao_formula_api( '/ativos_sinonimos?cliente_id=eq.' . $cliente_id . '&sinonimo=ilike.*' . rawurlencode( $nome ) . '*&select=ativo_id&limit=1' );
+            // 3) Sinônimo — substring
+            if ( ! $at && mb_strlen( $nome_busca ) >= 3 ) {
+                $rs = tao_formula_api(
+                    '/ativos_sinonimos?cliente_id=eq.' . $cliente_id .
+                    '&sinonimo=ilike.*' . $nome_enc . '*' .
+                    '&select=ativo_id&limit=1'
+                );
                 if ( $rs['ok'] && ! empty( $rs['data'] ) ) {
                     $ra2 = tao_formula_api( '/ativos?id=eq.' . $rs['data'][0]['ativo_id'] . '&cliente_id=eq.' . $cliente_id . '&select=' . $sel_at . '&limit=1' );
                     if ( $ra2['ok'] && ! empty( $ra2['data'] ) ) $at = $ra2['data'][0];
@@ -838,26 +862,46 @@ add_action( 'wp_ajax_tao_formula_reprocessar_orc', function () {
 
             if ( ! $at ) continue;
 
-            // Recalcular qtd e subtotal com o ativo encontrado
+            // Recalcular subtotal com fórmula completa (replica calcularLinha do JS)
             $dose      = (float) ( $item['dose']     ?? 0 );
-            $dose_unit = $item['dose_unit'] ?? 'mg';
+            $dose_unit = strtolower( $item['dose_unit'] ?? 'mg' );
             $is_qsp    = ! empty( $item['is_qsp'] );
             $unid_p    = $at['unidade_padrao'] ?? 'mg';
-            $preco     = (float) ( $at['preco_venda'] ?? 0 );
-            $dose_g    = $dose_unit === 'g' ? $dose : ( $dose_unit === 'mg' ? $dose / 1000 : ( $dose_unit === '%' ? $dose / 100 * $volume : 0 ) );
-            $qtd_tot_g = $is_qsp ? 0 : round( $dose_g * ( $dose_unit === '%' ? 1 : $volume ), 6 );
-            $qtd_em_u  = $unid_p === 'g' ? $qtd_tot_g : $qtd_tot_g * 1000;
-            $subtotal  = ( $preco > 0 && ! $is_qsp ) ? round( $qtd_em_u * $preco, 4 ) : 0;
+            $preco     = (float) ( $at['preco_venda']      ?? 0 );
+            $fp        = (float) ( $at['fator_perda']      ?? 1 );
+            $diluicao  = (float) ( $at['diluicao']         ?? 1 );
+            $teor      = (float) ( $at['teor']             ?? 100 );
 
+            $qtd_tot_g = 0.0;
+            $subtotal  = 0.0;
+            if ( ! $is_qsp && $dose > 0 && $preco > 0 ) {
+                switch ( $dose_unit ) {
+                    case 'g':   $dose_mg = $dose * 1000; break;
+                    case 'mcg': $dose_mg = $dose / 1000; break;
+                    default:    $dose_mg = $dose; break;
+                }
+                $dose_mg_real  = $dose_mg * $diluicao / max( 0.001, $teor / 100 );
+                $qtd_total_mg  = $dose_mg_real * $fp * $mult;
+                $qtd_tot_g     = $qtd_total_mg / 1000;
+                $qtd_em_padrao = strtolower( $unid_p ) === 'g' ? $qtd_tot_g : $qtd_total_mg;
+                $subtotal      = round( $qtd_em_padrao * $preco, 4 );
+            }
+
+            // Preserva nome_prescricao antes de substituir nome pelo canônico
+            if ( empty( $item['nome_prescricao'] ) ) {
+                $item['nome_prescricao'] = strtoupper( $nome_busca );
+            }
             $item['ativo_id']          = $at['id'];
             $item['nome']              = $at['nome'];
             $item['codigo_fc']         = $at['codigo_fc']         ?? '';
             $item['unid_padrao']       = $unid_p;
             $item['preco_venda']       = $preco;
             $item['custo_por_unidade'] = (float) ( $at['custo_por_unidade'] ?? 0 );
-            $item['diluicao']          = (float) ( $at['diluicao'] ?? 1 );
-            $item['teor']              = (float) ( $at['teor'] ?? 100 );
+            $item['fp']                = $fp;
+            $item['diluicao']          = $diluicao;
+            $item['teor']              = $teor;
             $item['qtd_total_g']       = $qtd_tot_g;
+            $item['multiplicador']     = $mult;
             $item['subtotal']          = $subtotal;
 
             $modified = true;
@@ -866,14 +910,26 @@ add_action( 'wp_ajax_tao_formula_reprocessar_orc', function () {
         unset( $item );
 
         if ( $modified ) {
-            tao_formula_api( '/orcamentos?id=eq.' . $orc['id'] . '&cliente_id=eq.' . $cliente_id, 'PATCH', [ 'itens' => $itens ] );
+            // Recalcula totais do orçamento
+            $total_insumos = array_reduce( $itens, function( $c, $i ) {
+                return $c + ( ( $i['tipo'] ?? 'mp' ) === 'mp' ? (float) ( $i['subtotal'] ?? 0 ) : 0 );
+            }, 0.0 );
+            $total_emb = array_reduce( $itens, function( $c, $i ) {
+                return $c + ( ( $i['tipo'] ?? 'mp' ) === 'emb' ? (float) ( $i['subtotal'] ?? 0 ) : 0 );
+            }, 0.0 );
+
+            tao_formula_api( '/orcamentos?id=eq.' . $orc['id'] . '&cliente_id=eq.' . $cliente_id, 'PATCH', [
+                'itens'          => $itens,
+                'total_insumos'  => round( $total_insumos, 2 ),
+                'atualizado_em'  => gmdate( 'c' ),
+            ] );
         }
     }
 
     wp_send_json_success( [
         'atualizados' => $total_upd,
         'message'     => $total_upd > 0
-            ? $total_upd . ' ativo(s) associado(s) com sucesso.'
+            ? $total_upd . ' ativo(s) associado(s) e recalculado(s) com sucesso.'
             : 'Nenhum ativo pendente encontrado nos orçamentos.',
     ] );
 } );
@@ -1123,4 +1179,489 @@ Ativos: ' . $lista_json;
         'inseridos'   => $inseridos,
         'next_offset' => $next,
     ] );
+} );
+
+// ── Importar orçamentos a partir de texto (formato ORC:…) ────────────────────
+
+/**
+ * Sugere embalagem para a forma importada e retorna item pronto com preço do banco.
+ * Retorna array de item 'emb' ou null se não houver sugestão.
+ */
+function tao_formula_sugerir_embalagem_import( $forma_tipo, $forma_vol, $cliente_id ) {
+    // Tabela estática: [tipo → opções ordenadas por volume crescente]
+    $table = [
+        'creme'   => [
+            ['c'=>62921,'n'=>'BISNAGA PLASTICA 30G',           'v'=>30],
+            ['c'=>62661,'n'=>'BISNAGA PLASTICA 60G',           'v'=>60],
+            ['c'=>62757,'n'=>'BISNAGA PLASTICA 100G',          'v'=>100],
+            ['c'=>62732,'n'=>'BISNAGA PLASTICA 200G',          'v'=>200],
+        ],
+        'gel'     => [
+            ['c'=>10607,'n'=>'FRESH ROLLER 15ML',              'v'=>15],
+            ['c'=>10754,'n'=>'FRASCO PUMP MEG 30ML',           'v'=>30],
+            ['c'=>10603,'n'=>'FRASCO PUMP 50ML',               'v'=>50],
+        ],
+        'locao'   => [
+            ['c'=>66516,'n'=>'FRASCO GOTEJADOR 30ML',          'v'=>30],
+            ['c'=>66517,'n'=>'FRASCO GOTEJADOR 60ML',          'v'=>60],
+            ['c'=>64700,'n'=>'FRASCO GOTEJADOR 120ML',         'v'=>120],
+            ['c'=>11020,'n'=>'FRASCO GOTEJADOR 250ML',         'v'=>250],
+        ],
+        'shampoo' => [
+            ['c'=>10585,'n'=>'FRASCO SHAMPOO/SABONETE 120ML',  'v'=>120],
+            ['c'=>24492,'n'=>'FRASCO SHAMPOO/SABONETE 250ML',  'v'=>250],
+            ['c'=>10954,'n'=>'FRASCO SHAMPOO 350ML',           'v'=>350],
+            ['c'=>12702,'n'=>'FRASCO SHAMPOO 500ML',           'v'=>500],
+        ],
+        'solucao' => [
+            ['c'=>66187,'n'=>'VIDRO 30ML',                     'v'=>30],
+            ['c'=>12591,'n'=>'FRASCO PET AMBAR 60ML',          'v'=>60],
+            ['c'=>12593,'n'=>'FRASCO PET AMBAR 100ML',         'v'=>100],
+            ['c'=>11023,'n'=>'FRASCO PET AMBAR 150ML',         'v'=>150],
+            ['c'=>10605,'n'=>'FRASCO PET AMBAR 250ML',         'v'=>250],
+            ['c'=>66780,'n'=>'FRASCO PET AMBAR 500ML',         'v'=>500],
+        ],
+        // cap/duo_cap: vol estimado 0.6 mL/caps (para seleção do pote)
+        'cap'     => [
+            ['c'=>10593,'n'=>'POTE 35ML',  'v'=>35,  'nc'=>55],
+            ['c'=>10594,'n'=>'POTE 60ML',  'v'=>60,  'nc'=>90],
+            ['c'=>63601,'n'=>'POTE 110ML', 'v'=>110, 'nc'=>150],
+            ['c'=>10592,'n'=>'POTE 160ML', 'v'=>160, 'nc'=>220],
+            ['c'=>67848,'n'=>'POTE 250ML', 'v'=>250, 'nc'=>350],
+            ['c'=>63244,'n'=>'POTE 320ML', 'v'=>320, 'nc'=>450],
+            ['c'=>10596,'n'=>'POTE 500ML', 'v'=>500, 'nc'=>700],
+            ['c'=>12856,'n'=>'POTE 750ML', 'v'=>750, 'nc'=>999],
+        ],
+    ];
+
+    $tipo = strtolower( $forma_tipo ?? '' );
+    if ( $tipo === 'duo_cap' ) $tipo = 'cap';
+    if ( ! isset( $table[$tipo] ) ) return null;
+
+    $opts     = $table[$tipo];
+    $selected = null;
+    $vol      = (float)( $forma_vol ?? 0 );
+
+    if ( $tipo === 'cap' ) {
+        foreach ( $opts as $o ) {
+            if ( ( $o['nc'] ?? 0 ) >= $vol ) { $selected = $o; break; }
+        }
+    } else {
+        foreach ( $opts as $o ) {
+            if ( $o['v'] >= $vol ) { $selected = $o; break; }
+        }
+    }
+    if ( ! $selected ) $selected = end( $opts );
+    if ( ! $selected ) return null;
+
+    // Busca preço no banco pelo codigo_fc
+    $cod = (string) $selected['c'];
+    $ra  = tao_formula_api(
+        "/ativos?cliente_id=eq.{$cliente_id}&codigo_fc=eq.{$cod}&select=id,preco_venda,custo_por_unidade&limit=1"
+    );
+    $ativo_id    = '';
+    $preco_venda = 0.0;
+    $preco_custo = 0.0;
+    if ( $ra['ok'] && ! empty( $ra['data'] ) ) {
+        $ativo_id    = $ra['data'][0]['id']                 ?? '';
+        $preco_venda = (float)( $ra['data'][0]['preco_venda']       ?? 0 );
+        $preco_custo = (float)( $ra['data'][0]['custo_por_unidade'] ?? 0 );
+    }
+
+    return [
+        'tipo'              => 'emb',
+        'ativo_id'          => $ativo_id,
+        'nome'              => $selected['n'],
+        'quantidade'        => 1,
+        'custo_por_unidade' => $preco_custo ?: $preco_venda,
+        'subtotal'          => round( $preco_venda, 2 ),
+    ];
+}
+
+/**
+ * Parseia descrição de fórmula e busca cada ativo no banco por nome.
+ * Descrição esperada: "FORMULA MANIPULADA - FORMA: VOLunit | ATIVO1 DOSE UNIT; ATIVO2 DOSE UNIT"
+ * Retorna [ forma_vol, forma_unidade, itens[] ]
+ */
+function tao_formula_parse_descricao_itens( $descr, $cliente_id ) {
+    $forma_vol     = null;
+    $forma_unidade = 'g';
+    $itens         = [];
+
+    $pipe = strpos( $descr, ' | ' );
+    if ( $pipe === false ) return [ $forma_vol, $forma_unidade, $itens ];
+
+    $header = substr( $descr, 0, $pipe );
+    $resto  = substr( $descr, $pipe + 3 );
+
+    // Parse vol/unidade do cabeçalho: "...FORMA: 180CAP" ou "...FORMA: 30G"
+    if ( preg_match( '/:\s*([\d.,]+)\s*(caps?|cap|g|ml|mcg)\b/i', $header, $hm ) ) {
+        $forma_vol = (float) str_replace( ',', '.', $hm[1] );
+        $u = strtolower( $hm[2] );
+        $forma_unidade = in_array( $u, ['cap','caps'] ) ? 'caps' : ( $u === 'ml' ? 'ml' : 'g' );
+    }
+
+    // Ingredientes separados por "; "
+    $parts = array_filter( array_map( 'trim', explode( ';', $resto ) ) );
+    foreach ( $parts as $part ) {
+        $is_qsp = false;
+        if ( substr( $part, -1 ) === '@' ) {
+            $is_qsp = true;
+            $part   = trim( substr( $part, 0, -1 ) );
+        }
+
+        $nome      = trim( $part );
+        $dose      = null;
+        $dose_unit = 'mg';
+
+        // Tenta extrair "NOME DOSE UNIT"
+        if ( preg_match( '/^(.+?)\s+([\d.,]+)\s*(mg|mcg|g|UI|UFC|BLH|ml|%)\s*$/i', $part, $im ) ) {
+            $nome      = trim( $im[1] );
+            $dose      = (float) str_replace( ',', '.', $im[2] );
+            $raw_unit  = $im[3];
+            $dose_unit = in_array( strtolower($raw_unit), ['ui','ufc','blh'] )
+                         ? strtoupper($raw_unit) : strtolower($raw_unit);
+        }
+        if ( ! $nome ) continue;
+
+        // Busca ativo pelo nome — wildcards (*) NÃO devem ser encoded (PostgREST usa * como glob)
+        $nome_enc = rawurlencode( $nome );
+        $ra  = tao_formula_api(
+            "/ativos?cliente_id=eq.{$cliente_id}&nome=ilike.*{$nome_enc}*" .
+            "&select=id,nome,codigo_fc,preco_venda,custo_por_unidade,unidade_padrao,fator_perda,diluicao,teor,densidade&limit=1"
+        );
+
+        $ativo_id    = '';
+        $codigo_fc   = '';
+        $preco_venda = 0.0;
+        $preco_custo = 0.0;
+        $unid_padrao = $dose_unit ?: 'mg';
+        $fp          = 1.0;
+        $diluicao_at = 1.0;
+        $teor_at     = 100.0;
+
+        $nome_prescricao = strtoupper( $nome ); // sempre preserva o nome da prescrição
+        $nome_db         = $nome_prescricao;   // fallback = nome prescrição se não achar no banco
+
+        if ( $ra['ok'] && ! empty( $ra['data'] ) ) {
+            $at          = $ra['data'][0];
+            $ativo_id    = $at['id']                   ?? '';
+            $nome_db     = strtoupper( $at['nome']             ?? $nome );
+            $codigo_fc   = (string)( $at['codigo_fc']          ?? '' );
+            $preco_venda = (float)(  $at['preco_venda']        ?? 0 );
+            $preco_custo = (float)(  $at['custo_por_unidade']  ?? 0 );
+            $unid_padrao = $at['unidade_padrao']               ?? $unid_padrao;
+            $fp          = (float)(  $at['fator_perda']        ?? 1 );
+            $diluicao_at = (float)(  $at['diluicao']           ?? 1 );
+            $teor_at     = (float)(  $at['teor']               ?? 100 );
+        }
+
+        $itens[] = [
+            'tipo'              => 'mp',
+            'ativo_id'          => $ativo_id,
+            'nome'              => $nome_db,          // nome canônico do banco (para cálculos)
+            'nome_prescricao'   => $nome_prescricao,  // nome original da prescrição (para mensagens)
+            'codigo_fc'         => $codigo_fc,
+            'is_qsp'            => $is_qsp,
+            'dose'              => $dose,
+            'dose_unit'         => $dose_unit,
+            'multiplicador'     => $forma_vol ?? 1,
+            'qtde_potes'        => 1,
+            'n_caps_por_dose'   => 1,
+            'capsula_tipo'      => null,
+            'capsula_numero'    => null,
+            'diluicao'          => $diluicao_at,
+            'teor'              => $teor_at,
+            'fp'                => $fp,
+            'qtd_total_g'       => 0.0,
+            'volapa_ul'         => 0.0,
+            'custo_por_unidade' => $preco_custo,
+            'preco_venda'       => $preco_venda,
+            'unid_padrao'       => $unid_padrao,
+            'subtotal'          => 0.0,
+        ];
+    }
+
+    return [ $forma_vol, $forma_unidade, $itens ];
+}
+
+add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( 'Cliente não identificado', 400 );
+
+    $card_id   = sanitize_text_field( $_POST['card_id'] ?? '' ) ?: null;
+    $orcs_json = wp_unslash( $_POST['orcs'] ?? '' );
+    $orcs      = json_decode( $orcs_json, true );
+    if ( empty( $orcs ) || ! is_array( $orcs ) ) wp_send_json_error( 'Nenhum orçamento para importar' );
+
+    // Dados do card (nome do paciente e WhatsApp) — busca única para o lote
+    $nome_paciente = '';
+    $whatsapp_pac  = '';
+    if ( $card_id ) {
+        $rc = tao_formula_api( "/crm_cards?id=eq.{$card_id}&select=contato_nome,contato_whatsapp&limit=1" );
+        if ( $rc['ok'] && ! empty( $rc['data'] ) ) {
+            $nome_paciente = $rc['data'][0]['contato_nome']      ?? '';
+            $whatsapp_pac  = $rc['data'][0]['contato_whatsapp']  ?? '';
+        }
+    }
+
+    $criados = 0;
+    $erros   = [];
+
+    foreach ( $orcs as $orc ) {
+        $numero = sanitize_text_field( $orc['numero'] ?? '' );
+        $descr  = sanitize_text_field( $orc['descricao'] ?? '' );
+        $valor  = (float) ( $orc['valor'] ?? 0 );
+        if ( ! $numero || $valor <= 0 ) { $erros[] = "Linha inválida: $numero"; continue; }
+
+        // Verifica duplicata
+        $check = tao_formula_api( "/orcamentos?numero_orcamento=eq.{$numero}&cliente_id=eq.{$cliente_id}&select=id&limit=1" );
+        if ( $check['ok'] && ! empty( $check['data'] ) ) { $erros[] = "ORC:{$numero} já existe"; continue; }
+
+        // ── 1. Parseia descrição: forma_nome, forma_vol, forma_unidade, itens MP ────
+        $forma_nome_raw = '';
+        if ( preg_match( '/FORMULA MANIPULADA\s*-\s*([^\s:]+)/i', $descr, $m ) ) {
+            $forma_nome_raw = trim( $m[1] );
+        }
+
+        list( $forma_vol, $forma_unidade, $itens_mp ) = tao_formula_parse_descricao_itens( $descr, $cliente_id );
+        $qtde_potes = 1;
+
+        // ── 2. Busca forma farmacêutica por nome ─────────────────────────────────────
+        $forma    = null;
+        $forma_id = null;
+        if ( $forma_nome_raw ) {
+            $enc_f = rawurlencode( $forma_nome_raw );
+            $rf = tao_formula_api(
+                "/formas_farmaceuticas?cliente_id=eq.{$cliente_id}&nome=ilike.*{$enc_f}*&ativo=eq.true" .
+                "&select=id,nome,tipo,custo_fixo,custo_fixo_tipo,margem_pct,valor_minimo,n_capsulas,volume,unidade_volume,ftenchcap&limit=1"
+            );
+            if ( $rf['ok'] && ! empty( $rf['data'] ) ) {
+                $forma    = $rf['data'][0];
+                $forma_id = $forma['id'];
+            }
+        }
+
+        // Fallback forma_vol/unidade da forma cadastrada
+        if ( $forma_vol === null && $forma ) {
+            $ft = strtolower( $forma['tipo'] ?? 'outro' );
+            if ( in_array( $ft, ['cap','duo_cap'] ) ) {
+                $forma_vol     = (float)( $forma['n_capsulas'] ?? 30 );
+                $forma_unidade = 'caps';
+            } else {
+                $forma_vol     = (float)( $forma['volume'] ?? 0 ) ?: null;
+                $forma_unidade = $forma['unidade_volume'] ?? 'g';
+            }
+        }
+
+        $forma_nome_final = $forma ? $forma['nome'] : ucfirst( strtolower( $forma_nome_raw ) );
+        $mult = ( $forma_vol ?? 1 ) * $qtde_potes;
+
+        // ── 2b. Regras de cápsulas ────────────────────────────────────────────────────
+        $forma_tipo = strtolower( $forma['tipo'] ?? '' );
+        if ( $forma && in_array( $forma_tipo, ['cap', 'duo_cap'] ) ) {
+            // Padrão: cápsulas gelatinosas quando não especificado
+            foreach ( $itens_mp as &$item ) {
+                if ( $item['tipo'] === 'mp' && empty( $item['capsula_tipo'] ) ) {
+                    $item['capsula_tipo'] = 'gelatinosa';
+                }
+            }
+            unset( $item );
+
+            // Excipiente base (QSP): só adiciona se o texto NÃO descreveu um QSP.
+            // NÃO marca o último ativo como QSP (ele é um princípio ativo de verdade).
+            $has_qsp = false;
+            foreach ( $itens_mp as $item ) {
+                if ( ( $item['tipo'] ?? 'mp' ) === 'mp' && ! empty( $item['is_qsp'] ) ) { $has_qsp = true; break; }
+            }
+            if ( ! $has_qsp ) {
+                $rexc = tao_formula_api(
+                    "/ativos?cliente_id=eq.{$cliente_id}&codigo_fc=eq.10577" .
+                    "&select=id,nome,codigo_fc,preco_venda,custo_por_unidade,unidade_padrao,fator_perda,diluicao,teor,densidade&limit=1"
+                );
+                $exc = ( $rexc['ok'] && ! empty( $rexc['data'] ) ) ? $rexc['data'][0] : null;
+                $itens_mp[] = [
+                    'tipo'              => 'mp',
+                    'ativo_id'          => $exc['id'] ?? '',
+                    'nome'              => strtoupper( $exc['nome'] ?? 'EXCIPIENTE BASE' ),
+                    'nome_prescricao'   => 'EXCIPIENTE BASE',
+                    'codigo_fc'         => '10577',
+                    'is_qsp'            => true,
+                    'dose'              => null,
+                    'dose_unit'         => 'mg',
+                    'multiplicador'     => $forma_vol ?? 1,
+                    'qtde_potes'        => $qtde_potes,
+                    'n_caps_por_dose'   => 1,
+                    'capsula_tipo'      => 'gelatinosa',
+                    'capsula_numero'    => null,
+                    'diluicao'          => (float) ( $exc['diluicao']    ?? 1 ),
+                    'teor'              => (float) ( $exc['teor']        ?? 100 ),
+                    'fp'                => (float) ( $exc['fator_perda'] ?? 1 ),
+                    'qtd_total_g'       => 0.0,
+                    'volapa_ul'         => 0.0,
+                    'custo_por_unidade' => (float) ( $exc['custo_por_unidade'] ?? 0 ),
+                    'preco_venda'       => (float) ( $exc['preco_venda']       ?? 0 ),
+                    'unid_padrao'       => $exc['unidade_padrao'] ?? 'g',
+                    'subtotal'          => 0.0,
+                ];
+            }
+        }
+
+        // ── 3. Calcula subtotal de cada MP (replica JS calcularLinha, caso mg/g/mcg) ─
+        $total_insumos = 0.0;
+        foreach ( $itens_mp as &$item ) {
+            if ( $item['tipo'] !== 'mp' || $item['is_qsp'] ) continue;
+            $dose      = (float)( $item['dose'] ?? 0 );
+            $dose_unit = strtolower( $item['dose_unit'] ?? 'mg' );
+            $unid_pad  = strtolower( $item['unid_padrao'] ?? 'mg' );
+            $fp        = (float)( $item['fp']       ?? 1 );
+            $diluicao  = (float)( $item['diluicao'] ?? 1 );
+            $teor      = (float)( $item['teor']     ?? 100 );
+            $preco     = (float)( $item['preco_venda'] ?? 0 );
+
+            if ( $dose > 0 && $preco > 0 ) {
+                switch ( $dose_unit ) {
+                    case 'g':   $dose_mg = $dose * 1000; break;
+                    case 'mcg': $dose_mg = $dose / 1000; break;
+                    default:    $dose_mg = $dose; break; // mg (e outros)
+                }
+                $dose_mg_real  = $dose_mg * $diluicao / max( 0.001, $teor / 100 );
+                $qtd_total_mg  = $dose_mg_real * $fp * $mult;
+                $qtd_total_g   = $qtd_total_mg / 1000;
+                $qtd_em_padrao = $unid_pad === 'g' ? $qtd_total_g : $qtd_total_mg;
+                $subtotal      = round( $qtd_em_padrao * $preco, 4 );
+            } else {
+                $qtd_total_g   = 0.0;
+                $subtotal      = 0.0;
+            }
+            $item['qtd_total_g']   = $qtd_total_g;
+            $item['multiplicador'] = $mult;
+            $item['subtotal']      = $subtotal;
+            $total_insumos        += $subtotal;
+        }
+        unset( $item );
+
+        // ── 4. Sugere embalagem ───────────────────────────────────────────────────────
+        $itens_emb = [];
+        $total_emb = 0.0;
+        if ( $forma ) {
+            $emb = tao_formula_sugerir_embalagem_import( $forma['tipo'], $forma_vol, $cliente_id );
+            if ( $emb ) {
+                $itens_emb[] = $emb;
+                $total_emb   = $emb['subtotal'];
+            }
+        }
+        $calculado = $total_insumos + $total_emb;
+
+        // ── 5. Custo fixo da forma ────────────────────────────────────────────────────
+        $custo_fixo = 0.0;
+        if ( $forma ) {
+            $cf_tipo = $forma['custo_fixo_tipo'] ?? '';
+            $cf_val  = (float)( $forma['custo_fixo'] ?? 0 );
+            if ( $cf_tipo === 'R' ) {
+                $custo_fixo = $cf_val;
+            } elseif ( $cf_tipo === 'pct' ) {
+                $custo_fixo = round( $calculado * $cf_val / 100, 2 );
+            } else {
+                $margem_pct = (float)( $forma['margem_pct'] ?? 30 );
+                $custo_fixo = round( $calculado * $margem_pct / 100, 2 );
+            }
+        }
+        $subtotal_calc = round( $calculado + $custo_fixo, 2 );
+
+        // Valor mínimo da forma
+        if ( $forma ) {
+            $val_min = (float)( $forma['valor_minimo'] ?? 0 );
+            if ( $val_min > 0 && $subtotal_calc < $val_min ) $subtotal_calc = $val_min;
+        }
+
+        // ── 6. Acréscimo / Desconto para bater com valor importado ───────────────────
+        // Evita overflow nas colunas numéricas de %: se o % seria absurdo (> 999),
+        // absorve a diferença no custo_fixo em vez de usar percentual.
+        $acrescimo_pct = 0.0;
+        $desconto_pct  = 0.0;
+        if ( $subtotal_calc <= 0.005 ) {
+            // Sem cálculo possível: armazena total em custo_fixo
+            $custo_fixo    = $valor;
+            $calculado     = 0.0;
+            $subtotal_calc = $valor;
+        } else {
+            $diff = round( $valor - $subtotal_calc, 4 );
+            if ( $diff > 0.005 ) {
+                $pct = $diff / $subtotal_calc * 100;
+                if ( $pct <= 999 ) {
+                    $acrescimo_pct = round( $pct, 4 );
+                } else {
+                    // Acréscimo% muito alto → absorve diferença no custo_fixo
+                    $custo_fixo    = round( max( 0, $valor - $total_insumos - $total_emb ), 2 );
+                    $subtotal_calc = round( $total_insumos + $total_emb + $custo_fixo, 2 );
+                }
+            } elseif ( $diff < -0.005 ) {
+                $pct = abs($diff) / $subtotal_calc * 100;
+                if ( $pct <= 99 ) {
+                    $desconto_pct = round( $pct, 4 );
+                } else {
+                    // Desconto% alto → reduz custo_fixo ao mínimo necessário
+                    $custo_fixo    = round( max( 0, $valor - $total_insumos - $total_emb ), 2 );
+                    $subtotal_calc = round( $total_insumos + $total_emb + $custo_fixo, 2 );
+                }
+            }
+        }
+
+        $observacoes = "[FC:{$numero}] {$descr}";
+        $itens_todos = array_merge( $itens_mp, $itens_emb );
+
+        $r = tao_formula_api( '/orcamentos', 'POST', [
+            'cliente_id'          => $cliente_id,
+            'card_id'             => $card_id,
+            'numero_orcamento'    => $numero,
+            'nome_paciente'       => $nome_paciente,
+            'whatsapp'            => $whatsapp_pac,
+            'forma_id'            => $forma_id,
+            'forma_nome'          => $forma_nome_final ?: $descr,
+            'forma_vol'           => $forma_vol,
+            'forma_unidade'       => $forma_unidade,
+            'qtde_potes'          => $qtde_potes,
+            'custo_fixo_aplicado' => round( $custo_fixo, 2 ),
+            'total_insumos'       => round( $calculado, 2 ),
+            'margem_aplicada'     => $acrescimo_pct,
+            'desconto_pct'        => $desconto_pct,
+            'total_orcamento'     => $valor,
+            'observacoes'         => $observacoes,
+            'itens'               => $itens_todos,
+            'status'              => 'pendente_revisao',
+            'tipo_entrada'        => 'texto',
+            'criado_em'           => gmdate( 'c' ),
+            'atualizado_em'       => gmdate( 'c' ),
+        ] );
+
+        if ( $r['ok'] ) {
+            $criados++;
+            if ( $card_id ) {
+                $n_mp  = count( $itens_mp );
+                $n_emb = count( $itens_emb );
+                tao_formula_api( '/crm_cards_historico', 'POST', [
+                    'card_id'    => $card_id,
+                    'usuario_id' => get_current_user_id(),
+                    'motivo'     => 'Orçamento importado: ORC:' . $numero .
+                                   ' — R$ ' . number_format( $valor, 2, ',', '.' ) .
+                                   " | {$n_mp} MP" . ( $n_emb ? " + {$n_emb} emb." : '' ) .
+                                   ( $forma_id ? " | forma: {$forma_nome_final}" : ' | forma não encontrada' ),
+                    'criado_em'  => gmdate( 'c' ),
+                ] );
+            }
+        } else {
+            $raw_decoded = json_decode( $r['raw'] ?? '', true );
+            $detalhe = is_array($raw_decoded)
+                ? ( $raw_decoded['message'] ?? $raw_decoded['code'] ?? $r['raw'] )
+                : $r['raw'];
+            $erros[] = "ORC:{$numero}: " . mb_substr( (string) $detalhe, 0, 300 );
+        }
+    }
+
+    wp_send_json_success( [ 'criados' => $criados, 'erros' => $erros ] );
 } );
