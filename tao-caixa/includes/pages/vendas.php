@@ -183,40 +183,21 @@ function tao_caixa_page_vendas() {
         <?php endif; ?>
     </div>
 
-    <!-- Modal: Receber pagamento -->
+    <!-- Modal: Receber pagamento (com split) -->
     <div id="taoc-receber-modal" class="taoc-modal">
         <div class="taoc-overlay"></div>
-        <div class="taoc-box">
+        <div class="taoc-box" style="max-width:580px">
             <h2>&#x1F4B3; Receber pagamento</h2>
-            <p id="taoc-rec-info" style="font-size:13px;color:#475569;margin:0 0 14px"></p>
-            <form id="taoc-receber-form" autocomplete="off">
-                <input type="hidden" name="venda_id">
-                <div class="taoc-field">
-                    <label>Forma de pagamento *</label>
-                    <select name="forma_pagamento_id" required>
-                        <option value="">— Selecione —</option>
-                        <?php foreach ( $formas as $f ) : ?>
-                        <option value="<?php echo esc_attr( $f['id'] ); ?>"><?php echo esc_html( $f['nome'] ); ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                <div class="taoc-field taoc-field-inline">
-                    <div style="flex:1">
-                        <label>Parcelas</label>
-                        <input type="number" name="parcelas" min="1" max="24" step="1" value="1">
-                    </div>
-                    <div style="flex:1">
-                        <label>Valor (R$) *</label>
-                        <input type="number" name="valor" min="0" step="0.01" required>
-                    </div>
-                </div>
-                <div id="taoc-rec-preview" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:10px 12px;font-size:13px;margin:2px 0 12px;color:#334155"></div>
-                <div class="taoc-actions">
-                    <button type="submit" class="taoc-btn taoc-btn-primary">Confirmar recebimento</button>
-                    <button type="button" class="taoc-btn" id="taoc-rec-cancel">Cancelar</button>
-                </div>
-                <p id="taoc-rec-msg" style="display:none;margin-top:10px;font-size:13px"></p>
-            </form>
+            <p id="taoc-rec-info" style="font-size:13px;color:#475569;margin:0 0 12px"></p>
+            <input type="hidden" id="taoc-rec-venda">
+            <div id="taoc-pag-linhas"></div>
+            <button type="button" id="taoc-add-pag" class="taoc-btn" style="margin-top:4px">+ Adicionar forma (split)</button>
+            <div id="taoc-rec-resumo" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:10px 12px;font-size:13px;margin:12px 0;color:#334155"></div>
+            <div class="taoc-actions">
+                <button type="button" id="taoc-rec-confirm" class="taoc-btn taoc-btn-primary">Confirmar recebimento</button>
+                <button type="button" id="taoc-rec-cancel" class="taoc-btn">Cancelar</button>
+            </div>
+            <p id="taoc-rec-msg" style="display:none;margin-top:10px;font-size:13px"></p>
         </div>
     </div>
 
@@ -226,50 +207,10 @@ function tao_caixa_page_vendas() {
         var TAXAS  = <?php echo wp_json_encode( $taxas ); ?>;
         var C = window.taoCaixa || {};
         var modal = document.getElementById('taoc-receber-modal');
-        if(!modal) return;
-        var form = document.getElementById('taoc-receber-form');
-        var info = document.getElementById('taoc-rec-info');
-        var prev = document.getElementById('taoc-rec-preview');
-        var msg  = document.getElementById('taoc-rec-msg');
-        var fSel = form.forma_pagamento_id, pInp = form.parcelas, vInp = form.valor;
 
         function brl(v){ return 'R$ ' + (parseFloat(v)||0).toFixed(2).replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.'); }
-        function resolve(){
-            var fid = fSel.value, parc = parseInt(pInp.value||1), valor = parseFloat((vInp.value||'0').replace(',','.'))||0;
-            var f = FORMAS.filter(function(x){ return x.id===fid; })[0];
-            var taxa = f ? parseFloat(f.taxa_pct||0) : 0, prazo = f ? parseInt(f.prazo_recebimento_dias||0) : 0;
-            var faixa = TAXAS.filter(function(t){ return t.forma_pagamento_id===fid && parc>=t.parcela_min && parc<=t.parcela_max; })
-                             .sort(function(a,b){ return b.parcela_min-a.parcela_min; })[0];
-            if(faixa){ taxa=parseFloat(faixa.taxa_pct); prazo=parseInt(faixa.prazo_recebimento_dias); }
-            return { taxa:taxa, prazo:prazo, valor:valor };
-        }
-        function preview(){
-            if(!fSel.value){ prev.innerHTML = '<span style="color:#94a3b8">Selecione a forma para ver taxa e líquido.</span>'; return; }
-            var r = resolve(), vt = r.valor*r.taxa/100, liq = r.valor-vt;
-            var d = new Date(Date.now() + r.prazo*86400000);
-            var dd = ('0'+d.getDate()).slice(-2)+'/'+('0'+(d.getMonth()+1)).slice(-2)+'/'+d.getFullYear();
-            prev.innerHTML = 'Taxa: <strong>'+r.taxa.toFixed(3).replace('.',',')+'%</strong> &nbsp;&middot;&nbsp; '
-                + 'Líquido: <strong style="color:#16a34a">'+brl(liq)+'</strong> &nbsp;&middot;&nbsp; '
-                + 'Recebe em <strong>'+r.prazo+' dia(s)</strong> ('+dd+')';
-        }
-        fSel.addEventListener('change', preview); pInp.addEventListener('input', preview); vInp.addEventListener('input', preview);
 
-        var btns = document.querySelectorAll('.taoc-receber');
-        for(var i=0;i<btns.length;i++){
-            btns[i].addEventListener('click', function(){
-                var aberto = parseFloat(this.getAttribute('data-aberto')||'0');
-                form.venda_id.value = this.getAttribute('data-venda');
-                info.innerHTML = '<strong>'+this.getAttribute('data-paciente')+'</strong> &middot; a receber: <strong>'+brl(aberto)+'</strong>';
-                fSel.value=''; pInp.value=1; vInp.value=aberto.toFixed(2); msg.style.display='none';
-                preview();
-                modal.style.display='block';
-            });
-        }
-        function close(){ modal.style.display='none'; }
-        document.getElementById('taoc-rec-cancel').addEventListener('click', close);
-        modal.querySelector('.taoc-overlay').addEventListener('click', close);
-
-        // Busca por texto (como no Kanban): casa por texto OU por dígitos (telefone com (), -, espaços)
+        // ── Busca por texto (como no Kanban): casa por texto OU por dígitos ──
         var busca = document.getElementById('taoc-venda-busca');
         if(busca){
             busca.addEventListener('input', function(){
@@ -277,28 +218,109 @@ function tao_caixa_page_vendas() {
                 var rows = document.querySelectorAll('table.taoc-table tbody tr');
                 for(var i=0;i<rows.length;i++){
                     var sd = rows[i].getAttribute('data-search') || '';
-                    var ok = !q || sd.indexOf(q)!==-1 || (qd.length>=3 && sd.replace(/\D/g,'').indexOf(qd)!==-1);
-                    rows[i].style.display = ok ? '' : 'none';
+                    rows[i].style.display = (!q || sd.indexOf(q)!==-1 || (qd.length>=3 && sd.replace(/\D/g,'').indexOf(qd)!==-1)) ? '' : 'none';
                 }
             });
         }
+        if(!modal) return;
 
-        form.addEventListener('submit', function(e){
-            e.preventDefault();
-            if(!fSel.value){ alert('Selecione a forma de pagamento'); return; }
-            var sb = form.querySelector('button[type=submit]'); sb.disabled=true; sb.textContent='Processando...';
+        var info   = document.getElementById('taoc-rec-info');
+        var vInp   = document.getElementById('taoc-rec-venda');
+        var box    = document.getElementById('taoc-pag-linhas');
+        var resumo = document.getElementById('taoc-rec-resumo');
+        var msg    = document.getElementById('taoc-rec-msg');
+        var saldo  = 0;
+
+        function formaOpts(){
+            var h = '<option value="">— Forma —</option>';
+            FORMAS.forEach(function(f){ h += '<option value="'+f.id+'">' + String(f.nome).replace(/</g,'&lt;') + '</option>'; });
+            return h;
+        }
+        function resolveLinha(fid, parc){
+            var f = FORMAS.filter(function(x){ return x.id===fid; })[0];
+            var taxa = f ? parseFloat(f.taxa_pct||0) : 0, prazo = f ? parseInt(f.prazo_recebimento_dias||0) : 0;
+            var fx = TAXAS.filter(function(t){ return t.forma_pagamento_id===fid && parc>=t.parcela_min && parc<=t.parcela_max; })
+                          .sort(function(a,b){ return b.parcela_min-a.parcela_min; })[0];
+            if(fx){ taxa=parseFloat(fx.taxa_pct); prazo=parseInt(fx.prazo_recebimento_dias); }
+            return { taxa:taxa, prazo:prazo };
+        }
+        function recalc(){
+            var soma = 0;
+            var linhas = box.querySelectorAll('.taoc-pag-linha');
+            for(var i=0;i<linhas.length;i++){
+                var div = linhas[i];
+                var fid = div.querySelector('.pag-forma').value;
+                var parc = parseInt(div.querySelector('.pag-parc').value||1);
+                var val = parseFloat((div.querySelector('.pag-valor').value||'0').replace(',','.'))||0;
+                soma += val;
+                var prev = div.querySelector('.pag-prev');
+                if(fid && val>0){ var r = resolveLinha(fid,parc); prev.innerHTML = 'taxa '+r.taxa.toFixed(2).replace('.',',')+'% · líquido '+brl(val-val*r.taxa/100)+' · '+r.prazo+'d'; }
+                else prev.innerHTML = '';
+            }
+            soma = Math.round(soma*100)/100;
+            var falta = Math.round((saldo-soma)*100)/100;
+            resumo.innerHTML = 'Saldo: <strong>'+brl(saldo)+'</strong> &nbsp;&middot;&nbsp; Pagamentos: <strong>'+brl(soma)+'</strong> &nbsp;&middot;&nbsp; '
+                + (falta < -0.005
+                    ? 'Excede: <strong style="color:#dc2626">'+brl(-falta)+'</strong>'
+                    : 'Falta: <strong style="color:'+(Math.abs(falta)<0.005?'#16a34a':'#92400e')+'">'+brl(falta)+'</strong>');
+        }
+        function addLinha(valor){
+            var div = document.createElement('div');
+            div.className = 'taoc-pag-linha';
+            div.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap';
+            div.innerHTML =
+                '<select class="pag-forma" style="flex:2;min-width:120px;padding:5px;border:1px solid #cbd5e1;border-radius:4px">'+formaOpts()+'</select>'
+              + '<input class="pag-parc" type="number" min="1" max="24" value="1" title="parcelas" style="width:46px;padding:5px;border:1px solid #cbd5e1;border-radius:4px;text-align:center">'
+              + '<input class="pag-valor" type="number" min="0" step="0.01" value="'+(valor!=null?valor.toFixed(2):'')+'" placeholder="valor" style="width:96px;padding:5px;border:1px solid #cbd5e1;border-radius:4px;text-align:right">'
+              + '<button type="button" class="pag-rm taoc-btn" title="remover" style="padding:4px 9px">&#x2715;</button>'
+              + '<div class="pag-prev" style="flex-basis:100%;font-size:11px;color:#64748b"></div>';
+            box.appendChild(div);
+            div.querySelector('.pag-forma').addEventListener('change', recalc);
+            div.querySelector('.pag-parc').addEventListener('input', recalc);
+            div.querySelector('.pag-valor').addEventListener('input', recalc);
+            div.querySelector('.pag-rm').addEventListener('click', function(){ div.remove(); recalc(); });
+            recalc();
+        }
+        var btns = document.querySelectorAll('.taoc-receber');
+        for(var i=0;i<btns.length;i++){
+            btns[i].addEventListener('click', function(){
+                saldo = parseFloat(this.getAttribute('data-aberto')||'0');
+                vInp.value = this.getAttribute('data-venda');
+                info.innerHTML = '<strong>'+this.getAttribute('data-paciente')+'</strong> &middot; a receber: <strong>'+brl(saldo)+'</strong>';
+                box.innerHTML=''; msg.style.display='none';
+                addLinha(saldo);
+                modal.style.display='block';
+            });
+        }
+        document.getElementById('taoc-add-pag').addEventListener('click', function(){ addLinha(null); });
+        function close(){ modal.style.display='none'; }
+        document.getElementById('taoc-rec-cancel').addEventListener('click', close);
+        modal.querySelector('.taoc-overlay').addEventListener('click', close);
+
+        document.getElementById('taoc-rec-confirm').addEventListener('click', function(){
+            var pags = [], linhas = box.querySelectorAll('.taoc-pag-linha');
+            for(var i=0;i<linhas.length;i++){
+                var div = linhas[i];
+                var fid = div.querySelector('.pag-forma').value;
+                var parc = parseInt(div.querySelector('.pag-parc').value||1);
+                var val = parseFloat((div.querySelector('.pag-valor').value||'0').replace(',','.'))||0;
+                if(fid && val>0) pags.push({ forma_pagamento_id:fid, parcelas:parc, valor:val });
+            }
+            if(!pags.length){ alert('Informe ao menos uma forma com valor.'); return; }
+            var soma = 0; pags.forEach(function(p){ soma += p.valor; });
+            if(soma > saldo + 0.005){ alert('Total dos pagamentos ('+brl(soma)+') excede o saldo ('+brl(saldo)+').'); return; }
+            var cb = document.getElementById('taoc-rec-confirm'); cb.disabled=true; cb.textContent='Processando...';
             var fd = new FormData();
             fd.append('action','tao_caixa_receber_venda'); fd.append('nonce',C.nonce);
-            fd.append('venda_id',form.venda_id.value); fd.append('forma_pagamento_id',fSel.value);
-            fd.append('parcelas',pInp.value||1); fd.append('valor',vInp.value||0);
+            fd.append('venda_id',vInp.value); fd.append('pagamentos',JSON.stringify(pags));
             fetch(C.ajaxUrl,{method:'POST',body:fd,credentials:'same-origin'})
                 .then(function(r){ return r.json(); })
                 .then(function(resp){
-                    sb.disabled=false; sb.textContent='Confirmar recebimento';
+                    cb.disabled=false; cb.textContent='Confirmar recebimento';
                     if(resp && resp.success){ location.reload(); }
                     else { msg.style.display='block'; msg.style.color='#dc2626'; msg.textContent='Erro: '+((resp&&resp.data)||'falha'); }
                 })
-                .catch(function(){ sb.disabled=false; sb.textContent='Confirmar recebimento'; msg.style.display='block'; msg.style.color='#dc2626'; msg.textContent='Falha de comunicação'; });
+                .catch(function(){ cb.disabled=false; cb.textContent='Confirmar recebimento'; msg.style.display='block'; msg.style.color='#dc2626'; msg.textContent='Falha de comunicação'; });
         });
     })();
     </script>

@@ -164,11 +164,9 @@ add_action( 'wp_ajax_tao_caixa_receber_venda', function() {
     $cid = tao_caixa_ajax_guard();
 
     $venda_id = sanitize_text_field( $_POST['venda_id'] ?? '' );
-    $forma_id = sanitize_text_field( $_POST['forma_pagamento_id'] ?? '' );
-    $parcelas = max( 1, (int) ( $_POST['parcelas'] ?? 1 ) );
-    $valor    = round( (float) str_replace( ',', '.', $_POST['valor'] ?? 0 ), 2 );
-    if ( ! $venda_id || ! $forma_id ) wp_send_json_error( 'Dados incompletos' );
-    if ( $valor <= 0 ) wp_send_json_error( 'Informe um valor maior que zero' );
+    $pags     = json_decode( wp_unslash( $_POST['pagamentos'] ?? '[]' ), true );
+    if ( ! $venda_id ) wp_send_json_error( 'Venda não informada' );
+    if ( ! is_array( $pags ) || ! count( $pags ) ) wp_send_json_error( 'Adicione ao menos uma forma de pagamento' );
 
     // Venda
     $rv = tao_caixa_api( "/caixa_vendas?id=eq.$venda_id&cliente_id=eq.$cid&select=id,paciente_nome,valor_total,valor_pago,status&limit=1" );
@@ -177,71 +175,71 @@ add_action( 'wp_ajax_tao_caixa_receber_venda', function() {
     if ( in_array( $venda['status'] ?? '', [ 'quitada', 'cancelada', 'estornada' ], true ) ) {
         wp_send_json_error( 'Venda já está ' . $venda['status'] );
     }
-    $total  = (float) $venda['valor_total'];
-    $pago   = (float) $venda['valor_pago'];
-    $aberto = round( $total - $pago, 2 );
-    if ( $valor > $aberto + 0.001 ) {
-        wp_send_json_error( 'Valor acima do saldo a receber (R$ ' . number_format( $aberto, 2, ',', '.' ) . ')' );
+    $total = (float) $venda['valor_total'];
+    $pago  = (float) $venda['valor_pago'];
+    $saldo = round( $total - $pago, 2 );
+
+    // Mapa de formas do cliente
+    $rf = tao_caixa_api( "/caixa_formas_pagamento?cliente_id=eq.$cid&select=id,nome,tipo,adquirente_id,taxa_pct,prazo_recebimento_dias" );
+    $fmap = [];
+    foreach ( ( $rf['ok'] ? ( $rf['data'] ?? [] ) : [] ) as $f ) $fmap[ $f['id'] ] = $f;
+
+    // Valida + prepara cada pagamento (split)
+    $linhas = []; $soma = 0.0;
+    foreach ( $pags as $p ) {
+        $fid  = sanitize_text_field( $p['forma_pagamento_id'] ?? '' );
+        $parc = max( 1, (int) ( $p['parcelas'] ?? 1 ) );
+        $val  = round( (float) str_replace( ',', '.', (string) ( $p['valor'] ?? 0 ) ), 2 );
+        if ( ! $fid || $val <= 0 ) continue;
+        if ( ! isset( $fmap[ $fid ] ) ) wp_send_json_error( 'Forma de pagamento inválida' );
+        $forma = $fmap[ $fid ];
+        $tx    = tao_caixa_resolver_taxa( $cid, $forma, $parc );
+        $vtaxa = round( $val * $tx['taxa_pct'] / 100, 2 );
+        $linhas[] = [
+            'forma_pagamento_id'  => $fid,
+            'adquirente_id'       => $forma['adquirente_id'] ?: null,
+            'modalidade'          => $forma['tipo'] ?? null,
+            'parcelas'            => $parc,
+            'valor_bruto'         => $val,
+            'taxa_pct_aplicada'   => $tx['taxa_pct'],
+            'valor_taxa'          => $vtaxa,
+            'valor_liquido'       => round( $val - $vtaxa, 2 ),
+            'data_prevista_receb' => gmdate( 'Y-m-d', time() + $tx['prazo'] * 86400 ),
+        ];
+        $soma += $val;
+    }
+    if ( ! count( $linhas ) ) wp_send_json_error( 'Pagamentos inválidos' );
+    $soma = round( $soma, 2 );
+    if ( $soma > $saldo + 0.005 ) {
+        wp_send_json_error( 'Total dos pagamentos acima do saldo (R$ ' . number_format( $saldo, 2, ',', '.' ) . ')' );
     }
 
-    // Forma + taxa
-    $rf = tao_caixa_api( "/caixa_formas_pagamento?id=eq.$forma_id&cliente_id=eq.$cid&select=id,nome,tipo,adquirente_id,taxa_pct,prazo_recebimento_dias&limit=1" );
-    if ( ! $rf['ok'] || empty( $rf['data'] ) ) wp_send_json_error( 'Forma de pagamento inválida' );
-    $forma = $rf['data'][0];
-    $tx    = tao_caixa_resolver_taxa( $cid, $forma, $parcelas );
-    $valor_taxa = round( $valor * $tx['taxa_pct'] / 100, 2 );
-    $valor_liq  = round( $valor - $valor_taxa, 2 );
-    $data_prev  = gmdate( 'Y-m-d', time() + $tx['prazo'] * 86400 );
     $uid = get_current_user_id();
-
-    // Recibo
+    // Recibo (cupom)
     $rr = tao_caixa_api( '/caixa_recibos', 'POST', [
-        'cliente_id'   => $cid,
-        'valor_total'  => $valor,
-        'valor_pago'   => $valor,
-        'status'       => 'quitado',
-        'pagador_nome' => $venda['paciente_nome'] ?? '',
-        'criado_por'   => $uid,
-        'criado_em'    => gmdate( 'c' ),
+        'cliente_id'   => $cid, 'valor_total' => $soma, 'valor_pago' => $soma,
+        'status'       => 'quitado', 'pagador_nome' => $venda['paciente_nome'] ?? '',
+        'criado_por'   => $uid, 'criado_em' => gmdate( 'c' ),
     ] );
     if ( ! $rr['ok'] || empty( $rr['data'] ) ) wp_send_json_error( 'Falha ao criar recibo: ' . ( $rr['raw'] ?? '' ) );
     $recibo_id = $rr['data'][0]['id'];
 
-    // Vínculo recibo ↔ venda
     tao_caixa_api( '/caixa_recibo_vendas', 'POST', [
         'cliente_id' => $cid, 'recibo_id' => $recibo_id, 'venda_id' => $venda_id,
-        'valor_aplicado' => $valor, 'criado_em' => gmdate( 'c' ),
+        'valor_aplicado' => $soma, 'criado_em' => gmdate( 'c' ),
     ] );
-    // Pagamento
-    tao_caixa_api( '/caixa_pagamentos', 'POST', [
-        'cliente_id'          => $cid,
-        'recibo_id'           => $recibo_id,
-        'forma_pagamento_id'  => $forma_id,
-        'adquirente_id'       => $forma['adquirente_id'] ?: null,
-        'modalidade'          => $forma['tipo'] ?? null,
-        'parcelas'            => $parcelas,
-        'valor_bruto'         => $valor,
-        'taxa_pct_aplicada'   => $tx['taxa_pct'],
-        'valor_taxa'          => $valor_taxa,
-        'valor_liquido'       => $valor_liq,
-        'data_prevista_receb' => $data_prev,
-        'criado_por'          => $uid,
-        'criado_em'           => gmdate( 'c' ),
-    ] );
+    foreach ( $linhas as $ln ) {
+        $ln['cliente_id'] = $cid; $ln['recibo_id'] = $recibo_id;
+        $ln['criado_por'] = $uid; $ln['criado_em'] = gmdate( 'c' );
+        tao_caixa_api( '/caixa_pagamentos', 'POST', $ln );
+    }
 
     // Baixa na venda
-    $novo_pago   = round( $pago + $valor, 2 );
-    $novo_status = $novo_pago >= ( $total - 0.001 ) ? 'quitada' : 'parcial';
+    $novo_pago   = round( $pago + $soma, 2 );
+    $novo_status = $novo_pago >= ( $total - 0.005 ) ? 'quitada' : 'parcial';
     tao_caixa_api( "/caixa_vendas?id=eq.$venda_id&cliente_id=eq.$cid", 'PATCH', [
         'valor_pago' => $novo_pago, 'status' => $novo_status, 'atualizado_em' => gmdate( 'c' ),
     ] );
 
-    wp_send_json_success( [
-        'venda_status'  => $novo_status,
-        'valor_pago'    => $novo_pago,
-        'taxa_pct'      => $tx['taxa_pct'],
-        'valor_taxa'    => $valor_taxa,
-        'valor_liquido' => $valor_liq,
-        'data_prevista' => $data_prev,
-    ] );
+    wp_send_json_success( [ 'venda_status' => $novo_status, 'valor_pago' => $novo_pago, 'pagamentos' => count( $linhas ), 'recibo_total' => $soma ] );
 } );
