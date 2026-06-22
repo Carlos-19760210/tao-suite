@@ -37,6 +37,7 @@ function tao_caixa_page_vendas() {
     $vendas      = [];
     $formas      = [];
     $taxas       = [];
+    $req_map     = [];
     $tot_geral   = 0.0;
     $tot_receber = 0.0;
 
@@ -45,7 +46,7 @@ function tao_caixa_page_vendas() {
         $flt .= $origem ? '&origem=eq.' . rawurlencode( $origem ) : '';
         $rv = tao_caixa_api(
             "/caixa_vendas?cliente_id=eq.$cid$flt&order=criado_em.desc&limit=300" .
-            "&select=id,paciente_nome,whatsapp,valor_total,valor_pago,status,origem,criado_em"
+            "&select=id,card_id,paciente_nome,whatsapp,valor_total,valor_pago,status,origem,criado_em"
         );
         $vendas = $rv['ok'] ? ( $rv['data'] ?? [] ) : [];
         foreach ( $vendas as $v ) {
@@ -59,6 +60,22 @@ function tao_caixa_page_vendas() {
         $formas = $rf['ok'] ? ( $rf['data'] ?? [] ) : [];
         $rtx = tao_caixa_api( "/caixa_taxas?cliente_id=eq.$cid&ativo=eq.true&select=forma_pagamento_id,parcela_min,parcela_max,taxa_pct,prazo_recebimento_dias" );
         $taxas = $rtx['ok'] ? ( $rtx['data'] ?? [] ) : [];
+
+        // Número da Requisição (campo CRM chave=numero_requisicao) por card
+        $card_ids = array_values( array_filter( array_map( function ( $v ) { return $v['card_id'] ?? ''; }, $vendas ) ) );
+        if ( $card_ids ) {
+            $rcd = tao_caixa_api( "/crm_campos_definicao?chave=eq.numero_requisicao&select=id" );
+            $campo_ids = $rcd['ok'] ? array_column( $rcd['data'] ?? [], 'id' ) : [];
+            if ( $campo_ids ) {
+                $rvv = tao_caixa_api(
+                    "/crm_cards_valores?card_id=in.(" . implode( ',', $card_ids ) . ")" .
+                    "&campo_id=in.(" . implode( ',', $campo_ids ) . ")&select=card_id,valor"
+                );
+                foreach ( ( $rvv['ok'] ? ( $rvv['data'] ?? [] ) : [] ) as $row ) {
+                    if ( ! empty( $row['valor'] ) ) $req_map[ $row['card_id'] ] = $row['valor'];
+                }
+            }
+        }
     }
 
     $brl = function ( $v ) { return 'R$ ' . number_format( (float) $v, 2, ',', '.' ); };
@@ -67,6 +84,8 @@ function tao_caixa_page_vendas() {
     <div class="wrap taoc-wrap">
         <div class="taoc-bar">
             <h1>&#x1F9FE; Vendas do Caixa</h1>
+            <input type="search" id="taoc-venda-busca" placeholder="&#x1F50D; Buscar paciente, WhatsApp ou nº requisição..." autocomplete="off"
+                   style="padding:7px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:300px">
         </div>
 
         <?php if ( ! $cid ) : ?>
@@ -117,6 +136,7 @@ function tao_caixa_page_vendas() {
                 <tr>
                     <th>Data</th>
                     <th>Paciente</th>
+                    <th>Nº Req.</th>
                     <th>WhatsApp</th>
                     <th style="text-align:center">Origem</th>
                     <th style="text-align:center">Status</th>
@@ -132,10 +152,13 @@ function tao_caixa_page_vendas() {
                 $pago  = floatval( $v['valor_pago'] ?? 0 );
                 $receber = max( 0, $total - $pago );
                 $dt = ! empty( $v['criado_em'] ) ? date_i18n( 'd/m/Y H:i', strtotime( $v['criado_em'] ) ) : '—';
+                $req = $req_map[ $v['card_id'] ?? '' ] ?? '';
+                $search = mb_strtolower( trim( ( $v['paciente_nome'] ?? '' ) . ' ' . ( $v['whatsapp'] ?? '' ) . ' ' . $req ) );
             ?>
-                <tr>
+                <tr data-search="<?php echo esc_attr( $search ); ?>">
                     <td style="white-space:nowrap"><?php echo esc_html( $dt ); ?></td>
                     <td><strong><?php echo esc_html( $v['paciente_nome'] ?: '—' ); ?></strong></td>
+                    <td style="font-weight:600;color:#0f172a"><?php echo esc_html( $req ?: '—' ); ?></td>
                     <td style="color:#475569"><?php echo esc_html( $v['whatsapp'] ?: '—' ); ?></td>
                     <td style="text-align:center"><?php echo tao_caixa_venda_origem_badge( $v['origem'] ?? '' ); ?></td>
                     <td style="text-align:center"><?php echo tao_caixa_venda_status_badge( $v['status'] ?? '' ); ?></td>
@@ -245,6 +268,20 @@ function tao_caixa_page_vendas() {
         function close(){ modal.style.display='none'; }
         document.getElementById('taoc-rec-cancel').addEventListener('click', close);
         modal.querySelector('.taoc-overlay').addEventListener('click', close);
+
+        // Busca por texto (como no Kanban): casa por texto OU por dígitos (telefone com (), -, espaços)
+        var busca = document.getElementById('taoc-venda-busca');
+        if(busca){
+            busca.addEventListener('input', function(){
+                var q = this.value.toLowerCase().trim(), qd = q.replace(/\D/g,'');
+                var rows = document.querySelectorAll('table.taoc-table tbody tr');
+                for(var i=0;i<rows.length;i++){
+                    var sd = rows[i].getAttribute('data-search') || '';
+                    var ok = !q || sd.indexOf(q)!==-1 || (qd.length>=3 && sd.replace(/\D/g,'').indexOf(qd)!==-1);
+                    rows[i].style.display = ok ? '' : 'none';
+                }
+            });
+        }
 
         form.addEventListener('submit', function(e){
             e.preventDefault();
