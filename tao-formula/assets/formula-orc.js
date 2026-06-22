@@ -556,6 +556,9 @@
         // Info excipiente base para cápsulas sem QSP
         atualizarInfoExcipiente();
 
+        // Botão "Recalcular (importação)" só aparece em orçamento importado do FC
+        if (typeof window._taofFcFinal !== 'undefined') $('#taof-recalc-import-wrap').toggle(window._taofFcFinal != null);
+
         $('#taof-res-calculado').text('R$ ' + fmt(calculado));
         $('#taof-res-custo-fixo').text('R$ ' + fmt(custoFixo));
         $('#taof-res-subtotal').text('R$ ' + fmt(subtotal));
@@ -649,6 +652,15 @@
     // Custo fixo: marca como manual quando o usuário edita o valor
     $('#taof-custo-fixo-inp').on('input', function () {
         $(this).data('manual', true);
+        calcularTotais();
+    });
+    // Recalcular pelas regras da importação (FINAL e Desconto do FC; Acréscimo = FINAL − Sub-Total)
+    $('#taof-recalc-import').on('click', function () {
+        if (window._taofFcFinal != null)    _valorFinalTravado = window._taofFcFinal;
+        $('#taof-acrescimo-val-inp').removeData('manual');          // acréscimo volta ao automático
+        if (window._taofFcDesconto != null) {
+            $('#taof-desconto-val-inp').val(window._taofFcDesconto.toFixed(2)).data('manual', true);
+        }
         calcularTotais();
     });
     // Alterar o % reseta o flag manual e recalcula
@@ -1365,9 +1377,10 @@
         if (!data) return;
         _loadingEdit = true;
         _forcedCapId = null;   // começa em Automático ao abrir um orçamento
-        // Opção 2: orçamento importado tem VALOR FINAL travado (vem do texto importado)
-        _valorFinalTravado = (data.tipo_entrada === 'texto' && parseFloat(data.total_orcamento) > 0)
-            ? parseFloat(data.total_orcamento) : null;
+        // Importado do FCerta: VALOR FINAL e DESCONTO travados (valores duráveis do FC)
+        _valorFinalTravado     = (parseFloat(data.valor_final_fc) > 0) ? parseFloat(data.valor_final_fc) : null;
+        window._taofFcFinal    = _valorFinalTravado;
+        window._taofFcDesconto = (data.desconto_fc !== undefined && data.desconto_fc !== null) ? parseFloat(data.desconto_fc) : null;
 
         // Paciente
         $('#taof-nome-paciente').val(data.nome_paciente || '');
@@ -1477,7 +1490,10 @@
             $('#taof-acrescimo-pct').val(parseFloat(data.margem_aplicada).toFixed(1));
             $('#taof-acrescimo-val-inp').removeData('manual');
         }
-        if (data.desconto_pct) {
+        if (window._taofFcDesconto != null) {
+            // Importado do FC: desconto fixo em R$ (não flutua com o sub-total)
+            $('#taof-desconto-val-inp').val(window._taofFcDesconto.toFixed(2)).data('manual', true);
+        } else if (data.desconto_pct) {
             $('#taof-desconto-pct').val(parseFloat(data.desconto_pct).toFixed(1));
             $('#taof-desconto-val-inp').removeData('manual');
         }

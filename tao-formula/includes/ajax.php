@@ -1767,6 +1767,8 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
             'margem_aplicada'     => $acrescimo_pct,
             'desconto_pct'        => $desconto_pct,
             'total_orcamento'     => $valor,
+            'valor_final_fc'      => $valor,          // FINAL do FC (com desconto) — travado/durável
+            'desconto_fc'         => $desconto_val,   // desconto informado do FC (R$) — fixo
             'observacoes'         => $observacoes,
             'itens'               => $itens_todos,
             'status'              => 'pendente_revisao',

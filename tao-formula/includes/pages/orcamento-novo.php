@@ -437,6 +437,12 @@ function tao_formula_page_orcamento_novo() {
                 </td>
             </tr>
         </table>
+        <div id="taof-recalc-import-wrap" style="display:none;margin-top:10px;text-align:right">
+            <button type="button" id="taof-recalc-import" class="button button-small"
+                    title="Recalcula pelas regras da importação: FINAL e Desconto do FCerta, Acréscimo = FINAL − Sub-Total">
+                &#x21BB; Recalcular (regras de importação)
+            </button>
+        </div>
     </div>
 
     <!-- ══ AÇÕES ══════════════════════════════════════════════════════ -->
