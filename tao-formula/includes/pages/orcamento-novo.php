@@ -414,6 +414,11 @@ function tao_formula_page_orcamento_novo() {
                 </td>
                 <td id="taof-res-acrescimo" class="taof-res-val">R$&nbsp;0,00</td>
             </tr>
+            <tr class="taof-subtotal-row">
+                <td>(=) Valor Sem Desconto</td>
+                <td></td>
+                <td id="taof-res-sem-desconto" class="taof-res-val">R$&nbsp;0,00</td>
+            </tr>
             <tr>
                 <td>(–) Desconto</td>
                 <td>
@@ -426,7 +431,7 @@ function tao_formula_page_orcamento_novo() {
                 <td id="taof-res-desconto" class="taof-res-val taof-res-desc">R$&nbsp;0,00</td>
             </tr>
             <tr class="taof-final-row">
-                <td colspan="2"><strong>VALOR FINAL</strong></td>
+                <td colspan="2"><strong>VALOR COM DESCONTO</strong></td>
                 <td id="taof-res-final" class="taof-res-val taof-res-final"><strong>R$&nbsp;0,00</strong></td>
             </tr>
             <tr id="taof-row-val-minimo" style="display:none">

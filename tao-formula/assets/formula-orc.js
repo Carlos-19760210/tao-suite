@@ -559,10 +559,12 @@
         // Botão "Recalcular (importação)" só aparece em orçamento importado do FC
         if (typeof window._taofFcFinal !== 'undefined') $('#taof-recalc-import-wrap').toggle(window._taofFcFinal != null);
 
+        var semDesconto = final + desctVal;   // Valor Sem Desconto = Valor Com Desconto + Desconto
         $('#taof-res-calculado').text('R$ ' + fmt(calculado));
         $('#taof-res-custo-fixo').text('R$ ' + fmt(custoFixo));
         $('#taof-res-subtotal').text('R$ ' + fmt(subtotal));
         $('#taof-res-acrescimo').text('R$ ' + fmt(acrescVal));
+        $('#taof-res-sem-desconto').text('R$ ' + fmt(semDesconto));
         $('#taof-res-desconto').text('R$ ' + fmt(desctVal));
         $('#taof-res-final').html('<strong>R$ ' + fmt(final) + '</strong>');
     }
