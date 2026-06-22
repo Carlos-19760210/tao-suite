@@ -430,7 +430,7 @@ window.taoCrm = {
   card_base_url:"<?php echo esc_js( function_exists('cbpm_url') ? cbpm_url('crm-kanban', ['action'=>'card','id'=>'']) : '' ); ?>"
 };
 </script>
-<script src="<?php echo esc_url( TAO_CRM_URL . 'assets/crm-script.js' ); ?>?v=<?php echo TAO_CRM_VERSION; ?>"></script>
+<script src="<?php echo esc_url( TAO_CRM_URL . 'assets/crm-script.js' ); ?>?v=<?php echo @filemtime( TAO_CRM_DIR . 'assets/crm-script.js' ); ?>"></script>
 <?php endif; ?>
 <script>
 (function(){

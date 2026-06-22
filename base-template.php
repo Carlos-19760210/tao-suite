@@ -564,7 +564,7 @@ window.taoCrm = <?php echo wp_json_encode( [
     'adminUrl'     => admin_url(),
 ] ); ?>;
 </script>
-<script src="<?php echo esc_url( TAO_CRM_URL . 'assets/crm-script.js' ); ?>?v=<?php echo TAO_CRM_VERSION; ?>"></script>
+<script src="<?php echo esc_url( TAO_CRM_URL . 'assets/crm-script.js' ); ?>?v=<?php echo @filemtime( TAO_CRM_DIR . 'assets/crm-script.js' ); ?>"></script>
 <?php endif; ?>
 </body>
 </html>

@@ -8,7 +8,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'TAO_CRM_VERSION', '1.6.2' );
+define( 'TAO_CRM_VERSION', '1.6.3' );
 
 function tao_crm_is_handoff_msg( $text ) {
     static $kws = [
