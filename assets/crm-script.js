@@ -1087,6 +1087,7 @@
     // ─── BUSCA E FILTROS: kanban e inbox ─────────────────────────────────────
     function aplicarFiltros(){
         var q           = ($('#tao-crm-search').val() || '').toLowerCase().trim();
+        var qDigits     = q.replace(/\D/g, '');   // só dígitos: busca por telefone com (), - e espaços
         var atendente   = $('#tao-crm-filter-atendente').val() || '';
         var fase        = $('#tao-crm-filter-fase').val() || '';
         var status      = $('#tao-crm-filter-status').val() || '';
@@ -1100,7 +1101,9 @@
         // Cards (kanban)
         $('.tao-crm-card').each(function(){
             var $el      = $(this);
-            var matchQ   = !q       || ($el.data('search') || '').toLowerCase().indexOf(q) !== -1;
+            var _sd      = ($el.data('search') || '').toLowerCase();
+            var matchQ   = !q || _sd.indexOf(q) !== -1
+                           || (qDigits.length >= 4 && _sd.replace(/\D/g, '').indexOf(qDigits) !== -1);
             var matchAt  = !atendente || String($el.data('responsavel-id') || '0') === atendente;
             var matchF   = !fase    || String($el.data('stage-id') || '') === fase;
             var matchSt  = true;
@@ -1113,7 +1116,9 @@
         // Inbox rows
         $('.tao-crm-inbox-row').each(function(){
             var $el     = $(this);
-            var matchQ  = !q      || ($el.data('search') || '').toLowerCase().indexOf(q) !== -1;
+            var _sd2    = ($el.data('search') || '').toLowerCase();
+            var matchQ  = !q || _sd2.indexOf(q) !== -1
+                          || (qDigits.length >= 4 && _sd2.replace(/\D/g, '').indexOf(qDigits) !== -1);
             var matchAt = !atendente || String($el.data('responsavel-id') || '0') === atendente;
             var matchF  = !fase   || String($el.data('estagio-id') || '') === fase;
             var matchSt = true;

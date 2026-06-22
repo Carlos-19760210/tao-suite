@@ -1658,6 +1658,19 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
             $cap_calc       = tao_formula_calc_capsula_import( $itens_mp, $forma, $forma_vol, $qtde_potes, $cliente_id );
             $custo_capsula  = $cap_calc['custo_capsula'];
             $excip_subtotal = $cap_calc['excipiente_subtotal'];
+        } elseif ( $forma && ! in_array( $forma_tipo, [ 'cap', 'duo_cap', 'envelope' ] ) ) {
+            // Formas líquidas/semissólidas (creme, gel, loção, solução, xarope…):
+            // o ÚLTIMO ingrediente é o QSP (veículo/base). Garante 1 único QSP = o último.
+            $last_idx = null;
+            foreach ( $itens_mp as $idx => $it ) {
+                if ( ( $it['tipo'] ?? 'mp' ) === 'mp' ) $last_idx = $idx;
+            }
+            if ( $last_idx !== null ) {
+                foreach ( $itens_mp as $idx => &$it ) {
+                    if ( ( $it['tipo'] ?? 'mp' ) === 'mp' ) $it['is_qsp'] = ( $idx === $last_idx );
+                }
+                unset( $it );
+            }
         }
 
         // ── 3. Calcula subtotal de cada MP (replica JS calcularLinha, caso mg/g/mcg) ─
