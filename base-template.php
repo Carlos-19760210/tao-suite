@@ -23,6 +23,7 @@ $secoes = [
     'chatbot-platform-usuarios'       => [ 'fn' => 'cbpm_page_usuarios',          'label' => 'Usuários' ],
     'chatbot-platform-settings'       => [ 'fn' => 'cbpm_page_settings',          'label' => 'Configurações' ],
     'chatbot-platform-dashboard'      => [ 'fn' => 'cbpm_page_dashboard',         'label' => 'Dashboard' ],
+    'chatbot-platform-neo-dashboard'  => [ 'fn' => 'cbpm_page_neo_dashboard',     'label' => 'Painel Neo' ],
 ];
 $has_crm = function_exists( 'tao_crm_page_kanban_full' );
 if ( $has_crm ) {
@@ -61,117 +62,108 @@ if ( ! isset( $secoes[ $page_atual ] ) ) $page_atual = 'chatbot-platform';
 $fn = $secoes[ $page_atual ]['fn'] ?? 'cbpm_page_clientes';
 
 // ─── Estrutura do menu accordion ─────────────────────────────────────────────
-$nav = [
-    'config' => [
-        'label' => 'Configura&ccedil;&atilde;o',
-        'icon'  => '&#x2699;&#xFE0F;',
-        'subs'  => [
-            'cfg-geral' => [
-                'label' => 'Geral',
-                'icon'  => '&#x1F3E2;',
-                'items' => [
-                    [ 'slug' => 'chatbot-platform-negocios',  'label' => 'Neg&oacute;cios',           'url' => cbpm_url('negocios') ],
-                    [ 'slug' => 'chatbot-platform-categorias','label' => 'Categorias',                'url' => cbpm_url('categorias') ],
-                    [ 'slug' => 'chatbot-platform-usuarios',  'label' => 'Usu&aacute;rios',           'url' => cbpm_url('usuarios') ],
-                    [ 'slug' => 'chatbot-platform-conectores','label' => 'Conectores',                'url' => cbpm_url('conectores') ],
-                    [ 'slug' => 'chatbot-platform-settings',  'label' => 'Configura&ccedil;&otilde;es','url' => cbpm_url('configuracoes') ],
-                ],
-            ],
-            'cfg-taon' => [
-                'label' => 'TAO Neo',
-                'icon'  => '&#x1F916;',
-                'items' => [
-                    [ 'slug' => 'chatbot-platform-catalogo',       'label' => 'Cat&aacute;logo',          'url' => cbpm_url('catalogo') ],
-                    [ 'slug' => 'chatbot-platform-disponibilidade','label' => 'Disponibilidade',          'url' => cbpm_url('disponibilidade') ],
-                    [ 'slug' => 'chatbot-platform-conteudo',       'label' => 'Promo&ccedil;&otilde;es/Avisos','url' => cbpm_url('conteudo') ],
-                    [ 'slug' => 'chatbot-platform-campanhas',      'label' => 'Campanhas',                'url' => cbpm_url('campanhas') ],
-                    [ 'slug' => 'chatbot-platform-listas',         'label' => 'Listas de Contatos',       'url' => cbpm_url('listas') ],
-                    [ 'slug' => 'chatbot-platform-campos-extras',  'label' => 'Campos Extras',            'url' => cbpm_url('campos-extras') ],
-                ],
-            ],
-        ],
-    ],
-    'operacao' => [
-        'label' => 'Opera&ccedil;&atilde;o',
-        'icon'  => '&#x25B6;&#xFE0F;',
-        'subs'  => [
-            'op-taon' => [
-                'label' => 'TAO Neo',
-                'icon'  => '&#x1F916;',
-                'items' => [
-                    [ 'slug' => 'chatbot-platform-dashboard','label' => 'Dashboard',         'url' => cbpm_url('neo-dashboard') ],
-                    [ 'slug' => 'chatbot-platform-leads',    'label' => 'Leads',             'url' => cbpm_url('leads') ],
-                    [ 'slug' => 'chatbot-platform-pedidos',  'label' => 'Pedidos',           'url' => cbpm_url('pedidos') ],
-                    [ 'slug' => 'chatbot-platform-historico','label' => 'Hist&oacute;rico',  'url' => cbpm_url('historico') ],
-                ],
-            ],
-        ],
+// Reorg por MÓDULO (Jun 2026): cada módulo 1× no topo; toda config recolhida em "Configurações".
+// Slugs/rotas/chaves de itens preservados — só muda agrupamento/ordem/rótulo.
+$nav = [];
+
+// 📞 Neo
+$nav['neo'] = [
+    'label' => 'Neo',
+    'icon'  => '&#x1F4DE;',
+    'items' => [
+        [ 'slug' => 'chatbot-platform-neo-dashboard', 'label' => 'Painel',                       'url' => cbpm_url('neo-dashboard') ],
+        [ 'slug' => 'chatbot-platform-pedidos',   'label' => 'Pedidos',                         'url' => cbpm_url('pedidos') ],
+        [ 'slug' => 'chatbot-platform-leads',     'label' => 'Leads',                           'url' => cbpm_url('leads') ],
+        [ 'slug' => 'chatbot-platform-historico', 'label' => 'Hist&oacute;rico',                'url' => cbpm_url('historico') ],
+        [ 'slug' => 'chatbot-platform-conteudo',  'label' => 'Promo&ccedil;&otilde;es/Avisos',  'url' => cbpm_url('conteudo') ],
     ],
 ];
 
+// 🎯 CRM
 if ( $has_crm ) {
-    $nav['config']['subs']['cfg-crm'] = [
-        'label' => 'TAO CRM',
-        'icon'  => '&#x1F4BC;',
+    $nav['crm'] = [
+        'label' => 'CRM',
+        'icon'  => '&#x1F3AF;',
         'items' => [
-            [ 'slug' => 'tao-crm-settings', 'label' => 'Configura&ccedil;&otilde;es', 'url' => cbpm_url('crm-settings') ],
+            [ 'slug' => 'tao-crm-dashboard', 'label' => 'Painel',   'url' => cbpm_url('crm-dashboard') ],
+            [ 'slug' => 'tao-crm-kanban',    'label' => 'Kanban',   'url' => cbpm_url('crm-kanban') ],
+            [ 'slug' => 'tao-crm-contatos',  'label' => 'Contatos', 'url' => cbpm_url('crm-contatos') ],
         ],
-    ];
-    $nav['operacao']['subs']['op-crm'] = [
-        'label' => 'TAO CRM',
-        'icon'  => '&#x1F4BC;',
-        'items' => [
-            [ 'slug' => 'tao-crm-dashboard', 'label' => 'Dashboard', 'url' => cbpm_url('crm-dashboard') ],
-            [ 'slug' => 'tao-crm-kanban', 'label' => 'Kanban', 'url' => cbpm_url('crm-kanban') ],
-            [ 'slug' => 'tao-crm-inbox',  'label' => 'Inbox',  'url' => cbpm_url('crm-inbox') ],
-        ],
-    ];
-    // Reordena: Contatos > TAO Neo > Campanhas > TAO CRM
-    $nav['operacao']['subs'] = [
-        'op-contatos' => [
-            'label' => 'Contatos',
-            'icon'  => '&#x1F465;',
-            'items' => [
-                [ 'slug' => 'tao-crm-contatos', 'label' => 'Contatos', 'url' => cbpm_url('crm-contatos') ],
-            ],
-        ],
-        'op-taon' => $nav['operacao']['subs']['op-taon'],
-        'op-camp' => [
-            'label' => 'Campanhas',
-            'icon'  => '&#x1F4E3;',
-            'items' => [
-                [ 'slug' => 'chatbot-platform-campanhas', 'label' => 'Campanhas',          'url' => cbpm_url('campanhas') ],
-                [ 'slug' => 'chatbot-platform-listas',    'label' => 'Listas de Contatos', 'url' => cbpm_url('listas') ],
-            ],
-        ],
-        'op-crm'  => $nav['operacao']['subs']['op-crm'],
     ];
 }
 
+// 📣 Campanhas — módulo de topo, entrada SIMPLES (sem drill-down)
+$nav['campanhas'] = [
+    'label' => 'Campanhas',
+    'icon'  => '&#x1F4E3;',
+    'slug'  => 'chatbot-platform-campanhas',
+    'url'   => cbpm_url('campanhas'),
+];
+
+// 🧪 Fórmulas
 if ( $has_formula ) {
-    $nav['config']['subs']['cfg-formula'] = [
-        'label' => 'TAO F&oacute;rmulas',
+    $nav['formula'] = [
+        'label' => 'F&oacute;rmulas',
         'icon'  => '&#x1F9EA;',
         'items' => [
-            [ 'slug' => 'tao-formula-formas',  'label' => 'Formas Farmac&ecirc;uticas', 'url' => cbpm_url('formula-formas') ],
-            [ 'slug' => 'tao-formula-ativos',  'label' => 'Ativos',                     'url' => cbpm_url('formula-ativos') ],
-            [ 'slug' => 'tao-formula-config',  'label' => 'Configura&ccedil;&otilde;es','url' => cbpm_url('formula-config') ],
-        ],
-    ];
-    $nav['operacao']['subs']['op-formula'] = [
-        'label' => 'TAO F&oacute;rmulas',
-        'icon'  => '&#x1F9EA;',
-        'items' => [
-            [ 'slug' => 'tao-formula',            'label' => 'Dashboard',              'url' => cbpm_url('formula-dashboard') ],
+            [ 'slug' => 'tao-formula',            'label' => 'Painel',                 'url' => cbpm_url('formula-dashboard') ],
             [ 'slug' => 'tao-formula-orcamentos', 'label' => 'Or&ccedil;amentos',      'url' => cbpm_url('formula-orcamentos') ],
-            [ 'slug' => 'tao-formula-orc-novo',   'label' => '+ Novo Or&ccedil;amento','url' => cbpm_url('formula-novo-orc') ],
+            [ 'slug' => 'tao-formula-orc-novo',   'label' => 'Novo Or&ccedil;amento',  'url' => cbpm_url('formula-novo-orc') ],
         ],
     ];
 }
 
+// 💰 Caixa
 if ( $has_caixa && function_exists( 'tao_caixa_pode_operar' ) && tao_caixa_pode_operar() ) {
-    $nav['config']['subs']['cfg-caixa'] = [
-        'label' => 'TAO Caixa',
+    $nav['caixa'] = [
+        'label' => 'Caixa',
+        'icon'  => '&#x1F4B0;',
+        'items' => [
+            [ 'slug' => 'tao-caixa-dashboard',   'label' => 'Painel',                      'url' => cbpm_url('caixa') ],
+            [ 'slug' => 'tao-caixa-vendas',      'label' => 'Vendas',                      'url' => cbpm_url('caixa-vendas') ],
+            [ 'slug' => 'tao-caixa-sessao',      'label' => 'Sess&atilde;o / Fechamento',  'url' => cbpm_url('caixa-sessao') ],
+            [ 'slug' => 'tao-caixa-conciliacao', 'label' => 'Concilia&ccedil;&atilde;o',   'url' => cbpm_url('caixa-conciliacao') ],
+        ],
+    ];
+}
+
+// ⚙️ Configurações — recolhe toda a configuração (sub-grupos por módulo)
+$cfg_subs = [];
+$cfg_subs['cfg-geral'] = [
+    'label' => 'Geral',
+    'icon'  => '&#x1F3E2;',
+    'items' => [
+        [ 'slug' => 'chatbot-platform-negocios',  'label' => 'Neg&oacute;cios',            'url' => cbpm_url('negocios') ],
+        [ 'slug' => 'chatbot-platform-categorias','label' => 'Categorias',                 'url' => cbpm_url('categorias') ],
+        [ 'slug' => 'chatbot-platform-usuarios',  'label' => 'Usu&aacute;rios',            'url' => cbpm_url('usuarios') ],
+        [ 'slug' => 'chatbot-platform-conectores','label' => 'Conectores',                 'url' => cbpm_url('conectores') ],
+        [ 'slug' => 'chatbot-platform-settings',  'label' => 'Configura&ccedil;&otilde;es','url' => cbpm_url('configuracoes') ],
+    ],
+];
+$cfg_subs['cfg-taon'] = [
+    'label' => 'Neo',
+    'icon'  => '&#x1F4DE;',
+    'items' => [
+        [ 'slug' => 'chatbot-platform-catalogo',       'label' => 'Cat&aacute;logo',     'url' => cbpm_url('catalogo') ],
+        [ 'slug' => 'chatbot-platform-disponibilidade','label' => 'Disponibilidade',     'url' => cbpm_url('disponibilidade') ],
+        [ 'slug' => 'chatbot-platform-campos-extras',  'label' => 'Campos Extras',       'url' => cbpm_url('campos-extras') ],
+        [ 'slug' => 'chatbot-platform-listas',         'label' => 'Listas de Contatos',  'url' => cbpm_url('listas') ],
+    ],
+];
+if ( $has_formula ) {
+    $cfg_subs['cfg-formula'] = [
+        'label' => 'F&oacute;rmulas',
+        'icon'  => '&#x1F9EA;',
+        'items' => [
+            [ 'slug' => 'tao-formula-formas', 'label' => 'Formas Farmac&ecirc;uticas',  'url' => cbpm_url('formula-formas') ],
+            [ 'slug' => 'tao-formula-ativos', 'label' => 'Ativos',                      'url' => cbpm_url('formula-ativos') ],
+            [ 'slug' => 'tao-formula-config', 'label' => 'Configura&ccedil;&otilde;es', 'url' => cbpm_url('formula-config') ],
+        ],
+    ];
+}
+if ( $has_caixa && function_exists( 'tao_caixa_pode_operar' ) && tao_caixa_pode_operar() ) {
+    $cfg_subs['cfg-caixa'] = [
+        'label' => 'Caixa',
         'icon'  => '&#x1F4B0;',
         'items' => [
             [ 'slug' => 'tao-caixa-adquirentes', 'label' => 'Operadoras de Cart&atilde;o', 'url' => cbpm_url('caixa-adquirentes') ],
@@ -179,29 +171,37 @@ if ( $has_caixa && function_exists( 'tao_caixa_pode_operar' ) && tao_caixa_pode_
             [ 'slug' => 'tao-caixa-formas',      'label' => 'Formas de Pagamento',         'url' => cbpm_url('caixa-formas') ],
         ],
     ];
-    $nav['operacao']['subs']['op-caixa'] = [
-        'label' => 'TAO Caixa',
-        'icon'  => '&#x1F4B0;',
+}
+if ( $has_crm ) {
+    $cfg_subs['cfg-crm'] = [
+        'label' => 'CRM',
+        'icon'  => '&#x1F3AF;',
         'items' => [
-            [ 'slug' => 'tao-caixa-dashboard', 'label' => 'Dashboard', 'url' => cbpm_url('caixa') ],
-            [ 'slug' => 'tao-caixa-vendas',    'label' => 'Vendas',    'url' => cbpm_url('caixa-vendas') ],
-            [ 'slug' => 'tao-caixa-sessao',    'label' => 'Sessão / Fechamento', 'url' => cbpm_url('caixa-sessao') ],
-            [ 'slug' => 'tao-caixa-conciliacao', 'label' => 'Conciliação', 'url' => cbpm_url('caixa-conciliacao') ],
+            [ 'slug' => 'tao-crm-settings', 'label' => 'Configura&ccedil;&otilde;es', 'url' => cbpm_url('crm-settings') ],
         ],
     ];
 }
+$nav['config'] = [
+    'label' => 'Configura&ccedil;&otilde;es',
+    'icon'  => '&#x2699;&#xFE0F;',
+    'subs'  => $cfg_subs,
+];
 
-// Detecta qual grupo/sub contém a página atual (para abrir automaticamente)
+// Detecta grupo/sub do item ativo (auto-expande no load) — suporta módulo (itens diretos),
+// grupo Configurações (subs) e entrada direta (Campanhas, sem itens).
 $active_group = '';
 $active_sub   = '';
-foreach ( $nav as $gid => $group ) {
-    foreach ( $group['subs'] as $sid => $sub ) {
-        foreach ( $sub['items'] as $item ) {
-            if ( $item['slug'] === $page_atual ) {
-                $active_group = $gid;
-                $active_sub   = $sid;
-                break 3;
+foreach ( $nav as $gid => $entry ) {
+    if ( isset( $entry['url'] ) ) continue; // entrada direta (Campanhas)
+    if ( isset( $entry['subs'] ) ) {
+        foreach ( $entry['subs'] as $sid => $sub ) {
+            foreach ( $sub['items'] as $item ) {
+                if ( $item['slug'] === $page_atual ) { $active_group = $gid; $active_sub = $sid; break 3; }
             }
+        }
+    } else {
+        foreach ( $entry['items'] as $item ) {
+            if ( $item['slug'] === $page_atual ) { $active_group = $gid; break 2; }
         }
     }
 }
@@ -211,7 +211,7 @@ foreach ( $nav as $gid => $group ) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Plataforma de Rob&ocirc;s &mdash; <?php echo esc_html( $secoes[ $page_atual ]['label'] ); ?></title>
+    <title>TAO Solu&ccedil;&otilde;es &mdash; <?php echo esc_html( $secoes[ $page_atual ]['label'] ); ?></title>
     <link rel="stylesheet" href="<?php echo esc_url( CBPM_PLUGIN_URL . 'assets/style.css' ); ?>?v=<?php echo CBPM_VERSION; ?>">
     <style>
         *, *::before, *::after { box-sizing: border-box; }
@@ -435,7 +435,7 @@ $_mobile_label = $secoes[$page_atual]['label'] ?? 'Portal';
     <aside class="cbpm-sidebar">
         <div class="cbpm-sidebar-logo">
             <span class="icon">&#x1F916;</span>
-            <span class="cbpm-logo-text">Plataforma Rob&ocirc;s</span>
+            <span class="cbpm-logo-text">TAO Solu&ccedil;&otilde;es</span>
         </div>
         <nav>
         <?php
@@ -445,19 +445,31 @@ $_mobile_label = $secoes[$page_atual]['label'] ?? 'Portal';
             <span>&#x1F3E0;</span>
             <span class="label">Vis&atilde;o Geral</span>
         </a>
-        <?php foreach ( $nav as $gid => $group ):
+        <?php foreach ( $nav as $gid => $entry ):
+            // Entrada direta de topo (Campanhas) — sem drill-down
+            if ( isset( $entry['url'] ) ):
+                $d_active = ( ( $entry['slug'] ?? '' ) === $page_atual ) ? ' active' : '';
+        ?>
+            <a href="<?php echo esc_url( $entry['url'] ); ?>" class="cbpm-nav-direct<?php echo $d_active; ?>">
+                <span><?php echo $entry['icon']; ?></span>
+                <span class="label"><?php echo $entry['label']; ?></span>
+            </a>
+        <?php
+                continue;
+            endif;
             $g_open = ( $active_group === $gid ) ? ' open' : '';
         ?>
             <div class="cbpm-grp<?php echo $g_open; ?>" data-grp="<?php echo esc_attr( $gid ); ?>">
                 <div class="cbpm-grp-hdr">
-                    <span><?php echo $group['icon']; ?></span>
-                    <span class="label"><?php echo $group['label']; ?></span>
+                    <span><?php echo $entry['icon']; ?></span>
+                    <span class="label"><?php echo $entry['label']; ?></span>
                     <span class="cbpm-chv">&#x276F;</span>
                 </div>
                 <div class="cbpm-grp-body">
-                <?php foreach ( $group['subs'] as $sid => $sub ):
-                    $s_open = ( $active_sub === $sid ) ? ' open' : '';
-                ?>
+                <?php if ( isset( $entry['subs'] ) ): // Configurações: subs → itens (3 níveis) ?>
+                    <?php foreach ( $entry['subs'] as $sid => $sub ):
+                        $s_open = ( $active_sub === $sid ) ? ' open' : '';
+                    ?>
                     <div class="cbpm-sub<?php echo $s_open; ?>" data-sub="<?php echo esc_attr( $sid ); ?>">
                         <div class="cbpm-sub-hdr">
                             <span><?php echo $sub['icon']; ?></span>
@@ -472,7 +484,14 @@ $_mobile_label = $secoes[$page_atual]['label'] ?? 'Portal';
                         <?php endforeach; ?>
                         </div>
                     </div>
-                <?php endforeach; ?>
+                    <?php endforeach; ?>
+                <?php else: // Módulo: itens diretos (2 níveis) ?>
+                    <?php foreach ( $entry['items'] as $item ):
+                        $cls = ( $item['slug'] === $page_atual ) ? ' active' : '';
+                    ?>
+                        <a href="<?php echo esc_url( $item['url'] ); ?>" class="cbpm-nav-link<?php echo $cls; ?>"><?php echo $item['label']; ?></a>
+                    <?php endforeach; ?>
+                <?php endif; ?>
                 </div>
             </div>
         <?php endforeach; ?>
@@ -487,7 +506,7 @@ $_mobile_label = $secoes[$page_atual]['label'] ?? 'Portal';
 
     <main class="cbpm-main">
         <div class="cbpm-breadcrumb">
-            <a href="<?php echo esc_url( cbpm_url() ); ?>">Plataforma Rob&ocirc;s</a>
+            <a href="<?php echo esc_url( cbpm_url() ); ?>">TAO Solu&ccedil;&otilde;es</a>
             <?php if ( $page_atual !== 'chatbot-platform' ): ?>
                 &rsaquo; <?php echo esc_html( $secoes[ $page_atual ]['label'] ); ?>
             <?php endif; ?>
