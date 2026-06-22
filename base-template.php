@@ -87,7 +87,6 @@ if ( $has_crm ) {
         'items' => [
             [ 'slug' => 'tao-crm-dashboard', 'label' => 'Painel',   'url' => cbpm_url('crm-dashboard') ],
             [ 'slug' => 'tao-crm-kanban',    'label' => 'Kanban',   'url' => cbpm_url('crm-kanban') ],
-            [ 'slug' => 'tao-crm-inbox',     'label' => 'Inbox',    'url' => cbpm_url('crm-inbox') ],
             [ 'slug' => 'tao-crm-contatos',  'label' => 'Contatos', 'url' => cbpm_url('crm-contatos') ],
         ],
     ];
