@@ -263,3 +263,57 @@ add_action( 'wp_ajax_tao_caixa_receber_venda', function() {
 
     wp_send_json_success( [ 'recibo_total' => $soma, 'pagamentos' => count( $linhas ), 'vendas' => count( $vendas ), 'quitadas' => $quitadas ] );
 } );
+
+// ── PDV — Estorno auditado (reverte os recibos que pagaram a venda) ────────────
+
+add_action( 'wp_ajax_tao_caixa_estornar_venda', function() {
+    $cid = tao_caixa_ajax_guard();
+    $venda_id = sanitize_text_field( $_POST['venda_id'] ?? '' );
+    $motivo   = sanitize_textarea_field( wp_unslash( $_POST['motivo'] ?? '' ) );
+    if ( ! $venda_id ) wp_send_json_error( 'Venda não informada' );
+    if ( $motivo === '' ) wp_send_json_error( 'Informe o motivo do estorno' );
+
+    // Recibos que pagaram essa venda
+    $rrv = tao_caixa_api( "/caixa_recibo_vendas?venda_id=eq.$venda_id&cliente_id=eq.$cid&select=recibo_id" );
+    $recibo_ids = array_values( array_unique( array_column( $rrv['ok'] ? ( $rrv['data'] ?? [] ) : [], 'recibo_id' ) ) );
+    if ( ! $recibo_ids ) wp_send_json_error( 'Nenhum recibo encontrado para esta venda' );
+
+    $uid = get_current_user_id();
+    $n_recibos = 0; $afetadas = [];
+    foreach ( $recibo_ids as $rid ) {
+        $rr = tao_caixa_api( "/caixa_recibos?id=eq.$rid&cliente_id=eq.$cid&select=id,status&limit=1" );
+        if ( ! $rr['ok'] || empty( $rr['data'] ) ) continue;
+        if ( ( $rr['data'][0]['status'] ?? '' ) === 'estornado' ) continue;
+
+        // 1) Marca o recibo estornado (com auditoria). Se o ALTER não rodou, falha AQUI — sem mexer nas vendas.
+        $pr = tao_caixa_api( "/caixa_recibos?id=eq.$rid&cliente_id=eq.$cid", 'PATCH', [
+            'status'        => 'estornado',
+            'estornado_em'  => gmdate( 'c' ),
+            'estornado_por' => $uid,
+            'estorno_motivo'=> $motivo,
+        ] );
+        if ( ! $pr['ok'] ) wp_send_json_error( 'Falha ao estornar (rodou o ALTER de estorno?): ' . ( $pr['raw'] ?? '' ) );
+        $n_recibos++;
+
+        // 2) Reverte cada venda coberta por esse recibo
+        $rv2 = tao_caixa_api( "/caixa_recibo_vendas?recibo_id=eq.$rid&cliente_id=eq.$cid&select=venda_id,valor_aplicado" );
+        foreach ( ( $rv2['ok'] ? ( $rv2['data'] ?? [] ) : [] ) as $line ) {
+            $vid = $line['venda_id']; $ap = (float) $line['valor_aplicado'];
+            $rvd = tao_caixa_api( "/caixa_vendas?id=eq.$vid&cliente_id=eq.$cid&select=valor_total,valor_pago&limit=1" );
+            if ( ! $rvd['ok'] || empty( $rvd['data'] ) ) continue;
+            $tot = (float) $rvd['data'][0]['valor_total']; $pago = (float) $rvd['data'][0]['valor_pago'];
+            $np  = round( max( 0, $pago - $ap ), 2 );
+            $st  = $np <= 0.005 ? 'aberta' : ( $np < $tot - 0.005 ? 'parcial' : 'quitada' );
+            tao_caixa_api( "/caixa_vendas?id=eq.$vid&cliente_id=eq.$cid", 'PATCH', [
+                'valor_pago' => $np, 'status' => $st, 'atualizado_em' => gmdate( 'c' ),
+            ] );
+            $afetadas[ $vid ] = true;
+        }
+
+        // 3) Marca os pagamentos do recibo como estornados
+        tao_caixa_api( "/caixa_pagamentos?recibo_id=eq.$rid&cliente_id=eq.$cid", 'PATCH', [ 'estornado' => true ] );
+    }
+
+    if ( ! $n_recibos ) wp_send_json_error( 'Nada a estornar (recibos já estornados).' );
+    wp_send_json_success( [ 'recibos' => $n_recibos, 'vendas_afetadas' => count( $afetadas ) ] );
+} );

@@ -177,12 +177,16 @@ function tao_caixa_page_vendas() {
                     <td style="text-align:right;font-weight:700"><?php echo $brl( $total ); ?></td>
                     <td style="text-align:right;color:#16a34a"><?php echo $brl( $pago ); ?></td>
                     <td style="text-align:right;color:<?php echo $receber > 0 ? '#1d4ed8' : '#94a3b8'; ?>"><?php echo $brl( $receber ); ?></td>
-                    <td style="text-align:center">
+                    <td style="text-align:center;white-space:nowrap">
                         <?php if ( in_array( $v['status'] ?? '', [ 'aberta', 'parcial' ], true ) && $receber > 0 ) : ?>
                         <button type="button" class="taoc-btn taoc-btn-primary taoc-receber"
                                 data-venda="<?php echo esc_attr( $v['id'] ); ?>"
                                 data-paciente="<?php echo esc_attr( $v['paciente_nome'] ?: '—' ); ?>"
                                 data-aberto="<?php echo esc_attr( number_format( $receber, 2, '.', '' ) ); ?>">Receber</button>
+                        <?php endif; ?>
+                        <?php if ( $pago > 0 && ! in_array( $v['status'] ?? '', [ 'cancelada', 'estornada' ], true ) ) : ?>
+                        <button type="button" class="taoc-btn taoc-estornar" data-venda="<?php echo esc_attr( $v['id'] ); ?>"
+                                style="color:#dc2626;border-color:#fecaca">&#x21A9; Estornar</button>
                         <?php endif; ?>
                     </td>
                 </tr>
@@ -310,6 +314,26 @@ function tao_caixa_page_vendas() {
             });
         }
         document.getElementById('taoc-add-pag').addEventListener('click', function(){ addLinha(null); });
+
+        // ── Estorno (auditado) ──
+        var estBtns = document.querySelectorAll('.taoc-estornar');
+        for(var e=0;e<estBtns.length;e++){
+            estBtns[e].addEventListener('click', function(){
+                var vid = this.getAttribute('data-venda');
+                var motivo = prompt('Estorno (auditado). Informe o motivo:');
+                if(motivo===null) return;
+                if(!motivo.trim()){ alert('Informe o motivo do estorno.'); return; }
+                var b=this; b.disabled=true; b.textContent='...';
+                var fd=new FormData(); fd.append('action','tao_caixa_estornar_venda'); fd.append('nonce',C.nonce);
+                fd.append('venda_id',vid); fd.append('motivo',motivo);
+                fetch(C.ajaxUrl,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(function(resp){
+                    if(resp&&resp.success){
+                        if(resp.data&&resp.data.vendas_afetadas>1){ alert('Estorno feito. '+resp.data.vendas_afetadas+' vendas foram reabertas (o recibo cobria várias).'); }
+                        location.reload();
+                    } else { b.disabled=false; b.innerHTML='&#x21A9; Estornar'; alert('Erro: '+((resp&&resp.data)||'falha')); }
+                }).catch(function(){ b.disabled=false; b.innerHTML='&#x21A9; Estornar'; alert('Falha de comunicação'); });
+            });
+        }
 
         // ── Seleção múltipla → cupom cobrindo várias vendas ──
         function checkedSel(){ return Array.prototype.slice.call(document.querySelectorAll('.taoc-vsel:checked')); }
