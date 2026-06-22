@@ -638,8 +638,12 @@ function tao_crm_enqueue_assets( $hook ) {
     // Carrega em qualquer página do CRM (tao-crm, tao-crm-inbox, tao-crm-campos, tao-crm-settings)
     if ( strpos( $hook, 'tao-crm' ) === false && strpos( $hook, 'tao_crm' ) === false ) return;
 
-    wp_enqueue_style( 'tao-crm-style', TAO_CRM_URL . 'assets/crm-style.css', [], TAO_CRM_VERSION );
-    wp_enqueue_script( 'tao-crm-script', TAO_CRM_URL . 'assets/crm-script.js', [ 'jquery' ], TAO_CRM_VERSION, true );
+    $_crm_css = TAO_CRM_DIR . 'assets/crm-style.css';
+    $_crm_js  = TAO_CRM_DIR . 'assets/crm-script.js';
+    $_ver_css = file_exists( $_crm_css ) ? filemtime( $_crm_css ) : TAO_CRM_VERSION;
+    $_ver_js  = file_exists( $_crm_js )  ? filemtime( $_crm_js )  : TAO_CRM_VERSION;
+    wp_enqueue_style( 'tao-crm-style', TAO_CRM_URL . 'assets/crm-style.css', [], $_ver_css );
+    wp_enqueue_script( 'tao-crm-script', TAO_CRM_URL . 'assets/crm-script.js', [ 'jquery' ], $_ver_js, true );
 
     $ws_notif = function_exists( 'tao_crm_get_workspace' ) ? tao_crm_get_workspace() : null;
     wp_localize_script( 'tao-crm-script', 'taoCrm', [
