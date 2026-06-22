@@ -23,6 +23,7 @@ $secoes = [
     'chatbot-platform-usuarios'       => [ 'fn' => 'cbpm_page_usuarios',          'label' => 'Usuários' ],
     'chatbot-platform-settings'       => [ 'fn' => 'cbpm_page_settings',          'label' => 'Configurações' ],
     'chatbot-platform-dashboard'      => [ 'fn' => 'cbpm_page_dashboard',         'label' => 'Dashboard' ],
+    'chatbot-platform-neo-dashboard'  => [ 'fn' => 'cbpm_page_neo_dashboard',     'label' => 'Painel Neo' ],
 ];
 $has_crm = function_exists( 'tao_crm_page_kanban_full' );
 if ( $has_crm ) {
@@ -70,7 +71,7 @@ $nav['neo'] = [
     'label' => 'Neo',
     'icon'  => '&#x1F4DE;',
     'items' => [
-        [ 'slug' => 'chatbot-platform-dashboard', 'label' => 'Painel',                          'url' => cbpm_url('neo-dashboard') ],
+        [ 'slug' => 'chatbot-platform-neo-dashboard', 'label' => 'Painel',                       'url' => cbpm_url('neo-dashboard') ],
         [ 'slug' => 'chatbot-platform-pedidos',   'label' => 'Pedidos',                         'url' => cbpm_url('pedidos') ],
         [ 'slug' => 'chatbot-platform-leads',     'label' => 'Leads',                           'url' => cbpm_url('leads') ],
         [ 'slug' => 'chatbot-platform-historico', 'label' => 'Hist&oacute;rico',                'url' => cbpm_url('historico') ],

@@ -56,6 +56,7 @@ add_action( 'template_redirect', function() {
 
     $map = [
         'dashboard'      => 'chatbot-platform-dashboard',
+        'neo-dashboard'  => 'chatbot-platform-neo-dashboard',
         'negocios'       => 'chatbot-platform',
         'categorias'     => 'chatbot-platform-categorias',
         'catalogo'       => 'chatbot-platform-catalogo',
