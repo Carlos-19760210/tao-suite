@@ -125,6 +125,12 @@ function tao_caixa_page_vendas() {
             <?php endforeach; ?>
         </div>
 
+        <div id="taoc-sel-bar" style="display:none;align-items:center;gap:12px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px">
+            <strong id="taoc-sel-info"></strong>
+            <button type="button" id="taoc-receber-cupom" class="taoc-btn taoc-btn-primary">Receber selecionadas (cupom)</button>
+            <button type="button" id="taoc-sel-clear" class="taoc-btn">Limpar seleção</button>
+        </div>
+
         <?php if ( empty( $vendas ) ) : ?>
         <div class="taoc-empty">
             <p>Nenhuma venda encontrada<?php echo ( $status || $origem ) ? ' com esse filtro' : ''; ?>.</p>
@@ -134,6 +140,7 @@ function tao_caixa_page_vendas() {
         <table class="taoc-table">
             <thead>
                 <tr>
+                    <th style="width:30px;text-align:center"><input type="checkbox" id="taoc-vsel-all" title="Selecionar todas (visíveis)"></th>
                     <th>Data</th>
                     <th>Paciente</th>
                     <th>Nº Req.</th>
@@ -156,6 +163,11 @@ function tao_caixa_page_vendas() {
                 $search = mb_strtolower( trim( ( $v['paciente_nome'] ?? '' ) . ' ' . ( $v['whatsapp'] ?? '' ) . ' ' . $req ) );
             ?>
                 <tr data-search="<?php echo esc_attr( $search ); ?>">
+                    <td style="text-align:center">
+                        <?php if ( in_array( $v['status'] ?? '', [ 'aberta', 'parcial' ], true ) && $receber > 0 ) : ?>
+                        <input type="checkbox" class="taoc-vsel" data-venda="<?php echo esc_attr( $v['id'] ); ?>" data-aberto="<?php echo esc_attr( number_format( $receber, 2, '.', '' ) ); ?>" data-paciente="<?php echo esc_attr( $v['paciente_nome'] ?: '—' ); ?>">
+                        <?php endif; ?>
+                    </td>
                     <td style="white-space:nowrap"><?php echo esc_html( $dt ); ?></td>
                     <td><strong><?php echo esc_html( $v['paciente_nome'] ?: '—' ); ?></strong></td>
                     <td style="font-weight:600;color:#0f172a"><?php echo esc_html( $req ?: '—' ); ?></td>
@@ -281,18 +293,53 @@ function tao_caixa_page_vendas() {
             div.querySelector('.pag-rm').addEventListener('click', function(){ div.remove(); recalc(); });
             recalc();
         }
+        var selVendas = [];
+        function openModal(ids, saldoTotal, label){
+            selVendas = ids; saldo = Math.round(saldoTotal*100)/100;
+            info.innerHTML = label;
+            box.innerHTML=''; msg.style.display='none';
+            addLinha(saldo);
+            modal.style.display='block';
+        }
         var btns = document.querySelectorAll('.taoc-receber');
         for(var i=0;i<btns.length;i++){
             btns[i].addEventListener('click', function(){
-                saldo = parseFloat(this.getAttribute('data-aberto')||'0');
-                vInp.value = this.getAttribute('data-venda');
-                info.innerHTML = '<strong>'+this.getAttribute('data-paciente')+'</strong> &middot; a receber: <strong>'+brl(saldo)+'</strong>';
-                box.innerHTML=''; msg.style.display='none';
-                addLinha(saldo);
-                modal.style.display='block';
+                var ab = parseFloat(this.getAttribute('data-aberto')||'0');
+                openModal([this.getAttribute('data-venda')], ab,
+                    '<strong>'+this.getAttribute('data-paciente')+'</strong> &middot; a receber: <strong>'+brl(ab)+'</strong>');
             });
         }
         document.getElementById('taoc-add-pag').addEventListener('click', function(){ addLinha(null); });
+
+        // ── Seleção múltipla → cupom cobrindo várias vendas ──
+        function checkedSel(){ return Array.prototype.slice.call(document.querySelectorAll('.taoc-vsel:checked')); }
+        function atualizaSelBar(){
+            var bar = document.getElementById('taoc-sel-bar'); if(!bar) return;
+            var sel = checkedSel();
+            if(!sel.length){ bar.style.display='none'; return; }
+            var soma = 0; sel.forEach(function(c){ soma += parseFloat(c.getAttribute('data-aberto')||'0'); });
+            document.getElementById('taoc-sel-info').textContent = sel.length + ' venda(s) · total a receber ' + brl(soma);
+            bar.style.display='flex';
+        }
+        var allCb = document.getElementById('taoc-vsel-all');
+        if(allCb){ allCb.addEventListener('change', function(){
+            var rows = document.querySelectorAll('table.taoc-table tbody tr');
+            for(var i=0;i<rows.length;i++){ if(rows[i].style.display!=='none'){ var c=rows[i].querySelector('.taoc-vsel'); if(c) c.checked=allCb.checked; } }
+            atualizaSelBar();
+        }); }
+        document.addEventListener('change', function(e){ if(e.target && e.target.classList && e.target.classList.contains('taoc-vsel')) atualizaSelBar(); });
+        var cupomBtn = document.getElementById('taoc-receber-cupom');
+        if(cupomBtn){ cupomBtn.addEventListener('click', function(){
+            var sel = checkedSel(); if(!sel.length) return;
+            var ids = sel.map(function(c){ return c.getAttribute('data-venda'); });
+            var soma = 0; sel.forEach(function(c){ soma += parseFloat(c.getAttribute('data-aberto')||'0'); });
+            openModal(ids, soma, '<strong>'+sel.length+' venda(s)</strong> &middot; total a receber: <strong>'+brl(soma)+'</strong>');
+        }); }
+        var selClear = document.getElementById('taoc-sel-clear');
+        if(selClear){ selClear.addEventListener('click', function(){
+            var cbs=document.querySelectorAll('.taoc-vsel'); for(var i=0;i<cbs.length;i++) cbs[i].checked=false;
+            if(allCb) allCb.checked=false; atualizaSelBar();
+        }); }
         function close(){ modal.style.display='none'; }
         document.getElementById('taoc-rec-cancel').addEventListener('click', close);
         modal.querySelector('.taoc-overlay').addEventListener('click', close);
@@ -312,7 +359,7 @@ function tao_caixa_page_vendas() {
             var cb = document.getElementById('taoc-rec-confirm'); cb.disabled=true; cb.textContent='Processando...';
             var fd = new FormData();
             fd.append('action','tao_caixa_receber_venda'); fd.append('nonce',C.nonce);
-            fd.append('venda_id',vInp.value); fd.append('pagamentos',JSON.stringify(pags));
+            fd.append('venda_ids',JSON.stringify(selVendas)); fd.append('pagamentos',JSON.stringify(pags));
             fetch(C.ajaxUrl,{method:'POST',body:fd,credentials:'same-origin'})
                 .then(function(r){ return r.json(); })
                 .then(function(resp){
