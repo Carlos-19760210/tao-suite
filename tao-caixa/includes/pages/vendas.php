@@ -97,7 +97,8 @@ function tao_caixa_page_vendas() {
         <div class="taoc-bar">
             <h1>&#x1F9FE; Vendas do Caixa</h1>
             <input type="search" id="taoc-venda-busca" placeholder="&#x1F50D; Buscar cliente, WhatsApp ou nº pedido..." autocomplete="off"
-                   style="padding:7px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:300px">
+                   style="padding:7px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:260px">
+            <button type="button" id="taoc-nova-avulsa" class="taoc-btn taoc-btn-primary">&#x1F6D2; Venda avulsa</button>
         </div>
 
         <?php if ( ! $cid ) : ?>
@@ -226,6 +227,27 @@ function tao_caixa_page_vendas() {
                 <button type="button" id="taoc-rec-cancel" class="taoc-btn">Cancelar</button>
             </div>
             <p id="taoc-rec-msg" style="display:none;margin-top:10px;font-size:13px"></p>
+        </div>
+    </div>
+
+    <!-- Modal: Venda avulsa (balcão) -->
+    <div id="taoc-avulsa-modal" class="taoc-modal">
+        <div class="taoc-overlay"></div>
+        <div class="taoc-box" style="max-width:600px">
+            <h2>&#x1F6D2; Venda avulsa (balcão)</h2>
+            <div class="taoc-field taoc-field-inline">
+                <div style="flex:2"><label>Cliente</label><input type="text" id="av-cliente" placeholder="Consumidor Final" style="width:100%;padding:6px;border:1px solid #cbd5e1;border-radius:4px"></div>
+                <div style="flex:1"><label>WhatsApp (opcional)</label><input type="text" id="av-whats" style="width:100%;padding:6px;border:1px solid #cbd5e1;border-radius:4px"></div>
+            </div>
+            <label style="font-size:12px;font-weight:600;color:#475569;margin:12px 0 4px;display:block">Itens</label>
+            <div id="av-itens"></div>
+            <button type="button" id="av-add-item" class="taoc-btn" style="margin-top:4px">+ Item</button>
+            <div id="av-total" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:10px 12px;font-size:14px;margin:12px 0;text-align:right">Total: <strong>R$ 0,00</strong></div>
+            <div class="taoc-actions">
+                <button type="button" id="av-confirm" class="taoc-btn taoc-btn-primary">Criar venda</button>
+                <button type="button" id="av-cancel" class="taoc-btn">Cancelar</button>
+            </div>
+            <p id="av-msg" style="display:none;margin-top:10px;font-size:13px"></p>
         </div>
     </div>
 
@@ -409,6 +431,65 @@ function tao_caixa_page_vendas() {
 
         // Atalho card → pagamento: abre o Receber automaticamente
         if(AUTO_RECEBER){ var ab=document.querySelector('.taoc-receber[data-venda="'+AUTO_RECEBER+'"]'); if(ab) ab.click(); }
+
+        // ── Venda avulsa (balcão) ──
+        var avModal=document.getElementById('taoc-avulsa-modal');
+        if(avModal){
+            var avItens=document.getElementById('av-itens');
+            var avTotalEl=document.getElementById('av-total');
+            var avMsg=document.getElementById('av-msg');
+            function avTotal(){
+                var t=0, ls=avItens.querySelectorAll('.av-linha');
+                for(var i=0;i<ls.length;i++){
+                    var q=parseFloat((ls[i].querySelector('.av-qtd').value||'1').replace(',','.'))||1;
+                    var v=parseFloat((ls[i].querySelector('.av-valor').value||'0').replace(',','.'))||0;
+                    t+=q*v;
+                }
+                avTotalEl.innerHTML='Total: <strong>'+brl(t)+'</strong>';
+            }
+            function avAdd(){
+                var d=document.createElement('div'); d.className='av-linha';
+                d.style.cssText='display:flex;gap:6px;margin-bottom:6px';
+                d.innerHTML='<input class="av-desc" type="text" placeholder="Descrição" style="flex:3;padding:5px;border:1px solid #cbd5e1;border-radius:4px">'
+                  +'<input class="av-qtd" type="number" min="1" step="1" value="1" title="qtd" style="width:54px;padding:5px;border:1px solid #cbd5e1;border-radius:4px;text-align:center">'
+                  +'<input class="av-valor" type="number" min="0" step="0.01" placeholder="valor un." style="width:100px;padding:5px;border:1px solid #cbd5e1;border-radius:4px;text-align:right">'
+                  +'<button type="button" class="av-rm taoc-btn" style="padding:4px 9px">&#x2715;</button>';
+                avItens.appendChild(d);
+                d.querySelector('.av-qtd').addEventListener('input',avTotal);
+                d.querySelector('.av-valor').addEventListener('input',avTotal);
+                d.querySelector('.av-rm').addEventListener('click',function(){ d.remove(); avTotal(); });
+                avTotal();
+            }
+            document.getElementById('taoc-nova-avulsa').addEventListener('click',function(){
+                document.getElementById('av-cliente').value=''; document.getElementById('av-whats').value='';
+                avItens.innerHTML=''; avMsg.style.display='none'; avAdd();
+                avModal.style.display='block';
+            });
+            document.getElementById('av-add-item').addEventListener('click',avAdd);
+            function avClose(){ avModal.style.display='none'; }
+            document.getElementById('av-cancel').addEventListener('click',avClose);
+            avModal.querySelector('.taoc-overlay').addEventListener('click',avClose);
+            document.getElementById('av-confirm').addEventListener('click',function(){
+                var itens=[], ls=avItens.querySelectorAll('.av-linha');
+                for(var i=0;i<ls.length;i++){
+                    var desc=ls[i].querySelector('.av-desc').value.trim();
+                    var q=parseFloat((ls[i].querySelector('.av-qtd').value||'1').replace(',','.'))||1;
+                    var v=parseFloat((ls[i].querySelector('.av-valor').value||'0').replace(',','.'))||0;
+                    if(desc&&v>0) itens.push({descricao:desc,quantidade:q,valor_unitario:v});
+                }
+                if(!itens.length){ alert('Adicione ao menos um item com descrição e valor.'); return; }
+                var b=document.getElementById('av-confirm'); b.disabled=true; b.textContent='Criando...';
+                var fd=new FormData(); fd.append('action','tao_caixa_venda_avulsa'); fd.append('nonce',C.nonce);
+                fd.append('cliente_nome',document.getElementById('av-cliente').value);
+                fd.append('whatsapp',document.getElementById('av-whats').value);
+                fd.append('itens',JSON.stringify(itens));
+                fetch(C.ajaxUrl,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(function(resp){
+                    b.disabled=false; b.textContent='Criar venda';
+                    if(resp&&resp.success){ location.reload(); }
+                    else { avMsg.style.display='block'; avMsg.style.color='#dc2626'; avMsg.textContent='Erro: '+((resp&&resp.data)||'falha'); }
+                }).catch(function(){ b.disabled=false; b.textContent='Criar venda'; avMsg.style.display='block'; avMsg.style.color='#dc2626'; avMsg.textContent='Falha de comunicação'; });
+            });
+        }
     })();
     </script>
     <?php

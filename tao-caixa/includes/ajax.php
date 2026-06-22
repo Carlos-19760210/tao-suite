@@ -317,3 +317,83 @@ add_action( 'wp_ajax_tao_caixa_estornar_venda', function() {
     if ( ! $n_recibos ) wp_send_json_error( 'Nada a estornar (recibos já estornados).' );
     wp_send_json_success( [ 'recibos' => $n_recibos, 'vendas_afetadas' => count( $afetadas ) ] );
 } );
+
+// ── PDV — Venda avulsa (balcão): cria card "Consumidor Final" no Pós-vendas + venda ─
+
+add_action( 'wp_ajax_tao_caixa_venda_avulsa', function() {
+    $cid = tao_caixa_ajax_guard();
+
+    $cliente_nome = trim( sanitize_text_field( $_POST['cliente_nome'] ?? '' ) );
+    if ( $cliente_nome === '' ) $cliente_nome = 'Consumidor Final';
+    $whatsapp = sanitize_text_field( $_POST['whatsapp'] ?? '' );
+    $itens    = json_decode( wp_unslash( $_POST['itens'] ?? '[]' ), true );
+    if ( ! is_array( $itens ) || ! count( $itens ) ) wp_send_json_error( 'Adicione ao menos um item' );
+
+    // Itens + total
+    $linhas = []; $total = 0.0;
+    foreach ( $itens as $it ) {
+        $desc = trim( sanitize_text_field( $it['descricao'] ?? '' ) );
+        $qtd  = max( 1, (float) str_replace( ',', '.', (string) ( $it['quantidade'] ?? 1 ) ) );
+        $vu   = round( (float) str_replace( ',', '.', (string) ( $it['valor_unitario'] ?? 0 ) ), 2 );
+        if ( $desc === '' || $vu <= 0 ) continue;
+        $tt = round( $qtd * $vu, 2 );
+        $linhas[] = [ 'descricao' => $desc, 'quantidade' => $qtd, 'valor_unitario' => $vu, 'valor_total' => $tt ];
+        $total += $tt;
+    }
+    if ( ! $linhas ) wp_send_json_error( 'Itens inválidos (descrição e valor são obrigatórios)' );
+    $total = round( $total, 2 );
+
+    // Workspace do CRM + pipeline de Pós-vendas + 1º estágio
+    if ( ! function_exists( 'tao_crm_get_workspace' ) ) wp_send_json_error( 'CRM indisponível para criar o card.' );
+    $ws = tao_crm_get_workspace();
+    $ws_id = $ws['id'] ?? '';
+    if ( ! $ws_id ) wp_send_json_error( 'Workspace do CRM não encontrado.' );
+    $pos_pl = get_option( 'tao_crm_pos_vendas_pipeline_' . $ws_id, '' );
+    if ( ! $pos_pl ) {
+        $rall = tao_caixa_api( "/crm_pipelines?workspace_id=eq.$ws_id&ativo=eq.true&order=ordem.asc&limit=2" );
+        $all  = $rall['ok'] ? ( $rall['data'] ?? [] ) : [];
+        if ( count( $all ) >= 2 ) $pos_pl = $all[1]['id'];
+    }
+    if ( ! $pos_pl ) wp_send_json_error( 'Pipeline de Pós-vendas não configurado.' );
+    $rst = tao_caixa_api( "/crm_estagios?pipeline_id=eq.$pos_pl&order=ordem.asc&limit=1" );
+    $estagio = ( $rst['ok'] && ! empty( $rst['data'] ) ) ? $rst['data'][0]['id'] : '';
+    if ( ! $estagio ) wp_send_json_error( 'Pós-vendas sem estágios.' );
+
+    $uid = get_current_user_id();
+
+    // Card "Consumidor Final" (venda de balcão)
+    $rc = tao_caixa_api( '/crm_cards', 'POST', [
+        'workspace_id'       => $ws_id,
+        'pipeline_id'        => $pos_pl,
+        'estagio_id'         => $estagio,
+        'titulo'             => $cliente_nome,
+        'contato_nome'       => $cliente_nome,
+        'contato_whatsapp'   => $whatsapp,
+        'responsavel_id'     => $uid,
+        'status'             => 'aberto',
+        'fechado'            => false,
+        'valor_oportunidade' => $total,
+        'criado_em'          => gmdate( 'c' ),
+        'movido_em'          => gmdate( 'c' ),
+    ] );
+    if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( 'Falha ao criar card: ' . ( $rc['raw'] ?? '' ) );
+    $card_id = $rc['data'][0]['id'];
+
+    // Venda avulsa
+    $rv = tao_caixa_api( '/caixa_vendas', 'POST', [
+        'cliente_id'    => $cid, 'card_id' => $card_id, 'origem' => 'avulsa',
+        'cliente_nome'  => $cliente_nome, 'whatsapp' => $whatsapp,
+        'valor_total'   => $total, 'valor_pago' => 0, 'status' => 'aberta',
+        'criado_por'    => $uid, 'criado_em' => gmdate( 'c' ), 'atualizado_em' => gmdate( 'c' ),
+    ] );
+    if ( ! $rv['ok'] || empty( $rv['data'] ) ) wp_send_json_error( 'Falha ao criar venda: ' . ( $rv['raw'] ?? '' ) );
+    $venda_id = $rv['data'][0]['id'];
+
+    foreach ( $linhas as $ln ) {
+        tao_caixa_api( '/caixa_venda_itens', 'POST', array_merge(
+            [ 'cliente_id' => $cid, 'venda_id' => $venda_id, 'criado_em' => gmdate( 'c' ) ], $ln
+        ) );
+    }
+
+    wp_send_json_success( [ 'venda_id' => $venda_id, 'card_id' => $card_id, 'total' => $total ] );
+} );
