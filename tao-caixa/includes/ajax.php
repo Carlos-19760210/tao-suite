@@ -141,6 +141,68 @@ add_action( 'wp_ajax_tao_caixa_delete_forma', function() {
 
 // ── PDV — Receber pagamento de uma venda (Fatia 1: 1 pagamento por recibo) ─────
 
+// ── Fase 2: Sessão de caixa (abrir / fechar / fechamento diário) ───────────────
+
+/** Sessão aberta do cliente (ou null). */
+function tao_caixa_sessao_aberta( $cid ) {
+    $r = tao_caixa_api( "/caixa_sessoes?cliente_id=eq.$cid&status=eq.aberta&order=aberto_em.desc&limit=1" );
+    return ( $r['ok'] && ! empty( $r['data'] ) ) ? $r['data'][0] : null;
+}
+
+/** Dinheiro físico recebido numa sessão (formas com conta_no_dinheiro). */
+function tao_caixa_dinheiro_da_sessao( $cid, $sid ) {
+    $rr = tao_caixa_api( "/caixa_recibos?sessao_id=eq.$sid&cliente_id=eq.$cid&status=neq.estornado&select=id" );
+    $rids = array_column( $rr['ok'] ? ( $rr['data'] ?? [] ) : [], 'id' );
+    if ( ! $rids ) return 0.0;
+    $rf = tao_caixa_api( "/caixa_formas_pagamento?cliente_id=eq.$cid&conta_no_dinheiro=eq.true&select=id" );
+    $cash_formas = array_flip( array_column( $rf['ok'] ? ( $rf['data'] ?? [] ) : [], 'id' ) );
+    if ( ! $cash_formas ) return 0.0;
+    $rp = tao_caixa_api( "/caixa_pagamentos?recibo_id=in.(" . implode( ',', $rids ) . ")&estornado=eq.false&select=forma_pagamento_id,valor_bruto" );
+    $cash = 0.0;
+    foreach ( ( $rp['ok'] ? ( $rp['data'] ?? [] ) : [] ) as $p ) {
+        if ( isset( $cash_formas[ $p['forma_pagamento_id'] ] ) ) $cash += (float) $p['valor_bruto'];
+    }
+    return round( $cash, 2 );
+}
+
+add_action( 'wp_ajax_tao_caixa_abrir_sessao', function() {
+    $cid = tao_caixa_ajax_guard();
+    if ( tao_caixa_sessao_aberta( $cid ) ) wp_send_json_error( 'Já existe um caixa aberto.' );
+    $saldo = round( (float) str_replace( ',', '.', $_POST['saldo_inicial'] ?? 0 ), 2 );
+    $obs   = sanitize_textarea_field( wp_unslash( $_POST['observacoes'] ?? '' ) );
+    $r = tao_caixa_api( '/caixa_sessoes', 'POST', [
+        'cliente_id'   => $cid,
+        'operador_id'  => get_current_user_id(),
+        'aberto_em'    => gmdate( 'c' ),
+        'saldo_inicial'=> $saldo,
+        'status'       => 'aberta',
+        'observacoes'  => $obs !== '' ? $obs : null,
+        'criado_em'    => gmdate( 'c' ),
+    ] );
+    if ( ! $r['ok'] || empty( $r['data'] ) ) wp_send_json_error( 'Falha ao abrir caixa: ' . ( $r['raw'] ?? '' ) );
+    wp_send_json_success( $r['data'][0] );
+} );
+
+add_action( 'wp_ajax_tao_caixa_fechar_sessao', function() {
+    $cid  = tao_caixa_ajax_guard();
+    $sess = tao_caixa_sessao_aberta( $cid );
+    if ( ! $sess ) wp_send_json_error( 'Nenhum caixa aberto.' );
+    $sid = $sess['id'];
+    $informado = round( (float) str_replace( ',', '.', $_POST['saldo_final_informado'] ?? 0 ), 2 );
+    $cash = tao_caixa_dinheiro_da_sessao( $cid, $sid );
+    $calc = round( (float) $sess['saldo_inicial'] + $cash, 2 );
+    $div  = round( $informado - $calc, 2 );
+    $r = tao_caixa_api( "/caixa_sessoes?id=eq.$sid&cliente_id=eq.$cid", 'PATCH', [
+        'fechado_em'            => gmdate( 'c' ),
+        'saldo_final_informado' => $informado,
+        'saldo_final_calculado' => $calc,
+        'divergencia'           => $div,
+        'status'                => 'fechada',
+    ] );
+    if ( ! $r['ok'] ) wp_send_json_error( 'Falha ao fechar caixa: ' . ( $r['raw'] ?? '' ) );
+    wp_send_json_success( [ 'calculado' => $calc, 'informado' => $informado, 'divergencia' => $div ] );
+} );
+
 /**
  * Resolve taxa% e prazo (dias) para uma forma × nº de parcelas.
  * Faixa em caixa_taxas sobrepõe a taxa flat da forma.
@@ -226,10 +288,12 @@ add_action( 'wp_ajax_tao_caixa_receber_venda', function() {
     $uid = get_current_user_id();
     $pagador = ( $vendas[0]['cliente_nome'] ?? '' ) . ( count( $vendas ) > 1 ? ' +' . ( count( $vendas ) - 1 ) : '' );
 
-    // Recibo (cupom)
+    // Recibo (cupom) — carimba a sessão de caixa aberta (Fase 2), se houver
+    $sess_ab = tao_caixa_sessao_aberta( $cid );
     $rr = tao_caixa_api( '/caixa_recibos', 'POST', [
         'cliente_id'   => $cid, 'valor_total' => $soma, 'valor_pago' => $soma,
         'status'       => 'quitado', 'pagador_nome' => $pagador,
+        'sessao_id'    => $sess_ab['id'] ?? null,
         'criado_por'   => $uid, 'criado_em' => gmdate( 'c' ),
     ] );
     if ( ! $rr['ok'] || empty( $rr['data'] ) ) wp_send_json_error( 'Falha ao criar recibo: ' . ( $rr['raw'] ?? '' ) );
