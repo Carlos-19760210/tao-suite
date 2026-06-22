@@ -1714,8 +1714,77 @@ function tao_crm_ajax_get_csat_stats() {
 // ─── AJAX: INBOX — cards com mensagens não lidas ──────────────────────────────
 
 // ─── AJAX: Enviar orçamento(s) de fórmula via WhatsApp ───────────────────────
+
+function tao_crm_rodape_orcamento() {
+    return get_option( 'tao_formula_msg_rodape',
+        "- Trabalhamos com entrega ( *Segunda a sexta* ), mediante taxa, via motoboy e SEDEX/DHL\n" .
+        "- Acima de R\$ 100,00 parcelamos em 3 x no cartão\n" .
+        "- Prazo de entrega: 2 a 3 dias úteis após aprovação do orçamento\n\n" .
+        "*-->> CASO TENHA UMA PROPOSTA MELHOR, NOS ENCAMINHE QUE FAREMOS O POSSÍVEL TE ATENDER!*\n\n" .
+        "Caso tenha interesse em fechar, nos informe se será *ENTREGA* ou *RETIRADA*. " .
+        "Se for entrega, informe o *endereço* e a *forma de pagamento*.\n\nAtt,\nMagis-TAO"
+    );
+}
+
+function tao_crm_build_orcamento_msg( array $orcs, string $nome, string $rodape ): string {
+    $blocos      = [];
+    $total_geral = 0;
+    foreach ( $orcs as $o ) {
+        $numero  = $o['numero_orcamento'] ?? '—';
+        $total   = (float) ( $o['total_orcamento'] ?? 0 );
+        $total_geral += $total;
+        $itens   = is_string( $o['itens'] ) ? json_decode( $o['itens'], true ) : ( $o['itens'] ?? [] );
+        $obs     = trim( $o['observacoes'] ?? '' );
+        // Orçamentos importados (sem itens): usa a descrição original preservada em observacoes
+        if ( empty( $itens ) && $obs ) {
+            $descr = $obs;
+        } else {
+            $descr = function_exists( 'tao_formula_build_descricao' )
+                ? tao_formula_build_descricao( $o['forma_nome'] ?? '', $o['forma_vol'] ?? 0, $o['forma_unidade'] ?? 'g', $itens, $o['qtde_potes'] ?? 1 )
+                : 'FORMULA MANIPULADA - ' . strtoupper( $o['forma_nome'] ?? '' );
+        }
+        $blocos[] = "ORC:{$numero}\n{$descr}\nValor R\$: " . number_format( $total, 2, ',', '.' );
+    }
+    $total_fmt = number_format( $total_geral, 2, ',', '.' );
+    $msg  = "Prezado(a) *{$nome}*,\n\n";
+    $msg .= "Seguem detalhes da sua solicitação de orçamento:\n\n\n";
+    $msg .= implode( "\n\n", $blocos ) . "\n\n";
+    $msg .= "TOTAL A VISTA: R\$ {$total_fmt}\n\n";
+    $msg .= $rodape;
+    return $msg;
+}
+
+add_action( 'wp_ajax_tao_crm_preview_orcamento_formula', 'tao_crm_ajax_preview_orcamento_formula' );
+function tao_crm_ajax_preview_orcamento_formula() {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+    if ( ! function_exists( 'cbpm_can_access' ) || ! cbpm_can_access() ) wp_send_json_error( 'Acesso negado' );
+
+    $card_id = sanitize_text_field( $_POST['card_id'] ?? '' );
+    $orc_ids = array_filter( array_map( 'sanitize_text_field', (array) ( $_POST['orc_ids'] ?? [] ) ) );
+    if ( ! $card_id || empty( $orc_ids ) ) wp_send_json_error( 'Dados inválidos' );
+
+    if ( ! function_exists( 'tao_formula_api' ) ) wp_send_json_error( 'Plugin TAO Fórmulas não ativo' );
+
+    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=contato_nome&limit=1" );
+    if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( 'Card não encontrado' );
+    $nome = $rc['data'][0]['contato_nome'] ?? 'cliente';
+
+    $ids_str = implode( ',', $orc_ids );
+    $ro = tao_formula_api(
+        "/orcamentos?id=in.($ids_str)" .
+        "&select=numero_orcamento,forma_nome,forma_vol,forma_unidade,qtde_potes," .
+        "total_orcamento,itens,observacoes,nome_paciente&order=criado_em.asc"
+    );
+    if ( ! $ro['ok'] || empty( $ro['data'] ) ) wp_send_json_error( 'Orçamentos não encontrados' );
+
+    $msg = tao_crm_build_orcamento_msg( $ro['data'], $nome, tao_crm_rodape_orcamento() );
+    wp_send_json_success( [ 'mensagem' => $msg ] );
+}
+
 add_action( 'wp_ajax_tao_crm_enviar_orcamento_formula', 'tao_crm_ajax_enviar_orcamento_formula' );
 function tao_crm_ajax_enviar_orcamento_formula() {
+    while ( ob_get_level() > 0 ) ob_end_clean();
     check_ajax_referer( 'tao_crm_nonce', 'nonce' );
     if ( ! function_exists( 'cbpm_can_access' ) || ! cbpm_can_access() ) wp_send_json_error( 'Acesso negado' );
 
@@ -1731,44 +1800,20 @@ function tao_crm_ajax_enviar_orcamento_formula() {
 
     if ( ! function_exists( 'tao_formula_api' ) ) wp_send_json_error( 'Plugin TAO Fórmulas não ativo' );
 
-    $ids_str = implode( ',', $orc_ids );
-    $ro = tao_formula_api(
-        "/orcamentos?id=in.($ids_str)" .
-        "&select=numero_orcamento,forma_nome,forma_vol,forma_unidade,qtde_potes," .
-        "total_orcamento,itens,observacoes,nome_paciente&order=criado_em.asc"
-    );
-    if ( ! $ro['ok'] || empty( $ro['data'] ) ) wp_send_json_error( 'Orçamentos não encontrados' );
-    $orcs = $ro['data'];
-
-    $nome    = $card['contato_nome'] ?? 'cliente';
-    $rodape  = get_option( 'tao_formula_msg_rodape',
-        "- Trabalhamos com entrega ( *Segunda a sexta* ), mediante taxa, via motoboy e SEDEX/DHL\n" .
-        "- Acima de R\$ 100,00 parcelamos em 3 x no cartão\n" .
-        "- Prazo de entrega: 2 a 3 dias úteis após aprovação do orçamento\n\n" .
-        "*-->> CASO TENHA UMA PROPOSTA MELHOR, NOS ENCAMINHE QUE FAREMOS O POSSÍVEL TE ATENDER!*\n\n" .
-        "Caso tenha interesse em fechar, nos informe se será *ENTREGA* ou *RETIRADA*. " .
-        "Se for entrega, informe o *endereço* e a *forma de pagamento*.\n\nAtt,\nMagis-TAO"
-    );
-
-    $blocos = [];
-    $total_geral = 0;
-    foreach ( $orcs as $o ) {
-        $numero  = $o['numero_orcamento'] ?? '—';
-        $total   = (float) ( $o['total_orcamento'] ?? 0 );
-        $total_geral += $total;
-        $itens   = is_string( $o['itens'] ) ? json_decode( $o['itens'], true ) : ( $o['itens'] ?? [] );
-        $descr   = function_exists( 'tao_formula_build_descricao' )
-            ? tao_formula_build_descricao( $o['forma_nome'] ?? '', $o['forma_vol'] ?? 0, $o['forma_unidade'] ?? 'g', $itens, $o['qtde_potes'] ?? 1 )
-            : 'FORMULA MANIPULADA - ' . strtoupper( $o['forma_nome'] ?? '' );
-        $blocos[] = "ORC:{$numero}\n{$descr}\nValor R\$: " . number_format( $total, 2, ',', '.' );
+    $msg_custom = trim( wp_unslash( $_POST['mensagem'] ?? '' ) );
+    if ( $msg_custom ) {
+        $msg = $msg_custom;
+    } else {
+        $ids_str = implode( ',', $orc_ids );
+        $ro = tao_formula_api(
+            "/orcamentos?id=in.($ids_str)" .
+            "&select=numero_orcamento,forma_nome,forma_vol,forma_unidade,qtde_potes," .
+            "total_orcamento,itens,observacoes,nome_paciente&order=criado_em.asc"
+        );
+        if ( ! $ro['ok'] || empty( $ro['data'] ) ) wp_send_json_error( 'Orçamentos não encontrados' );
+        $nome = $card['contato_nome'] ?? 'cliente';
+        $msg  = tao_crm_build_orcamento_msg( $ro['data'], $nome, tao_crm_rodape_orcamento() );
     }
-
-    $total_fmt = number_format( $total_geral, 2, ',', '.' );
-    $msg  = "Prezado(a) *{$nome}*,\n\n";
-    $msg .= "Seguem detalhes da sua solicitação de orçamento:\n\n\n";
-    $msg .= implode( "\n\n", $blocos ) . "\n\n";
-    $msg .= "TOTAL A VISTA: R\$ {$total_fmt}\n\n";
-    $msg .= $rodape;
 
     $ok = tao_crm_evolution_send_with_retry( $evo_cfg, $card['contato_whatsapp'], $msg );
     if ( ! $ok ) wp_send_json_error( 'Falha ao enviar via Evolution' );
@@ -4403,12 +4448,22 @@ function tao_crm_calcular_item_total( float $qtd, float $preco, string $tipo, fl
 }
 
 /**
- * Recalcula a soma dos itens e atualiza crm_cards.valor_oportunidade.
+ * Recalcula valor_oportunidade do card = soma dos itens do negócio + soma dos orçamentos de fórmula.
  */
 function tao_crm_sync_valor_oportunidade( string $card_id ): void {
-    $r = tao_crm_api( "/crm_card_itens?card_id=eq.$card_id&select=total" );
-    if ( ! $r['ok'] ) return;
-    $total = array_sum( array_column( $r['data'] ?? [], 'total' ) );
+    if ( ! $card_id ) return;
+    $total = 0.0;
+
+    // Itens do negócio (catálogo / + Item)
+    $ri = tao_crm_api( "/crm_card_itens?card_id=eq.$card_id&select=total" );
+    if ( $ri['ok'] ) $total += array_sum( array_column( $ri['data'] ?? [], 'total' ) );
+
+    // Orçamentos de fórmula vinculados ao card
+    $ro = tao_crm_api( "/orcamentos?card_id=eq.$card_id&select=total_orcamento" );
+    if ( $ro['ok'] ) {
+        foreach ( $ro['data'] ?? [] as $o ) $total += floatval( $o['total_orcamento'] ?? 0 );
+    }
+
     tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [ 'valor_oportunidade' => round( $total, 2 ) ] );
 }
 

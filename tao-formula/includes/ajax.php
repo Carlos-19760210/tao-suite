@@ -186,6 +186,7 @@ add_action( 'wp_ajax_tao_formula_save_orcamento', function() {
                 'criado_em'  => gmdate( 'c' ),
             ] );
         }
+        if ( $card_id && function_exists( 'tao_crm_sync_valor_oportunidade' ) ) tao_crm_sync_valor_oportunidade( $card_id );
         wp_send_json_success( [ 'id' => $id, 'numero' => $numero ] );
     } else {
         wp_send_json_error( $r['raw'] );
@@ -228,6 +229,7 @@ add_action( 'wp_ajax_tao_formula_update_orcamento', function() {
                 'criado_em'  => gmdate( 'c' ),
             ] );
         }
+        if ( $card_id && function_exists( 'tao_crm_sync_valor_oportunidade' ) ) tao_crm_sync_valor_oportunidade( $card_id );
         wp_send_json_success( [ 'id' => $orc_id, 'numero' => $exist['numero_orcamento'] ] );
     } else {
         wp_send_json_error( $r['raw'] );
@@ -943,8 +945,16 @@ add_action( 'wp_ajax_tao_formula_excluir_orcamento', function () {
     $cliente_id = tao_formula_cliente_id();
     $orc_id     = sanitize_text_field( $_POST['orc_id'] ?? '' );
     if ( ! $orc_id || ! $cliente_id ) wp_send_json_error( 'Parâmetros inválidos' );
+    // Pega o card antes de excluir, p/ re-sincronizar o valor de oportunidade
+    $rc = tao_formula_api( "/orcamentos?id=eq.$orc_id&cliente_id=eq.$cliente_id&select=card_id&limit=1" );
+    $del_card_id = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? ( $rc['data'][0]['card_id'] ?? '' ) : '';
     $r = tao_formula_api( "/orcamentos?id=eq.$orc_id&cliente_id=eq.$cliente_id", 'DELETE' );
-    $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => 'Erro: ' . $r['raw'] ] );
+    if ( $r['ok'] ) {
+        if ( $del_card_id && function_exists( 'tao_crm_sync_valor_oportunidade' ) ) tao_crm_sync_valor_oportunidade( $del_card_id );
+        wp_send_json_success();
+    } else {
+        wp_send_json_error( [ 'message' => 'Erro: ' . $r['raw'] ] );
+    }
 } );
 
 // ── Salvar sinônimo manualmente ───────────────────────────────────────────────
@@ -1814,5 +1824,6 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
         }
     }
 
+    if ( $card_id && function_exists( 'tao_crm_sync_valor_oportunidade' ) ) tao_crm_sync_valor_oportunidade( $card_id );
     wp_send_json_success( [ 'criados' => $criados, 'erros' => $erros ] );
 } );
