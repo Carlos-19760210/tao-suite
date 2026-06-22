@@ -21,7 +21,10 @@ function tao_crm_page_kanban() {
         } else {
             $ws_id = $todos_ws[0]['id'];
         }
-        $redir_url = tao_crm_url( [ 'workspace_id' => $ws_id ] );
+        $redir_url = tao_crm_url( array_merge(
+            [ 'workspace_id' => $ws_id ],
+            ! empty( $_GET['view'] ) ? [ 'view' => sanitize_key( $_GET['view'] ) ] : []
+        ) );
         global $cbpm_is_frontend;
         if ( ! empty( $cbpm_is_frontend ) ) {
             // No frontend os headers já foram enviados; usa redirect via JS
