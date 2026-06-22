@@ -12,11 +12,18 @@ function tao_caixa_criar_venda_do_card( $card_id, $workspace_id ) {
     try {
         if ( ! $card_id || ! function_exists( 'tao_caixa_api' ) ) return;
 
-        // cliente_id vem do workspace do card
+        // cliente_id: workspace → contexto do usuário (cbpm/default) → orçamento do card
         $cliente_id = '';
         if ( $workspace_id ) {
             $rw = tao_caixa_api( "/crm_workspaces?id=eq.$workspace_id&select=cliente_id&limit=1" );
             if ( $rw['ok'] && ! empty( $rw['data'] ) ) $cliente_id = $rw['data'][0]['cliente_id'] ?? '';
+        }
+        if ( ! $cliente_id && function_exists( 'tao_caixa_cliente_id' ) ) {
+            $cliente_id = tao_caixa_cliente_id();
+        }
+        if ( ! $cliente_id ) {
+            $rco = tao_caixa_api( "/orcamentos?card_id=eq.$card_id&select=cliente_id&limit=1" );
+            if ( $rco['ok'] && ! empty( $rco['data'] ) ) $cliente_id = $rco['data'][0]['cliente_id'] ?? '';
         }
         if ( ! $cliente_id ) return;
 
