@@ -1225,8 +1225,8 @@
 
     function renderLinha(nome, unid, precoComp, precoCusto, precoVenda, subtotalVenda, isTotal, isSep) {
         if (isSep) return '<tr><td colspan="7" style="padding:4px 16px;background:#f8fafc;font-size:11px;color:#64748b;font-weight:600">' + nome + '</td></tr>';
-        var margem    = precoComp > 0 ? precoVenda / precoComp : null;
-        var margBruta = precoComp > 0 ? precoVenda - precoComp : null;
+        var margem    = precoCusto > 0 ? precoVenda / precoCusto : null;
+        var margBruta = precoCusto > 0 ? precoVenda - precoCusto : null;
         var mTxt = margem !== null
             ? fmt(margem, 2) + 'x <small>(' + fmt((margem - 1) * 100, 1) + '%)</small>'
             : '<span style="color:#94a3b8">—</span>';
@@ -1264,7 +1264,7 @@
             var qtd        = parseFloat($r.data('qtd-em-padrao')) || 0;
             var subtotalV  = parseFloat($r.data('subtotal'))     || 0;
             var subtotalC  = precoComp > 0 ? qtd * precoComp : 0;
-            if (precoComp <= 0) temItemSemCompra = true;
+            if (precoCusto <= 0) temItemSemCompra = true;   // aviso de simulação = item sem preço de custo
             totalCompra += subtotalC;
             totalCusto  += qtd * precoCusto;
             totalVenda  += subtotalV;
@@ -1318,12 +1318,12 @@
         // ── Total ────────────────────────────────────────────────────
         rows += renderLinha('TOTAL', '', totalCompra > 0 ? totalCompra : 0, totalCusto, 0, valorFinal, true, false);
 
-        _analiseCompraTotal = totalCompra;
+        _analiseCompraTotal = totalCusto;   // simulação de margem é sobre o CUSTO
 
         $('#taof-analise-body').html(rows);
 
-        // Simulação
-        var margemAtual = totalCompra > 0 ? valorFinal / totalCompra : 0;
+        // Simulação (margem = valor final ÷ custo total)
+        var margemAtual = totalCusto > 0 ? valorFinal / totalCusto : 0;
         $('#taof-sim-margem-atual').text(fmt(margemAtual, 2) + 'x (' + fmt(margemAtual * 100, 0) + '%)');
         $('#taof-sim-range').val(margemAtual.toFixed(2));
         $('#taof-sim-inp').val(margemAtual.toFixed(2));
