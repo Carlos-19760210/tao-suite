@@ -1,6 +1,8 @@
 /* TAO CRM — Script principal */
 (function($){
 
+    console.log('%c[TAO CRM] crm-script.js CARREGADO — build DIAG-campos-kanban', 'color:#16a34a;font-weight:bold');
+
     // ─── HELPER AJAX ──────────────────────────────────────────────────────────
     function crmPost(data, onSuccess, onError){
         $.ajax({
@@ -1333,6 +1335,7 @@
 
         $('#crm-kposm-ganho').on('click', function(){
             var ids = $('.crm-card-checkbox:checked').map(function(){ return $(this).data('card-id'); }).get();
+            console.log('[TAO CRM] kposm-ganho CLIQUE — ids selecionados:', ids);
             if(!ids.length) return;
             if(ids.length === 1) {
                 // 1 card: busca os campos obrigatórios do estágio ganho DESTE card (robusto p/ qualquer funil/visão)
@@ -1342,9 +1345,10 @@
                         var d = (resp && resp.success && resp.data) ? resp.data : {};
                         var campos = (d.campos && d.campos.length) ? d.campos
                                    : ((typeof taoCrmGanhoCampos !== 'undefined') ? taoCrmGanhoCampos : []);
+                        console.log('[TAO CRM] resposta campos:', resp, '-> usando', campos.length, 'campos');
                         _abrirModalFechar('ganho', campos, d.valores || {});
                     },
-                    function(){ _abrirModalFechar('ganho', (typeof taoCrmGanhoCampos !== 'undefined') ? taoCrmGanhoCampos : [], {}); }
+                    function(e){ console.log('[TAO CRM] AJAX campos FALHOU:', e); _abrirModalFechar('ganho', (typeof taoCrmGanhoCampos !== 'undefined') ? taoCrmGanhoCampos : [], {}); }
                 );
             } else {
                 // Vários cards: se o funil exige campos no ganho, não dá pra coletar em lote → força 1 a 1
