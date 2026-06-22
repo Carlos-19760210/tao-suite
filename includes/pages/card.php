@@ -196,6 +196,15 @@ function tao_crm_page_card() {
         <button type="button" id="crm-fechar-pv-btn" class="button" style="margin-left:8px;color:#16a34a;border-color:#16a34a" title="Marca o pedido como entregue e fecha o card">
             &#x2705; Pedido entregue
         </button>
+        <?php if ( function_exists( 'tao_caixa_page_vendas' ) ) :
+            $caixa_url = function_exists( 'cbpm_url' )
+                ? cbpm_url( 'caixa-vendas', [ 'card' => $card['id'] ] )
+                : admin_url( 'admin.php?page=tao-caixa-vendas&card=' . rawurlencode( $card['id'] ) );
+        ?>
+        <a href="<?php echo esc_url( $caixa_url ); ?>" class="button" style="margin-left:8px;color:#7c3aed;border-color:#7c3aed" title="Abre o Caixa para receber o pagamento desta venda">
+            &#x1F4B3; Receber pagamento
+        </a>
+        <?php endif; ?>
         <?php endif; ?>
         <button type="button" id="crm-transfer-btn" class="button" style="margin-left:8px">
             &#x1F500; Transferir

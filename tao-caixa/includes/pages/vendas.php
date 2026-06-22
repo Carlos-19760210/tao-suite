@@ -30,9 +30,11 @@ function tao_caixa_page_vendas() {
     if ( ! tao_caixa_pode_operar() ) { echo '<div class="wrap"><p>Sem permissão para operar o caixa.</p></div>'; return; }
     tao_caixa_assets();
 
-    $cid    = tao_caixa_cliente_id();
-    $status = sanitize_text_field( $_GET['status'] ?? '' );
-    $origem = sanitize_text_field( $_GET['origem'] ?? '' );
+    $cid         = tao_caixa_cliente_id();
+    $status      = sanitize_text_field( $_GET['status'] ?? '' );
+    $origem      = sanitize_text_field( $_GET['origem'] ?? '' );
+    $card_filtro = sanitize_text_field( $_GET['card'] ?? '' );
+    $auto_receber = '';
 
     $vendas      = [];
     $formas      = [];
@@ -44,9 +46,10 @@ function tao_caixa_page_vendas() {
     if ( $cid ) {
         $flt  = $status ? '&status=eq.' . rawurlencode( $status ) : '';
         $flt .= $origem ? '&origem=eq.' . rawurlencode( $origem ) : '';
+        $flt .= $card_filtro ? '&card_id=eq.' . rawurlencode( $card_filtro ) : '';
         $rv = tao_caixa_api(
             "/caixa_vendas?cliente_id=eq.$cid$flt&order=criado_em.desc&limit=300" .
-            "&select=id,card_id,paciente_nome,whatsapp,valor_total,valor_pago,status,origem,criado_em"
+            "&select=id,card_id,cliente_nome,whatsapp,valor_total,valor_pago,status,origem,criado_em"
         );
         $vendas = $rv['ok'] ? ( $rv['data'] ?? [] ) : [];
         foreach ( $vendas as $v ) {
@@ -60,6 +63,15 @@ function tao_caixa_page_vendas() {
         $formas = $rf['ok'] ? ( $rf['data'] ?? [] ) : [];
         $rtx = tao_caixa_api( "/caixa_taxas?cliente_id=eq.$cid&ativo=eq.true&select=forma_pagamento_id,parcela_min,parcela_max,taxa_pct,prazo_recebimento_dias" );
         $taxas = $rtx['ok'] ? ( $rtx['data'] ?? [] ) : [];
+
+        // Vindo de um card (?card=…) com exatamente 1 venda em aberto → abre o Receber direto
+        if ( $card_filtro ) {
+            $abertas = array_values( array_filter( $vendas, function ( $v ) {
+                return in_array( $v['status'] ?? '', [ 'aberta', 'parcial' ], true )
+                    && ( floatval( $v['valor_total'] ?? 0 ) - floatval( $v['valor_pago'] ?? 0 ) ) > 0.005;
+            } ) );
+            if ( count( $abertas ) === 1 ) $auto_receber = $abertas[0]['id'];
+        }
 
         // Número da Requisição (campo CRM chave=numero_requisicao) por card
         $card_ids = array_values( array_filter( array_map( function ( $v ) { return $v['card_id'] ?? ''; }, $vendas ) ) );
@@ -84,7 +96,7 @@ function tao_caixa_page_vendas() {
     <div class="wrap taoc-wrap">
         <div class="taoc-bar">
             <h1>&#x1F9FE; Vendas do Caixa</h1>
-            <input type="search" id="taoc-venda-busca" placeholder="&#x1F50D; Buscar paciente, WhatsApp ou nº requisição..." autocomplete="off"
+            <input type="search" id="taoc-venda-busca" placeholder="&#x1F50D; Buscar cliente, WhatsApp ou nº pedido..." autocomplete="off"
                    style="padding:7px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:300px">
         </div>
 
@@ -142,7 +154,7 @@ function tao_caixa_page_vendas() {
                 <tr>
                     <th style="width:30px;text-align:center"><input type="checkbox" id="taoc-vsel-all" title="Selecionar todas (visíveis)"></th>
                     <th>Data</th>
-                    <th>Paciente</th>
+                    <th>Cliente</th>
                     <th>Nº Req.</th>
                     <th>WhatsApp</th>
                     <th style="text-align:center">Origem</th>
@@ -160,16 +172,16 @@ function tao_caixa_page_vendas() {
                 $receber = max( 0, $total - $pago );
                 $dt = ! empty( $v['criado_em'] ) ? date_i18n( 'd/m/Y H:i', strtotime( $v['criado_em'] ) ) : '—';
                 $req = $req_map[ $v['card_id'] ?? '' ] ?? '';
-                $search = mb_strtolower( trim( ( $v['paciente_nome'] ?? '' ) . ' ' . ( $v['whatsapp'] ?? '' ) . ' ' . $req ) );
+                $search = mb_strtolower( trim( ( $v['cliente_nome'] ?? '' ) . ' ' . ( $v['whatsapp'] ?? '' ) . ' ' . $req ) );
             ?>
                 <tr data-search="<?php echo esc_attr( $search ); ?>">
                     <td style="text-align:center">
                         <?php if ( in_array( $v['status'] ?? '', [ 'aberta', 'parcial' ], true ) && $receber > 0 ) : ?>
-                        <input type="checkbox" class="taoc-vsel" data-venda="<?php echo esc_attr( $v['id'] ); ?>" data-aberto="<?php echo esc_attr( number_format( $receber, 2, '.', '' ) ); ?>" data-paciente="<?php echo esc_attr( $v['paciente_nome'] ?: '—' ); ?>">
+                        <input type="checkbox" class="taoc-vsel" data-venda="<?php echo esc_attr( $v['id'] ); ?>" data-aberto="<?php echo esc_attr( number_format( $receber, 2, '.', '' ) ); ?>" data-cliente="<?php echo esc_attr( $v['cliente_nome'] ?: '—' ); ?>">
                         <?php endif; ?>
                     </td>
                     <td style="white-space:nowrap"><?php echo esc_html( $dt ); ?></td>
-                    <td><strong><?php echo esc_html( $v['paciente_nome'] ?: '—' ); ?></strong></td>
+                    <td><strong><?php echo esc_html( $v['cliente_nome'] ?: '—' ); ?></strong></td>
                     <td style="font-weight:600;color:#0f172a"><?php echo esc_html( $req ?: '—' ); ?></td>
                     <td style="color:#475569"><?php echo esc_html( $v['whatsapp'] ?: '—' ); ?></td>
                     <td style="text-align:center"><?php echo tao_caixa_venda_origem_badge( $v['origem'] ?? '' ); ?></td>
@@ -181,7 +193,7 @@ function tao_caixa_page_vendas() {
                         <?php if ( in_array( $v['status'] ?? '', [ 'aberta', 'parcial' ], true ) && $receber > 0 ) : ?>
                         <button type="button" class="taoc-btn taoc-btn-primary taoc-receber"
                                 data-venda="<?php echo esc_attr( $v['id'] ); ?>"
-                                data-paciente="<?php echo esc_attr( $v['paciente_nome'] ?: '—' ); ?>"
+                                data-cliente="<?php echo esc_attr( $v['cliente_nome'] ?: '—' ); ?>"
                                 data-aberto="<?php echo esc_attr( number_format( $receber, 2, '.', '' ) ); ?>">Receber</button>
                         <?php endif; ?>
                         <?php if ( $pago > 0 && ! in_array( $v['status'] ?? '', [ 'cancelada', 'estornada' ], true ) ) : ?>
@@ -221,6 +233,7 @@ function tao_caixa_page_vendas() {
     (function(){
         var FORMAS = <?php echo wp_json_encode( $formas ); ?>;
         var TAXAS  = <?php echo wp_json_encode( $taxas ); ?>;
+        var AUTO_RECEBER = <?php echo wp_json_encode( $auto_receber ); ?>;
         var C = window.taoCaixa || {};
         var modal = document.getElementById('taoc-receber-modal');
 
@@ -310,7 +323,7 @@ function tao_caixa_page_vendas() {
             btns[i].addEventListener('click', function(){
                 var ab = parseFloat(this.getAttribute('data-aberto')||'0');
                 openModal([this.getAttribute('data-venda')], ab,
-                    '<strong>'+this.getAttribute('data-paciente')+'</strong> &middot; a receber: <strong>'+brl(ab)+'</strong>');
+                    '<strong>'+this.getAttribute('data-cliente')+'</strong> &middot; a receber: <strong>'+brl(ab)+'</strong>');
             });
         }
         document.getElementById('taoc-add-pag').addEventListener('click', function(){ addLinha(null); });
@@ -393,6 +406,9 @@ function tao_caixa_page_vendas() {
                 })
                 .catch(function(){ cb.disabled=false; cb.textContent='Confirmar recebimento'; msg.style.display='block'; msg.style.color='#dc2626'; msg.textContent='Falha de comunicação'; });
         });
+
+        // Atalho card → pagamento: abre o Receber automaticamente
+        if(AUTO_RECEBER){ var ab=document.querySelector('.taoc-receber[data-venda="'+AUTO_RECEBER+'"]'); if(ab) ab.click(); }
     })();
     </script>
     <?php

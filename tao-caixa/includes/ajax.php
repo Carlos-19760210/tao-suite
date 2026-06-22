@@ -175,7 +175,7 @@ add_action( 'wp_ajax_tao_caixa_receber_venda', function() {
     if ( ! is_array( $pags ) || ! count( $pags ) ) wp_send_json_error( 'Adicione ao menos uma forma de pagamento' );
 
     // Vendas (ordena por criação = FIFO na distribuição)
-    $rv = tao_caixa_api( "/caixa_vendas?id=in.(" . implode( ',', $vids ) . ")&cliente_id=eq.$cid&select=id,paciente_nome,valor_total,valor_pago,status&order=criado_em.asc" );
+    $rv = tao_caixa_api( "/caixa_vendas?id=in.(" . implode( ',', $vids ) . ")&cliente_id=eq.$cid&select=id,cliente_nome,valor_total,valor_pago,status&order=criado_em.asc" );
     $raw = $rv['ok'] ? ( $rv['data'] ?? [] ) : [];
     if ( ! $raw ) wp_send_json_error( 'Vendas não encontradas' );
     $vendas = []; $saldo_total = 0.0;
@@ -224,7 +224,7 @@ add_action( 'wp_ajax_tao_caixa_receber_venda', function() {
     }
 
     $uid = get_current_user_id();
-    $pagador = ( $vendas[0]['paciente_nome'] ?? '' ) . ( count( $vendas ) > 1 ? ' +' . ( count( $vendas ) - 1 ) : '' );
+    $pagador = ( $vendas[0]['cliente_nome'] ?? '' ) . ( count( $vendas ) > 1 ? ' +' . ( count( $vendas ) - 1 ) : '' );
 
     // Recibo (cupom)
     $rr = tao_caixa_api( '/caixa_recibos', 'POST', [

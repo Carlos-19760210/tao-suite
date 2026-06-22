@@ -31,11 +31,11 @@ function tao_caixa_criar_venda_do_card( $card_id, $workspace_id ) {
         $rex = tao_caixa_api( "/caixa_vendas?card_id=eq.$card_id&select=id&limit=1" );
         if ( $rex['ok'] && ! empty( $rex['data'] ) ) return;
 
-        // Dados do card (paciente / whatsapp)
+        // Dados do card (cliente / whatsapp)
         $rc   = tao_caixa_api( "/crm_cards?id=eq.$card_id&select=contato_nome,contato_whatsapp&limit=1" );
         $card = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? $rc['data'][0] : [];
 
-        // Itens do negócio + orçamentos de fórmula → itens da venda
+        // Itens do negócio (+ orçamentos do módulo Fórmula, quando o cliente tiver) → itens da venda
         $itens = [];
         $total = 0.0;
 
@@ -69,7 +69,7 @@ function tao_caixa_criar_venda_do_card( $card_id, $workspace_id ) {
             'cliente_id'    => $cliente_id,
             'card_id'       => $card_id,
             'origem'        => 'funil',
-            'paciente_nome' => $card['contato_nome'] ?? '',
+            'cliente_nome'  => $card['contato_nome'] ?? '',
             'whatsapp'      => $card['contato_whatsapp'] ?? '',
             'valor_total'   => round( $total, 2 ),
             'status'        => 'aberta',
