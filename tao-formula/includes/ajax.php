@@ -1730,8 +1730,12 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
         // VALOR FINAL (total_orcamento) = $valor (com desconto), exibido direto do orçamento.
         $desconto_val  = max( 0.0, round( $valor_bruto - $valor, 2 ) );          // desconto informado (bruto − final)
         $acrescimo_val = round( $valor - $subtotal_calc, 2 );                    // Acréscimo = VALOR FINAL − Sub-Total
-        $acrescimo_pct = $subtotal_calc > 0.005 ? round( $acrescimo_val / $subtotal_calc * 100, 4 ) : 0.0;
-        $desconto_pct  = $subtotal_calc > 0.005 ? round( $desconto_val  / $subtotal_calc * 100, 4 ) : 0.0;
+        $acrescimo_pct = $subtotal_calc > 0.005 ? round( $acrescimo_val / $subtotal_calc * 100, 2 ) : 0.0;
+        $desconto_pct  = $subtotal_calc > 0.005 ? round( $desconto_val  / $subtotal_calc * 100, 2 ) : 0.0;
+        // Evita "numeric field overflow": colunas de % têm precisão limitada.
+        // No orçamento importado o acréscimo é re-derivado no editor (FINAL travado), então capar é seguro.
+        $acrescimo_pct = max( -999.99, min( 999.99, $acrescimo_pct ) );
+        $desconto_pct  = max( 0.0,     min( 99.99,  $desconto_pct ) );
         if ( $subtotal_calc <= 0.005 ) { $custo_fixo = $valor; $calculado = 0.0; }
 
         $observacoes = "[FC:{$numero}] {$descr}";
