@@ -1140,6 +1140,21 @@ function tao_crm_ajax_get_campos_destino() {
 
 // ─── AJAX: CAMPOS OBRIGATÓRIOS DO ESTÁGIO GANHO (dado card_id) ───────────────
 
+/**
+ * O card tem "negócio" para fechar como ganho?
+ * Regra: ≥1 item do negócio OU ≥1 orçamento de fórmula OU valor_oportunidade > 0.
+ */
+function tao_crm_card_tem_negocio( $card_id ) {
+    if ( ! $card_id ) return false;
+    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=valor_oportunidade&limit=1" );
+    if ( $rc['ok'] && ! empty( $rc['data'] ) && floatval( $rc['data'][0]['valor_oportunidade'] ?? 0 ) > 0 ) return true;
+    $ri = tao_crm_api( "/crm_card_itens?card_id=eq.$card_id&select=id&limit=1" );
+    if ( $ri['ok'] && ! empty( $ri['data'] ) ) return true;
+    $ro = tao_crm_api( "/orcamentos?card_id=eq.$card_id&select=id&limit=1" );
+    if ( $ro['ok'] && ! empty( $ro['data'] ) ) return true;
+    return false;
+}
+
 add_action( 'wp_ajax_tao_crm_get_ganho_campos',        'tao_crm_ajax_get_ganho_campos' );
 add_action( 'wp_ajax_nopriv_tao_crm_get_ganho_campos', 'tao_crm_ajax_get_ganho_campos' );
 function tao_crm_ajax_get_ganho_campos() {
@@ -1147,15 +1162,16 @@ function tao_crm_ajax_get_ganho_campos() {
     if ( ! wp_verify_nonce( $raw_nonce, 'tao_crm_nonce' ) ) wp_send_json_error( 'Sessão expirada.' );
     $card_id = sanitize_text_field( $_POST['card_id'] ?? '' );
     if ( ! $card_id ) wp_send_json_error( 'card_id obrigatório' );
+    $tem_negocio = tao_crm_card_tem_negocio( $card_id );
     $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=pipeline_id&limit=1" );
     if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( 'Card não encontrado' );
     $pipeline_id = $rc['data'][0]['pipeline_id'] ?? '';
-    if ( ! $pipeline_id ) wp_send_json_success( [ 'campos' => [], 'valores' => [], 'ganho_stage_id' => '' ] );
+    if ( ! $pipeline_id ) wp_send_json_success( [ 'campos' => [], 'valores' => [], 'ganho_stage_id' => '', 'tem_negocio' => $tem_negocio ] );
     $rg = tao_crm_api( "/crm_estagios?pipeline_id=eq.$pipeline_id&tipo=eq.ganho&limit=1" );
-    if ( ! $rg['ok'] || empty( $rg['data'] ) ) wp_send_json_success( [ 'campos' => [], 'valores' => [], 'ganho_stage_id' => '' ] );
+    if ( ! $rg['ok'] || empty( $rg['data'] ) ) wp_send_json_success( [ 'campos' => [], 'valores' => [], 'ganho_stage_id' => '', 'tem_negocio' => $tem_negocio ] );
     $ganho_stage_id = $rg['data'][0]['id'];
     $r = tao_crm_api( "/crm_campos_estagio?estagio_id=eq.$ganho_stage_id&na_entrada=eq.true&order=ordem.asc" );
-    if ( ! $r['ok'] || empty( $r['data'] ) ) wp_send_json_success( [ 'campos' => [], 'valores' => [], 'ganho_stage_id' => $ganho_stage_id ] );
+    if ( ! $r['ok'] || empty( $r['data'] ) ) wp_send_json_success( [ 'campos' => [], 'valores' => [], 'ganho_stage_id' => $ganho_stage_id, 'tem_negocio' => $tem_negocio ] );
     $assigns         = $r['data'];
     $campo_ids       = array_column( $assigns, 'campo_id' );
     $ordem_map       = array_column( $assigns, 'ordem',      'campo_id' );
@@ -1173,7 +1189,7 @@ function tao_crm_ajax_get_ganho_campos() {
     if ( $rv['ok'] && ! empty( $rv['data'] ) ) {
         foreach ( $rv['data'] as $v ) $valores[ $v['campo_id'] ] = $v['valor'];
     }
-    wp_send_json_success( [ 'campos' => $defs, 'valores' => $valores, 'ganho_stage_id' => $ganho_stage_id ] );
+    wp_send_json_success( [ 'campos' => $defs, 'valores' => $valores, 'ganho_stage_id' => $ganho_stage_id, 'tem_negocio' => $tem_negocio ] );
 }
 
 // ─── AJAX: ENVIAR MENSAGEM ────────────────────────────────────────────────────

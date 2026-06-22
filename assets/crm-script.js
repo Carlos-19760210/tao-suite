@@ -759,12 +759,12 @@
     }
 
     $('#tao-crm-btn-ganho').on('click', function() {
-        // Regra: para fechar como Ganho é preciso ao menos 1 item do negócio
-        // (do catálogo, um orçamento de fórmula, ou via "+ Item")
+        // Regra: para fechar como Ganho é preciso item do negócio OU orçamento OU valor
         var nItens = $('#crm-itens-list .crm-item-row').length;
         var nOrcs  = $('#crm-formulas-list tr').length;
-        if (nItens + nOrcs < 1) {
-            alert('Adicione ao menos um item ao negócio (catálogo, orçamento ou "+ Item") antes de fechar o negócio.');
+        var valor  = parseFloat( ( $('#crm-valor-oportunidade').val() || '0' ).toString().replace(',', '.') ) || 0;
+        if (nItens + nOrcs < 1 && valor <= 0) {
+            alert('Adicione ao menos um item, orçamento ou valor ao negócio antes de fechar como ganho.');
             return;
         }
         var cardId = (typeof taoCrmCardId !== 'undefined') ? taoCrmCardId : '';
@@ -1340,6 +1340,7 @@
                 crmPost({ action:'tao_crm_get_ganho_campos', nonce:taoCrm.nonce, card_id: ids[0] },
                     function(resp){
                         var d = (resp && resp.success && resp.data) ? resp.data : {};
+                        if(d.tem_negocio === false){ alert('Adicione ao menos um item, orçamento ou valor ao negócio antes de fechar como ganho.'); return; }
                         var campos = (d.campos && d.campos.length) ? d.campos
                                    : ((typeof taoCrmGanhoCampos !== 'undefined') ? taoCrmGanhoCampos : []);
                         _abrirModalFechar('ganho', campos, d.valores || {});
@@ -1455,6 +1456,7 @@
                 crmPost({ action:'tao_crm_get_ganho_campos', nonce:taoCrm.nonce, card_id: ids[0] },
                     function(resp){
                         var d = (resp && resp.success && resp.data) ? resp.data : {};
+                        if(d.tem_negocio === false){ alert('Adicione ao menos um item, orçamento ou valor ao negócio antes de fechar como ganho.'); return; }
                         var campos = (d.campos && d.campos.length) ? d.campos
                                    : ((typeof taoCrmGanhoCampos !== 'undefined') ? taoCrmGanhoCampos : []);
                         _abrirModalFechar('ganho', campos, d.valores || {});
