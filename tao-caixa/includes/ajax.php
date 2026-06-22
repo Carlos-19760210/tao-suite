@@ -461,3 +461,50 @@ add_action( 'wp_ajax_tao_caixa_venda_avulsa', function() {
 
     wp_send_json_success( [ 'venda_id' => $venda_id, 'card_id' => $card_id, 'total' => $total ] );
 } );
+
+// ── Fase 3: Conciliação e antecipação de recebíveis ───────────────────────────
+
+add_action( 'wp_ajax_tao_caixa_conciliar_pagamento', function() {
+    $cid = tao_caixa_ajax_guard();
+    $id  = sanitize_text_field( $_POST['id'] ?? '' );
+    if ( ! $id ) wp_send_json_error( 'ID inválido' );
+    $set = ( $_POST['set'] ?? '1' ) === '1';
+    $ref = sanitize_text_field( $_POST['referencia'] ?? '' );
+    $r = tao_caixa_api( "/caixa_pagamentos?id=eq.$id&cliente_id=eq.$cid", 'PATCH', [
+        'conciliado'         => $set,
+        'conciliado_em'      => $set ? gmdate( 'c' ) : null,
+        'referencia_externa' => ( $set && $ref !== '' ) ? $ref : null,
+    ] );
+    if ( ! $r['ok'] ) wp_send_json_error( 'Falha: ' . ( $r['raw'] ?? '' ) );
+    wp_send_json_success();
+} );
+
+add_action( 'wp_ajax_tao_caixa_antecipar_pagamento', function() {
+    $cid = tao_caixa_ajax_guard();
+    $id  = sanitize_text_field( $_POST['id'] ?? '' );
+    if ( ! $id ) wp_send_json_error( 'ID inválido' );
+    $rp = tao_caixa_api( "/caixa_pagamentos?id=eq.$id&cliente_id=eq.$cid&select=id,adquirente_id,valor_liquido,valor_taxa,antecipado&limit=1" );
+    if ( ! $rp['ok'] || empty( $rp['data'] ) ) wp_send_json_error( 'Pagamento não encontrado' );
+    $p = $rp['data'][0];
+    if ( ! empty( $p['antecipado'] ) ) wp_send_json_error( 'Pagamento já antecipado' );
+
+    $apct = 0.0;
+    if ( ! empty( $p['adquirente_id'] ) ) {
+        $ra = tao_caixa_api( "/caixa_adquirentes?id=eq.{$p['adquirente_id']}&cliente_id=eq.$cid&select=taxa_antecipacao_pct&limit=1" );
+        if ( $ra['ok'] && ! empty( $ra['data'] ) ) $apct = (float) ( $ra['data'][0]['taxa_antecipacao_pct'] ?? 0 );
+    }
+    $liq   = (float) $p['valor_liquido'];
+    $custo = round( $liq * $apct / 100, 2 );
+    $novo  = round( $liq - $custo, 2 );
+    $r = tao_caixa_api( "/caixa_pagamentos?id=eq.$id&cliente_id=eq.$cid", 'PATCH', [
+        'antecipado'          => true,
+        'taxa_antecip_pct'    => $apct,
+        'valor_taxa'          => round( (float) $p['valor_taxa'] + $custo, 2 ),
+        'valor_liquido'       => $novo,
+        'data_prevista_receb' => gmdate( 'Y-m-d' ),
+        'conciliado'          => true,
+        'conciliado_em'       => gmdate( 'c' ),
+    ] );
+    if ( ! $r['ok'] ) wp_send_json_error( 'Falha: ' . ( $r['raw'] ?? '' ) );
+    wp_send_json_success( [ 'custo_antecip' => $custo, 'novo_liquido' => $novo, 'taxa' => $apct ] );
+} );

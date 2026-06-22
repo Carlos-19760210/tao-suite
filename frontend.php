@@ -90,6 +90,7 @@ add_action( 'template_redirect', function() {
         'caixa'              => 'tao-caixa-dashboard',
         'caixa-vendas'       => 'tao-caixa-vendas',
         'caixa-sessao'       => 'tao-caixa-sessao',
+        'caixa-conciliacao'  => 'tao-caixa-conciliacao',
         'caixa-adquirentes'  => 'tao-caixa-adquirentes',
         'caixa-taxas'        => 'tao-caixa-taxas',
         'caixa-formas'       => 'tao-caixa-formas',

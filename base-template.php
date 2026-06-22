@@ -48,6 +48,7 @@ if ( $has_caixa ) {
     $secoes['tao-caixa-dashboard']   = [ 'fn' => 'tao_caixa_page_dashboard',    'label' => 'TAO Caixa' ];
     $secoes['tao-caixa-vendas']      = [ 'fn' => 'tao_caixa_page_vendas',       'label' => 'Caixa — Vendas' ];
     $secoes['tao-caixa-sessao']      = [ 'fn' => 'tao_caixa_page_sessao',       'label' => 'Caixa — Sessão' ];
+    $secoes['tao-caixa-conciliacao'] = [ 'fn' => 'tao_caixa_page_conciliacao',  'label' => 'Caixa — Conciliação' ];
     $secoes['tao-caixa-adquirentes'] = [ 'fn' => 'tao_caixa_page_adquirentes',  'label' => 'Caixa — Operadoras de Cartão' ];
     $secoes['tao-caixa-taxas']       = [ 'fn' => 'tao_caixa_page_taxas',        'label' => 'Caixa — Taxas (MDR)' ];
     $secoes['tao-caixa-formas']      = [ 'fn' => 'tao_caixa_page_formas_pgto',  'label' => 'Caixa — Formas de Pagamento' ];
@@ -185,6 +186,7 @@ if ( $has_caixa && function_exists( 'tao_caixa_pode_operar' ) && tao_caixa_pode_
             [ 'slug' => 'tao-caixa-dashboard', 'label' => 'Dashboard', 'url' => cbpm_url('caixa') ],
             [ 'slug' => 'tao-caixa-vendas',    'label' => 'Vendas',    'url' => cbpm_url('caixa-vendas') ],
             [ 'slug' => 'tao-caixa-sessao',    'label' => 'Sessão / Fechamento', 'url' => cbpm_url('caixa-sessao') ],
+            [ 'slug' => 'tao-caixa-conciliacao', 'label' => 'Conciliação', 'url' => cbpm_url('caixa-conciliacao') ],
         ],
     ];
 }
