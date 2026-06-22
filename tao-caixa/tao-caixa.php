@@ -16,6 +16,7 @@ define( 'TAOC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 require_once TAOC_PLUGIN_DIR . 'includes/api.php';
 require_once TAOC_PLUGIN_DIR . 'includes/permissao.php';
 require_once TAOC_PLUGIN_DIR . 'includes/ajax.php';
+require_once TAOC_PLUGIN_DIR . 'includes/venda.php';
 require_once TAOC_PLUGIN_DIR . 'includes/pages/dashboard.php';
 require_once TAOC_PLUGIN_DIR . 'includes/pages/adquirentes.php';
 require_once TAOC_PLUGIN_DIR . 'includes/pages/taxas.php';

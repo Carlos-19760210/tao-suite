@@ -1636,6 +1636,8 @@ function tao_crm_ajax_fechar_card() {
                 tao_crm_disparar_automacoes( $card_id, $pos_stage_id, 'entrar_fase' );
                 tao_crm_reset_chatbot_historico( $card['contato_whatsapp'] ?? '', $card['workspace_id'] ?? '' );
                 tao_crm_fire_webhook( $card['workspace_id'], 'card_fechado_ganho', [ 'card_id' => $card_id ] );
+                // Negócio fechado → gera a venda no Caixa (listener isolado; nunca quebra este fluxo)
+                do_action( 'tao_caixa_card_ganho', $card_id, $card['workspace_id'] ?? '' );
                 wp_send_json_success( [ 'pos_vendas' => true ] );
                 return;
             }
