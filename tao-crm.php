@@ -948,6 +948,44 @@ function tao_crm_ajax_notif_count() {
     wp_send_json_success( [ 'count' => $total, 'nao_lidos' => $nao_lidos ] );
 }
 
+/**
+ * Regra de produto: todo negócio GANHO no Funil de Vendas cruza para o Pós-vendas.
+ * Move o card para o 1º estágio do pipeline de pós-vendas (se configurado e diferente do atual),
+ * registra histórico, dispara webhook e o evento de venda (tao_caixa_card_ganho).
+ * @return string|false  id do estágio de pós-vendas se cruzou; false se não há pós-vendas (caller fecha no lugar).
+ */
+function tao_crm_cruzar_para_pos_vendas( $card_id, array $card, $de_estagio, $motivo = '' ) {
+    $ws = $card['workspace_id'] ?? '';
+    if ( ! $ws ) return false;
+    $pos_pl_id = get_option( 'tao_crm_pos_vendas_pipeline_' . $ws, '' );
+    if ( ! $pos_pl_id ) {
+        $rall   = tao_crm_api( "/crm_pipelines?workspace_id=eq.$ws&ativo=eq.true&order=ordem.asc&limit=2" );
+        $all_pl = $rall['ok'] ? ( $rall['data'] ?? [] ) : [];
+        if ( count( $all_pl ) >= 2 ) $pos_pl_id = $all_pl[1]['id'];
+    }
+    if ( ! $pos_pl_id || $pos_pl_id === ( $card['pipeline_id'] ?? '' ) ) return false;
+    $rps = tao_crm_api( "/crm_estagios?pipeline_id=eq.$pos_pl_id&order=ordem.asc&limit=1" );
+    if ( ! $rps['ok'] || empty( $rps['data'] ) ) return false;
+    $pos_stage_id = $rps['data'][0]['id'];
+    $r = tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [
+        'pipeline_id'        => $pos_pl_id,
+        'estagio_id'         => $pos_stage_id,
+        'movido_em'          => gmdate( 'c' ),
+        'atendimento_humano' => false,
+    ] );
+    if ( ! $r['ok'] ) return false;
+    if ( $de_estagio ) tao_crm_api( '/crm_cards_historico', 'POST', [
+        'card_id'         => $card_id,
+        'de_estagio_id'   => $de_estagio,
+        'para_estagio_id' => $pos_stage_id,
+        'usuario_id'      => get_current_user_id(),
+        'motivo'          => $motivo ?: 'Negócio ganho → Pós-vendas',
+    ] );
+    tao_crm_fire_webhook( $ws, 'card_fechado_ganho', [ 'card_id' => $card_id ] );
+    do_action( 'tao_caixa_card_ganho', $card_id, $ws );
+    return $pos_stage_id;
+}
+
 // ─── AJAX: MOVER CARD ────────────────────────────────────────────────────────
 
 add_action( 'wp_ajax_tao_crm_move_card', 'tao_crm_ajax_move_card' );
@@ -1031,10 +1069,17 @@ function tao_crm_ajax_move_card() {
         tao_crm_disparar_automacoes( $card_id, $estagio_id, 'tempo_na_fase' );
     }
 
-    // Fecha o card ao mover para estágio terminal (ganho/perdido)
-    $re_tipo = tao_crm_api( "/crm_estagios?id=eq.$estagio_id&select=tipo&limit=1" );
-    if ( $re_tipo['ok'] && ! empty( $re_tipo['data'] ) && in_array( $re_tipo['data'][0]['tipo'] ?? '', [ 'ganho', 'perdido' ] ) ) {
-        tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [ 'fechado' => true, 'status' => 'fechado' ] );
+    // Mover para estágio terminal (ganho/perdido)
+    $re_tipo   = tao_crm_api( "/crm_estagios?id=eq.$estagio_id&select=tipo&limit=1" );
+    $tipo_dest = ( $re_tipo['ok'] && ! empty( $re_tipo['data'] ) ) ? ( $re_tipo['data'][0]['tipo'] ?? '' ) : '';
+    if ( in_array( $tipo_dest, [ 'ganho', 'perdido' ], true ) ) {
+        // Regra: ganho no Funil de Vendas cruza pro Pós-vendas (se houver); senão fecha no lugar.
+        $cruzou = ( $tipo_dest === 'ganho' )
+            ? tao_crm_cruzar_para_pos_vendas( $card_id, $card_atual, $de_estagio )
+            : false;
+        if ( ! $cruzou ) {
+            tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [ 'fechado' => true, 'status' => ( $tipo_dest === 'ganho' ? 'ganho' : 'fechado' ) ] );
+        }
         // Limpa historico do chatbot para este número permitindo nova conversa limpa
         $rc_wh = tao_crm_api( "/crm_cards?id=eq.$card_id&select=contato_whatsapp,workspace_id&limit=1" );
         if ( $rc_wh['ok'] && ! empty( $rc_wh['data'] ) ) {
@@ -2026,14 +2071,18 @@ function tao_crm_ajax_bulk_action() {
             $rc = tao_crm_api( "/crm_cards?id=eq.$cid&limit=1" );
             if ( ! $rc['ok'] || empty( $rc['data'] ) ) { $results[$cid] = 'err'; continue; }
             $card = $rc['data'][0];
-            // Reutiliza lógica de fechar
-            $_POST['card_id'] = $cid;
-            $_POST['tipo']    = $tipo;
-            // Busca estágio de fechamento
+            $de   = $card['estagio_id'];
+
+            // GANHO: todo ganho do Funil de Vendas cruza pro Pós-vendas (mesma regra do individual)
+            if ( $tipo === 'ganho' && tao_crm_cruzar_para_pos_vendas( $cid, $card, $de ) ) {
+                $results[ $cid ] = 'ok';
+                continue;
+            }
+
+            // Fallback (perdido, ou ganho sem pós-vendas configurado): fecha no estágio terminal
             $re = tao_crm_api( "/crm_estagios?pipeline_id=eq.{$card['pipeline_id']}&tipo=eq.$tipo&order=ordem.asc&limit=1" );
             if ( ! $re['ok'] || empty( $re['data'] ) ) { $results[$cid] = 'no_stage'; continue; }
             $close_stage = $re['data'][0]['id'];
-            $de = $card['estagio_id'];
             tao_crm_api( "/crm_cards?id=eq.$cid", 'PATCH', [
                 'estagio_id' => $close_stage,
                 'fechado'    => true,
