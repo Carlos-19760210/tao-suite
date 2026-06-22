@@ -1174,7 +1174,7 @@ function tao_crm_page_card() {
                 ];
             }
             if ( $cids ) {
-                $rv = tao_crm_api( "/crm_card_campos?card_id=eq.$card_id&campo_id=in.(" . implode( ',', $cids ) . ")" );
+                $rv = tao_crm_api( "/crm_cards_valores?card_id=eq.$card_id&campo_id=in.(" . implode( ',', $cids ) . ")" );
                 foreach ( ( $rv['ok'] ? ( $rv['data'] ?? [] ) : [] ) as $v ) {
                     $ganho_valores_js[ $v['campo_id'] ] = $v['valor'];
                 }
