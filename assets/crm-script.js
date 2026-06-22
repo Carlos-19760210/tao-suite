@@ -1335,13 +1335,23 @@
             var ids = $('.crm-card-checkbox:checked').map(function(){ return $(this).data('card-id'); }).get();
             if(!ids.length) return;
             if(ids.length === 1) {
-                // 1 card selecionado: abre checklist de campos pré-carregados (sem AJAX)
+                // 1 card: busca os campos obrigatórios do estágio ganho DESTE card (robusto p/ qualquer funil/visão)
                 _fecharCardId = ids[0];
-                var campos = (typeof taoCrmGanhoCampos !== 'undefined') ? taoCrmGanhoCampos : [];
-                var valores = (typeof taoCrmGanhoValores !== 'undefined') ? taoCrmGanhoValores : {};
-                _abrirModalFechar('ganho', campos, valores);
+                crmPost({ action:'tao_crm_get_ganho_campos', nonce:taoCrm.nonce, card_id: ids[0] },
+                    function(resp){
+                        var d = (resp && resp.success && resp.data) ? resp.data : {};
+                        var campos = (d.campos && d.campos.length) ? d.campos
+                                   : ((typeof taoCrmGanhoCampos !== 'undefined') ? taoCrmGanhoCampos : []);
+                        _abrirModalFechar('ganho', campos, d.valores || {});
+                    },
+                    function(){ _abrirModalFechar('ganho', (typeof taoCrmGanhoCampos !== 'undefined') ? taoCrmGanhoCampos : [], {}); }
+                );
             } else {
-                // Múltiplos cards: ação em lote (sem checklist)
+                // Vários cards: se o funil exige campos no ganho, não dá pra coletar em lote → força 1 a 1
+                if((typeof taoCrmGanhoCampos !== 'undefined') && taoCrmGanhoCampos.length){
+                    alert('Este funil exige campos obrigatórios ao fechar. Feche os cards um a um para preenchê-los.');
+                    return;
+                }
                 if(!confirm('Fechar ' + ids.length + ' card(s) como GANHO?')) return;
                 var $btn = $(this).prop('disabled', true).text('Fechando...');
                 var payload = { action:'tao_crm_bulk_action', nonce:taoCrm.nonce, bulk_action:'fechar_ganho' };
