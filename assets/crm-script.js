@@ -759,6 +759,14 @@
     }
 
     $('#tao-crm-btn-ganho').on('click', function() {
+        // Regra: para fechar como Ganho é preciso ao menos 1 item do negócio
+        // (do catálogo, um orçamento de fórmula, ou via "+ Item")
+        var nItens = $('#crm-itens-list .crm-item-row').length;
+        var nOrcs  = $('#crm-formulas-list tr').length;
+        if (nItens + nOrcs < 1) {
+            alert('Adicione ao menos um item ao negócio (catálogo, orçamento ou "+ Item") antes de fechar o negócio.');
+            return;
+        }
         var cardId = (typeof taoCrmCardId !== 'undefined') ? taoCrmCardId : '';
         _fecharCardId = cardId;
         var campos = (typeof taoCrmGanhoCampos !== 'undefined') ? taoCrmGanhoCampos : [];
