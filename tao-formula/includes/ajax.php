@@ -1304,11 +1304,10 @@ function tao_formula_parse_descricao_itens( $descr, $cliente_id ) {
     // Ingredientes separados por "; "
     $parts = array_filter( array_map( 'trim', explode( ';', $resto ) ) );
     foreach ( $parts as $part ) {
-        $is_qsp = false;
-        if ( substr( $part, -1 ) === '@' ) {
-            $is_qsp = true;
-            $part   = trim( substr( $part, 0, -1 ) );
-        }
+        // @ marca ativos COM SALDO no FCerta — apenas remove o marcador (NÃO é QSP)
+        $part = trim( str_replace( '@', '', $part ) );
+        // QSP só quando o texto indica explicitamente (ex.: "QSP", "EXCIPIENTE")
+        $is_qsp = (bool) preg_match( '/\b(QSP|EXCIPIENTE)\b/i', $part );
 
         $nome      = trim( $part );
         $dose      = null;
@@ -1326,10 +1325,21 @@ function tao_formula_parse_descricao_itens( $descr, $cliente_id ) {
 
         // Busca ativo pelo nome — wildcards (*) NÃO devem ser encoded (PostgREST usa * como glob)
         $nome_enc = rawurlencode( $nome );
+        $sel_ativo = 'id,nome,codigo_fc,preco_venda,custo_por_unidade,unidade_padrao,fator_perda,diluicao,teor,densidade,concentracao';
         $ra  = tao_formula_api(
-            "/ativos?cliente_id=eq.{$cliente_id}&nome=ilike.*{$nome_enc}*" .
-            "&select=id,nome,codigo_fc,preco_venda,custo_por_unidade,unidade_padrao,fator_perda,diluicao,teor,densidade,concentracao&limit=1"
+            "/ativos?cliente_id=eq.{$cliente_id}&nome=ilike.*{$nome_enc}*&select={$sel_ativo}&limit=1"
         );
+
+        // Fallback: se não achou por nome, tenta um sinônimo cadastrado (ativos_sinonimos)
+        if ( ! ( $ra['ok'] && ! empty( $ra['data'] ) ) ) {
+            $rs = tao_formula_api(
+                "/ativos_sinonimos?cliente_id=eq.{$cliente_id}&sinonimo=ilike." . rawurlencode( $nome ) . "&select=ativo_id&limit=1"
+            );
+            if ( $rs['ok'] && ! empty( $rs['data'] ) ) {
+                $aid = $rs['data'][0]['ativo_id'];
+                $ra  = tao_formula_api( "/ativos?id=eq.{$aid}&cliente_id=eq.{$cliente_id}&select={$sel_ativo}&limit=1" );
+            }
+        }
 
         $ativo_id    = '';
         $codigo_fc   = '';
