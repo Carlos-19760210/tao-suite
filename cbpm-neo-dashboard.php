@@ -72,10 +72,44 @@ function cbpm_page_neo_dashboard() {
         $prev = $t;
     }
     if ( $cur ) $sessions[] = $cur;
+    // Horário de trabalho do negócio (TMR/TMA contam só dentro do expediente)
+    $horario = null;
+    $cid_h = $filter_cliente ?: $own_cid;
+    if ( $cid_h && function_exists( 'tao_crm_get_horario_ws' ) ) {
+        $rwsh = cbpm_api( '/crm_workspaces?cliente_id=eq.' . urlencode( $cid_h ) . '&select=id&limit=1' );
+        if ( $rwsh['ok'] && ! empty( $rwsh['data'] ) ) {
+            $h = tao_crm_get_horario_ws( $rwsh['data'][0]['id'] );
+            if ( ! empty( $h['ativo'] ) ) $horario = $h;
+        }
+    }
+    // segundos entre dois instantes contando APENAS o expediente configurado
+    $bsec = function ( $from, $to ) use ( $horario ) {
+        if ( $to <= $from ) return 0;
+        if ( empty( $horario ) ) return $to - $from;
+        try { $z = new DateTimeZone( $horario['timezone'] ?: 'America/Sao_Paulo' ); }
+        catch ( Exception $e ) { return $to - $from; }
+        $dias = $horario['dias'] ?? [];
+        $total = 0; $guard = 0;
+        $day = ( new DateTime( '@' . $from ) )->setTimezone( $z ); $day->setTime( 0, 0, 0 );
+        while ( $day->getTimestamp() <= $to && $guard < 400 ) {
+            $guard++;
+            $dow = (int) $day->format( 'w' );
+            $dia = $dias[ $dow ] ?? ( $dias[ (string) $dow ] ?? null );
+            if ( $dia && ! empty( $dia['ativo'] ) ) {
+                $ab = explode( ':', $dia['abertura'] ); $fe = explode( ':', $dia['fechamento'] );
+                $open  = ( clone $day )->setTime( (int) $ab[0], (int) ( $ab[1] ?? 0 ), 0 )->getTimestamp();
+                $close = ( clone $day )->setTime( (int) $fe[0], (int) ( $fe[1] ?? 0 ), 0 )->getTimestamp();
+                $os = max( $from, $open ); $cs = min( $to, $close );
+                if ( $cs > $os ) $total += ( $cs - $os );
+            }
+            $day->modify( '+1 day' );
+        }
+        return $total;
+    };
     $tma_s = 0; $tma_n = 0; $tmr_s = 0; $tmr_n = 0;
     foreach ( $sessions as $s ) {
-        $tma_s += ( $s['last'] - $s['first'] ); $tma_n++;
-        if ( $s['fuser'] !== null && $s['fresp'] !== null && $s['fresp'] >= $s['fuser'] ) { $tmr_s += ( $s['fresp'] - $s['fuser'] ); $tmr_n++; }
+        $tma_s += $bsec( $s['first'], $s['last'] ); $tma_n++;
+        if ( $s['fuser'] !== null && $s['fresp'] !== null && $s['fresp'] >= $s['fuser'] ) { $tmr_s += $bsec( $s['fuser'], $s['fresp'] ); $tmr_n++; }
     }
     $tma = $tma_n ? $tma_s / $tma_n : 0;
     $tmr = $tmr_n ? $tmr_s / $tmr_n : 0;
@@ -129,7 +163,7 @@ function cbpm_page_neo_dashboard() {
                 <?php endforeach; ?>
             </div>
         </div>
-        <p style="color:#646970;font-size:13px;margin:0 0 16px">Atendimento via chatbot &mdash; período: <strong><?php echo esc_html( $periodos[ $periodo ] ); ?></strong></p>
+        <p style="color:#646970;font-size:13px;margin:0 0 16px">Atendimento via chatbot &mdash; período: <strong><?php echo esc_html( $periodos[ $periodo ] ); ?></strong><?php if ( $horario ) echo ' &middot; <span title="TMR e TMA contam apenas o tempo dentro do horário de atendimento">TMR/TMA no expediente</span>'; ?></p>
 
         <!-- KPIs -->
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:14px;margin-bottom:20px">

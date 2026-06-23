@@ -10,12 +10,14 @@ function tao_caixa_page_dashboard() {
 
     // Período (presets)
     $p = sanitize_text_field( $_GET['p'] ?? 'mes' );
-    $hoje = gmdate( 'Y-m-d' );
+    $tz = new DateTimeZone( 'America/Sao_Paulo' );
+    $now_sp = new DateTime( 'now', $tz );
+    $hoje = $now_sp->format( 'Y-m-d' );
     if ( $p === 'hoje' )      { $de = $hoje; $label = 'Hoje'; }
-    elseif ( $p === '7d' )    { $de = gmdate( 'Y-m-d', time() - 6 * 86400 ); $label = 'Últimos 7 dias'; }
-    else                      { $p = 'mes'; $de = gmdate( 'Y-m-01' ); $label = 'Este mês'; }
-    $de_iso  = $de . 'T00:00:00';
-    $ate_iso = $hoje . 'T23:59:59';
+    elseif ( $p === '7d' )    { $de = ( clone $now_sp )->modify( '-6 days' )->format( 'Y-m-d' ); $label = 'Últimos 7 dias'; }
+    else                      { $p = 'mes'; $de = $now_sp->format( 'Y-m-01' ); $label = 'Este mês'; }
+    $de_iso  = $de   . 'T00:00:00-03:00';
+    $ate_iso = $hoje . 'T23:59:59-03:00';
 
     $vendas = []; $pagtos = []; $formas_map = [];
     if ( $cid ) {
@@ -40,7 +42,7 @@ function tao_caixa_page_dashboard() {
 
     // Pagamentos por forma + a receber das operadoras por data prevista
     $por_forma = []; $tot_bruto = 0.0; $tot_taxa = 0.0; $tot_liq = 0.0;
-    $a_cair = []; $hoje_d = gmdate( 'Y-m-d' );
+    $a_cair = []; $hoje_d = $hoje;
     foreach ( $pagtos as $pg ) {
         $fid = $pg['forma_pagamento_id'] ?? ''; $nome = $formas_map[ $fid ] ?? '—';
         if ( ! isset( $por_forma[ $nome ] ) ) $por_forma[ $nome ] = [ 'n' => 0, 'bruto' => 0.0, 'taxa' => 0.0, 'liq' => 0.0 ];

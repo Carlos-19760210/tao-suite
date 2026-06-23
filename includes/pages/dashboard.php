@@ -186,12 +186,39 @@ function tao_crm_page_dashboard() {
         return $s . ' s';
     };
 
+    // Horário de trabalho do workspace — TMA/TMR contam APENAS o tempo dentro do expediente
+    $h_ws = function_exists( 'tao_crm_get_horario_ws' ) ? tao_crm_get_horario_ws( $ws_id ) : null;
+    if ( empty( $h_ws['ativo'] ) ) $h_ws = null;
+    $bsec = function ( $from_iso, $to_iso ) use ( $h_ws ) {
+        $from = strtotime( (string) $from_iso ); $to = strtotime( (string) $to_iso );
+        if ( ! $from || ! $to || $to <= $from ) return 0;
+        if ( empty( $h_ws ) ) return $to - $from;
+        try { $z = new DateTimeZone( $h_ws['timezone'] ?: 'America/Sao_Paulo' ); }
+        catch ( Exception $e ) { return $to - $from; }
+        $dias = $h_ws['dias'] ?? []; $total = 0; $guard = 0;
+        $day = ( new DateTime( '@' . $from ) )->setTimezone( $z ); $day->setTime( 0, 0, 0 );
+        while ( $day->getTimestamp() <= $to && $guard < 400 ) {
+            $guard++;
+            $dow = (int) $day->format( 'w' );
+            $dia = $dias[ $dow ] ?? ( $dias[ (string) $dow ] ?? null );
+            if ( $dia && ! empty( $dia['ativo'] ) ) {
+                $ab = explode( ':', $dia['abertura'] ); $fe = explode( ':', $dia['fechamento'] );
+                $open  = ( clone $day )->setTime( (int) $ab[0], (int) ( $ab[1] ?? 0 ), 0 )->getTimestamp();
+                $close = ( clone $day )->setTime( (int) $fe[0], (int) ( $fe[1] ?? 0 ), 0 )->getTimestamp();
+                $os = max( $from, $open ); $cs = min( $to, $close );
+                if ( $cs > $os ) $total += ( $cs - $os );
+            }
+            $day->modify( '+1 day' );
+        }
+        return $total;
+    };
+
     // TMA = tempo médio do card (criação → resolução: ganho ou perdido) no período
     $tma_secs = [];
     foreach ( array_merge( array_keys( $ganho_events ), array_keys( $perdido_events ) ) as $cid ) {
         $cri = $card_map[ $cid ]['criado_em'] ?? '';
         $res = $ganho_events[ $cid ] ?? ( $perdido_events[ $cid ] ?? '' );
-        if ( $cri && $res ) { $d = strtotime( $res ) - strtotime( $cri ); if ( $d > 0 ) $tma_secs[] = $d; }
+        if ( $cri && $res ) { $d = $bsec( $cri, $res ); if ( $d > 0 ) $tma_secs[] = $d; }
     }
     $tma_med = $tma_secs ? array_sum( $tma_secs ) / count( $tma_secs ) : 0;
 
@@ -212,7 +239,7 @@ function tao_crm_page_dashboard() {
             if ( $first_in === null && $dir === 'in' ) { $first_in = $m['enviado_em']; continue; }
             if ( $first_in !== null && $dir === 'out' && ( $m['enviado_em'] ?? '' ) >= $first_in ) { $first_out = $m['enviado_em']; break; }
         }
-        if ( $first_in && $first_out ) { $d = strtotime( $first_out ) - strtotime( $first_in ); if ( $d >= 0 ) $tmr_secs[] = $d; }
+        if ( $first_in && $first_out ) { $d = $bsec( $first_in, $first_out ); if ( $d >= 0 ) $tmr_secs[] = $d; }
     }
     $tmr_med = $tmr_secs ? array_sum( $tmr_secs ) / count( $tmr_secs ) : 0;
 
