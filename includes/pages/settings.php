@@ -2230,7 +2230,10 @@ function tao_crm_page_settings() {
         </div>
 
         <script>
-        (function($){
+        (function(){
+          function boot(){
+            if(typeof window.jQuery==='undefined'||typeof window.crmPost==='undefined'||typeof window.taoCrm==='undefined'){ return setTimeout(boot,50); }
+            var $=window.jQuery;
             var wsId = $('#tao-tpl-ws').val();
             function loadTpl(){
                 crmPost({ action:'tao_crm_get_templates', nonce:taoCrm.nonce, workspace_id:wsId }, function(resp){
@@ -2250,23 +2253,27 @@ function tao_crm_page_settings() {
                                 }), ' ',
                                 $('<button>').addClass('button button-small').text('Excluir').css({color:'#dc2626','border-color':'#dc2626'}).on('click',function(){
                                     if(!confirm('Excluir template "'+t.nome+'"?')) return;
-                                    crmPost({action:'tao_crm_delete_template',nonce:taoCrm.nonce,id:t.id},function(r){ if(r.success) loadTpl(); else alert('Erro: '+(r.data||'')); });
+                                    crmPost({action:'tao_crm_delete_template',nonce:taoCrm.nonce,id:t.id},function(r){ if(r.success) loadTpl(); else alert('Erro: '+(r.data||'')); }, function(e){ alert('Erro: '+e); });
                                 })
                             )
                         ));
                     });
-                });
+                }, function(e){ $('#tao-tpl-body').html('<tr><td colspan="3" style="color:#dc2626">Erro ao carregar: '+e+'</td></tr>'); });
             }
-            jQuery(loadTpl);
+            loadTpl();
             $('#tao-tpl-new').on('click',function(){ $('#tao-tpl-id').val(''); $('#tao-tpl-nome,#tao-tpl-conteudo').val(''); $('#tao-tpl-form-title').text('Novo template'); $('#tao-tpl-status').text(''); });
-            $('#tao-tpl-save').on('click',function(){
+            $('#tao-tpl-save').on('click',function(e){
+                e.preventDefault();
                 var nome=$('#tao-tpl-nome').val().trim(), conteudo=$('#tao-tpl-conteudo').val().trim();
                 if(!nome||!conteudo){ alert('Preencha nome e conteúdo'); return; }
                 var $btn=$(this).prop('disabled',true).text('Salvando...');
                 crmPost({action:'tao_crm_save_template',nonce:taoCrm.nonce,id:$('#tao-tpl-id').val(),workspace_id:wsId,nome:nome,conteudo:conteudo},
-                    function(r){ $btn.prop('disabled',false).text('Salvar'); if(r.success){ $('#tao-tpl-status').css('color','green').text('✔ Salvo'); loadTpl(); } else { $('#tao-tpl-status').css('color','red').text('✘ '+(r.data||'Erro')); }});
+                    function(r){ $btn.prop('disabled',false).text('Salvar'); if(r.success){ $('#tao-tpl-status').css('color','green').text('✔ Salvo'); loadTpl(); } else { $('#tao-tpl-status').css('color','red').text('✘ '+(r.data||'Erro')); }},
+                    function(e){ $btn.prop('disabled',false).text('Salvar'); $('#tao-tpl-status').css('color','red').text('✘ '+e); });
             });
-        })(jQuery);
+          }
+          boot();
+        })();
         </script>
 
         <?php elseif ( $tab === 'webhooks' ) : ?>
