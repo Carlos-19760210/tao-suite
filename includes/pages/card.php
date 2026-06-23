@@ -324,17 +324,19 @@ function tao_crm_page_card() {
                         $_dval = ( ( $card['desconto_tipo'] ?? 'valor' ) === 'valor' && floatval( $card['desconto'] ?? 0 ) > 0 ) ? $card['desconto'] : '';
                     ?>
                     <?php if ( empty( $card['fechado'] ) ) : ?>
-                    <div class="info-row crm-info-row" style="align-items:center;gap:5px">
+                    <div class="info-row crm-info-row" style="align-items:center">
                         <span class="info-label">Desconto</span>
-                        <input type="number" id="crm-desconto-pct" step="0.01" min="0" value="<?php echo esc_attr( $_dpct ); ?>"
-                               placeholder="0" title="Desconto em %"
-                               style="width:56px;font-size:12px;padding:3px 6px;border:1px solid #d1d5db;border-radius:4px">
-                        <span style="font-size:12px;color:#64748b">%</span>
-                        <input type="number" id="crm-desconto-valor" step="0.01" min="0" value="<?php echo esc_attr( $_dval ); ?>"
-                               placeholder="0,00" title="Desconto em R$"
-                               style="width:84px;font-size:12px;padding:3px 6px;border:1px solid #d1d5db;border-radius:4px">
-                        <span style="font-size:12px;color:#64748b">R$</span>
-                        <span id="crm-desconto-status" style="display:none;font-size:11px;color:#16a34a">&#x2714;</span>
+                        <span style="display:flex;align-items:center;gap:5px;margin-left:auto">
+                            <input type="number" id="crm-desconto-pct" step="0.01" min="0" value="<?php echo esc_attr( $_dpct ); ?>"
+                                   placeholder="0" title="Desconto em %"
+                                   style="width:54px;font-size:12px;padding:3px 6px;border:1px solid #d1d5db;border-radius:4px;text-align:right">
+                            <span style="font-size:12px;color:#64748b">%</span>
+                            <input type="number" id="crm-desconto-valor" step="0.01" min="0" value="<?php echo esc_attr( $_dval ); ?>"
+                                   placeholder="0,00" title="Desconto em R$"
+                                   style="width:84px;font-size:12px;padding:3px 6px;border:1px solid #d1d5db;border-radius:4px;text-align:right">
+                            <span style="font-size:12px;color:#64748b">R$</span>
+                            <span id="crm-desconto-status" style="display:none;font-size:11px;color:#16a34a">&#x2714;</span>
+                        </span>
                     </div>
                     <?php endif; ?>
 
