@@ -312,29 +312,38 @@ function tao_crm_page_card() {
                         </select>
                     </div>
 
-                    <!-- Valor de oportunidade -->
+                    <!-- Subtotal (itens + orçamentos) -->
                     <div class="info-row crm-info-row" style="align-items:center;gap:6px">
-                        <span class="info-label">Valor (R$)</span>
+                        <span class="info-label">Subtotal (R$)</span>
+                        <span id="crm-subtotal" style="font-size:12px;color:#475569">R$ 0,00</span>
+                    </div>
+
+                    <!-- Desconto concedido (R$ ou %) -->
+                    <?php if ( empty( $card['fechado'] ) ) : ?>
+                    <div class="info-row crm-info-row" style="align-items:center;gap:6px">
+                        <span class="info-label">Desconto</span>
+                        <input type="number" id="crm-desconto" step="0.01" min="0"
+                               value="<?php echo esc_attr( ( isset( $card['desconto'] ) && floatval( $card['desconto'] ) > 0 ) ? $card['desconto'] : '' ); ?>"
+                               placeholder="0,00"
+                               style="width:80px;font-size:12px;padding:3px 6px;border:1px solid #d1d5db;border-radius:4px">
+                        <select id="crm-desconto-tipo" style="font-size:12px;padding:3px;border:1px solid #d1d5db;border-radius:4px">
+                            <option value="valor" <?php selected( ( $card['desconto_tipo'] ?? 'valor' ), 'valor' ); ?>>R$</option>
+                            <option value="pct"   <?php selected( ( $card['desconto_tipo'] ?? 'valor' ), 'pct' ); ?>>%</option>
+                        </select>
+                        <span id="crm-desconto-status" style="display:none;font-size:11px;color:#16a34a">&#x2714;</span>
+                    </div>
+                    <?php endif; ?>
+
+                    <!-- Valor final (= subtotal − desconto) -->
+                    <div class="info-row crm-info-row" style="align-items:center;gap:6px">
+                        <span class="info-label">Valor Final (R$)</span>
                         <input type="number" id="crm-valor-oportunidade" step="0.01" min="0"
                                value="<?php echo esc_attr( $card['valor_oportunidade'] ?? '' ); ?>"
                                data-original="<?php echo esc_attr( $card['valor_oportunidade'] ?? '' ); ?>"
                                placeholder="0,00"
-                               title="Calculado automaticamente quando há itens cadastrados"
+                               title="Valor após o desconto (auto quando há itens/orçamentos)"
                                style="width:110px;font-size:12px;padding:3px 6px;border:1px solid #d1d5db;border-radius:4px">
                     </div>
-
-                    <!-- Desconto concedido -->
-                    <?php if ( empty( $card['fechado'] ) ) : ?>
-                    <div class="info-row crm-info-row" style="align-items:center;gap:6px">
-                        <span class="info-label">Desconto (R$)</span>
-                        <input type="number" id="crm-desconto" step="0.01" min="0"
-                               value="<?php echo esc_attr( ( isset( $card['desconto'] ) && floatval( $card['desconto'] ) > 0 ) ? $card['desconto'] : '' ); ?>"
-                               placeholder="0,00"
-                               title="Desconto concedido no negócio — subtraído do total de itens/orçamentos"
-                               style="width:110px;font-size:12px;padding:3px 6px;border:1px solid #d1d5db;border-radius:4px">
-                        <span id="crm-desconto-status" style="display:none;font-size:11px;color:#16a34a">&#x2714;</span>
-                    </div>
-                    <?php endif; ?>
 
                     <!-- Barra Salvar / Cancelar informações gerais -->
                     <?php if ( empty( $card['fechado'] ) ) : ?>
@@ -1150,11 +1159,18 @@ function tao_crm_page_card() {
     window._crmItensTotal    = 0;
     window._crmFormulasTotal = 0;
     window._crmDesconto      = <?php echo floatval( $card['desconto'] ?? 0 ); ?>;
+    window._crmDescTipo      = <?php echo wp_json_encode( $card['desconto_tipo'] ?? 'valor' ); ?>;
+    window._crmDescReais = function ( sub ) {
+        var d = window._crmDesconto || 0;
+        return window._crmDescTipo === 'pct' ? ( sub * d / 100 ) : d;
+    };
     window.atualizarOportunidade = (function () {
         var _timer;
         return function () {
             var _sub = (window._crmItensTotal || 0) + (window._crmFormulasTotal || 0);
-            var tot  = _sub > 0 ? Math.max( 0, _sub - (window._crmDesconto || 0) ) : 0;
+            var _sd  = document.getElementById('crm-subtotal');
+            if ( _sd ) _sd.textContent = 'R$ ' + _sub.toFixed(2).replace('.', ',');
+            var tot  = _sub > 0 ? Math.max( 0, _sub - window._crmDescReais( _sub ) ) : 0;
             var inp = document.getElementById('crm-valor-oportunidade');
             if (!inp) return;
             inp.value = tot > 0 ? tot.toFixed(2) : '';
@@ -1245,21 +1261,24 @@ function tao_crm_page_card() {
             });
         }
 
-        // ── Desconto concedido ───────────────────────────────────────────
+        // ── Desconto concedido (R$ / %) ──────────────────────────────────
         var descInput = document.getElementById('crm-desconto');
+        var descTipo  = document.getElementById('crm-desconto-tipo');
         if ( descInput && window.taoCrm ) {
-            descInput.addEventListener('change', function () {
+            var salvarDesc = function () {
                 window._crmDesconto = parseFloat( descInput.value ) || 0;
+                window._crmDescTipo = descTipo ? descTipo.value : 'valor';
                 if ( window.atualizarOportunidade ) window.atualizarOportunidade();
                 var st = document.getElementById('crm-desconto-status');
                 fetch( taoCrm.ajax_url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body: new URLSearchParams({
-                        action:  'tao_crm_save_desconto',
-                        card_id: taoCrmCardId,
-                        desconto: window._crmDesconto,
-                        nonce:   taoCrm.nonce
+                        action:        'tao_crm_save_desconto',
+                        card_id:       taoCrmCardId,
+                        desconto:      window._crmDesconto,
+                        desconto_tipo: window._crmDescTipo,
+                        nonce:         taoCrm.nonce
                     })
                 }).then(function(r){ return r.json(); }).then(function(d){
                     if ( d.success ) {
@@ -1272,7 +1291,9 @@ function tao_crm_page_card() {
                         alert( 'Erro ao salvar desconto: ' + ( d.data || '' ) );
                     }
                 });
-            });
+            };
+            descInput.addEventListener('change', salvarDesc);
+            if ( descTipo ) descTipo.addEventListener('change', salvarDesc);
         }
 
         // ── Etiquetas (tags) ─────────────────────────────────────────────

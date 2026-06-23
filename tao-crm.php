@@ -3878,8 +3878,9 @@ add_action( 'wp_ajax_tao_crm_save_desconto', function () {
     $card_id = sanitize_text_field( $_POST['card_id'] ?? '' );
     $desc    = floatval( $_POST['desconto'] ?? 0 );
     if ( $desc < 0 ) $desc = 0;                       // sem limite superior; não permite negativo
+    $dtipo   = ( ( $_POST['desconto_tipo'] ?? 'valor' ) === 'pct' ) ? 'pct' : 'valor';
     if ( ! $card_id ) wp_send_json_error( 'card_id obrigatório' );
-    $r = tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [ 'desconto' => $desc ] );
+    $r = tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [ 'desconto' => $desc, 'desconto_tipo' => $dtipo ] );
     if ( ! $r['ok'] ) wp_send_json_error( $r['error'] ?? 'Erro ao salvar desconto' );
     // Recalcula o valor apenas se houver itens/orçamentos (card manual mantém o valor digitado)
     $tem = false;
@@ -4572,10 +4573,15 @@ function tao_crm_sync_valor_oportunidade( string $card_id ): void {
         foreach ( $ro['data'] ?? [] as $o ) $total += floatval( $o['total_orcamento'] ?? 0 );
     }
 
-    // Desconto concedido no card — subtraído do subtotal (sem limite; valor mínimo 0)
-    $rd   = tao_crm_api( "/crm_cards?id=eq.$card_id&select=desconto&limit=1" );
-    $desc = ( $rd['ok'] && ! empty( $rd['data'] ) ) ? floatval( $rd['data'][0]['desconto'] ?? 0 ) : 0.0;
-    $total = max( 0, $total - $desc );
+    // Desconto concedido no card (R$ ou %) — subtraído do subtotal (sem limite; valor mínimo 0)
+    $rd    = tao_crm_api( "/crm_cards?id=eq.$card_id&select=desconto,desconto_tipo&limit=1" );
+    $dval  = 0.0; $dtipo = 'valor';
+    if ( $rd['ok'] && ! empty( $rd['data'] ) ) {
+        $dval  = floatval( $rd['data'][0]['desconto'] ?? 0 );
+        $dtipo = $rd['data'][0]['desconto_tipo'] ?? 'valor';
+    }
+    $desc_reais = ( $dtipo === 'pct' ) ? ( $total * $dval / 100 ) : $dval;
+    $total = max( 0, $total - $desc_reais );
 
     tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [ 'valor_oportunidade' => round( $total, 2 ) ] );
 }
