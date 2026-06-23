@@ -401,9 +401,9 @@ function cbpm_page_dashboard() {
             </span>
         </form>
 
-        <!-- ── TAO Neo ───────────────────────────────────────────────────── -->
+        <!-- ── Agente ───────────────────────────────────────────────────── -->
         <h2 style="font-family:'Playfair Display',serif;font-size:20px;color:#152C42;margin:0 0 14px;display:flex;align-items:center;gap:8px">
-            &#x1F916; TAO Neo
+            &#x1F916; Agente
             <span style="font-family:'Inter',sans-serif;font-size:12px;font-weight:400;color:#6B7280;margin-left:4px"><?php echo esc_html($periodos[$periodo]); ?></span>
         </h2>
 
