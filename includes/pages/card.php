@@ -318,18 +318,22 @@ function tao_crm_page_card() {
                         <span id="crm-subtotal" style="font-size:12px;color:#475569">R$ 0,00</span>
                     </div>
 
-                    <!-- Desconto concedido (R$ ou %) -->
+                    <!-- Desconto: % e R$ ligados (preencha um, o outro calcula) -->
+                    <?php
+                        $_dpct = ( ( $card['desconto_tipo'] ?? 'valor' ) === 'pct'   && floatval( $card['desconto'] ?? 0 ) > 0 ) ? $card['desconto'] : '';
+                        $_dval = ( ( $card['desconto_tipo'] ?? 'valor' ) === 'valor' && floatval( $card['desconto'] ?? 0 ) > 0 ) ? $card['desconto'] : '';
+                    ?>
                     <?php if ( empty( $card['fechado'] ) ) : ?>
-                    <div class="info-row crm-info-row" style="align-items:center;gap:6px">
+                    <div class="info-row crm-info-row" style="align-items:center;gap:5px">
                         <span class="info-label">Desconto</span>
-                        <input type="number" id="crm-desconto" step="0.01" min="0"
-                               value="<?php echo esc_attr( ( isset( $card['desconto'] ) && floatval( $card['desconto'] ) > 0 ) ? $card['desconto'] : '' ); ?>"
-                               placeholder="0,00"
-                               style="width:80px;font-size:12px;padding:3px 6px;border:1px solid #d1d5db;border-radius:4px">
-                        <select id="crm-desconto-tipo" style="font-size:12px;padding:3px;border:1px solid #d1d5db;border-radius:4px">
-                            <option value="valor" <?php selected( ( $card['desconto_tipo'] ?? 'valor' ), 'valor' ); ?>>R$</option>
-                            <option value="pct"   <?php selected( ( $card['desconto_tipo'] ?? 'valor' ), 'pct' ); ?>>%</option>
-                        </select>
+                        <input type="number" id="crm-desconto-pct" step="0.01" min="0" value="<?php echo esc_attr( $_dpct ); ?>"
+                               placeholder="0" title="Desconto em %"
+                               style="width:56px;font-size:12px;padding:3px 6px;border:1px solid #d1d5db;border-radius:4px">
+                        <span style="font-size:12px;color:#64748b">%</span>
+                        <input type="number" id="crm-desconto-valor" step="0.01" min="0" value="<?php echo esc_attr( $_dval ); ?>"
+                               placeholder="0,00" title="Desconto em R$"
+                               style="width:84px;font-size:12px;padding:3px 6px;border:1px solid #d1d5db;border-radius:4px">
+                        <span style="font-size:12px;color:#64748b">R$</span>
                         <span id="crm-desconto-status" style="display:none;font-size:11px;color:#16a34a">&#x2714;</span>
                     </div>
                     <?php endif; ?>
@@ -1170,7 +1174,12 @@ function tao_crm_page_card() {
             var _sub = (window._crmItensTotal || 0) + (window._crmFormulasTotal || 0);
             var _sd  = document.getElementById('crm-subtotal');
             if ( _sd ) _sd.textContent = 'R$ ' + _sub.toFixed(2).replace('.', ',');
-            var tot  = _sub > 0 ? Math.max( 0, _sub - window._crmDescReais( _sub ) ) : 0;
+            var _rs = _sub > 0 ? window._crmDescReais( _sub ) : 0;
+            var _p  = document.getElementById('crm-desconto-pct');
+            var _v  = document.getElementById('crm-desconto-valor');
+            if ( _p && document.activeElement !== _p ) _p.value = ( _sub > 0 && _rs > 0 ) ? ( _rs / _sub * 100 ).toFixed(2) : '';
+            if ( _v && document.activeElement !== _v ) _v.value = ( _rs > 0 ) ? _rs.toFixed(2) : '';
+            var tot = Math.max( 0, _sub - _rs );
             var inp = document.getElementById('crm-valor-oportunidade');
             if (!inp) return;
             inp.value = tot > 0 ? tot.toFixed(2) : '';
@@ -1261,14 +1270,11 @@ function tao_crm_page_card() {
             });
         }
 
-        // ── Desconto concedido (R$ / %) ──────────────────────────────────
-        var descInput = document.getElementById('crm-desconto');
-        var descTipo  = document.getElementById('crm-desconto-tipo');
-        if ( descInput && window.taoCrm ) {
+        // ── Desconto: % ↔ R$ (ligados) ───────────────────────────────────
+        var dPct = document.getElementById('crm-desconto-pct');
+        var dVal = document.getElementById('crm-desconto-valor');
+        if ( ( dPct || dVal ) && window.taoCrm ) {
             var salvarDesc = function () {
-                window._crmDesconto = parseFloat( descInput.value ) || 0;
-                window._crmDescTipo = descTipo ? descTipo.value : 'valor';
-                if ( window.atualizarOportunidade ) window.atualizarOportunidade();
                 var st = document.getElementById('crm-desconto-status');
                 fetch( taoCrm.ajax_url, {
                     method: 'POST',
@@ -1276,8 +1282,8 @@ function tao_crm_page_card() {
                     body: new URLSearchParams({
                         action:        'tao_crm_save_desconto',
                         card_id:       taoCrmCardId,
-                        desconto:      window._crmDesconto,
-                        desconto_tipo: window._crmDescTipo,
+                        desconto:      window._crmDesconto || 0,
+                        desconto_tipo: window._crmDescTipo || 'valor',
                         nonce:         taoCrm.nonce
                     })
                 }).then(function(r){ return r.json(); }).then(function(d){
@@ -1292,8 +1298,18 @@ function tao_crm_page_card() {
                     }
                 });
             };
-            descInput.addEventListener('change', salvarDesc);
-            if ( descTipo ) descTipo.addEventListener('change', salvarDesc);
+            if ( dPct ) dPct.addEventListener('input', function () {
+                window._crmDesconto = parseFloat( dPct.value ) || 0;
+                window._crmDescTipo = 'pct';
+                if ( window.atualizarOportunidade ) window.atualizarOportunidade();
+            });
+            if ( dVal ) dVal.addEventListener('input', function () {
+                window._crmDesconto = parseFloat( dVal.value ) || 0;
+                window._crmDescTipo = 'valor';
+                if ( window.atualizarOportunidade ) window.atualizarOportunidade();
+            });
+            if ( dPct ) dPct.addEventListener('change', salvarDesc);
+            if ( dVal ) dVal.addEventListener('change', salvarDesc);
         }
 
         // ── Etiquetas (tags) ─────────────────────────────────────────────
