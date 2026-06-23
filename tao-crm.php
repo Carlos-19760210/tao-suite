@@ -3407,6 +3407,15 @@ function tao_crm_rest_lead_to_card( WP_REST_Request $req ) {
     // Quando novo_atendimento=true, primeiro verifica se já existe card com atendimento_humano=true.
     // Se só existe card com atendimento_humano=false (ex: após Devolver ao Chatbot),
     // reativa esse card em vez de criar um duplicado.
+    // ── Lock anti-duplicata: serializa check+insert por (workspace+telefone) ──
+    // Sem isto, duas chamadas quase simultâneas (webhook entregue 2x) fazem o SELECT
+    // antes de qualquer INSERT e criam dois cards. O GET_LOCK serializa os processos
+    // (a 2ª chamada espera, e então o SELECT já enxerga o card criado pela 1ª).
+    global $wpdb;
+    $_ltc_lock = 'tcltc_' . substr( md5( $workspace_id . '|' . $whatsapp ), 0, 40 );
+    $wpdb->get_var( $wpdb->prepare( "SELECT GET_LOCK(%s, %d)", $_ltc_lock, 8 ) );
+    try {
+
     $novo_atendimento = ! empty( $body['novo_atendimento'] );
     $dedup_filter     = "/crm_cards?workspace_id=eq.$workspace_id&contato_whatsapp=eq.$whatsapp&fechado=eq.false&order=criado_em.desc&limit=1";
     $rc_ex            = tao_crm_api( $dedup_filter );
@@ -3483,6 +3492,10 @@ function tao_crm_rest_lead_to_card( WP_REST_Request $req ) {
     tao_crm_fire_webhook( $workspace_id, 'card_criado', [ 'card' => $new_card ] );
 
     return rest_ensure_response( [ 'ok' => true, 'card_id' => $new_card['id'], 'criado' => true ] );
+
+    } finally {
+        $wpdb->query( $wpdb->prepare( "SELECT RELEASE_LOCK(%s)", $_ltc_lock ) );
+    }
 }
 
 // ─── CRON: MONITORAR INSTÂNCIAS EVOLUTION ────────────────────────────────────
