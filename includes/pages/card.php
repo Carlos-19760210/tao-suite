@@ -329,7 +329,7 @@ function tao_crm_page_card() {
                         <span style="display:flex;align-items:center;gap:5px;margin-left:auto">
                             <input type="number" id="crm-desconto-pct" step="0.01" min="0" value="<?php echo esc_attr( $_dpct ); ?>"
                                    placeholder="0" title="Desconto em %"
-                                   style="width:54px;font-size:12px;padding:3px 6px;border:1px solid #d1d5db;border-radius:4px;text-align:right">
+                                   style="width:74px;font-size:12px;padding:3px 6px;border:1px solid #d1d5db;border-radius:4px;text-align:right">
                             <span style="font-size:12px;color:#64748b">%</span>
                             <input type="number" id="crm-desconto-valor" step="0.01" min="0" value="<?php echo esc_attr( $_dval ); ?>"
                                    placeholder="0,00" title="Desconto em R$"
