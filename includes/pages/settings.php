@@ -2150,7 +2150,7 @@ function tao_crm_page_settings() {
                 });
             }
 
-            loadTags();
+            jQuery(loadTags);
 
             $('#tao-tag-new').on('click', function(){
                 $('#tao-tag-id').val('');
@@ -2257,7 +2257,7 @@ function tao_crm_page_settings() {
                     });
                 });
             }
-            loadTpl();
+            jQuery(loadTpl);
             $('#tao-tpl-new').on('click',function(){ $('#tao-tpl-id').val(''); $('#tao-tpl-nome,#tao-tpl-conteudo').val(''); $('#tao-tpl-form-title').text('Novo template'); $('#tao-tpl-status').text(''); });
             $('#tao-tpl-save').on('click',function(){
                 var nome=$('#tao-tpl-nome').val().trim(), conteudo=$('#tao-tpl-conteudo').val().trim();
@@ -2348,7 +2348,7 @@ function tao_crm_page_settings() {
                     });
                 });
             }
-            loadWh();
+            jQuery(loadWh);
             $('#tao-wh-new').on('click',function(){ $('#tao-wh-id').val(''); $('#tao-wh-nome,#tao-wh-url').val(''); $('#tao-wh-ativo').prop('checked',true); $('#tao-wh-form-title').text('Novo webhook'); $('#tao-wh-status').text(''); });
             $('#tao-wh-save').on('click',function(){
                 var url=$('#tao-wh-url').val().trim();
