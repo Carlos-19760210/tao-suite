@@ -418,6 +418,7 @@ foreach ( $nav as $gid => $entry ) {
     <?php if ( strpos( $fn, 'tao_formula_' ) === 0 && defined( 'TAOF_PLUGIN_URL' ) ): ?>
     <link rel="stylesheet" href="<?php echo esc_url( TAOF_PLUGIN_URL . 'assets/formula-style.css' ); ?>?v=<?php echo TAOF_VERSION; ?>">
     <?php endif; ?>
+    <script src="<?php echo esc_url( includes_url('js/jquery/jquery.min.js') ); ?>"></script>
 </head>
 <body>
 <?php
@@ -521,7 +522,6 @@ $_mobile_label = $secoes[$page_atual]['label'] ?? 'Portal';
     </main>
 </div>
 
-<script src="<?php echo esc_url( includes_url('js/jquery/jquery.min.js') ); ?>"></script>
 <script>
 window.cbpm = {
     ajax_url:     "<?php echo esc_js( admin_url('admin-ajax.php') ); ?>",
