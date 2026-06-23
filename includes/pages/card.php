@@ -323,6 +323,19 @@ function tao_crm_page_card() {
                                style="width:110px;font-size:12px;padding:3px 6px;border:1px solid #d1d5db;border-radius:4px">
                     </div>
 
+                    <!-- Desconto concedido -->
+                    <?php if ( empty( $card['fechado'] ) ) : ?>
+                    <div class="info-row crm-info-row" style="align-items:center;gap:6px">
+                        <span class="info-label">Desconto (R$)</span>
+                        <input type="number" id="crm-desconto" step="0.01" min="0"
+                               value="<?php echo esc_attr( ( isset( $card['desconto'] ) && floatval( $card['desconto'] ) > 0 ) ? $card['desconto'] : '' ); ?>"
+                               placeholder="0,00"
+                               title="Desconto concedido no negócio — subtraído do total de itens/orçamentos"
+                               style="width:110px;font-size:12px;padding:3px 6px;border:1px solid #d1d5db;border-radius:4px">
+                        <span id="crm-desconto-status" style="display:none;font-size:11px;color:#16a34a">&#x2714;</span>
+                    </div>
+                    <?php endif; ?>
+
                     <!-- Barra Salvar / Cancelar informações gerais -->
                     <?php if ( empty( $card['fechado'] ) ) : ?>
                     <div id="crm-info-action-bar" style="display:flex;align-items:center;gap:8px;padding:8px 0 2px;margin-top:2px;border-top:1px solid #e2e8f0">
@@ -1136,10 +1149,12 @@ function tao_crm_page_card() {
     var taoCrmCardId       = <?php echo wp_json_encode( $card_id ); ?>;
     window._crmItensTotal    = 0;
     window._crmFormulasTotal = 0;
+    window._crmDesconto      = <?php echo floatval( $card['desconto'] ?? 0 ); ?>;
     window.atualizarOportunidade = (function () {
         var _timer;
         return function () {
-            var tot = (window._crmItensTotal || 0) + (window._crmFormulasTotal || 0);
+            var _sub = (window._crmItensTotal || 0) + (window._crmFormulasTotal || 0);
+            var tot  = _sub > 0 ? Math.max( 0, _sub - (window._crmDesconto || 0) ) : 0;
             var inp = document.getElementById('crm-valor-oportunidade');
             if (!inp) return;
             inp.value = tot > 0 ? tot.toFixed(2) : '';
@@ -1225,6 +1240,36 @@ function tao_crm_page_card() {
                         setTimeout(function(){ st.style.display = 'none'; }, 2000);
                     } else {
                         alert('Erro ao salvar valor.');
+                    }
+                });
+            });
+        }
+
+        // ── Desconto concedido ───────────────────────────────────────────
+        var descInput = document.getElementById('crm-desconto');
+        if ( descInput && window.taoCrm ) {
+            descInput.addEventListener('change', function () {
+                window._crmDesconto = parseFloat( descInput.value ) || 0;
+                if ( window.atualizarOportunidade ) window.atualizarOportunidade();
+                var st = document.getElementById('crm-desconto-status');
+                fetch( taoCrm.ajax_url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({
+                        action:  'tao_crm_save_desconto',
+                        card_id: taoCrmCardId,
+                        desconto: window._crmDesconto,
+                        nonce:   taoCrm.nonce
+                    })
+                }).then(function(r){ return r.json(); }).then(function(d){
+                    if ( d.success ) {
+                        if ( d.data && typeof d.data.valor !== 'undefined' ) {
+                            var vi = document.getElementById('crm-valor-oportunidade');
+                            if ( vi ) vi.value = parseFloat( d.data.valor ) > 0 ? parseFloat( d.data.valor ).toFixed(2) : '';
+                        }
+                        if ( st ) { st.style.display = 'inline'; setTimeout(function(){ st.style.display='none'; }, 2000); }
+                    } else {
+                        alert( 'Erro ao salvar desconto: ' + ( d.data || '' ) );
                     }
                 });
             });
