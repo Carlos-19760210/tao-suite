@@ -68,7 +68,7 @@ $nav = [];
 
 // 📞 Neo
 $nav['neo'] = [
-    'label' => 'Neo',
+    'label' => 'Agente',
     'icon'  => '&#x1F4DE;',
     'items' => [
         [ 'slug' => 'chatbot-platform-neo-dashboard', 'label' => 'Painel',                       'url' => cbpm_url('neo-dashboard') ],
@@ -141,7 +141,7 @@ $cfg_subs['cfg-geral'] = [
     ],
 ];
 $cfg_subs['cfg-taon'] = [
-    'label' => 'Neo',
+    'label' => 'Agente',
     'icon'  => '&#x1F4DE;',
     'items' => [
         [ 'slug' => 'chatbot-platform-catalogo',       'label' => 'Cat&aacute;logo',     'url' => cbpm_url('catalogo') ],
@@ -211,7 +211,7 @@ foreach ( $nav as $gid => $entry ) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>TAO Solu&ccedil;&otilde;es &mdash; <?php echo esc_html( $secoes[ $page_atual ]['label'] ); ?></title>
+    <title>TAO Neo &mdash; <?php echo esc_html( $secoes[ $page_atual ]['label'] ); ?></title>
     <link rel="stylesheet" href="<?php echo esc_url( CBPM_PLUGIN_URL . 'assets/style.css' ); ?>?v=<?php echo CBPM_VERSION; ?>">
     <style>
         *, *::before, *::after { box-sizing: border-box; }
@@ -435,7 +435,7 @@ $_mobile_label = $secoes[$page_atual]['label'] ?? 'Portal';
     <aside class="cbpm-sidebar">
         <div class="cbpm-sidebar-logo">
             <span class="icon">&#x1F916;</span>
-            <span class="cbpm-logo-text">TAO Solu&ccedil;&otilde;es</span>
+            <span class="cbpm-logo-text">TAO Neo</span>
         </div>
         <nav>
         <?php
@@ -506,7 +506,7 @@ $_mobile_label = $secoes[$page_atual]['label'] ?? 'Portal';
 
     <main class="cbpm-main">
         <div class="cbpm-breadcrumb">
-            <a href="<?php echo esc_url( cbpm_url() ); ?>">TAO Solu&ccedil;&otilde;es</a>
+            <a href="<?php echo esc_url( cbpm_url() ); ?>">TAO Neo</a>
             <?php if ( $page_atual !== 'chatbot-platform' ): ?>
                 &rsaquo; <?php echo esc_html( $secoes[ $page_atual ]['label'] ); ?>
             <?php endif; ?>

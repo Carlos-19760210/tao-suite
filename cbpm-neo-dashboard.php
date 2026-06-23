@@ -114,7 +114,7 @@ function cbpm_page_neo_dashboard() {
     ?>
     <div class="wrap" style="max-width:1100px">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin:8px 0 6px">
-            <h1 style="margin:0">&#x1F4DE; Painel do Neo</h1>
+            <h1 style="margin:0">&#x1F4DE; Painel do Agente</h1>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px">
                 <?php if ( $is_admin && $is_master && $clientes ) : ?>
                 <select id="neo-cliente" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px">
