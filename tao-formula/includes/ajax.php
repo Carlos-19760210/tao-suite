@@ -1153,6 +1153,8 @@ add_action( 'wp_ajax_tao_formula_sinonimos_nao_atribuidos', function () {
     $cliente_id = tao_formula_cliente_id();
     if ( ! $cliente_id ) wp_send_json_error( 'Cliente não identificado', 400 );
 
+    // Normaliza p/ comparação: maiúsculas, sem acentos de espaço duplicado/trim
+    $norm = function ( $s ) { return mb_strtoupper( trim( preg_replace( '/\s+/u', ' ', (string) $s ) ) ); };
     $r = tao_formula_api( '/orcamentos?cliente_id=eq.' . $cliente_id . '&select=numero_orcamento,itens&order=criado_em.desc&limit=800' );
     $termos = [];
     foreach ( ( $r['data'] ?? [] ) as $o ) {
@@ -1166,7 +1168,7 @@ add_action( 'wp_ajax_tao_formula_sinonimos_nao_atribuidos', function () {
             if ( $aid !== '' ) continue;                                  // já associado
             $nome = trim( (string) ( $it['nome_prescricao'] ?? $it['nome'] ?? '' ) );
             if ( $nome === '' ) continue;
-            $key = mb_strtoupper( $nome );
+            $key = $norm( $nome );
             if ( ! isset( $termos[ $key ] ) ) $termos[ $key ] = [ 'nome' => $nome, 'count' => 0, 'orcs' => [] ];
             $termos[ $key ]['count']++;
             $num = $o['numero_orcamento'] ?? '';
@@ -1176,7 +1178,7 @@ add_action( 'wp_ajax_tao_formula_sinonimos_nao_atribuidos', function () {
     // Remove os que já possuem sinônimo cadastrado (associado a um ativo)
     $jaSin = [];
     $rs = tao_formula_api( '/ativos_sinonimos?cliente_id=eq.' . $cliente_id . '&ativo_id=not.is.null&select=sinonimo' );
-    foreach ( ( $rs['data'] ?? [] ) as $s ) $jaSin[ mb_strtoupper( trim( $s['sinonimo'] ) ) ] = true;
+    foreach ( ( $rs['data'] ?? [] ) as $s ) $jaSin[ $norm( $s['sinonimo'] ) ] = true;
     $out = [];
     foreach ( $termos as $key => $t ) { if ( ! isset( $jaSin[ $key ] ) ) $out[] = $t; }
     usort( $out, function ( $a, $b ) { return $b['count'] - $a['count']; } );
@@ -1191,10 +1193,11 @@ add_action( 'wp_ajax_tao_formula_reprocessar_lista', function () {
     $cliente_id = tao_formula_cliente_id();
     if ( ! $cliente_id ) wp_send_json_error( 'Cliente não identificado', 400 );
 
+    $norm = function ( $s ) { return mb_strtoupper( trim( preg_replace( '/\s+/u', ' ', (string) $s ) ) ); };
     // Conjunto de sinônimos já associados a um ativo
     $rs = tao_formula_api( '/ativos_sinonimos?cliente_id=eq.' . $cliente_id . '&ativo_id=not.is.null&select=sinonimo&limit=5000' );
     $sinset = [];
-    foreach ( ( $rs['data'] ?? [] ) as $s ) { $k = mb_strtoupper( trim( $s['sinonimo'] ) ); if ( $k !== '' ) $sinset[ $k ] = true; }
+    foreach ( ( $rs['data'] ?? [] ) as $s ) { $k = $norm( $s['sinonimo'] ); if ( $k !== '' ) $sinset[ $k ] = true; }
 
     $ro = tao_formula_api( '/orcamentos?cliente_id=eq.' . $cliente_id . '&select=id,numero_orcamento,nome_paciente,card_id,itens&order=criado_em.desc&limit=800' );
     $out = [];
@@ -1209,7 +1212,7 @@ add_action( 'wp_ajax_tao_formula_reprocessar_lista', function () {
             if ( trim( (string) ( $it['ativo_id'] ?? '' ) ) !== '' ) continue;
             $nome = trim( (string) ( $it['nome_prescricao'] ?? $it['nome'] ?? '' ) );
             if ( $nome === '' ) continue;
-            if ( isset( $sinset[ mb_strtoupper( $nome ) ] ) ) $ativos[] = $nome;
+            if ( isset( $sinset[ $norm( $nome ) ] ) ) $ativos[] = $nome;
         }
         if ( $ativos ) $out[] = [
             'orc_id'   => $o['id'],
