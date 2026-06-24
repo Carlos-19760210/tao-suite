@@ -521,11 +521,12 @@ function tao_formula_page_orcamento_novo() {
                         <span style="font-size:14px">
                             → Novo valor final: <span id="taof-sim-novo"><strong>—</strong></span>
                         </span>
+                        <button type="button" id="taof-sim-aplicar" class="button button-primary" style="margin-left:auto">Aplicar ao valor final</button>
                     </div>
                 </div>
 
                 <div style="padding:10px 20px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:11px;color:#94a3b8">
-                    Margem = Preço Venda ÷ Preço Compra (× 1 = sem margem). Simulação: Novo Valor = Total Compra × multiplicador. Verde ≥ 2× · Vermelho &lt; 1×.
+                    Margem = Valor Final ÷ Custo total (× 1 = no custo). Simulação: Novo Valor = Custo total × multiplicador. Use <strong>Aplicar</strong> para ajustar o valor final do orçamento (via acréscimo). Verde ≥ 2× · Vermelho &lt; 1×.
                 </div>
             </div>
         </div>

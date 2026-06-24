@@ -1370,6 +1370,19 @@
         simularMargem(v);
     });
 
+    // Aplica a margem simulada ao valor final do orçamento (trava o final = custo × margem)
+    function aplicarMargem() {
+        if (!_analiseCompraTotal) { alert('Sem custo total para aplicar margem.'); return; }
+        var mult = Math.max(0.01, parseFloat($('#taof-sim-inp').val()) || 0);
+        var alvo = _analiseCompraTotal * mult;
+        _valorFinalTravado = alvo;                            // final fixado no alvo
+        $('#taof-acrescimo-val-inp').removeData('manual');    // acréscimo vira o automático (alvo − subtotal)
+        calcularTotais();
+        $('#taof-modal-analise').hide(); document.body.style.overflow = '';
+        if (typeof taofToast === 'function') taofToast('✓ Margem ' + fmt(mult, 2) + 'x aplicada — valor final R$ ' + fmt(alvo));
+    }
+    $(document).on('click', '#taof-sim-aplicar', aplicarMargem);
+
     $('#taof-btn-analise').on('click', abrirAnalise);
 
     $('#taof-modal-analise').on('click', '#taof-analise-fechar, .taof-analise-overlay', function () {
