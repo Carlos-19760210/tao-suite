@@ -1228,8 +1228,9 @@
 
     function renderLinha(nome, unid, precoComp, precoCusto, precoVenda, subtotalVenda, isTotal, isSep) {
         if (isSep) return '<tr><td colspan="7" style="padding:4px 16px;background:#f8fafc;font-size:11px;color:#64748b;font-weight:600">' + nome + '</td></tr>';
-        var margem    = precoCusto > 0 ? precoVenda / precoCusto : null;
-        var margBruta = precoCusto > 0 ? precoVenda - precoCusto : null;
+        var baseV     = isTotal ? subtotalVenda : precoVenda;   // no TOTAL a margem é (venda total ÷ custo total)
+        var margem    = precoCusto > 0 ? baseV / precoCusto : null;
+        var margBruta = precoCusto > 0 ? baseV - precoCusto : null;
         var mTxt = margem !== null
             ? fmt(margem, 2) + 'x <small>(' + fmt((margem - 1) * 100, 1) + '%)</small>'
             : '<span style="color:#94a3b8">—</span>';
@@ -1264,8 +1265,9 @@
             var precoComp  = parseFloat($r.data('preco-compra')) || 0;
             var precoCusto = parseFloat($r.data('custo-unit'))   || 0;
             var precoVenda = parseFloat($r.data('venda-unit'))   || 0;
-            var qtd        = parseFloat($r.data('qtd-em-padrao')) || 0;
             var subtotalV  = parseFloat($r.data('subtotal'))     || 0;
+            // qtd robusto: deriva do subtotal de venda (vale também p/ orçamentos importados sem qtd-em-padrao)
+            var qtd        = precoVenda > 0 ? ( subtotalV / precoVenda ) : ( parseFloat($r.data('qtd-em-padrao')) || 0 );
             var subtotalC  = precoComp > 0 ? qtd * precoComp : 0;
             if (precoCusto <= 0) temItemSemCompra = true;   // aviso de simulação = item sem preço de custo
             totalCompra += subtotalC;
@@ -1289,6 +1291,7 @@
             var capVenda  = capR.cap.venda_unit || 0;
             var capSub    = totalCaps * capVenda;
             totalVenda   += capSub;
+            totalCusto   += (capR.custoCapsula || 0);
             var capNome   = capR.cap.tipo.charAt(0).toUpperCase() + capR.cap.tipo.slice(1).toLowerCase() +
                             ' Nº' + capR.cap.numero + ' (' + totalCaps + ' un)';
             rows += renderLinha('Embalagens & Cápsulas', '', 0, 0, 0, 0, false, true);
@@ -1306,6 +1309,7 @@
             var qty   = parseInt($r.find('.taof-emb-qty').val()) || 0;
             var sub   = parseFloat($r.data('subtotal-emb')) || 0;
             totalVenda += sub;
+            totalCusto += sub;   // embalagem é vendida ao custo
             rows += renderLinha(nome, 'un', 0, custo, custo, sub, false, false);
         });
 
@@ -1317,6 +1321,12 @@
         // Pega o valor final já calculado da tela
         var valorFinalTxt = $('#taof-res-final strong').text().replace('R$', '').replace(/\./g,'').replace(',','.').trim();
         var valorFinal = parseFloat(valorFinalTxt) || 0;
+
+        // Reconciliação: diferença entre a venda dos itens e o valor final (custo fixo + acréscimo − desconto)
+        var _ajuste = valorFinal - totalVenda;
+        if (Math.abs(_ajuste) >= 0.01) {
+            rows += renderLinha('Custo fixo + acréscimo − desconto', '', 0, 0, 0, _ajuste, false, false);
+        }
 
         // ── Total ────────────────────────────────────────────────────
         rows += renderLinha('TOTAL', '', totalCompra > 0 ? totalCompra : 0, totalCusto, 0, valorFinal, true, false);
