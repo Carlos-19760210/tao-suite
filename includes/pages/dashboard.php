@@ -12,8 +12,9 @@ function tao_crm_page_dashboard() {
     if ( ! $_dash_is_master ) {
         $ws = tao_crm_get_workspace();
     } else {
-        $ws_id = sanitize_text_field( $_GET['workspace_id'] ?? '' );
-        $ws    = tao_crm_get_workspace( $ws_id ?: null );
+        $ws_id   = sanitize_text_field( $_GET['workspace_id'] ?? '' );
+        $_def_ws = get_option( 'tao_crm_default_workspace_id', '' );   // workspace padrão do painel (por instalação)
+        $ws      = tao_crm_get_workspace( $ws_id ?: ( $_def_ws ?: null ) );
     }
     if ( ! $ws ) {
         echo '<div class="wrap"><div class="notice notice-warning"><p>Nenhum workspace configurado.</p></div></div>'; return;
@@ -21,7 +22,7 @@ function tao_crm_page_dashboard() {
     $ws_id = $ws['id'];
 
     // ── Período ────────────────────────────────────────────────────────────────
-    $dias  = max( 1, min( 180, intval( $_GET['dias'] ?? 30 ) ) );
+    $dias  = max( 1, min( 180, intval( $_GET['dias'] ?? 1 ) ) );   // padrão: Hoje
     if ( $dias === 1 ) {
         // "Hoje" = dia-calendário corrente em BRT (00:00 → agora), não 24h corridas.
         // Convertido para UTC para comparar com criado_em (armazenado em UTC).
@@ -140,16 +141,29 @@ function tao_crm_page_dashboard() {
     }
 
     // Listas enriquecidas, ordenadas por data do evento (desc)
-    $tao_build_lista = function( $events ) use ( $card_map, $wp_users ) {
+    // Número da Requisição (campo customizado, chave 'numero_requisicao') p/ as listas
+    $req_map = [];
+    $_req_cids = array_values( array_unique( array_merge( array_keys( $ganho_events ), array_keys( $perdido_events ) ) ) );
+    if ( $_req_cids ) {
+        $_rcampo = tao_crm_api( "/crm_campos_definicao?workspace_id=eq.$ws_id&chave=eq.numero_requisicao&select=id&limit=1" );
+        $_req_campo_id = ( $_rcampo['ok'] && ! empty( $_rcampo['data'] ) ) ? $_rcampo['data'][0]['id'] : null;
+        if ( $_req_campo_id ) {
+            $_rv = tao_crm_api( "/crm_cards_valores?campo_id=eq.$_req_campo_id&card_id=in.(" . implode( ',', $_req_cids ) . ")&select=card_id,valor" );
+            if ( $_rv['ok'] ) foreach ( $_rv['data'] as $v ) $req_map[ $v['card_id'] ] = $v['valor'];
+        }
+    }
+
+    $tao_build_lista = function( $events ) use ( $card_map, $wp_users, $req_map ) {
         $rows = [];
         foreach ( $events as $cid => $dt ) {
             $c = $card_map[ $cid ] ?? [];
             $rows[] = [
-                'id'     => $cid,
-                'titulo' => $c['titulo'] ?? ( $c['contato_nome'] ?? 'Card #' . substr( $cid, 0, 8 ) ),
-                'valor'  => floatval( $c['valor_oportunidade'] ?? 0 ),
-                'resp'   => $wp_users[ intval( $c['responsavel_id'] ?? 0 ) ] ?? '—',
-                'data'   => $dt,
+                'id'        => $cid,
+                'titulo'    => $c['titulo'] ?? ( $c['contato_nome'] ?? 'Card #' . substr( $cid, 0, 8 ) ),
+                'valor'     => floatval( $c['valor_oportunidade'] ?? 0 ),
+                'resp'      => $wp_users[ intval( $c['responsavel_id'] ?? 0 ) ] ?? '—',
+                'data'      => $dt,
+                'requisicao'=> $req_map[ $cid ] ?? '',
             ];
         }
         usort( $rows, fn( $a, $b ) => strcmp( $b['data'], $a['data'] ) );
@@ -551,11 +565,12 @@ function tao_crm_page_dashboard() {
                 <summary style="cursor:pointer;font-size:12px;font-weight:600;color:<?php echo esc_attr( $cor ); ?>">Ver lista (<?php echo count( $rows ); ?>)</summary>
                 <div style="max-height:260px;overflow:auto;margin-top:8px">
                     <table class="crm-att-table">
-                        <thead><tr><th>Card</th><th>Valor</th><th>Data</th><th>Resp.</th></tr></thead>
+                        <thead><tr><th>Card</th><th>Requisição</th><th>Valor</th><th>Data</th><th>Resp.</th></tr></thead>
                         <tbody>
                         <?php foreach ( $rows as $row ) : ?>
                             <tr>
                                 <td><a href="<?php echo esc_url( $card_link_for( $row['id'] ) ); ?>" style="color:#6366f1;text-decoration:none;font-weight:600"><?php echo esc_html( $row['titulo'] ); ?></a></td>
+                                <td><?php echo $row['requisicao'] !== '' ? esc_html( $row['requisicao'] ) : '<span style="color:#cbd5e1">—</span>'; ?></td>
                                 <td>R$&nbsp;<?php echo number_format( $row['valor'], 0, ',', '.' ); ?></td>
                                 <td><?php echo esc_html( $row['data'] ? wp_date( 'd/m', strtotime( $row['data'] ) ) : '—' ); ?></td>
                                 <td><?php echo esc_html( $row['resp'] ); ?></td>
