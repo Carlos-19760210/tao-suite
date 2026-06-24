@@ -345,7 +345,8 @@ foreach ( $nav as $gid => $entry ) {
                 box-sizing: border-box;
             }
             /* Tabelas de dados roláveis no toque (não ficam mais cortadas/travadas) */
-            .cbpm-main table:not(.form-table){ display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; max-width:100%; }
+            .cbpm-main table:not(.form-table){ display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; max-width:100%; min-width:0 !important; }
+            .cbpm-main table:not(.form-table) td, .cbpm-main table:not(.form-table) th{ white-space:nowrap; }
         }
 
         /* ── Layout geral ── */
