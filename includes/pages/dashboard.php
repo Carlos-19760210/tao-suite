@@ -22,7 +22,16 @@ function tao_crm_page_dashboard() {
 
     // ── Período ────────────────────────────────────────────────────────────────
     $dias  = max( 1, min( 180, intval( $_GET['dias'] ?? 30 ) ) );
-    $desde = gmdate( 'c', strtotime( "-{$dias} days" ) );
+    if ( $dias === 1 ) {
+        // "Hoje" = dia-calendário corrente em BRT (00:00 → agora), não 24h corridas.
+        // Convertido para UTC para comparar com criado_em (armazenado em UTC).
+        $_d0 = new DateTime( 'now', new DateTimeZone( 'America/Sao_Paulo' ) );
+        $_d0->setTime( 0, 0, 0 );
+        $_d0->setTimezone( new DateTimeZone( 'UTC' ) );
+        $desde = $_d0->format( 'c' );
+    } else {
+        $desde = gmdate( 'c', strtotime( "-{$dias} days" ) );
+    }
 
     // ── Buscar cards ──────────────────────────────────────────────────────────
     $rc_all = tao_crm_api(
