@@ -344,13 +344,14 @@ foreach ( $nav as $gid => $entry ) {
                 width: 100%;
                 box-sizing: border-box;
             }
-            /* Tabelas de dados roláveis no toque (não ficam mais cortadas/travadas) */
-            .cbpm-main table:not(.form-table){ display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; max-width:100%; min-width:0 !important; }
+            /* Células não quebram → a tabela rola dentro do .cbpm-tscroll (envolvido via JS) */
+            .cbpm-main table:not(.form-table){ min-width:0 !important; }
             .cbpm-main table:not(.form-table) td, .cbpm-main table:not(.form-table) th{ white-space:nowrap; }
         }
 
         /* ── Layout geral ── */
         .wrap { max-width: 100%; }
+        .cbpm-tscroll { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
         .cbpm-wrap { width: 100%; box-sizing: border-box; }
         .cbpm-form { width: 100%; }
         .form-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
@@ -564,6 +565,27 @@ window.cbpm = {
     burger.addEventListener('click', function(){ sidebar.classList.contains('open') ? close() : open(); });
     backdrop.addEventListener('click', close);
     sidebar.querySelectorAll('.cbpm-nav-link, .cbpm-nav-direct').forEach(function(l){ l.addEventListener('click', close); });
+})();
+</script>
+<script>
+/* Envolve toda tabela de dados num container rolável (evita corte no mobile) */
+(function(){
+  function wrapTables(){
+    var main = document.querySelector('.cbpm-main'); if(!main) return;
+    var tables = main.querySelectorAll('table');
+    for (var i=0;i<tables.length;i++){
+      var t = tables[i];
+      if (t.classList.contains('form-table')) continue;
+      var p = t.parentNode; if(!p) continue;
+      if (p.classList && p.classList.contains('cbpm-tscroll')) continue;
+      var w = document.createElement('div');
+      w.className = 'cbpm-tscroll';
+      p.insertBefore(w, t);
+      w.appendChild(t);
+    }
+  }
+  if (document.readyState !== 'loading') wrapTables();
+  else document.addEventListener('DOMContentLoaded', wrapTables);
 })();
 </script>
 <script src="<?php echo esc_url( CBPM_PLUGIN_URL . 'assets/script.js' ); ?>?v=<?php echo CBPM_VERSION; ?>"></script>
