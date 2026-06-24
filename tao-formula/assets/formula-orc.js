@@ -86,6 +86,8 @@
     // ── Calculo por linha ─────────────────────────────────────────────
     function calcularLinha($row) {
         if ($row.hasClass('taof-row-qsp')) { calcularTotais(); return; }
+        // Ajustar um ativo solta o Valor Final travado do FC → o final passa a acompanhar o subtotal
+        if (!_loadingEdit) _valorFinalTravado = null;
         var dose         = parseFloat($row.find('.taof-orc-dose').val()) || 0;
         var doseUnit     = $row.find('.taof-orc-dose-unit').val() || 'mg';
         var unidPadrao   = $row.data('unid-padrao') || 'mg';
@@ -722,7 +724,7 @@
 
     function initRow($row) {
         $row.on('input change', '.taof-orc-dose, .taof-orc-dose-unit', function () { calcularLinha($row); });
-        $row.on('click', '.taof-btn-del-item', function () { $row.remove(); calcularTotais(); });
+        $row.on('click', '.taof-btn-del-item', function () { if (!_loadingEdit) _valorFinalTravado = null; $row.remove(); calcularTotais(); });
         // Enter/Tab na dose: QSP → cria nova linha; demais → navega entre linhas
         $row.on('keydown', '.taof-orc-dose', function (e) {
             if (e.key !== 'Enter' && !(e.key === 'Tab' && !e.shiftKey)) return;
@@ -953,6 +955,7 @@
 
     // ── Embalagens ────────────────────────────────────────────────────
     function calcularEmb($row) {
+        if (!_loadingEdit) _valorFinalTravado = null;
         var subtotal = (parseInt($row.find('.taof-emb-qty').val()) || 0) *
                        (parseFloat($row.data('custo-unit')) || 0);
         $row.find('.taof-emb-subtotal').text('R$ ' + fmt(subtotal));
@@ -962,7 +965,7 @@
 
     function initEmbRow($row) {
         $row.on('input', '.taof-emb-qty', function () { calcularEmb($row); });
-        $row.on('click', '.taof-btn-del-emb', function () { $row.remove(); calcularTotais(); });
+        $row.on('click', '.taof-btn-del-emb', function () { if (!_loadingEdit) _valorFinalTravado = null; $row.remove(); calcularTotais(); });
         initEmbAC($row);
     }
 
