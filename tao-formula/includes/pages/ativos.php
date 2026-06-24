@@ -137,7 +137,7 @@ function tao_formula_page_ativos() {
         </div>
 
         <table class="wp-list-table widefat fixed striped">
-            <thead><tr><th style="width:34%" id="taof-sin-th1">Sinônimo</th><th id="taof-sin-th2">Ativo associado</th><th style="width:150px"></th></tr></thead>
+            <thead><tr><th style="width:30%" id="taof-sin-th1">Sinônimo</th><th id="taof-sin-th2">Ativo associado</th><th style="width:250px"></th></tr></thead>
             <tbody id="taof-sin-tbody"><tr><td colspan="3" style="color:#94a3b8">Carregando...</td></tr></tbody>
         </table>
     </div>
@@ -443,74 +443,73 @@ function tao_formula_page_ativos() {
                         var $tr = $('<tr>');
                         $tr.append( $('<td>').css('font-weight','600').text(t.nome) );
                         var info = t.count + ' ocorrência(s)' + ( ( t.orcs && t.orcs.length ) ? ' · ex: ' + t.orcs.join(', ') : '' );
-                        $tr.append( $('<td class="taof-sin-ativo-cell" style="position:relative;color:#64748b">').text(info) );
-                        var $ac = $('<td style="white-space:nowrap">');
-                        $('<button class="button button-small button-primary">').text('Associar a ativo')
-                            .on('click', function(){ assocTermo($tr, t.nome); }).appendTo($ac);
+                        $tr.append( $('<td style="color:#64748b">').text(info) );
+                        var $ac = $('<td style="position:relative">');
+                        var w = mkAtivoSearch(function(a){
+                            $.post(_ajax, { action:'tao_formula_criar_sinonimo', nonce:_nonce, sinonimo:t.nome, ativo_id:a.id }, function(r){
+                                if ( r && r.success ) carregar(); else alert('Erro: ' + ( ( r && r.data && r.data.message ) || 'não foi possível associar' ) );
+                            });
+                        });
+                        $ac.append( w.wrap );
                         $tr.append($ac);
                         $b.append($tr);
                     });
                 });
             }
 
-            // ── Busca inline de ativo p/ um termo não atribuído → cria o sinônimo ─
-            function assocTermo($tr, termo){
-                var $cell = $tr.find('.taof-sin-ativo-cell').empty().css('color','');
-                var $inp = $('<input type="text" placeholder="buscar ativo..." autocomplete="off" style="width:220px;padding:4px 8px">');
-                var $dd  = $('<div style="position:absolute;top:30px;left:0;min-width:260px;background:#fff;border:1px solid #e2e8f0;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.12);z-index:50;max-height:240px;overflow:auto;display:none"></div>');
-                $cell.append($inp).append($dd); $inp.focus();
-                var t;
+            // ── Widget reutilizável: busca de ativo com navegação por teclado ─
+            function mkAtivoSearch(onPick){
+                var $wrap = $('<span style="position:relative;display:inline-block">');
+                var $inp  = $('<input type="text" placeholder="buscar ativo..." autocomplete="off" style="width:210px;padding:4px 8px">');
+                var $dd   = $('<div style="position:absolute;top:30px;left:0;min-width:260px;background:#fff;border:1px solid #e2e8f0;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.12);z-index:50;max-height:240px;overflow:auto;display:none"></div>');
+                $wrap.append($inp).append($dd);
+                var t, items = [];
+                function hl($el){
+                    $dd.find('.taof-as-item').removeClass('taof-as-hl').css('background','');
+                    if ( $el && $el.length ) { $el.addClass('taof-as-hl').css('background','#eff6ff'); var el = $el[0]; if ( el && el.scrollIntoView ) el.scrollIntoView({ block:'nearest' }); }
+                }
+                function render(ats){
+                    items = ats; $dd.empty();
+                    if ( ! ats.length ) { $dd.html('<div style="padding:8px;color:#94a3b8;font-size:12px">nada encontrado</div>').show(); return; }
+                    ats.forEach(function(a,i){
+                        $('<div class="taof-as-item" data-i="'+i+'" style="padding:7px 10px;cursor:pointer;border-bottom:1px solid #f1f5f9;font-size:13px">')
+                            .text( ( a.codigo_fc ? a.codigo_fc + ' — ' : '' ) + a.nome )
+                            .on('mouseenter', function(){ hl($(this)); })
+                            .on('mousedown', function(e){ e.preventDefault(); onPick(a); }).appendTo($dd);
+                    });
+                    hl( $dd.find('.taof-as-item').first() );
+                    $dd.show();
+                }
                 $inp.on('input', function(){
                     clearTimeout(t); var q = $inp.val().trim();
-                    if ( q.length < 2 ) { $dd.hide(); return; }
+                    if ( q.length < 2 ) { $dd.hide().empty(); return; }
                     t = setTimeout(function(){
                         $.post(_ajax, { action:'tao_formula_buscar_ativos', nonce:_nonce, q:q }, function(r){
-                            var ats = ( r && r.success && r.data ) ? r.data : []; $dd.empty();
-                            if ( ! ats.length ) { $dd.html('<div style="padding:8px;color:#94a3b8;font-size:12px">nada encontrado</div>').show(); return; }
-                            ats.forEach(function(a){
-                                $('<div style="padding:7px 10px;cursor:pointer;border-bottom:1px solid #f1f5f9;font-size:13px">')
-                                    .text( ( a.codigo_fc ? a.codigo_fc + ' — ' : '' ) + a.nome )
-                                    .on('mousedown', function(){
-                                        $.post(_ajax, { action:'tao_formula_criar_sinonimo', nonce:_nonce, sinonimo:termo, ativo_id:a.id }, function(r){
-                                            if ( r && r.success ) carregar(); else alert('Erro: ' + ( ( r && r.data && r.data.message ) || 'não foi possível associar' ) );
-                                        });
-                                    }).appendTo($dd);
-                            });
-                            $dd.show();
+                            render( ( r && r.success && r.data ) ? r.data : [] );
                         });
                     }, 250);
                 });
-                $inp.on('blur', function(){ setTimeout(function(){ carregar(); }, 200); });
+                $inp.on('keydown', function(e){
+                    if ( ! $dd.is(':visible') ) return;
+                    var $its = $dd.find('.taof-as-item'); if ( ! $its.length ) return;
+                    var idx = $its.index( $dd.find('.taof-as-hl') );
+                    if ( e.key === 'ArrowDown' ) { e.preventDefault(); hl( $( $its[ Math.min(idx+1, $its.length-1) ] ) ); }
+                    else if ( e.key === 'ArrowUp' ) { e.preventDefault(); hl( $( $its[ Math.max(idx-1, 0) ] ) ); }
+                    else if ( e.key === 'Enter' ) { e.preventDefault(); var i = idx < 0 ? 0 : idx; if ( items[i] ) onPick(items[i]); }
+                    else if ( e.key === 'Escape' ) { $dd.hide(); }
+                });
+                return { wrap:$wrap, focus:function(){ $inp.focus(); } };
             }
 
-            // ── Associar/alterar ativo de uma linha ───────────────────────
+            // ── Associar/alterar ativo de um sinônimo existente ───────────
             function assoc($tr, sinId){
-                var $cell = $tr.find('.taof-sin-ativo-cell').empty();
-                var $inp = $('<input type="text" placeholder="buscar ativo..." autocomplete="off" style="width:220px;padding:4px 8px">');
-                var $dd  = $('<div style="position:absolute;top:30px;left:0;min-width:260px;background:#fff;border:1px solid #e2e8f0;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.12);z-index:50;max-height:240px;overflow:auto;display:none"></div>');
-                $cell.append($inp).append($dd); $inp.focus();
-                var t;
-                $inp.on('input', function(){
-                    clearTimeout(t); var q = $inp.val().trim();
-                    if ( q.length < 2 ) { $dd.hide(); return; }
-                    t = setTimeout(function(){
-                        $.post(_ajax, { action:'tao_formula_buscar_ativos', nonce:_nonce, q:q }, function(r){
-                            var ats = ( r && r.success && r.data ) ? r.data : []; $dd.empty();
-                            if ( ! ats.length ) { $dd.html('<div style="padding:8px;color:#94a3b8;font-size:12px">nada encontrado</div>').show(); return; }
-                            ats.forEach(function(a){
-                                $('<div style="padding:7px 10px;cursor:pointer;border-bottom:1px solid #f1f5f9;font-size:13px">')
-                                    .text( ( a.codigo_fc ? a.codigo_fc + ' — ' : '' ) + a.nome )
-                                    .on('mousedown', function(){
-                                        $.post(_ajax, { action:'tao_formula_associar_sinonimo', nonce:_nonce, sin_id:sinId, ativo_id:a.id }, function(r){
-                                            if ( r && r.success ) carregar(); else alert('Erro ao associar');
-                                        });
-                                    }).appendTo($dd);
-                            });
-                            $dd.show();
-                        });
-                    }, 250);
+                var $cell = $tr.find('.taof-sin-ativo-cell').empty().css('position','relative');
+                var w = mkAtivoSearch(function(a){
+                    $.post(_ajax, { action:'tao_formula_associar_sinonimo', nonce:_nonce, sin_id:sinId, ativo_id:a.id }, function(r){
+                        if ( r && r.success ) carregar(); else alert('Erro ao associar');
+                    });
                 });
-                $inp.on('blur', function(){ setTimeout(function(){ carregar(); }, 200); });
+                $cell.append( w.wrap ); w.focus();
             }
 
             // ── Novo sinônimo ─────────────────────────────────────────────
