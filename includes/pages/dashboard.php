@@ -404,7 +404,16 @@ function tao_crm_page_dashboard() {
     .crm-dash-kpi-card.kpi-indigo .kpi-value{color:#6366f1}
 
     .crm-charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:28px}
-    @media(max-width:900px){.crm-charts-grid{grid-template-columns:1fr}}
+    @media(max-width:768px){
+        .crm-charts-grid{grid-template-columns:1fr !important;}
+        .crm-gp-grid{grid-template-columns:1fr !important;}
+        .crm-chart-box{padding:14px;overflow:hidden;}
+        .crm-period-form{flex-wrap:wrap;}
+        .crm-period-form select,.crm-period-form .button{flex:1 1 40%;}
+        .crm-att-table{font-size:12px;}
+        .crm-att-bar-wrap{width:72px !important;}
+        .crm-dash-kpi-card .kpi-value{font-size:24px;}
+    }
     .crm-chart-box{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
     .crm-chart-box h3{margin:0 0 14px;font-size:14px;color:#374151;font-weight:600}
 
@@ -583,7 +592,7 @@ function tao_crm_page_dashboard() {
             <?php
         };
         ?>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
+        <div class="crm-gp-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
             <div class="crm-dash-kpi-card" style="border-left:4px solid #10b981;background:#f0fdf4">
                 <span class="kpi-label">&#x2705; Neg&oacute;cios ganhos &mdash; &uacute;ltimos <?php echo $dias; ?>d</span>
                 <span class="kpi-value" style="color:#10b981;font-size:32px"><?php echo $n_ganhos_per; ?></span>
@@ -615,20 +624,20 @@ function tao_crm_page_dashboard() {
                 <?php if ( empty( $chart_estagio_labels ) ) : ?>
                 <p style="color:#94a3b8;font-size:13px">Nenhum card aberto em fases ativas.</p>
                 <?php else : ?>
-                <canvas id="chartFunil" height="220"></canvas>
+                <div style="position:relative;height:240px"><canvas id="chartFunil"></canvas></div>
                 <?php endif; ?>
             </div>
 
             <!-- 2. Donut conversão -->
             <div class="crm-chart-box">
                 <h3>&#x25CB; Convers&atilde;o geral</h3>
-                <canvas id="chartConv" height="220"></canvas>
+                <div style="position:relative;height:240px"><canvas id="chartConv"></canvas></div>
             </div>
 
             <!-- 3. Novos leads por semana -->
             <div class="crm-chart-box">
                 <h3>&#x1F4C5; Novos leads &mdash; &uacute;ltimas 8 semanas</h3>
-                <canvas id="chartSemanas" height="220"></canvas>
+                <div style="position:relative;height:240px"><canvas id="chartSemanas"></canvas></div>
             </div>
 
             <!-- 4. Top atendentes -->
@@ -669,7 +678,7 @@ function tao_crm_page_dashboard() {
             <div class="crm-chart-box">
                 <h3>&#x1F4B0; Receita gerada &mdash; &uacute;ltimas 8 semanas</h3>
                 <?php if ( max( $receita_data ?: [0] ) > 0 ) : ?>
-                <canvas id="chartReceita" height="200"></canvas>
+                <div style="position:relative;height:230px"><canvas id="chartReceita"></canvas></div>
                 <?php else : ?>
                 <p style="color:#94a3b8;font-size:13px">Nenhum negócio ganho com valor registrado no período.</p>
                 <?php endif; ?>
@@ -769,6 +778,7 @@ function tao_crm_page_dashboard() {
                 options:{
                     indexAxis: 'y',
                     responsive: true,
+                    maintainAspectRatio: false,
                     plugins:{ legend:{ display:false } },
                     scales:{
                         x:{ beginAtZero:true, ticks:{ stepSize:1 }, grid:{ color:'#f1f5f9' } },
@@ -794,6 +804,7 @@ function tao_crm_page_dashboard() {
                 },
                 options:{
                     responsive: true,
+                    maintainAspectRatio: false,
                     cutout: '62%',
                     plugins:{
                         legend:{ position:'bottom', labels:{ padding:14, usePointStyle:true } }
@@ -822,6 +833,7 @@ function tao_crm_page_dashboard() {
                 },
                 options:{
                     responsive: true,
+                    maintainAspectRatio: false,
                     plugins:{ legend:{ display:false } },
                     scales:{
                         y:{ beginAtZero:true, ticks:{ stepSize:1 }, grid:{ color:'#f1f5f9' } },
@@ -849,6 +861,7 @@ function tao_crm_page_dashboard() {
                 },
                 options:{
                     responsive: true,
+                    maintainAspectRatio: false,
                     plugins:{ legend:{ display:false } },
                     scales:{
                         y:{ beginAtZero:true, ticks:{
