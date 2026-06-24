@@ -1066,6 +1066,65 @@ add_action( 'wp_ajax_tao_formula_listar_sinonimos', function () {
     wp_send_json_success( $r['data'] ?? [] );
 } );
 
+// ── Sinônimos: lista geral (centrada no sinônimo) — busca + filtro sem associação ─
+add_action( 'wp_ajax_tao_formula_sinonimos_lista', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( 'Cliente não identificado', 400 );
+    $q   = sanitize_text_field( $_POST['q'] ?? '' );
+    $sem = ( ( $_POST['sem_ativo'] ?? '' ) == '1' );
+    $qs  = '/ativos_sinonimos?cliente_id=eq.' . $cliente_id .
+           '&select=id,sinonimo,ativo_id&order=sinonimo.asc&limit=500';
+    if ( $q !== '' ) $qs .= '&sinonimo=ilike.*' . rawurlencode( $q ) . '*';
+    if ( $sem )      $qs .= '&ativo_id=is.null';
+    $r    = tao_formula_api( $qs );
+    $rows = $r['data'] ?? [];
+    // Junta nome/código do ativo no PHP (sem depender de FK/embed do PostgREST)
+    $ids  = array_values( array_unique( array_filter( array_column( $rows, 'ativo_id' ) ) ) );
+    $amap = [];
+    if ( $ids ) {
+        $ra = tao_formula_api( '/ativos?id=in.(' . implode( ',', $ids ) . ')&select=id,nome,codigo_fc' );
+        foreach ( ( $ra['data'] ?? [] ) as $a ) $amap[ $a['id'] ] = $a;
+    }
+    foreach ( $rows as &$row ) { $row['ativos'] = $amap[ $row['ativo_id'] ] ?? null; }
+    unset( $row );
+    wp_send_json_success( $rows );
+} );
+
+// ── Sinônimos: associar / alterar / desassociar o ativo ──────────────────────
+add_action( 'wp_ajax_tao_formula_associar_sinonimo', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $sin_id     = sanitize_text_field( $_POST['sin_id'] ?? '' );
+    $ativo_id   = sanitize_text_field( $_POST['ativo_id'] ?? '' );
+    if ( ! $sin_id || ! $cliente_id ) wp_send_json_error( 'Parâmetros inválidos' );
+    $r = tao_formula_api( "/ativos_sinonimos?id=eq.$sin_id&cliente_id=eq.$cliente_id", 'PATCH', [
+        'ativo_id' => $ativo_id !== '' ? $ativo_id : null,
+    ] );
+    $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => 'Erro: ' . $r['raw'] ] );
+} );
+
+// ── Sinônimos: criar novo (ativo opcional → pode ficar sem associação) ───────
+add_action( 'wp_ajax_tao_formula_criar_sinonimo', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $sinonimo   = strtoupper( trim( sanitize_text_field( $_POST['sinonimo'] ?? '' ) ) );
+    $ativo_id   = sanitize_text_field( $_POST['ativo_id'] ?? '' );
+    if ( ! $sinonimo || ! $cliente_id ) wp_send_json_error( 'Informe o sinônimo' );
+    $r = tao_formula_api( '/ativos_sinonimos', 'POST', [
+        'cliente_id' => $cliente_id,
+        'ativo_id'   => $ativo_id !== '' ? $ativo_id : null,
+        'sinonimo'   => $sinonimo,
+    ] );
+    $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => 'Erro ao criar (talvez já exista): ' . $r['raw'] ] );
+} );
+
 // ── Batch insert no Supabase ignorando duplicatas ────────────────────────────
 
 function tao_formula_batch_insert_sinonimos( $rows ) {

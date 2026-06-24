@@ -31,6 +31,15 @@ function tao_formula_page_ativos() {
     <div class="wrap taof-wrap">
     <h1>💊 Ativos (Matérias-Primas &amp; Embalagens)</h1>
 
+    <div style="display:flex;gap:4px;border-bottom:2px solid #e2e8f0;margin:0 0 16px">
+        <button type="button" class="taof-tab-btn" data-pane="ativos"
+                style="background:none;border:none;border-bottom:2px solid #2271b1;padding:8px 16px;cursor:pointer;font-size:14px;color:#2271b1;font-weight:600;margin-bottom:-2px">Ativos</button>
+        <button type="button" class="taof-tab-btn" data-pane="sinonimos"
+                style="background:none;border:none;border-bottom:2px solid transparent;padding:8px 16px;cursor:pointer;font-size:14px;color:#475569;margin-bottom:-2px">Sinônimos</button>
+    </div>
+
+    <div id="taof-pane-ativos">
+
     <div style="display:flex;align-items:center;gap:20px;margin-bottom:14px;flex-wrap:wrap;font-size:13px">
         <span><strong><?php echo number_format($total_mp); ?></strong> MPs</span>
         <span><strong><?php echo number_format($total_emb); ?></strong> Embalagens</span>
@@ -46,14 +55,25 @@ function tao_formula_page_ativos() {
 
     <form method="get" action="<?php echo esc_url($base_url); ?>" style="margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <?php global $cbpm_is_frontend; if ( empty($cbpm_is_frontend) ) : ?><input type="hidden" name="page" value="tao-formula-ativos"><?php endif; ?>
-        <select name="grupo" style="padding:6px 10px">
+        <select name="grupo" style="padding:6px 10px" onchange="this.form.submit()">
             <option value="">Todos os grupos</option>
             <option value="M" <?php selected($filtro_gr,'M'); ?>>Matérias-Primas</option>
             <option value="E" <?php selected($filtro_gr,'E'); ?>>Embalagens</option>
         </select>
-        <input type="search" name="s" value="<?php echo esc_attr($busca); ?>" placeholder="Buscar por nome..." style="width:260px;padding:6px 10px">
+        <div style="position:relative;display:inline-block">
+            <input type="search" id="taof-s-inp" name="s"
+                   value="<?php echo esc_attr($busca); ?>"
+                   placeholder="Buscar por nome ou código…"
+                   autocomplete="off"
+                   style="width:300px;padding:6px 10px">
+            <div id="taof-s-dd"
+                 style="display:none;position:absolute;top:calc(100% + 2px);left:0;min-width:100%;width:480px;max-width:90vw;
+                        background:#fff;border:1px solid #e2e8f0;border-radius:8px;
+                        box-shadow:0 4px 16px rgba(0,0,0,.14);z-index:9999;max-height:320px;overflow-y:auto"></div>
+        </div>
         <button type="submit" class="button">Buscar</button>
         <?php if ($busca || $filtro_gr) : ?><a href="<?php echo esc_url($base_url); ?>" class="button">✕ Limpar</a><?php endif; ?>
+        <span id="taof-s-count" style="font-size:12px;color:#64748b;display:none"></span>
     </form>
 
     <?php if ( empty($ativos) ) : ?>
@@ -73,9 +93,10 @@ function tao_formula_page_ativos() {
                 <th>Categoria</th>
             </tr>
         </thead>
-        <tbody>
+        <tbody id="taof-tbody">
         <?php foreach ( $ativos as $a ) : $gr = $a['grupo'] ?? 'M'; ?>
-        <tr>
+        <tr data-nome="<?php echo esc_attr( strtolower( $a['nome'] ?? '' ) ); ?>"
+            data-cod="<?php echo esc_attr( strtolower( $a['codigo_fc'] ?? '' ) ); ?>">
             <td style="color:#94a3b8;font-size:12px"><?php echo esc_html($a['codigo_fc']??'—'); ?></td>
             <td>
                 <a href="#" class="taof-ativo-link" data-id="<?php echo esc_attr($a['id']); ?>"
@@ -94,6 +115,32 @@ function tao_formula_page_ativos() {
     </div>
     <?php if (count($ativos) >= 150) : ?><p style="color:#64748b;font-size:12px;margin-top:6px">Exibindo 150 resultados. Use a busca para filtrar.</p><?php endif; ?>
     <?php endif; ?>
+    </div><!-- /taof-pane-ativos -->
+
+    <div id="taof-pane-sinonimos" style="display:none">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+            <input type="search" id="taof-sin-q" placeholder="Buscar sinônimo..." style="width:260px;padding:6px 10px">
+            <label style="font-size:13px;display:flex;align-items:center;gap:5px"><input type="checkbox" id="taof-sin-sem"> Somente sem associação</label>
+            <button type="button" class="button" id="taof-sin-buscar">Buscar</button>
+            <button type="button" class="button button-primary" id="taof-sin-novo-btn">+ Novo sinônimo</button>
+            <span id="taof-sin-count" style="font-size:12px;color:#64748b"></span>
+        </div>
+
+        <div id="taof-sin-novo-form" style="display:none;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:12px;position:relative">
+            <input type="text" id="taof-sin-novo-nome" placeholder="Sinônimo" style="width:230px;padding:6px 10px">
+            <span style="margin:0 6px;color:#64748b">→ Ativo:</span>
+            <input type="text" id="taof-sin-novo-ativo-q" placeholder="buscar ativo (opcional)" autocomplete="off" style="width:240px;padding:6px 10px">
+            <input type="hidden" id="taof-sin-novo-ativo-id">
+            <span id="taof-sin-novo-ativo-sel" style="font-size:12px;color:#16a34a"></span>
+            <button type="button" class="button button-primary" id="taof-sin-novo-salvar" style="margin-left:6px">Criar</button>
+            <div id="taof-sin-novo-ativo-dd" style="display:none;position:absolute;top:46px;left:300px;min-width:280px;background:#fff;border:1px solid #e2e8f0;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.12);z-index:60;max-height:240px;overflow:auto"></div>
+        </div>
+
+        <table class="wp-list-table widefat fixed striped">
+            <thead><tr><th style="width:34%">Sinônimo</th><th>Ativo associado</th><th style="width:150px"></th></tr></thead>
+            <tbody id="taof-sin-tbody"><tr><td colspan="3" style="color:#94a3b8">Carregando...</td></tr></tbody>
+        </table>
+    </div>
     </div>
 
     <div id="taof-ativo-modal" style="display:none">
@@ -105,6 +152,14 @@ function tao_formula_page_ativos() {
             </div>
         </div>
     </div>
+
+    <style>
+    .taof-s-item{padding:9px 14px;cursor:pointer;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;font-size:13px;line-height:1.4}
+    .taof-s-item:last-child{border-bottom:none}
+    .taof-s-item.taof-s-hl{background:#eff6ff}
+    .taof-s-item:hover{background:#f8fafc}
+    .taof-s-item.taof-s-hl{background:#eff6ff!important}
+    </style>
     <script>
     (function(){
         var _nonce   = '<?php echo esc_js( wp_create_nonce('tao_formula_nonce') ); ?>';
@@ -138,43 +193,149 @@ function tao_formula_page_ativos() {
                 });
             }
 
-            $(document).on('click','.taof-ativo-link',function(e){
-                e.preventDefault();
-                var id=$(this).data('id');
+            function renderModalAtivo(a) {
+                var badge=a.grupo==='E'?'<span style="background:#e0f2fe;color:#0369a1;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600">Embalagem</span>':'<span style="background:#f0fdf4;color:#166534;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600">Matéria-Prima</span>';
+                var html='<h2 style="margin:0 0 4px;font-size:19px">'+escH(a.nome)+'</h2>';
+                html+='<div style="margin-bottom:14px">'+badge+(a.codigo_fc?' <span style="color:#94a3b8;font-size:12px;margin-left:8px">FC: '+escH(a.codigo_fc)+'</span>':'')+'</div>';
+                html+=grid(3,[campo('Unidade FC',a.unidade||'—'),campo('Unidade Padrão',a.unidade_padrao||'—'),campo('Estoque',a.estoque_atual!==null?fmtN(a.estoque_atual,3)+' '+(a.unidade||''):'—')]);
+                html+=grid(3,[campo('Custo / '+(a.unidade_padrao||'unid'),'R$ '+fmtN(a.custo_por_unidade,4)),campo('Preço Compra',a.preco_compra?'R$ '+fmtN(a.preco_compra,2):'—'),campo('Preço Venda','R$ '+fmtN(a.preco_venda,2))]);
+                if(a.grupo!=='E'){
+                    html+=grid(4,[campo('Fator Correção',a.fator_correcao),campo('Fator Perda',a.fator_perda),campo('Densidade',a.densidade),campo('DCB',a.dcb||'—')]);
+                    html+=grid(3,[campo('Dose Mínima',a.dose_min?a.dose_min+(a.uni_dose_min?' '+a.uni_dose_min:''):'—'),campo('Dose Máxima',a.dose_max?a.dose_max+(a.uni_dose_max?' '+a.uni_dose_max:''):'—'),campo('Princípio Ativo',a.principio_ativo||'—')]);
+                }
+                html+=grid(2,[campo('Categoria',a.categoria||'—'),campo('Classe Terapêutica',a.classe_terapeutica||'—')]);
+                if(a.observacoes)html+='<div style="background:#f8fafc;border-radius:6px;padding:10px 14px;margin-top:4px"><span style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.4px">Observações</span><p style="margin:4px 0 0;font-size:13px">'+escH(a.observacoes)+'</p></div>';
+                if(a.sincronizado_em){var d=new Date(a.sincronizado_em);html+='<p style="color:#94a3b8;font-size:11px;margin-top:8px">Sincronizado em '+d.toLocaleString('pt-BR')+'</p>';}
+                html += '<div style="border-top:1px solid #e2e8f0;margin-top:16px;padding-top:14px">';
+                html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
+                html += '<strong style="font-size:13px">&#x1F3F7; Sin&ocirc;nimos <span id="taof-sin-ativo-count" style="font-size:11px;color:#94a3b8;font-weight:400"></span></strong>';
+                html += '</div>';
+                html += '<div id="taof-sin-ativo-tags" style="margin-bottom:10px;min-height:24px"><span style="color:#94a3b8;font-size:12px">Carregando...</span></div>';
+                html += '<div style="display:flex;gap:6px;align-items:center">';
+                html += '<input type="text" id="taof-sin-ativo-inp" placeholder="Novo sin&ocirc;nimo (ex: VIT D3)" style="font-size:12px;width:230px;padding:5px 8px;border:1px solid #d1d5db;border-radius:4px">';
+                html += '<button type="button" class="button button-small" id="taof-sin-ativo-add" data-aid="'+a.id+'">+ Adicionar</button>';
+                html += '<span id="taof-sin-ativo-msg" style="font-size:12px"></span>';
+                html += '</div>';
+                html += '</div>';
+                $('#taof-ativo-modal-body').html(html);
+                reloadSinonimos(a.id);
+            }
+
+            function abrirModalAtivo(id) {
                 $('#taof-ativo-modal-body').html('<p style="text-align:center;padding:40px 0;color:#94a3b8">Carregando...</p>');
                 $('#taof-ativo-modal').show();
                 $.getJSON(_ajaxUrl,{action:'tao_formula_get_ativo',nonce:_nonce,id:id},function(r){
-                    if(!r.success){$('#taof-ativo-modal-body').html('<p style="color:#dc2626">Erro ao carregar.</p>');return;}
-                    var a=r.data;
-                    var badge=a.grupo==='E'?'<span style="background:#e0f2fe;color:#0369a1;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600">Embalagem</span>':'<span style="background:#f0fdf4;color:#166534;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600">Matéria-Prima</span>';
-                    var html='<h2 style="margin:0 0 4px;font-size:19px">'+escH(a.nome)+'</h2>';
-                    html+='<div style="margin-bottom:14px">'+badge+(a.codigo_fc?' <span style="color:#94a3b8;font-size:12px;margin-left:8px">FC: '+escH(a.codigo_fc)+'</span>':'')+'</div>';
-                    html+=grid(3,[campo('Unidade FC',a.unidade||'—'),campo('Unidade Padrão',a.unidade_padrao||'—'),campo('Estoque',a.estoque_atual!==null?fmtN(a.estoque_atual,3)+' '+(a.unidade||''):'—')]);
-                    html+=grid(3,[campo('Custo / '+(a.unidade_padrao||'unid'),'R$ '+fmtN(a.custo_por_unidade,4)),campo('Preço Compra',a.preco_compra?'R$ '+fmtN(a.preco_compra,2):'—'),campo('Preço Venda','R$ '+fmtN(a.preco_venda,2))]);
-                    if(a.grupo!=='E'){
-                        html+=grid(4,[campo('Fator Correção',a.fator_correcao),campo('Fator Perda',a.fator_perda),campo('Densidade',a.densidade),campo('DCB',a.dcb||'—')]);
-                        html+=grid(3,[campo('Dose Mínima',a.dose_min?a.dose_min+(a.uni_dose_min?' '+a.uni_dose_min:''):'—'),campo('Dose Máxima',a.dose_max?a.dose_max+(a.uni_dose_max?' '+a.uni_dose_max:''):'—'),campo('Princípio Ativo',a.principio_ativo||'—')]);
-                    }
-                    html+=grid(2,[campo('Categoria',a.categoria||'—'),campo('Classe Terapêutica',a.classe_terapeutica||'—')]);
-                    if(a.observacoes)html+='<div style="background:#f8fafc;border-radius:6px;padding:10px 14px;margin-top:4px"><span style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.4px">Observações</span><p style="margin:4px 0 0;font-size:13px">'+escH(a.observacoes)+'</p></div>';
-                    if(a.sincronizado_em){var d=new Date(a.sincronizado_em);html+='<p style="color:#94a3b8;font-size:11px;margin-top:8px">Sincronizado em '+d.toLocaleString('pt-BR')+'</p>';}
-
-                    html += '<div style="border-top:1px solid #e2e8f0;margin-top:16px;padding-top:14px">';
-                    html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
-                    html += '<strong style="font-size:13px">&#x1F3F7; Sin&ocirc;nimos <span id="taof-sin-ativo-count" style="font-size:11px;color:#94a3b8;font-weight:400"></span></strong>';
-                    html += '</div>';
-                    html += '<div id="taof-sin-ativo-tags" style="margin-bottom:10px;min-height:24px"><span style="color:#94a3b8;font-size:12px">Carregando...</span></div>';
-                    html += '<div style="display:flex;gap:6px;align-items:center">';
-                    html += '<input type="text" id="taof-sin-ativo-inp" placeholder="Novo sin&ocirc;nimo (ex: VIT D3)" style="font-size:12px;width:230px;padding:5px 8px;border:1px solid #d1d5db;border-radius:4px">';
-                    html += '<button type="button" class="button button-small" id="taof-sin-ativo-add" data-aid="'+a.id+'">+ Adicionar</button>';
-                    html += '<span id="taof-sin-ativo-msg" style="font-size:12px"></span>';
-                    html += '</div>';
-                    html += '</div>';
-
-                    $('#taof-ativo-modal-body').html(html);
-                    reloadSinonimos(a.id);
+                    if(!r.success){$('#taof-ativo-modal-body').html('<p style="color:#dc2626">Erro ao carregar: '+(r.data||'desconhecido')+'</p>');return;}
+                    renderModalAtivo(r.data);
+                }).fail(function(){
+                    $('#taof-ativo-modal-body').html('<p style="color:#dc2626">Falha na comunicação com o servidor.</p>');
                 });
+            }
+
+            $(document).on('click','.taof-ativo-link',function(e){
+                e.preventDefault();
+                abrirModalAtivo($(this).data('id'));
             });
+
+            // ── Busca dinâmica: filtra tabela + dropdown com setas ────────
+            var $inp   = $('#taof-s-inp');
+            var $dd    = $('#taof-s-dd');
+            var $count = $('#taof-s-count');
+            var $rows  = $('#taof-tbody tr');
+            var _timer = null;
+            var _idx   = -1;
+
+            function ddItems(){ return $dd.find('.taof-s-item[data-sel]'); }
+
+            function ddHighlight(idx){
+                var $items = ddItems();
+                $items.removeClass('taof-s-hl');
+                if(idx>=0 && idx<$items.length) $items.eq(idx).addClass('taof-s-hl');
+                _idx = idx;
+            }
+
+            function ddSelect($item){
+                var id = $item.data('id');
+                $dd.hide().empty();
+                _idx = -1;
+                if(id) abrirModalAtivo(id);
+            }
+
+            function filterRows(q){
+                if(!q){ $rows.show(); $count.hide(); return; }
+                var vis = 0;
+                $rows.each(function(){
+                    var $tr  = $(this);
+                    var nome = $tr.data('nome') || '';
+                    var cod  = $tr.data('cod')  || '';
+                    var show = nome.indexOf(q) !== -1 || cod.indexOf(q) !== -1;
+                    $tr.toggle(show);
+                    if(show) vis++;
+                });
+                $count.text(vis + ' resultado(s)').show();
+            }
+
+            $inp.on('input', function(){
+                clearTimeout(_timer);
+                var q = $(this).val().trim().toLowerCase();
+
+                // Filtro imediato das linhas da tabela (client-side)
+                filterRows(q);
+
+                if(q.length < 2){ $dd.hide().empty(); return; }
+
+                $dd.html('<div style="padding:10px 14px;color:#94a3b8;font-size:12px">Buscando…</div>').show();
+
+                _timer = setTimeout(function(){
+                    $.getJSON(_ajaxUrl,{action:'tao_formula_search_ativos',nonce:_nonce,q:q},function(resp){
+                        $dd.empty();
+                        var lista = resp.success && Array.isArray(resp.data) ? resp.data : [];
+                        if(!lista.length){
+                            $dd.html('<div style="padding:10px 14px;color:#94a3b8;font-size:12px">Nenhum resultado.</div>');
+                            return;
+                        }
+                        lista.forEach(function(a){
+                            var grBadge = a.grupo==='E'
+                                ? '<span style="font-size:10px;background:#e0f2fe;color:#0369a1;padding:1px 5px;border-radius:4px;margin-right:6px;flex-shrink:0">EMB</span>'
+                                : '<span style="font-size:10px;background:#f0fdf4;color:#166534;padding:1px 5px;border-radius:4px;margin-right:6px;flex-shrink:0">MP</span>';
+                            var $item = $('<div class="taof-s-item" data-sel="1">').html(
+                                '<span style="display:flex;align-items:center;min-width:0">'+grBadge+
+                                '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escH(a.nome)+
+                                (a.codigo_fc?' <span style="color:#94a3b8;font-size:11px">['+escH(a.codigo_fc)+']</span>':'')+
+                                '</span></span>'+
+                                '<small style="color:#64748b;font-size:11px;flex-shrink:0;margin-left:10px">R$ '+fmtN(a.preco_venda,2)+'</small>'
+                            );
+                            $item.data({id:a.id});
+                            $item.on('mousedown',function(e){ e.preventDefault(); ddSelect($(this)); });
+                            $item.on('mouseenter',function(){ ddHighlight(ddItems().index($(this))); });
+                            $dd.append($item);
+                        });
+                        _idx = -1;
+                    }).fail(function(){
+                        $dd.html('<div style="padding:10px 14px;color:#dc2626;font-size:12px">Falha na busca.</div>');
+                    });
+                }, 280);
+            });
+
+            $inp.on('keydown',function(e){
+                var $items = ddItems();
+                if(e.key==='ArrowDown'){
+                    e.preventDefault();
+                    if(!$dd.is(':visible') && $(this).val().trim().length>=2) $dd.show();
+                    ddHighlight(Math.min(_idx+1,$items.length-1));
+                } else if(e.key==='ArrowUp'){
+                    e.preventDefault();
+                    ddHighlight(Math.max(_idx-1,0));
+                } else if(e.key==='Enter'){
+                    if(_idx>=0 && $dd.is(':visible')){ e.preventDefault(); ddSelect($items.eq(_idx)); }
+                } else if(e.key==='Escape'){
+                    $dd.hide(); _idx=-1;
+                }
+            });
+
+            $inp.on('blur',function(){ setTimeout(function(){ $dd.hide(); _idx=-1; },160); });
+            $(document).on('click',function(e){ if(!$(e.target).closest('#taof-s-inp,#taof-s-dd').length) $dd.hide(); });
+            // ─────────────────────────────────────────────────────────────
 
             $(document).on('click','#taof-sin-ativo-add',function(){
                 var aid = $(this).data('aid');
@@ -210,6 +371,131 @@ function tao_formula_page_ativos() {
         // Tenta agora (jQuery no <head>), senão aguarda window.load (jQuery no footer)
         taofAtivosSetup();
         window.addEventListener('load', taofAtivosSetup);
+    })();
+    </script>
+
+    <script>
+    (function(){
+        function setup(){
+            var $ = window.jQuery; if ( ! $ ) return setTimeout(setup, 60);
+            if ( window._taofSinInit ) return; window._taofSinInit = true;
+            var _nonce = '<?php echo esc_js( wp_create_nonce('tao_formula_nonce') ); ?>';
+            var _ajax  = '<?php echo esc_js( admin_url('admin-ajax.php') ); ?>';
+
+            // ── Abas ──────────────────────────────────────────────────────
+            $('.taof-tab-btn').on('click', function(){
+                var pane = $(this).data('pane');
+                $('.taof-tab-btn').css({ borderBottomColor:'transparent', color:'#475569', fontWeight:'400' });
+                $(this).css({ borderBottomColor:'#2271b1', color:'#2271b1', fontWeight:'600' });
+                $('#taof-pane-ativos').toggle( pane === 'ativos' );
+                $('#taof-pane-sinonimos').toggle( pane === 'sinonimos' );
+                if ( pane === 'sinonimos' && ! window._taofSinLoaded ) { window._taofSinLoaded = true; carregar(); }
+            });
+
+            // ── Carregar lista ────────────────────────────────────────────
+            function carregar(){
+                var q = $('#taof-sin-q').val() || '', sem = $('#taof-sin-sem').is(':checked') ? '1' : '';
+                $('#taof-sin-tbody').html('<tr><td colspan="3" style="color:#94a3b8">Carregando...</td></tr>');
+                $.post(_ajax, { action:'tao_formula_sinonimos_lista', nonce:_nonce, q:q, sem_ativo:sem }, function(r){
+                    var rows = ( r && r.success && r.data ) ? r.data : [];
+                    $('#taof-sin-count').text(rows.length + ' sinônimo(s)');
+                    var $b = $('#taof-sin-tbody').empty();
+                    if ( ! rows.length ) { $b.append('<tr><td colspan="3" style="color:#94a3b8">Nenhum sinônimo.</td></tr>'); return; }
+                    rows.forEach(function(s){
+                        var at = s.ativos;
+                        var $tr = $('<tr>').attr('data-id', s.id);
+                        $tr.append( $('<td>').css('font-weight','600').text(s.sinonimo) );
+                        var $cell = $('<td class="taof-sin-ativo-cell" style="position:relative">');
+                        if ( at ) $cell.text( ( at.codigo_fc ? at.codigo_fc + ' — ' : '' ) + ( at.nome || '' ) );
+                        else $cell.html('<span style="color:#dc2626">— sem associação —</span>');
+                        $tr.append($cell);
+                        var $ac = $('<td style="white-space:nowrap">');
+                        $('<button class="button button-small">').text( at ? 'Alterar' : 'Associar' )
+                            .on('click', function(){ assoc($tr, s.id); }).appendTo($ac);
+                        $ac.append(' ');
+                        $('<button class="button button-small" style="color:#dc2626;border-color:#dc2626">').text('Excluir')
+                            .on('click', function(){
+                                if ( ! confirm('Excluir o sinônimo "' + s.sinonimo + '"?') ) return;
+                                $.post(_ajax, { action:'tao_formula_excluir_sinonimo', nonce:_nonce, sin_id:s.id }, function(r){
+                                    if ( r && r.success ) carregar(); else alert('Erro ao excluir');
+                                });
+                            }).appendTo($ac);
+                        $tr.append($ac);
+                        $b.append($tr);
+                    });
+                });
+            }
+
+            // ── Associar/alterar ativo de uma linha ───────────────────────
+            function assoc($tr, sinId){
+                var $cell = $tr.find('.taof-sin-ativo-cell').empty();
+                var $inp = $('<input type="text" placeholder="buscar ativo..." autocomplete="off" style="width:220px;padding:4px 8px">');
+                var $dd  = $('<div style="position:absolute;top:30px;left:0;min-width:260px;background:#fff;border:1px solid #e2e8f0;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.12);z-index:50;max-height:240px;overflow:auto;display:none"></div>');
+                $cell.append($inp).append($dd); $inp.focus();
+                var t;
+                $inp.on('input', function(){
+                    clearTimeout(t); var q = $inp.val().trim();
+                    if ( q.length < 2 ) { $dd.hide(); return; }
+                    t = setTimeout(function(){
+                        $.post(_ajax, { action:'tao_formula_buscar_ativos', nonce:_nonce, q:q }, function(r){
+                            var ats = ( r && r.success && r.data ) ? r.data : []; $dd.empty();
+                            if ( ! ats.length ) { $dd.html('<div style="padding:8px;color:#94a3b8;font-size:12px">nada encontrado</div>').show(); return; }
+                            ats.forEach(function(a){
+                                $('<div style="padding:7px 10px;cursor:pointer;border-bottom:1px solid #f1f5f9;font-size:13px">')
+                                    .text( ( a.codigo_fc ? a.codigo_fc + ' — ' : '' ) + a.nome )
+                                    .on('mousedown', function(){
+                                        $.post(_ajax, { action:'tao_formula_associar_sinonimo', nonce:_nonce, sin_id:sinId, ativo_id:a.id }, function(r){
+                                            if ( r && r.success ) carregar(); else alert('Erro ao associar');
+                                        });
+                                    }).appendTo($dd);
+                            });
+                            $dd.show();
+                        });
+                    }, 250);
+                });
+                $inp.on('blur', function(){ setTimeout(function(){ carregar(); }, 200); });
+            }
+
+            // ── Novo sinônimo ─────────────────────────────────────────────
+            $('#taof-sin-novo-btn').on('click', function(){ $('#taof-sin-novo-form').toggle(); });
+            var tn;
+            $('#taof-sin-novo-ativo-q').on('input', function(){
+                var $q = $(this), $dd = $('#taof-sin-novo-ativo-dd');
+                $('#taof-sin-novo-ativo-id').val(''); $('#taof-sin-novo-ativo-sel').text('');
+                clearTimeout(tn); var q = $q.val().trim(); if ( q.length < 2 ) { $dd.hide(); return; }
+                tn = setTimeout(function(){
+                    $.post(_ajax, { action:'tao_formula_buscar_ativos', nonce:_nonce, q:q }, function(r){
+                        var ats = ( r && r.success && r.data ) ? r.data : []; $dd.empty();
+                        ats.forEach(function(a){
+                            $('<div style="padding:7px 10px;cursor:pointer;border-bottom:1px solid #f1f5f9;font-size:13px">')
+                                .text( ( a.codigo_fc ? a.codigo_fc + ' — ' : '' ) + a.nome )
+                                .on('mousedown', function(){
+                                    $('#taof-sin-novo-ativo-id').val(a.id);
+                                    $q.val( ( a.codigo_fc ? a.codigo_fc + ' — ' : '' ) + a.nome );
+                                    $('#taof-sin-novo-ativo-sel').text('✔'); $dd.hide();
+                                }).appendTo($dd);
+                        });
+                        $dd.toggle( ats.length > 0 );
+                    });
+                }, 250);
+            });
+            $('#taof-sin-novo-salvar').on('click', function(){
+                var nome = $('#taof-sin-novo-nome').val().trim();
+                if ( ! nome ) { alert('Informe o sinônimo'); return; }
+                $.post(_ajax, { action:'tao_formula_criar_sinonimo', nonce:_nonce, sinonimo:nome, ativo_id:$('#taof-sin-novo-ativo-id').val() }, function(r){
+                    if ( r && r.success ) {
+                        $('#taof-sin-novo-nome,#taof-sin-novo-ativo-q').val(''); $('#taof-sin-novo-ativo-id').val(''); $('#taof-sin-novo-ativo-sel').text('');
+                        $('#taof-sin-novo-form').hide(); carregar();
+                    } else { alert('Erro: ' + ( ( r && r.data && r.data.message ) || 'não foi possível criar' ) ); }
+                });
+            });
+
+            $('#taof-sin-buscar').on('click', carregar);
+            $('#taof-sin-q').on('keydown', function(e){ if ( e.key === 'Enter' ) carregar(); });
+            $('#taof-sin-sem').on('change', carregar);
+        }
+        setup();
+        window.addEventListener('load', setup);
     })();
     </script>
     <?php
