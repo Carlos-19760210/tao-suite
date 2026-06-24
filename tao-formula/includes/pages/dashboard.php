@@ -28,7 +28,7 @@ function tao_formula_page_dashboard() {
     $url_form = tao_formula_url( 'formula-formas' );
     ?>
     <div class="wrap taof-wrap">
-    <h1>&#x1F9EA; TAO Fórmulas — Dashboard</h1>
+    <h1>&#x1F9EA; Fórmulas</h1>
 
     <div class="taof-kpi-row">
         <div class="taof-kpi taof-kpi-warn">

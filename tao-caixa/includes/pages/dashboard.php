@@ -59,7 +59,7 @@ function tao_caixa_page_dashboard() {
     ?>
     <div class="wrap taoc-wrap">
         <div class="taoc-bar">
-            <h1>&#x1F4B0; TAO Caixa</h1>
+            <h1>&#x1F4B0; Caixa</h1>
             <div style="display:flex;gap:6px;font-size:13px">
                 <?php foreach ( [ 'hoje' => 'Hoje', '7d' => '7 dias', 'mes' => 'Mês' ] as $pk => $pl ) : ?>
                 <a class="taoc-btn<?php echo $p === $pk ? ' taoc-btn-primary' : ''; ?>" href="<?php echo $url( $pk ); ?>"><?php echo esc_html( $pl ); ?></a>

@@ -5,7 +5,7 @@ function tao_formula_page_config() {
     if ( ! tao_formula_can_access() ) { echo '<p>Acesso negado.</p>'; return; }
     ?>
     <div class="wrap taof-wrap">
-    <h1>⚙️ TAO Fórmulas — Configurações</h1>
+    <h1>⚙️ Fórmulas — Configurações</h1>
 
     <form id="taof-config-form">
         <table class="form-table taof-form-table">

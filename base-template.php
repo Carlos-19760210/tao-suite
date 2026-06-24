@@ -21,7 +21,7 @@ $secoes = [
     'chatbot-platform-campos-extras'  => [ 'fn' => 'cbpm_page_campos_extras',     'label' => 'Campos Extras' ],
     'chatbot-platform-conectores'     => [ 'fn' => 'cbpm_page_conectores',        'label' => 'Conectores' ],
     'chatbot-platform-usuarios'       => [ 'fn' => 'cbpm_page_usuarios',          'label' => 'Usuários' ],
-    'chatbot-platform-settings'       => [ 'fn' => 'cbpm_page_settings',          'label' => 'Configurações' ],
+    'chatbot-platform-settings'       => [ 'fn' => 'cbpm_page_settings',          'label' => 'Plataforma' ],
     'chatbot-platform-dashboard'      => [ 'fn' => 'cbpm_page_dashboard',         'label' => 'Dashboard' ],
     'chatbot-platform-neo-dashboard'  => [ 'fn' => 'cbpm_page_neo_dashboard',     'label' => 'Painel Neo' ],
 ];
@@ -36,17 +36,17 @@ if ( $has_crm ) {
 
 $has_formula = function_exists( 'tao_formula_page_dashboard' );
 if ( $has_formula ) {
-    $secoes['tao-formula']           = [ 'fn' => 'tao_formula_page_dashboard',      'label' => 'TAO Fórmulas — Dashboard' ];
+    $secoes['tao-formula']           = [ 'fn' => 'tao_formula_page_dashboard',      'label' => 'Fórmulas' ];
     $secoes['tao-formula-orcamentos']= [ 'fn' => 'tao_formula_page_orcamentos',     'label' => 'Orçamentos' ];
     $secoes['tao-formula-orc-novo']  = [ 'fn' => 'tao_formula_page_orcamento_novo', 'label' => 'Novo Orçamento' ];
     $secoes['tao-formula-formas']    = [ 'fn' => 'tao_formula_page_formas',         'label' => 'Formas Farmacêuticas' ];
     $secoes['tao-formula-ativos']    = [ 'fn' => 'tao_formula_page_ativos',         'label' => 'Ativos' ];
-    $secoes['tao-formula-config']    = [ 'fn' => 'tao_formula_page_config',         'label' => 'TAO Fórmulas — Config' ];
+    $secoes['tao-formula-config']    = [ 'fn' => 'tao_formula_page_config',         'label' => 'Fórmulas — Configurações' ];
 }
 
 $has_caixa = function_exists( 'tao_caixa_page_dashboard' );
 if ( $has_caixa ) {
-    $secoes['tao-caixa-dashboard']   = [ 'fn' => 'tao_caixa_page_dashboard',    'label' => 'TAO Caixa' ];
+    $secoes['tao-caixa-dashboard']   = [ 'fn' => 'tao_caixa_page_dashboard',    'label' => 'Caixa' ];
     $secoes['tao-caixa-vendas']      = [ 'fn' => 'tao_caixa_page_vendas',       'label' => 'Caixa — Vendas' ];
     $secoes['tao-caixa-sessao']      = [ 'fn' => 'tao_caixa_page_sessao',       'label' => 'Caixa — Sessão' ];
     $secoes['tao-caixa-conciliacao'] = [ 'fn' => 'tao_caixa_page_conciliacao',  'label' => 'Caixa — Conciliação' ];
@@ -137,7 +137,7 @@ $cfg_subs['cfg-geral'] = [
         [ 'slug' => 'chatbot-platform-categorias','label' => 'Categorias',                 'url' => cbpm_url('categorias') ],
         [ 'slug' => 'chatbot-platform-usuarios',  'label' => 'Usu&aacute;rios',            'url' => cbpm_url('usuarios') ],
         [ 'slug' => 'chatbot-platform-conectores','label' => 'Conectores',                 'url' => cbpm_url('conectores') ],
-        [ 'slug' => 'chatbot-platform-settings',  'label' => 'Configura&ccedil;&otilde;es','url' => cbpm_url('configuracoes') ],
+        [ 'slug' => 'chatbot-platform-settings',  'label' => 'Plataforma','url' => cbpm_url('configuracoes') ],
     ],
 ];
 $cfg_subs['cfg-taon'] = [
@@ -344,6 +344,8 @@ foreach ( $nav as $gid => $entry ) {
                 width: 100%;
                 box-sizing: border-box;
             }
+            /* Tabelas de dados roláveis no toque (não ficam mais cortadas/travadas) */
+            .cbpm-main table:not(.form-table){ display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; max-width:100%; }
         }
 
         /* ── Layout geral ── */
