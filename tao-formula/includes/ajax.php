@@ -1143,6 +1143,18 @@ add_action( 'wp_ajax_tao_formula_criar_sinonimo', function () {
     }
 } );
 
+// Conjunto normalizado de TODOS os sinônimos com ativo (paginado — PostgREST limita a 1000/req).
+function tao_formula_sinonimos_set( $cliente_id, $norm ) {
+    $set = []; $offset = 0;
+    do {
+        $r    = tao_formula_api( '/ativos_sinonimos?cliente_id=eq.' . $cliente_id . '&ativo_id=not.is.null&select=sinonimo&order=id.asc&limit=1000&offset=' . $offset );
+        $rows = $r['data'] ?? [];
+        foreach ( $rows as $s ) { $k = $norm( $s['sinonimo'] ); if ( $k !== '' ) $set[ $k ] = true; }
+        $offset += 1000;
+    } while ( count( $rows ) === 1000 && $offset < 50000 );
+    return $set;
+}
+
 // ── Sinônimos: termos dos ORÇAMENTOS sem associação a um ativo base ───────────
 // Varre os itens (JSON) dos orçamentos e lista os ingredientes (mp) com ativo_id vazio,
 // agrupados por nome, ignorando os que já têm sinônimo cadastrado.
@@ -1175,10 +1187,8 @@ add_action( 'wp_ajax_tao_formula_sinonimos_nao_atribuidos', function () {
             if ( $num && count( $termos[ $key ]['orcs'] ) < 3 && ! in_array( $num, $termos[ $key ]['orcs'], true ) ) $termos[ $key ]['orcs'][] = $num;
         }
     }
-    // Remove os que já possuem sinônimo cadastrado (associado a um ativo)
-    $jaSin = [];
-    $rs = tao_formula_api( '/ativos_sinonimos?cliente_id=eq.' . $cliente_id . '&ativo_id=not.is.null&select=sinonimo' );
-    foreach ( ( $rs['data'] ?? [] ) as $s ) $jaSin[ $norm( $s['sinonimo'] ) ] = true;
+    // Remove os que já possuem sinônimo cadastrado (associado a um ativo) — paginado
+    $jaSin = tao_formula_sinonimos_set( $cliente_id, $norm );
     $out = [];
     foreach ( $termos as $key => $t ) { if ( ! isset( $jaSin[ $key ] ) ) $out[] = $t; }
     usort( $out, function ( $a, $b ) { return $b['count'] - $a['count']; } );
@@ -1194,10 +1204,8 @@ add_action( 'wp_ajax_tao_formula_reprocessar_lista', function () {
     if ( ! $cliente_id ) wp_send_json_error( 'Cliente não identificado', 400 );
 
     $norm = function ( $s ) { return mb_strtoupper( trim( preg_replace( '/\s+/u', ' ', (string) $s ) ) ); };
-    // Conjunto de sinônimos já associados a um ativo
-    $rs = tao_formula_api( '/ativos_sinonimos?cliente_id=eq.' . $cliente_id . '&ativo_id=not.is.null&select=sinonimo&limit=5000' );
-    $sinset = [];
-    foreach ( ( $rs['data'] ?? [] ) as $s ) { $k = $norm( $s['sinonimo'] ); if ( $k !== '' ) $sinset[ $k ] = true; }
+    // Conjunto de sinônimos já associados a um ativo (paginado — PostgREST limita a 1000/req)
+    $sinset = tao_formula_sinonimos_set( $cliente_id, $norm );
 
     $ro = tao_formula_api( '/orcamentos?cliente_id=eq.' . $cliente_id . '&select=id,numero_orcamento,nome_paciente,card_id,itens&order=criado_em.desc&limit=800' );
     $out = [];
