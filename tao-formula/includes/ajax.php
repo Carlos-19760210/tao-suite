@@ -1119,6 +1119,18 @@ add_action( 'wp_ajax_tao_formula_criar_sinonimo', function () {
     $sinonimo   = strtoupper( trim( sanitize_text_field( $_POST['sinonimo'] ?? '' ) ) );
     $ativo_id   = sanitize_text_field( $_POST['ativo_id'] ?? '' );
     if ( ! $sinonimo || ! $cliente_id ) wp_send_json_error( 'Informe o sinônimo' );
+
+    // Upsert: se o sinônimo já existe (case-insensitive, ex.: órfão sem ativo), atualiza o ativo
+    $ex = tao_formula_api( '/ativos_sinonimos?cliente_id=eq.' . $cliente_id . '&sinonimo=ilike.' . rawurlencode( $sinonimo ) . '&select=id&limit=1' );
+    if ( $ex['ok'] && ! empty( $ex['data'] ) ) {
+        $sid = $ex['data'][0]['id'];
+        $r   = tao_formula_api( "/ativos_sinonimos?id=eq.$sid&cliente_id=eq.$cliente_id", 'PATCH', [
+            'ativo_id' => $ativo_id !== '' ? $ativo_id : null,
+        ] );
+        $r['ok'] ? wp_send_json_success( [ 'id' => $sid ] ) : wp_send_json_error( [ 'message' => 'Erro ao atualizar: ' . $r['raw'] ] );
+        return;
+    }
+
     $r = tao_formula_api( '/ativos_sinonimos', 'POST', [
         'cliente_id' => $cliente_id,
         'ativo_id'   => $ativo_id !== '' ? $ativo_id : null,
@@ -1127,7 +1139,7 @@ add_action( 'wp_ajax_tao_formula_criar_sinonimo', function () {
     if ( $r['ok'] ) {
         wp_send_json_success( [ 'id' => $r['data'][0]['id'] ?? '' ] );
     } else {
-        wp_send_json_error( [ 'message' => 'Erro ao criar (talvez já exista): ' . $r['raw'] ] );
+        wp_send_json_error( [ 'message' => 'Erro ao criar: ' . $r['raw'] ] );
     }
 } );
 
