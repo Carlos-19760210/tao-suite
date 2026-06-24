@@ -137,7 +137,7 @@ function tao_formula_page_ativos() {
         </div>
 
         <table class="wp-list-table widefat fixed striped">
-            <thead><tr><th style="width:34%">Sinônimo</th><th>Ativo associado</th><th style="width:150px"></th></tr></thead>
+            <thead><tr><th style="width:34%" id="taof-sin-th1">Sinônimo</th><th id="taof-sin-th2">Ativo associado</th><th style="width:150px"></th></tr></thead>
             <tbody id="taof-sin-tbody"><tr><td colspan="3" style="color:#94a3b8">Carregando...</td></tr></tbody>
         </table>
     </div>
@@ -392,11 +392,13 @@ function tao_formula_page_ativos() {
                 if ( pane === 'sinonimos' && ! window._taofSinLoaded ) { window._taofSinLoaded = true; carregar(); }
             });
 
-            // ── Carregar lista ────────────────────────────────────────────
+            // ── Carregar (dispatcher: lista de sinônimos OU termos sem associação) ─
             function carregar(){
-                var q = $('#taof-sin-q').val() || '', sem = $('#taof-sin-sem').is(':checked') ? '1' : '';
+                if ( $('#taof-sin-sem').is(':checked') ) return carregarNaoAtribuidos();
+                $('#taof-sin-th1').text('Sinônimo'); $('#taof-sin-th2').text('Ativo associado');
+                var q = $('#taof-sin-q').val() || '';
                 $('#taof-sin-tbody').html('<tr><td colspan="3" style="color:#94a3b8">Carregando...</td></tr>');
-                $.post(_ajax, { action:'tao_formula_sinonimos_lista', nonce:_nonce, q:q, sem_ativo:sem }, function(r){
+                $.post(_ajax, { action:'tao_formula_sinonimos_lista', nonce:_nonce, q:q, sem_ativo:'' }, function(r){
                     var rows = ( r && r.success && r.data ) ? r.data : [];
                     $('#taof-sin-count').text(rows.length + ' sinônimo(s)');
                     var $b = $('#taof-sin-tbody').empty();
@@ -424,6 +426,61 @@ function tao_formula_page_ativos() {
                         $b.append($tr);
                     });
                 });
+            }
+
+            // ── Termos dos ORÇAMENTOS sem ativo base associado ────────────
+            function carregarNaoAtribuidos(){
+                $('#taof-sin-th1').text('Termo do orçamento'); $('#taof-sin-th2').text('Ocorrências');
+                $('#taof-sin-tbody').html('<tr><td colspan="3" style="color:#94a3b8">Varrendo orçamentos...</td></tr>');
+                $.post(_ajax, { action:'tao_formula_sinonimos_nao_atribuidos', nonce:_nonce }, function(r){
+                    var rows = ( r && r.success && r.data ) ? r.data : [];
+                    var q = ( $('#taof-sin-q').val() || '' ).trim().toUpperCase();
+                    if ( q ) rows = rows.filter(function(t){ return ( t.nome || '' ).toUpperCase().indexOf(q) >= 0; });
+                    $('#taof-sin-count').text(rows.length + ' termo(s) sem associação');
+                    var $b = $('#taof-sin-tbody').empty();
+                    if ( ! rows.length ) { $b.append('<tr><td colspan="3" style="color:#94a3b8">Nenhum termo de orçamento sem associação. 🎉</td></tr>'); return; }
+                    rows.forEach(function(t){
+                        var $tr = $('<tr>');
+                        $tr.append( $('<td>').css('font-weight','600').text(t.nome) );
+                        var info = t.count + ' ocorrência(s)' + ( ( t.orcs && t.orcs.length ) ? ' · ex: ' + t.orcs.join(', ') : '' );
+                        $tr.append( $('<td class="taof-sin-ativo-cell" style="position:relative;color:#64748b">').text(info) );
+                        var $ac = $('<td style="white-space:nowrap">');
+                        $('<button class="button button-small button-primary">').text('Associar a ativo')
+                            .on('click', function(){ assocTermo($tr, t.nome); }).appendTo($ac);
+                        $tr.append($ac);
+                        $b.append($tr);
+                    });
+                });
+            }
+
+            // ── Busca inline de ativo p/ um termo não atribuído → cria o sinônimo ─
+            function assocTermo($tr, termo){
+                var $cell = $tr.find('.taof-sin-ativo-cell').empty().css('color','');
+                var $inp = $('<input type="text" placeholder="buscar ativo..." autocomplete="off" style="width:220px;padding:4px 8px">');
+                var $dd  = $('<div style="position:absolute;top:30px;left:0;min-width:260px;background:#fff;border:1px solid #e2e8f0;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.12);z-index:50;max-height:240px;overflow:auto;display:none"></div>');
+                $cell.append($inp).append($dd); $inp.focus();
+                var t;
+                $inp.on('input', function(){
+                    clearTimeout(t); var q = $inp.val().trim();
+                    if ( q.length < 2 ) { $dd.hide(); return; }
+                    t = setTimeout(function(){
+                        $.post(_ajax, { action:'tao_formula_buscar_ativos', nonce:_nonce, q:q }, function(r){
+                            var ats = ( r && r.success && r.data ) ? r.data : []; $dd.empty();
+                            if ( ! ats.length ) { $dd.html('<div style="padding:8px;color:#94a3b8;font-size:12px">nada encontrado</div>').show(); return; }
+                            ats.forEach(function(a){
+                                $('<div style="padding:7px 10px;cursor:pointer;border-bottom:1px solid #f1f5f9;font-size:13px">')
+                                    .text( ( a.codigo_fc ? a.codigo_fc + ' — ' : '' ) + a.nome )
+                                    .on('mousedown', function(){
+                                        $.post(_ajax, { action:'tao_formula_criar_sinonimo', nonce:_nonce, sinonimo:termo, ativo_id:a.id }, function(r){
+                                            if ( r && r.success ) carregar(); else alert('Erro: ' + ( ( r && r.data && r.data.message ) || 'não foi possível associar' ) );
+                                        });
+                                    }).appendTo($dd);
+                            });
+                            $dd.show();
+                        });
+                    }, 250);
+                });
+                $inp.on('blur', function(){ setTimeout(function(){ carregar(); }, 200); });
             }
 
             // ── Associar/alterar ativo de uma linha ───────────────────────

@@ -1125,6 +1125,46 @@ add_action( 'wp_ajax_tao_formula_criar_sinonimo', function () {
     $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => 'Erro ao criar (talvez já exista): ' . $r['raw'] ] );
 } );
 
+// ── Sinônimos: termos dos ORÇAMENTOS sem associação a um ativo base ───────────
+// Varre os itens (JSON) dos orçamentos e lista os ingredientes (mp) com ativo_id vazio,
+// agrupados por nome, ignorando os que já têm sinônimo cadastrado.
+add_action( 'wp_ajax_tao_formula_sinonimos_nao_atribuidos', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( 'Cliente não identificado', 400 );
+
+    $r = tao_formula_api( '/orcamentos?cliente_id=eq.' . $cliente_id . '&select=numero_orcamento,itens&order=criado_em.desc&limit=800' );
+    $termos = [];
+    foreach ( ( $r['data'] ?? [] ) as $o ) {
+        $itens = $o['itens'];
+        if ( is_string( $itens ) ) $itens = json_decode( $itens, true );
+        if ( ! is_array( $itens ) ) continue;
+        foreach ( $itens as $it ) {
+            if ( ( $it['tipo'] ?? 'mp' ) !== 'mp' ) continue;
+            if ( ! empty( $it['is_qsp'] ) ) continue;                     // excipiente/QSP não conta
+            $aid = trim( (string) ( $it['ativo_id'] ?? '' ) );
+            if ( $aid !== '' ) continue;                                  // já associado
+            $nome = trim( (string) ( $it['nome_prescricao'] ?? $it['nome'] ?? '' ) );
+            if ( $nome === '' ) continue;
+            $key = mb_strtoupper( $nome );
+            if ( ! isset( $termos[ $key ] ) ) $termos[ $key ] = [ 'nome' => $nome, 'count' => 0, 'orcs' => [] ];
+            $termos[ $key ]['count']++;
+            $num = $o['numero_orcamento'] ?? '';
+            if ( $num && count( $termos[ $key ]['orcs'] ) < 3 && ! in_array( $num, $termos[ $key ]['orcs'], true ) ) $termos[ $key ]['orcs'][] = $num;
+        }
+    }
+    // Remove os que já possuem sinônimo cadastrado (associado a um ativo)
+    $jaSin = [];
+    $rs = tao_formula_api( '/ativos_sinonimos?cliente_id=eq.' . $cliente_id . '&ativo_id=not.is.null&select=sinonimo' );
+    foreach ( ( $rs['data'] ?? [] ) as $s ) $jaSin[ mb_strtoupper( trim( $s['sinonimo'] ) ) ] = true;
+    $out = [];
+    foreach ( $termos as $key => $t ) { if ( ! isset( $jaSin[ $key ] ) ) $out[] = $t; }
+    usort( $out, function ( $a, $b ) { return $b['count'] - $a['count']; } );
+    wp_send_json_success( $out );
+} );
+
 // ── Batch insert no Supabase ignorando duplicatas ────────────────────────────
 
 function tao_formula_batch_insert_sinonimos( $rows ) {
