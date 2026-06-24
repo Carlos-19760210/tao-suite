@@ -888,6 +888,7 @@ function tao_crm_processar_agendadas_fn() {
 
 add_action( 'wp_ajax_tao_crm_wa_status', 'tao_crm_ajax_wa_status' );
 function tao_crm_ajax_wa_status() {
+    while ( ob_get_level() > 0 ) ob_end_clean();   // descarta BOM/saída espúria antes do JSON
     check_ajax_referer( 'tao_crm_nonce', 'nonce' );
     if ( ! function_exists( 'cbpm_can_access' ) || ! cbpm_can_access() ) wp_send_json_error( 'Acesso negado' );
 
