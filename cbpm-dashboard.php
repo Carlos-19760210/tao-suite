@@ -418,18 +418,19 @@ function cbpm_page_dashboard() {
             <?php cbpm_kpi_card( 'R$&nbsp;' . number_format( $faturamento, 2, ',', '.' ), 'Faturamento', '#d63638', true ); ?>
         </div>
 
+        <style>@media(max-width:768px){.cbpm-g2{grid-template-columns:1fr !important}}</style>
         <!-- ── Gráficos ──────────────────────────────────────────────────── -->
-        <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:12px">
+        <div class="cbpm-g2" style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:12px">
             <div style="background:#fff;border:1px solid #dcdcde;border-radius:4px;padding:20px">
                 <h3 style="margin:0 0 14px;font-size:13px;text-transform:uppercase;letter-spacing:.4px;color:#50575e">
                     Atividade — <?php echo esc_html( $periodos[ $periodo ] ); ?>
                 </h3>
-                <canvas id="cbpm-chart-activity" height="80"></canvas>
+                <div style="position:relative;height:200px"><canvas id="cbpm-chart-activity"></canvas></div>
             </div>
             <div style="background:#fff;border:1px solid #dcdcde;border-radius:4px;padding:20px">
                 <h3 style="margin:0 0 14px;font-size:13px;text-transform:uppercase;letter-spacing:.4px;color:#50575e">Leads por status</h3>
                 <?php if ( $leads_status ): ?>
-                    <canvas id="cbpm-chart-status"></canvas>
+                    <div style="position:relative;height:200px"><canvas id="cbpm-chart-status"></canvas></div>
                 <?php else: ?>
                     <p style="color:#646970;font-size:13px">Sem dados.</p>
                 <?php endif; ?>
@@ -437,7 +438,7 @@ function cbpm_page_dashboard() {
         </div>
 
         <!-- ── Recentes ──────────────────────────────────────────────────── -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="cbpm-g2" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
             <div style="background:#fff;border:1px solid #dcdcde;border-radius:4px;padding:20px">
                 <h3 style="margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:.4px;color:#50575e">Últimos leads</h3>
                 <?php if ( $recent_leads ): ?>
@@ -539,14 +540,14 @@ function cbpm_page_dashboard() {
         </div>
 
         <!-- Gráficos CRM -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
+        <div class="cbpm-g2" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
 
             <!-- Mensagens por dia -->
             <div style="background:#fff;border:1px solid #dcdcde;border-radius:4px;padding:20px">
                 <h3 style="margin:0 0 14px;font-size:13px;text-transform:uppercase;letter-spacing:.4px;color:#50575e">
                     Mensagens — <?php echo esc_html($periodos[$periodo]); ?>
                 </h3>
-                <canvas id="crm-chart-msgs" height="100"></canvas>
+                <div style="position:relative;height:200px"><canvas id="crm-chart-msgs"></canvas></div>
             </div>
 
             <!-- Cards por estágio (donut) -->
@@ -555,7 +556,7 @@ function cbpm_page_dashboard() {
                     Cards abertos por est&aacute;gio
                 </h3>
                 <?php if ( $cards_estagio_data ): ?>
-                    <canvas id="crm-chart-estagios" height="180"></canvas>
+                    <div style="position:relative;height:220px"><canvas id="crm-chart-estagios"></canvas></div>
                 <?php else: ?>
                     <p style="color:#646970;font-size:13px;margin:20px 0">Sem cards em aberto.</p>
                 <?php endif; ?>
@@ -568,6 +569,7 @@ function cbpm_page_dashboard() {
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script>
     (function(){
+        if ( window.Chart ) Chart.defaults.maintainAspectRatio = false;
         var labels = <?php echo wp_json_encode( $chart_labels ); ?>;
         new Chart(document.getElementById('cbpm-chart-activity'), {
             type: 'line',
