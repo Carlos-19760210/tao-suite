@@ -123,6 +123,7 @@ function tao_formula_page_ativos() {
             <label style="font-size:13px;display:flex;align-items:center;gap:5px"><input type="checkbox" id="taof-sin-sem"> Somente sem associação</label>
             <button type="button" class="button" id="taof-sin-buscar">Buscar</button>
             <button type="button" class="button button-primary" id="taof-sin-novo-btn">+ Novo sinônimo</button>
+            <button type="button" class="button" id="taof-sin-reproc-btn">&#x21BB; Reprocessar orçamentos</button>
             <span id="taof-sin-count" style="font-size:12px;color:#64748b"></span>
         </div>
 
@@ -134,6 +135,16 @@ function tao_formula_page_ativos() {
             <span id="taof-sin-novo-ativo-sel" style="font-size:12px;color:#16a34a"></span>
             <button type="button" class="button button-primary" id="taof-sin-novo-salvar" style="margin-left:6px">Criar</button>
             <div id="taof-sin-novo-ativo-dd" style="display:none;position:absolute;top:46px;left:300px;min-width:280px;background:#fff;border:1px solid #e2e8f0;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.12);z-index:60;max-height:240px;overflow:auto"></div>
+        </div>
+
+        <div id="taof-sin-reproc-panel" style="display:none;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px;margin-bottom:12px">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
+                <strong style="font-size:13px">Orçamentos com ativos já ajustados (sinônimo criado) e ainda não reprocessados</strong>
+                <label style="font-size:12px;display:flex;align-items:center;gap:4px"><input type="checkbox" id="taof-reproc-all"> selecionar todos</label>
+                <button type="button" class="button button-primary" id="taof-reproc-go">Reprocessar selecionados</button>
+                <span id="taof-reproc-status" style="font-size:12px;color:#64748b"></span>
+            </div>
+            <div id="taof-reproc-list" style="max-height:320px;overflow:auto;font-size:13px">Carregando...</div>
         </div>
 
         <table class="wp-list-table widefat fixed striped">
@@ -544,6 +555,56 @@ function tao_formula_page_ativos() {
                         $('#taof-sin-novo-form').hide(); carregar();
                     } else { alert('Erro: ' + ( ( r && r.data && r.data.message ) || 'não foi possível criar' ) ); }
                 });
+            });
+
+            // ── Reprocessar orçamentos ────────────────────────────────────
+            $('#taof-sin-reproc-btn').on('click', function(){
+                var $p = $('#taof-sin-reproc-panel');
+                if ( $p.is(':visible') ) { $p.hide(); return; }
+                $p.show(); carregarReproc();
+            });
+            function carregarReproc(){
+                $('#taof-reproc-all').prop('checked', false);
+                $('#taof-reproc-status').text('');
+                $('#taof-reproc-list').html('Carregando...');
+                $.post(_ajax, { action:'tao_formula_reprocessar_lista', nonce:_nonce }, function(r){
+                    var rows = ( r && r.success && r.data ) ? r.data : [];
+                    if ( ! rows.length ) { $('#taof-reproc-list').html('<span style="color:#64748b">Nenhum orçamento pendente de reprocessamento. 🎉</span>'); $('#taof-reproc-status').text(''); return; }
+                    var $l = $('<div>');
+                    rows.forEach(function(o){
+                        var $row = $('<label style="display:flex;gap:8px;align-items:flex-start;padding:6px 4px;border-bottom:1px solid #fef3c7;cursor:pointer">');
+                        $row.append( $('<input type="checkbox" class="taof-reproc-cb" style="margin-top:3px">').val(o.orc_id) );
+                        var txt = '<strong>' + $('<span>').text(o.numero || o.orc_id.substring(0,8)).html() + '</strong>' +
+                                  ( o.paciente ? ' — ' + $('<span>').text(o.paciente).html() : '' ) +
+                                  '<br><span style="color:#92400e;font-size:12px">' + o.ativos.length + ' ativo(s): ' + $('<span>').text(o.ativos.join(', ')).html() + '</span>';
+                        $row.append( $('<span>').html(txt) );
+                        $l.append($row);
+                    });
+                    $('#taof-reproc-list').empty().append($l);
+                    $('#taof-reproc-status').text(rows.length + ' orçamento(s) reprocessável(is)');
+                });
+            }
+            $('#taof-reproc-all').on('change', function(){ $('.taof-reproc-cb').prop('checked', $(this).is(':checked')); });
+            $('#taof-reproc-go').on('click', function(){
+                var ids = $('.taof-reproc-cb:checked').map(function(){ return $(this).val(); }).get();
+                if ( ! ids.length ) { alert('Selecione ao menos um orçamento.'); return; }
+                if ( ! confirm('Reprocessar ' + ids.length + ' orçamento(s)? Os ativos serão associados e os valores recalculados.') ) return;
+                var $btn = $('#taof-reproc-go').prop('disabled', true);
+                var done = 0, totalUpd = 0, fail = 0;
+                (function next(i){
+                    if ( i >= ids.length ) {
+                        $btn.prop('disabled', false);
+                        $('#taof-reproc-status').text('Concluído: ' + totalUpd + ' ativo(s) associado(s) em ' + done + ' orçamento(s)' + ( fail ? ' · ' + fail + ' falha(s)' : '' ));
+                        carregarReproc();
+                        return;
+                    }
+                    $('#taof-reproc-status').text('Reprocessando ' + (i+1) + '/' + ids.length + '...');
+                    $.post(_ajax, { action:'tao_formula_reprocessar_orc', nonce:_nonce, orc_id:ids[i] }, function(r){
+                        if ( r && r.success ) { done++; totalUpd += ( r.data && r.data.atualizados ) ? r.data.atualizados : 0; }
+                        else fail++;
+                        next(i+1);
+                    }).fail(function(){ fail++; next(i+1); });
+                })(0);
             });
 
             $('#taof-sin-buscar').on('click', carregar);

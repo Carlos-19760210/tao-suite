@@ -795,9 +795,11 @@ add_action( 'wp_ajax_tao_formula_reprocessar_orc', function () {
 
     $cliente_id = tao_formula_cliente_id();
     $card_id    = sanitize_text_field( $_POST['card_id'] ?? '' );
-    if ( ! $cliente_id || ! $card_id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+    $orc_id     = sanitize_text_field( $_POST['orc_id'] ?? '' );
+    if ( ! $cliente_id || ( ! $card_id && ! $orc_id ) ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
 
-    $ro = tao_formula_api( "/orcamentos?card_id=eq.$card_id&cliente_id=eq.$cliente_id&select=id,forma_vol,qtde_potes,itens" );
+    $filtro = $orc_id ? ( 'id=eq.' . $orc_id ) : ( 'card_id=eq.' . $card_id );
+    $ro = tao_formula_api( "/orcamentos?$filtro&cliente_id=eq.$cliente_id&select=id,forma_vol,qtde_potes,itens" );
     if ( ! $ro['ok'] ) {
         wp_send_json_error( [ 'message' => 'Erro ao buscar orçamentos: ' . ( $ro['raw'] ?? '' ) ] );
         return;
@@ -1162,6 +1164,44 @@ add_action( 'wp_ajax_tao_formula_sinonimos_nao_atribuidos', function () {
     $out = [];
     foreach ( $termos as $key => $t ) { if ( ! isset( $jaSin[ $key ] ) ) $out[] = $t; }
     usort( $out, function ( $a, $b ) { return $b['count'] - $a['count']; } );
+    wp_send_json_success( $out );
+} );
+
+// ── Sinônimos: orçamentos reprocessáveis (têm item sem ativo cujo termo já tem sinônimo) ─
+add_action( 'wp_ajax_tao_formula_reprocessar_lista', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( 'Cliente não identificado', 400 );
+
+    // Conjunto de sinônimos já associados a um ativo
+    $rs = tao_formula_api( '/ativos_sinonimos?cliente_id=eq.' . $cliente_id . '&ativo_id=not.is.null&select=sinonimo&limit=5000' );
+    $sinset = [];
+    foreach ( ( $rs['data'] ?? [] ) as $s ) { $k = mb_strtoupper( trim( $s['sinonimo'] ) ); if ( $k !== '' ) $sinset[ $k ] = true; }
+
+    $ro = tao_formula_api( '/orcamentos?cliente_id=eq.' . $cliente_id . '&select=id,numero_orcamento,nome_paciente,card_id,itens&order=criado_em.desc&limit=800' );
+    $out = [];
+    foreach ( ( $ro['data'] ?? [] ) as $o ) {
+        $itens = $o['itens'];
+        if ( is_string( $itens ) ) $itens = json_decode( $itens, true );
+        if ( ! is_array( $itens ) ) continue;
+        $ativos = [];
+        foreach ( $itens as $it ) {
+            if ( ( $it['tipo'] ?? 'mp' ) !== 'mp' ) continue;
+            if ( ! empty( $it['is_qsp'] ) ) continue;
+            if ( trim( (string) ( $it['ativo_id'] ?? '' ) ) !== '' ) continue;
+            $nome = trim( (string) ( $it['nome_prescricao'] ?? $it['nome'] ?? '' ) );
+            if ( $nome === '' ) continue;
+            if ( isset( $sinset[ mb_strtoupper( $nome ) ] ) ) $ativos[] = $nome;
+        }
+        if ( $ativos ) $out[] = [
+            'orc_id'   => $o['id'],
+            'numero'   => $o['numero_orcamento'] ?? '',
+            'paciente' => $o['nome_paciente'] ?? '',
+            'ativos'   => array_values( array_unique( $ativos ) ),
+        ];
+    }
     wp_send_json_success( $out );
 } );
 
