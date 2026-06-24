@@ -875,15 +875,17 @@ function tao_crm_page_dashboard() {
                 if(!kpiVal) return;
                 if(resp.success && resp.data && resp.data.length){
                     var insts = resp.data;
-                    var html = '';
+                    var esc = function(s){ var e=document.createElement('div'); e.textContent = (s==null?'':s); return e.innerHTML; };
+                    var html = '', conn = 0;
                     insts.forEach(function(inst){
                         var cls = inst.state === 'open' ? 'open' : (inst.state === 'connecting' ? 'connecting' : 'close');
                         var label = inst.state === 'open' ? 'Conectado' : (inst.state === 'connecting' ? 'Conectando' : 'Desconectado');
-                        html += '<div style="font-size:13px;margin-bottom:2px"><span class="wa-status-dot '+cls+'"></span>'+label+'</div>';
+                        if(inst.state === 'open') conn++;
+                        var nome = esc(inst.nome || inst.instancia);
+                        html += '<div style="font-size:13px;margin-bottom:3px"><span class="wa-status-dot '+cls+'"></span><strong>'+nome+'</strong> &mdash; '+label+'</div>';
                     });
                     kpiVal.innerHTML = html;
-                    var names = insts.map(function(i){ return i.nome || i.instancia; });
-                    if(kpiSub) kpiSub.textContent = names.join(', ');
+                    if(kpiSub) kpiSub.textContent = conn + ' de ' + insts.length + ' conectada' + (insts.length>1?'s':'');
                 } else {
                     kpiVal.innerHTML = '<span style="color:#94a3b8;font-size:13px">Sem instância</span>';
                     if(kpiSub) kpiSub.textContent = 'Nenhuma configurada';
