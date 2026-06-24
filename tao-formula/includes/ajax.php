@@ -1124,7 +1124,11 @@ add_action( 'wp_ajax_tao_formula_criar_sinonimo', function () {
         'ativo_id'   => $ativo_id !== '' ? $ativo_id : null,
         'sinonimo'   => $sinonimo,
     ] );
-    $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => 'Erro ao criar (talvez já exista): ' . $r['raw'] ] );
+    if ( $r['ok'] ) {
+        wp_send_json_success( [ 'id' => $r['data'][0]['id'] ?? '' ] );
+    } else {
+        wp_send_json_error( [ 'message' => 'Erro ao criar (talvez já exista): ' . $r['raw'] ] );
+    }
 } );
 
 // ── Sinônimos: termos dos ORÇAMENTOS sem associação a um ativo base ───────────
