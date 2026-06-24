@@ -542,6 +542,7 @@ function tao_crm_ajax_save_contato() {
 
 add_action( 'wp_ajax_tao_crm_contato_perfil', 'tao_crm_ajax_contato_perfil' );
 function tao_crm_ajax_contato_perfil() {
+    while ( ob_get_level() > 0 ) ob_end_clean();   // descarta BOM/saída espúria antes do JSON
     check_ajax_referer( 'tao_crm_nonce', 'nonce' );
     if ( ! function_exists( 'cbpm_can_access' ) || ! cbpm_can_access() ) wp_send_json_error( 'no access' );
 
