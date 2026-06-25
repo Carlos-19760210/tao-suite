@@ -1073,6 +1073,7 @@ function tao_crm_ajax_move_card() {
         tao_crm_cancelar_fila( $card_id, $de_estagio );
         tao_crm_disparar_automacoes( $card_id, $estagio_id, 'entrar_fase' );
         tao_crm_disparar_automacoes( $card_id, $estagio_id, 'tempo_na_fase' );
+        tao_crm_nps_disparar( $card_id, $estagio_id );   // envia pesquisa NPS ao entrar no estágio NPS
     }
 
     // Mover para estágio terminal (ganho/perdido)
@@ -1757,6 +1758,41 @@ function tao_crm_ajax_fechar_card() {
     }
 
     wp_send_json_success();
+}
+
+// ─── NPS: envia a pesquisa quando o card entra no estágio "NPS" do Pós-Vendas ──
+function tao_crm_nps_disparar( $card_id, $estagio_id ) {
+    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=id,workspace_id,instancia_id,contato_whatsapp,contato_nome&limit=1" );
+    if ( ! $rc['ok'] || empty( $rc['data'] ) ) return;
+    $card = $rc['data'][0];
+    $ws   = $card['workspace_id'] ?? '';
+    if ( ! $ws ) return;
+    if ( ! get_option( 'tao_crm_nps_ativo_' . $ws, 1 ) ) return;   // ativo por padrão
+
+    // É o estágio de NPS? (opção configurável, senão pelo nome "NPS")
+    $nps_stage = get_option( 'tao_crm_nps_stage_' . $ws, '' );
+    if ( $nps_stage ) {
+        if ( $estagio_id !== $nps_stage ) return;
+    } else {
+        $re   = tao_crm_api( "/crm_estagios?id=eq.$estagio_id&select=nome&limit=1" );
+        $nome = ( $re['ok'] && ! empty( $re['data'] ) ) ? trim( mb_strtoupper( $re['data'][0]['nome'] ?? '' ) ) : '';
+        if ( $nome !== 'NPS' ) return;
+    }
+
+    $fone = preg_replace( '/\D/', '', $card['contato_whatsapp'] ?? '' );
+    if ( strlen( $fone ) < 10 ) return;
+    if ( get_transient( 'tao_crm_nps_sent_' . $card_id ) ) return;   // não reenvia se mover de novo
+
+    $msg = get_option( 'tao_crm_nps_msg_' . $ws,
+        "Sua opinião é muito importante para nós! 🙏\n\nDe *0 a 10*, o quanto você recomendaria a nossa farmácia a um amigo ou familiar?\n\n_Responda apenas com o número (0 a 10)._" );
+    $evo = tao_crm_get_evo_creds( $card );
+    if ( ! $evo ) return;
+
+    tao_crm_evolution_send( $evo, $card['contato_whatsapp'], $msg );
+    set_transient( 'tao_crm_nps_pend_' . $ws . '_' . $fone, $card_id, 7 * DAY_IN_SECONDS );
+    set_transient( 'tao_crm_nps_sent_' . $card_id, '1', 30 * DAY_IN_SECONDS );
+    if ( function_exists( 'tao_crm_lock_chatbot' ) ) tao_crm_lock_chatbot( $fone, $ws );   // não deixa o bot responder o número durante a pesquisa
+    tao_crm_log_error( 'nps', 'pesquisa enviada card=' . substr( $card_id, 0, 8 ), [ 'num' => $fone ] );
 }
 
 // ─── AJAX: ESTATÍSTICAS CSAT ──────────────────────────────────────────────────
@@ -2825,6 +2861,37 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
             if ( ! $from_me && tao_crm_num_opt_out( $num ) ) continue;
 
             // opt-out: verificado APÓS o check de atendimento humano (mais abaixo)
+
+            // ── NPS: detecta resposta 0-10 de cliente pendente (prioridade sobre CSAT) ──
+            if ( ! $from_me && $tipo === 'text' && preg_match( '/^\s*(10|[0-9])\s*$/', trim( $conteudo ) ) ) {
+                $nps_num  = preg_replace( '/\D/', '', $num );
+                $nps_card = get_transient( 'tao_crm_nps_pend_' . $WS_ID . '_' . $nps_num );
+                if ( $nps_card ) {
+                    delete_transient( 'tao_crm_nps_pend_' . $WS_ID . '_' . $nps_num );
+                    $nota = (int) trim( $conteudo );
+                    $cat  = $nota >= 9 ? 'promotor' : ( $nota >= 7 ? 'neutro' : 'detrator' );
+                    tao_crm_api( '/crm_nps', 'POST', [
+                        'workspace_id'     => $WS_ID,
+                        'card_id'          => $nps_card,
+                        'contato_whatsapp' => $nps_num,
+                        'nota'             => $nota,
+                        'categoria'        => $cat,
+                        'respondido_em'    => gmdate( 'c' ),
+                    ] );
+                    if ( $cat === 'promotor' ) {
+                        tao_crm_evolution_send( $inst, $num, 'Que alegria! 🎉 Muito obrigado pela nota ' . $nota . ' — sua recomendação significa muito pra nós! 💚' );
+                    } elseif ( $cat === 'neutro' ) {
+                        tao_crm_evolution_send( $inst, $num, 'Obrigado pela avaliação (' . $nota . ')! 🙏 Seguimos melhorando pra te atender cada vez melhor.' );
+                    } else {
+                        tao_crm_evolution_send( $inst, $num, 'Obrigado pelo retorno. 🙏 Sentimos muito que a experiência não tenha sido a melhor — um atendente vai te chamar para entender e resolver.' );
+                        // Detrator → reativa atendimento humano no card (recuperação) + bloqueia o bot
+                        tao_crm_api( "/crm_cards?id=eq.$nps_card", 'PATCH', [ 'atendimento_humano' => true, 'movido_em' => gmdate( 'c' ) ] );
+                        tao_crm_lock_chatbot( $nps_num, $WS_ID );
+                    }
+                    tao_crm_log_error( 'nps', 'resposta ' . $nota . ' (' . $cat . ') card=' . substr( (string) $nps_card, 0, 8 ), [ 'num' => $nps_num ] );
+                    continue; // não processa como mensagem normal
+                }
+            }
 
             // ── CSAT: detecta resposta 1-5 de cliente pendente ──────────────────────
             if ( ! $from_me && $tipo === 'text' && preg_match( '/^\s*[1-5]\s*$/', $conteudo ) ) {
