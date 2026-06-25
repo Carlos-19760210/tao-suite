@@ -782,9 +782,10 @@
     function initRow($row) {
         $row.on('input change', '.taof-orc-dose, .taof-orc-dose-unit', function () { calcularLinha($row); });
         $row.on('click', '.taof-btn-del-item', function () { if (!_loadingEdit) _valorFinalTravado = null; $row.remove(); calcularTotais(); });
-        // Enter/Tab na dose: QSP → cria nova linha; demais → navega entre linhas
+        // Enter na dose: navegação rápida (QSP → cria nova linha; demais → próxima linha).
+        // Tab fica natural: passa por Unidade e botão QSP, sem criar linha.
         $row.on('keydown', '.taof-orc-dose', function (e) {
-            if (e.key !== 'Enter' && !(e.key === 'Tab' && !e.shiftKey)) return;
+            if (e.key !== 'Enter') return;
             if ($row.hasClass('taof-row-qsp')) {
                 e.preventDefault();
                 adicionarLinha();
