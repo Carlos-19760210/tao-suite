@@ -347,6 +347,10 @@ foreach ( $nav as $gid => $entry ) {
             /* Células não quebram → a tabela rola dentro do .cbpm-tscroll (envolvido via JS) */
             .cbpm-main table:not(.form-table){ min-width:0 !important; }
             .cbpm-main table:not(.form-table) td, .cbpm-main table:not(.form-table) th{ white-space:nowrap; }
+            /* Quadro de totais do orçamento: cabe na tela (rótulo quebra, valor à direita visível) */
+            .taof-totais-table{ width:100% !important; }
+            .taof-totais-table td{ white-space:normal !important; }
+            .taof-totais-table .taof-res-val{ white-space:nowrap !important; text-align:right; }
         }
 
         /* ── Layout geral ── */
@@ -575,9 +579,13 @@ window.cbpm = {
     var tables = main.querySelectorAll('table');
     for (var i=0;i<tables.length;i++){
       var t = tables[i];
-      if (t.classList.contains('form-table')) continue;
+      if (t.classList.contains('form-table') || t.classList.contains('taof-totais-table')) continue;
       var p = t.parentNode; if(!p) continue;
       if (p.classList && p.classList.contains('cbpm-tscroll')) continue;
+      // já está dentro de um container com scroll horizontal? não embrulha de novo
+      var anc = p, already = false;
+      while (anc && anc !== main) { var ox = getComputedStyle(anc).overflowX; if (ox === 'auto' || ox === 'scroll') { already = true; break; } anc = anc.parentNode; }
+      if (already) continue;
       var w = document.createElement('div');
       w.className = 'cbpm-tscroll';
       p.insertBefore(w, t);
