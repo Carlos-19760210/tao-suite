@@ -1778,6 +1778,7 @@ function tao_crm_nps_disparar( $card_id, $estagio_id ) {
         $nome = ( $re['ok'] && ! empty( $re['data'] ) ) ? trim( mb_strtoupper( $re['data'][0]['nome'] ?? '' ) ) : '';
         if ( $nome !== 'NPS' ) return;
     }
+    update_option( 'tao_crm_nps_stage_' . $ws, $estagio_id, false );   // memoriza o estágio NPS p/ o dispatch detectar o retorno
 
     $fone = preg_replace( '/\D/', '', $card['contato_whatsapp'] ?? '' );
     if ( strlen( $fone ) < 10 ) return;
@@ -2875,34 +2876,45 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
 
             // opt-out: verificado APÓS o check de atendimento humano (mais abaixo)
 
-            // ── NPS: detecta resposta 0-10 de cliente pendente (prioridade sobre CSAT) ──
+            // ── NPS: detecta resposta 0-10 (prioridade sobre CSAT) ──────────────────
             if ( ! $from_me && $tipo === 'text' && preg_match( '/^\s*(10|[0-9])\s*$/', trim( $conteudo ) ) ) {
                 $nps_num  = preg_replace( '/\D/', '', $num );
                 $nps_card = get_transient( 'tao_crm_nps_pend_' . $WS_ID . '_' . $nps_num );
-                if ( $nps_card ) {
-                    delete_transient( 'tao_crm_nps_pend_' . $WS_ID . '_' . $nps_num );
-                    $nota = (int) trim( $conteudo );
-                    $cat  = $nota >= 9 ? 'promotor' : ( $nota >= 7 ? 'neutro' : 'detrator' );
-                    tao_crm_api( '/crm_nps', 'POST', [
-                        'workspace_id'     => $WS_ID,
-                        'card_id'          => $nps_card,
-                        'contato_whatsapp' => $nps_num,
-                        'nota'             => $nota,
-                        'categoria'        => $cat,
-                        'respondido_em'    => gmdate( 'c' ),
-                    ] );
-                    if ( $cat === 'promotor' ) {
-                        tao_crm_evolution_send( $inst, $num, 'Que alegria! 🎉 Muito obrigado pela nota ' . $nota . ' — sua recomendação significa muito pra nós! 💚' );
-                    } elseif ( $cat === 'neutro' ) {
-                        tao_crm_evolution_send( $inst, $num, 'Obrigado pela avaliação (' . $nota . ')! 🙏 Seguimos melhorando pra te atender cada vez melhor.' );
-                    } else {
-                        tao_crm_evolution_send( $inst, $num, 'Obrigado pelo retorno. 🙏 Sentimos muito que a experiência não tenha sido a melhor — um atendente vai te chamar para entender e resolver.' );
-                        // Detrator → reativa atendimento humano no card (recuperação) + bloqueia o bot
-                        tao_crm_api( "/crm_cards?id=eq.$nps_card", 'PATCH', [ 'atendimento_humano' => true, 'movido_em' => gmdate( 'c' ) ] );
-                        tao_crm_lock_chatbot( $nps_num, $WS_ID );
+                if ( ! $nps_card ) {
+                    // Fallback robusto (não depende de transient): card aberto no estágio "NPS"
+                    $nps_stage_id = get_option( 'tao_crm_nps_stage_' . $WS_ID, '' );
+                    if ( $nps_stage_id ) {
+                        $rc_nps = tao_crm_api( "/crm_cards?workspace_id=eq.$WS_ID&contato_whatsapp=eq.$num&fechado=eq.false&estagio_id=eq.$nps_stage_id&select=id&order=criado_em.desc&limit=1" );
+                        if ( $rc_nps['ok'] && ! empty( $rc_nps['data'] ) ) $nps_card = $rc_nps['data'][0]['id'];
                     }
-                    tao_crm_log_error( 'nps', 'resposta ' . $nota . ' (' . $cat . ') card=' . substr( (string) $nps_card, 0, 8 ), [ 'num' => $nps_num ] );
-                    continue; // não processa como mensagem normal
+                }
+                if ( $nps_card ) {
+                    // dedupe: só registra se esse card ainda não respondeu
+                    $rc_ex = tao_crm_api( "/crm_nps?card_id=eq.$nps_card&select=id&limit=1" );
+                    if ( ! ( $rc_ex['ok'] && ! empty( $rc_ex['data'] ) ) ) {
+                        delete_transient( 'tao_crm_nps_pend_' . $WS_ID . '_' . $nps_num );
+                        $nota = (int) trim( $conteudo );
+                        $cat  = $nota >= 9 ? 'promotor' : ( $nota >= 7 ? 'neutro' : 'detrator' );
+                        tao_crm_api( '/crm_nps', 'POST', [
+                            'workspace_id'     => $WS_ID,
+                            'card_id'          => $nps_card,
+                            'contato_whatsapp' => $nps_num,
+                            'nota'             => $nota,
+                            'categoria'        => $cat,
+                            'respondido_em'    => gmdate( 'c' ),
+                        ] );
+                        if ( $cat === 'promotor' ) {
+                            tao_crm_evolution_send( $inst, $num, 'Que alegria! 🎉 Muito obrigado pela nota ' . $nota . ' — sua recomendação significa muito pra nós! 💚' );
+                        } elseif ( $cat === 'neutro' ) {
+                            tao_crm_evolution_send( $inst, $num, 'Obrigado pela avaliação (' . $nota . ')! 🙏 Seguimos melhorando pra te atender cada vez melhor.' );
+                        } else {
+                            tao_crm_evolution_send( $inst, $num, 'Obrigado pelo retorno. 🙏 Sentimos muito que a experiência não tenha sido a melhor — um atendente vai te chamar para entender e resolver.' );
+                            tao_crm_api( "/crm_cards?id=eq.$nps_card", 'PATCH', [ 'atendimento_humano' => true, 'movido_em' => gmdate( 'c' ) ] );
+                            tao_crm_lock_chatbot( $nps_num, $WS_ID );
+                        }
+                        tao_crm_log_error( 'nps', 'resposta ' . $nota . ' (' . $cat . ') card=' . substr( (string) $nps_card, 0, 8 ), [ 'num' => $nps_num ] );
+                        continue; // não processa como mensagem normal
+                    }
                 }
             }
 
