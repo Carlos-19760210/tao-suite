@@ -66,9 +66,11 @@
         var isCap = (formaTipo === 'cap' || formaTipo === 'duo_cap');
         if (isCap) {
             opts = [{ val: 'caps', lbl: 'caps.' }];
+        } else if (formaTipo === 'envelope') {
+            opts = [{ val: 'env', lbl: 'Env' }, { val: 'un', lbl: 'Unidade' }];
         } else if (formaTipo === 'un') {
             opts = [{ val: 'un', lbl: 'un.' }];
-        } else if (['gel', 'creme', 'envelope', 'outro'].indexOf(formaTipo) !== -1) {
+        } else if (['gel', 'creme', 'outro'].indexOf(formaTipo) !== -1) {
             opts = [{ val: 'g', lbl: 'g' }, { val: 'ml', lbl: 'ml' }];
         } else {
             // locao, shampoo, floral, solucao
@@ -589,7 +591,7 @@
             var defaultVol = isCap ? formaAtual.nCapsulas : formaAtual.volume;
             $('#taof-forma-vol')
                 .val(defaultVol || '')
-                .attr('placeholder', isCap ? 'No. caps.' : 'Qtde');
+                .attr('placeholder', isCap ? 'No. caps.' : (formaAtual.tipo === 'envelope' ? 'No. Env' : 'Qtde'));
 
             // Tipo Capsula: somente para cap/duo_cap
             if (isCap) {
