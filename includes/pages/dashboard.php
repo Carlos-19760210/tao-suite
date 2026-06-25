@@ -379,6 +379,19 @@ function tao_crm_page_dashboard() {
             : admin_url( 'admin.php?page=tao-crm-kanban&action=card&id=' . $cid );
     };
 
+    // ── NPS (respostas no período) ───────────────────────────────────────────
+    $nps_r     = tao_crm_api( "/crm_nps?workspace_id=eq.$ws_id&respondido_em=gte." . urlencode( $desde ) . "&select=nota&limit=2000" );
+    $nps_rows  = $nps_r['ok'] ? ( $nps_r['data'] ?? [] ) : [];
+    $nps_total = count( $nps_rows );
+    $nps_prom  = $nps_neu = $nps_det = 0;
+    foreach ( $nps_rows as $n ) {
+        $nt = (int) ( $n['nota'] ?? -1 );
+        if ( $nt >= 9 )      $nps_prom++;
+        elseif ( $nt >= 7 )  $nps_neu++;
+        elseif ( $nt >= 0 )  $nps_det++;
+    }
+    $nps_score = $nps_total > 0 ? (int) round( ( $nps_prom - $nps_det ) / $nps_total * 100 ) : null;
+
     $dados_js = [
         'estagio'   => [ 'labels' => $chart_estagio_labels, 'data' => $chart_estagio_data ],
         'conv'      => [ 'labels' => $chart_conv_labels,    'data' => $chart_conv_data,  'colors' => $chart_conv_colors ],
@@ -592,6 +605,27 @@ function tao_crm_page_dashboard() {
             <?php
         };
         ?>
+        <?php if ( $nps_total > 0 ) : $pp = round( $nps_prom / $nps_total * 100 ); $pn = round( $nps_neu / $nps_total * 100 ); $pd = max( 0, 100 - $pp - $pn );
+            $nps_cor = $nps_score >= 50 ? '#16a34a' : ( $nps_score >= 0 ? '#d97706' : '#dc2626' ); ?>
+        <div class="crm-dash-kpi-card" style="border-left:4px solid #6366f1;margin-bottom:24px">
+            <span class="kpi-label">&#x1F4C8; NPS &mdash; &uacute;ltimos <?php echo $dias; ?>d</span>
+            <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap">
+                <span class="kpi-value" style="font-size:34px;color:<?php echo $nps_cor; ?>"><?php echo $nps_score; ?></span>
+                <span style="font-size:12px;color:#64748b"><?php echo $nps_total; ?> resposta(s) &middot; %Promotores &minus; %Detratores</span>
+            </div>
+            <div style="display:flex;gap:6px;margin-top:10px;font-size:12px;flex-wrap:wrap">
+                <span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:10px">Promotores: <?php echo $nps_prom; ?> (<?php echo $pp; ?>%)</span>
+                <span style="background:#fef9c3;color:#854d0e;padding:2px 8px;border-radius:10px">Neutros: <?php echo $nps_neu; ?> (<?php echo $pn; ?>%)</span>
+                <span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:10px">Detratores: <?php echo $nps_det; ?> (<?php echo $pd; ?>%)</span>
+            </div>
+            <div style="display:flex;height:10px;border-radius:6px;overflow:hidden;margin-top:10px;background:#f1f5f9">
+                <div style="width:<?php echo $pp; ?>%;background:#16a34a"></div>
+                <div style="width:<?php echo $pn; ?>%;background:#eab308"></div>
+                <div style="width:<?php echo $pd; ?>%;background:#ef4444"></div>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <div class="crm-gp-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
             <div class="crm-dash-kpi-card" style="border-left:4px solid #10b981;background:#f0fdf4">
                 <span class="kpi-label">&#x2705; Neg&oacute;cios ganhos &mdash; &uacute;ltimos <?php echo $dias; ?>d</span>

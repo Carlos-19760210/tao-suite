@@ -2707,6 +2707,19 @@ function tao_crm_ajax_save_csat() {
     wp_send_json_success();
 }
 
+// ─── AJAX: SALVAR CONFIG NPS ──────────────────────────────────────────────────
+add_action( 'wp_ajax_tao_crm_save_nps', 'tao_crm_ajax_save_nps' );
+function tao_crm_ajax_save_nps() {
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Acesso negado' );
+    $ws_id = sanitize_text_field( $_POST['ws_id'] ?? '' );
+    if ( ! $ws_id ) wp_send_json_error( 'Workspace inválido' );
+    update_option( 'tao_crm_nps_ativo_' . $ws_id, ! empty( $_POST['ativo'] ) ? 1 : 0, false );
+    $msg = sanitize_textarea_field( $_POST['mensagem'] ?? '' );
+    if ( $msg ) update_option( 'tao_crm_nps_msg_' . $ws_id, $msg, false );
+    wp_send_json_success();
+}
+
 function tao_crm_rest_dispatch( WP_REST_Request $req ) {
     $provided_key = $req->get_header( 'X-Tao-Key' ) ?: $req->get_param( 'key' );
     $global_key   = get_option( 'tao_crm_dispatch_key', 'tao-crm-dispatch-2026' );

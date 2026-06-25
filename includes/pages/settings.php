@@ -3639,7 +3639,40 @@ function tao_crm_page_settings() {
                 });
             })(jQuery);
             </script>
+        </div>
 
+        <!-- NPS -->
+        <div class="tao-crm-settings-section" style="margin-top:24px">
+            <h2>&#x1F4C8; NPS &mdash; Pesquisa de Recomendação (Pós-Vendas)</h2>
+            <p style="color:#64748b;font-size:13px">Enviada automaticamente quando o card entra no estágio <strong>"NPS"</strong> do Pós-Vendas. O cliente responde de 0 a 10 (Promotor 9-10 · Neutro 7-8 · Detrator 0-6). O índice aparece no painel do CRM.</p>
+            <?php
+            $nps_ativo = get_option( 'tao_crm_nps_ativo_' . $ws_id_sel, 1 );
+            $nps_msg   = get_option( 'tao_crm_nps_msg_' . $ws_id_sel, "Sua opinião é muito importante para nós! \xF0\x9F\x99\x8F\n\nDe *0 a 10*, o quanto você recomendaria a nossa farmácia a um amigo ou familiar?\n\n_Responda apenas com o número (0 a 10)._" );
+            ?>
+            <form id="crm-nps-form">
+            <table class="form-table">
+                <tr><th>Ativo</th><td><label><input type="checkbox" name="ativo" id="crm-nps-ativo" <?php checked( $nps_ativo ); ?>> Habilitar NPS</label></td></tr>
+                <tr><th>Mensagem enviada ao cliente</th><td>
+                    <textarea name="mensagem" id="crm-nps-msg" rows="4" class="large-text"><?php echo esc_textarea( $nps_msg ); ?></textarea>
+                </td></tr>
+            </table>
+            <button type="submit" class="button button-primary">Salvar</button>
+            <span id="crm-nps-status" style="margin-left:8px;font-size:13px"></span>
+            </form>
+            <script>
+            (function($){
+                $('#crm-nps-form').on('submit', function(e){
+                    e.preventDefault();
+                    crmPost({action:'tao_crm_save_nps', nonce:taoCrm.nonce, ws_id:<?php echo wp_json_encode($ws_id_sel); ?>, ativo:$('#crm-nps-ativo').is(':checked')?'1':'', mensagem:$('#crm-nps-msg').val()}, function(r){
+                        $('#crm-nps-status').text(r.success?'✔ Salvo':'✘ Erro').css('color', r.success?'#16a34a':'#dc2626');
+                        setTimeout(function(){ $('#crm-nps-status').text(''); }, 2500);
+                    });
+                });
+            })(jQuery);
+            </script>
+        </div>
+
+        <div class="tao-crm-settings-section">
             <!-- Dashboard CSAT -->
             <div style="margin-top:28px;padding-top:20px;border-top:1px solid #e2e8f0">
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
