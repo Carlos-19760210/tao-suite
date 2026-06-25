@@ -355,6 +355,10 @@ foreach ( $nav as $gid => $entry ) {
             .crm-itens-header{ flex-wrap:wrap; gap:6px; }
             #taof-sim-range{ flex:1 1 80px; min-width:70px; width:auto !important; }
             #taof-sim-aplicar{ margin-left:0 !important; }
+            /* Formulários label|campo empilham (label em cima, campo full-width embaixo) */
+            .form-table, .form-table tbody, .form-table tr, .form-table th, .form-table td{ display:block !important; width:100% !important; }
+            .form-table th{ width:auto !important; white-space:normal !important; padding:10px 0 3px !important; }
+            .form-table td{ padding:0 0 12px !important; }
         }
 
         /* ── Layout geral ── */
