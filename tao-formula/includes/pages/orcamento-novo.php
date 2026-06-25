@@ -233,16 +233,16 @@ function tao_formula_page_orcamento_novo() {
                     <?php endforeach; ?>
                 </select>
             </div>
+            <div class="taof-field taof-ff-tipo" id="taof-col-tipo" style="display:none">
+                <label class="taof-label" id="taof-col-tipo-label">Tipo Cápsula</label>
+                <select id="taof-forma-tipo" name="forma_tipo" class="taof-inp taof-sel">
+                    <option value="">— Selecione —</option>
+                </select>
+            </div>
             <div class="taof-field taof-ff-vol">
                 <label class="taof-label">Vol / Qtde</label>
                 <input type="number" id="taof-forma-vol" name="forma_vol"
                        class="taof-inp" min="1" step="any" placeholder="Ex: 30">
-            </div>
-            <div class="taof-field taof-ff-tipo" id="taof-col-tipo" style="display:none">
-                <label class="taof-label">Tipo Cápsula</label>
-                <select id="taof-forma-tipo" name="forma_tipo" class="taof-inp taof-sel">
-                    <option value="">— Selecione —</option>
-                </select>
             </div>
             <div class="taof-field taof-ff-unid">
                 <label class="taof-label">Unidade</label>
@@ -824,6 +824,9 @@ function tao_formula_page_orcamento_novo() {
         {tipos:['outro'],             codigo:62448, nome:'FRASCO PUMP TUBE 30ML',          vol:30,  uni:'ml'},
         {tipos:['outro'],             codigo:11735, nome:'FRASCO PUMP VD AMBAR 30ML',      vol:30,  uni:'ml'},
         {tipos:['outro'],             codigo:10607, nome:'FRESH ROLLER 15ML',              vol:15,  uni:'ml'},
+        // Envelope (Sachê) → sachê laminado por capacidade (5 g / 15 g)
+        {tipos:['envelope'],          codigo:31873, nome:'SACHE LAMINADO 5GRS',             vol:5,   uni:'g'},
+        {tipos:['envelope'],          codigo:10689, nome:'SACHE LAMINADO 15GRS',            vol:15,  uni:'g'},
     ];
     window.taofDbgCapsulas  = <?php echo count($capsulas); ?>;
     window.taofDbgFormas    = <?php echo count($formas_js); ?>;

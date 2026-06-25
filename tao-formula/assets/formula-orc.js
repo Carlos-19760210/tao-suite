@@ -58,6 +58,15 @@
         });
     }
 
+    // ── Popula "Tipo" do Envelope: capacidade do sachê (5 g / 15 g) ───
+    function popularTipoEnvelope() {
+        var $sel = $('#taof-forma-tipo');
+        $sel.empty();
+        [{ val: '5', lbl: '5 g' }, { val: '15', lbl: '15 g' }].forEach(function (o) {
+            $sel.append($('<option>').val(o.val).text(o.lbl));
+        });
+    }
+
     // ── Popula Unidade conforme a forma ──────────────────────────────
     function popularUnidade(formaTipo) {
         var $sel = $('#taof-forma-unidade');
@@ -215,6 +224,8 @@
         var isCap = (formaAtual.tipo === 'cap' || formaAtual.tipo === 'duo_cap');
         if (isCap) {
             _qspCapsula($qspRow);
+        } else if (formaAtual.tipo === 'envelope') {
+            _qspEnvelope($qspRow);
         } else {
             _qspForma($qspRow);
         }
@@ -249,6 +260,36 @@
         $row.find('.taof-orc-qtd-total').text(fmt(qspG * 1000, 2) + ' mg (QSP)');
         $row.find('.taof-orc-subtotal').text('R$ ' + fmt(subtotal));
         $row.data({ subtotal: subtotal, 'qtd-total-g': qspG, 'volapa-ul': 0 });
+    }
+
+    // QSP do Envelope: peso-alvo POR ENVELOPE informado na dose da linha QSP (independe da capacidade);
+    // o excipiente completa os ativos até esse peso × nº de envelopes.
+    function _qspEnvelope($row) {
+        var dose     = parseFloat($row.find('.taof-orc-dose').val()) || 0;
+        var doseUnit = $row.find('.taof-orc-dose-unit').val() || 'g';
+        var alvoGperEnv;
+        if      (doseUnit === 'mg')  alvoGperEnv = dose / 1000;
+        else if (doseUnit === 'mcg') alvoGperEnv = dose / 1e6;
+        else                          alvoGperEnv = dose;            // g (padrão)
+        var alvoGtotal = alvoGperEnv * getVol() * getPotes();        // getVol() = nº de envelopes
+
+        // Soma dos ativos não-QSP (já multiplicados pela qtde) em gramas
+        var sumG = 0;
+        $('#taof-itens-body .taof-item-row:not(.taof-row-qsp)').each(function () {
+            sumG += parseFloat($(this).data('qtd-total-g')) || 0;
+        });
+
+        var qspG  = Math.max(0, alvoGtotal - sumG);
+        var qspMg = qspG * 1000;
+        var vendaUnit  = parseFloat($row.data('venda-unit'))  || 0;
+        var unidPadrao = $row.data('unid-padrao') || 'g';
+        var qtdEmUnid  = unidPadrao === 'g' ? qspG : unidPadrao === 'mg' ? qspMg : qspG;
+        var subtotal   = qtdEmUnid * vendaUnit;
+
+        $row.find('.taof-orc-qtd-total').text(fmt(qspMg, 2) + ' mg (QSP ' + fmt(alvoGperEnv, 2) + ' g/env)');
+        $row.find('.taof-orc-subtotal').text('R$ ' + fmt(subtotal));
+        $row.data({ subtotal: subtotal, 'qtd-total-g': qspG, 'volapa-ul': 0,
+            dose: dose, 'dose-unit': doseUnit });
     }
 
     function _qspCapsula($row) {
@@ -593,10 +634,17 @@
                 .val(defaultVol || '')
                 .attr('placeholder', isCap ? 'No. caps.' : (formaAtual.tipo === 'envelope' ? 'No. Env' : 'Qtde'));
 
-            // Tipo Capsula: somente para cap/duo_cap
+            // Tipo: cápsula (tipos de cápsula) ou envelope (capacidade 5g/15g)
             if (isCap) {
+                $('#taof-col-tipo-label').text('Tipo Cápsula');
                 popularTipoCapsula();
                 $colTipo.show();
+                $('#taof-caps-por-dose').removeData('manual').val(1);
+            } else if (formaAtual.tipo === 'envelope') {
+                $('#taof-col-tipo-label').text('Tipo');
+                popularTipoEnvelope();
+                $colTipo.show();
+                $('#taof-card-capsulas').hide();
                 $('#taof-caps-por-dose').removeData('manual').val(1);
             } else {
                 $('#taof-forma-tipo').empty();
@@ -696,7 +744,12 @@
             });
             $row.addClass('taof-row-qsp');
             $row.find('.taof-btn-qsp').addClass('ativo').text('QSP v');
-            $row.find('.taof-orc-dose').prop('readonly', true).val('');
+            // Envelope: a dose vira o peso-alvo por envelope (editável). Demais formas: QSP automático.
+            if (formaAtual && formaAtual.tipo === 'envelope') {
+                $row.find('.taof-orc-dose').prop('readonly', false);
+            } else {
+                $row.find('.taof-orc-dose').prop('readonly', true).val('');
+            }
         } else {
             $row.removeClass('taof-row-qsp');
             $row.find('.taof-btn-qsp').removeClass('ativo').text('QSP');
@@ -1053,6 +1106,10 @@
             var volEstimado = totalCaps * 0.35; // ~0.35ml por cápsula #0 (estimativa conservadora)
             embs.sort(function (a, b) { return a.vol - b.vol; });
             melhor = embs.filter(function (e) { return e.vol >= volEstimado; })[0] || embs[embs.length - 1];
+        } else if (tipo === 'envelope') {
+            // Envelope: a embalagem é o sachê laminado da capacidade escolhida (5 g / 15 g)
+            var cap = parseFloat($('#taof-forma-tipo').val()) || 5;
+            melhor = embs.filter(function (e) { return e.vol === cap; })[0] || embs[0];
         } else {
             // Menor embalagem que comporta o volume
             embs.sort(function (a, b) { return a.vol - b.vol; });
@@ -1063,6 +1120,7 @@
         // Adiciona linha e busca no cadastro de ativos pelo código FC
         $('#taof-btn-add-emb').trigger('click');
         var $row = $('#taof-emb-body .taof-emb-row').last();
+        $row.data('auto-emb', true);   // marca como sugestão automática (substituível ao trocar forma/capacidade)
         $row.find('.taof-emb-search').val('⏳ ' + melhor.nome + '…');
 
         $.getJSON(ajaxUrl, {
@@ -1096,12 +1154,20 @@
         setTimeout(sugerirEmbalagem, 100);
     });
     $('#taof-forma-sel').on('change', function () {
-        // Remove sugestão automática anterior (se linha estiver vazia/sem id)
+        // Remove sugestão automática anterior (linha vazia/sem id ou marcada como auto)
         $('#taof-emb-body .taof-emb-row').each(function () {
             var $r = $(this);
-            if (!$r.data('emb-id')) $r.remove();
+            if (!$r.data('emb-id') || $r.data('auto-emb')) $r.remove();
         });
         setTimeout(sugerirEmbalagem, 200);
+    });
+    // Envelope: trocar a capacidade (Tipo) re-sugere o sachê correspondente
+    $('#taof-forma-tipo').on('change', function () {
+        if (!formaAtual || formaAtual.tipo !== 'envelope') return;
+        $('#taof-emb-body .taof-emb-row').each(function () {
+            if ($(this).data('auto-emb')) $(this).remove();
+        });
+        setTimeout(sugerirEmbalagem, 50);
     });
 
     // ── Salvar ────────────────────────────────────────────────────────
@@ -1429,6 +1495,7 @@
             // Aguarda o change popular unidade, então define os valores
             setTimeout(function () {
                 if (data.forma_vol)      $('#taof-forma-vol').val(data.forma_vol).trigger('input');
+                if (data.forma_tipo)     $('#taof-forma-tipo').val(data.forma_tipo);   // restaura Tipo Cápsula / Capacidade do Envelope
                 if (data.forma_unidade)  $('#taof-forma-unidade').val(data.forma_unidade);
                 if (data.qtde_potes)     $('#taof-qtde-potes').val(data.qtde_potes).trigger('input');
             }, 50);
