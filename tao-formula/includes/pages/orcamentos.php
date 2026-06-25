@@ -18,7 +18,7 @@ function tao_formula_page_orcamentos() {
     ];
 
     if ( $cliente_id ) {
-        $qs = "/orcamentos?cliente_id=eq.$cliente_id&select=id,status,criado_em,nome_paciente,whatsapp,forma_nome,total_orcamento,farmaceutico_id&order=criado_em.desc&limit=100";
+        $qs = "/orcamentos?cliente_id=eq.$cliente_id&select=id,status,criado_em,nome_paciente,whatsapp,forma_nome,total_orcamento,farmaceutico_id,numero_orcamento&order=criado_em.desc&limit=100";
         if ( $filtro_st ) $qs .= "&status=eq.$filtro_st";
         $r          = tao_formula_api( $qs );
         $orcamentos = $r['ok'] ? ( $r['data'] ?? [] ) : [];
@@ -62,6 +62,7 @@ function tao_formula_page_orcamentos() {
     <table class="taof-list-table">
         <thead>
             <tr>
+                <th>Requisição</th>
                 <th>Paciente</th>
                 <th>WhatsApp</th>
                 <th>Forma</th>
@@ -76,8 +77,11 @@ function tao_formula_page_orcamentos() {
             $st  = $o['status'] ?? 'pendente_revisao';
             $stl = $st_map[$st] ?? [$st,'#f1f5f9','#475569',''];
             $dt  = ! empty($o['criado_em']) ? wp_date('d/m/Y H:i', strtotime($o['criado_em'])) : '—';
+            $_np = explode( '-', preg_replace( '/^ORC:?\s*/i', '', (string)($o['numero_orcamento'] ?? '') ) );
+            $req = count($_np) >= 2 ? $_np[1] : '';
         ?>
         <tr>
+            <td style="font-weight:600"><?php echo $req !== '' ? esc_html($req) : '<span style="color:#cbd5e1">—</span>'; ?></td>
             <td class="taof-td-nome"><?php echo esc_html($o['nome_paciente']??'—'); ?></td>
             <td class="taof-td-fone"><?php echo esc_html($o['whatsapp']??'—'); ?></td>
             <td><?php echo esc_html($o['forma_nome']??'—'); ?></td>
@@ -89,6 +93,7 @@ function tao_formula_page_orcamentos() {
             </td>
             <td class="taof-td-dt"><?php echo esc_html($dt); ?></td>
             <td class="taof-col-c taof-td-acoes">
+                <a class="taof-btn taof-btn-sm" href="<?php echo esc_url( add_query_arg( 'orc_id', $o['id'], $novo_url ) ); ?>" title="Abrir/editar fórmula">✎ Editar</a>
                 <?php if ( $st === 'pendente_revisao' ) : ?>
                 <button class="taof-btn taof-btn-sm taof-btn-primary taof-orc-aprovar"
                         data-id="<?php echo esc_attr($o['id']); ?>">✅ Aprovar</button>

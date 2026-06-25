@@ -10,7 +10,7 @@ function tao_formula_page_dashboard() {
     $recentes  = [];
 
     if ( $cliente_id ) {
-        $r    = tao_formula_api( "/orcamentos?cliente_id=eq.$cliente_id&select=id,status,criado_em,nome_paciente,total_orcamento,forma_nome&order=criado_em.desc&limit=200" );
+        $r    = tao_formula_api( "/orcamentos?cliente_id=eq.$cliente_id&select=id,status,criado_em,nome_paciente,total_orcamento,forma_nome,numero_orcamento&order=criado_em.desc&limit=200" );
         $orcs = $r['ok'] ? ( $r['data'] ?? [] ) : [];
         $mes  = ( new DateTime( 'now', new DateTimeZone('America/Sao_Paulo') ) )->format('Y-m');
 
@@ -61,7 +61,7 @@ function tao_formula_page_dashboard() {
     <?php if ( ! empty($recentes) ) : ?>
     <h2 style="margin-top:28px">Orçamentos recentes</h2>
     <table class="wp-list-table widefat fixed striped taof-table" style="max-width:900px">
-        <thead><tr><th>Paciente</th><th>Forma</th><th style="text-align:right">Total</th><th>Status</th><th>Data</th></tr></thead>
+        <thead><tr><th>Requisição</th><th>Paciente</th><th>Forma</th><th style="text-align:right">Total</th><th>Status</th><th>Data</th></tr></thead>
         <tbody>
         <?php
         $st_map = [
@@ -75,8 +75,11 @@ function tao_formula_page_dashboard() {
             $st  = $o['status'] ?? 'pendente_revisao';
             $stl = $st_map[$st] ?? [$st,'#f1f5f9','#475569'];
             $dt  = ! empty($o['criado_em']) ? wp_date('d/m H:i', strtotime($o['criado_em'])) : '—';
+            $_np = explode( '-', preg_replace( '/^ORC:?\s*/i', '', (string)($o['numero_orcamento'] ?? '') ) );
+            $req = count($_np) >= 2 ? $_np[1] : '';
         ?>
         <tr>
+            <td style="font-weight:600"><?php echo $req !== '' ? esc_html($req) : '<span style="color:#cbd5e1">—</span>'; ?></td>
             <td><?php echo esc_html($o['nome_paciente']??'—'); ?></td>
             <td><?php echo esc_html($o['forma_nome']??'—'); ?></td>
             <td style="text-align:right">R$&nbsp;<?php echo number_format((float)($o['total_orcamento']??0),2,',','.'); ?></td>
