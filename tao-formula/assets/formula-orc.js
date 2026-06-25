@@ -871,8 +871,8 @@
         }
     }
 
-    // ── Envelope: auto-associa BASE EFERVESCENTE (cód 10543) na linha QSP (1 g/env) ──
-    var _baseEfervescente = null;
+    // ── Envelope: auto-associa EXCIPIENTE BASE (cód 10577) na linha QSP (1 g/env) ──
+    var _excipienteEnv = null;
     function garantirExcipienteEnvelope() {
         if (_loadingEdit) return;
         if (!formaAtual || formaAtual.tipo !== 'envelope') return;
@@ -885,16 +885,16 @@
             var $row = $('#taof-itens-body .taof-item-row.taof-row-qsp').first();
             if (!$row.length) $row = adicionarLinha();
             if (!$row.hasClass('taof-row-qsp')) toggleQSP($row, true);
-            selecionarAtivo($row, ativo, 'BASE EFERVESCENTE');
+            selecionarAtivo($row, ativo, 'EXCIPIENTE BASE');
             calcularTotais();
         };
-        if (_baseEfervescente) { aplicar(_baseEfervescente); return; }
-        $.getJSON(ajaxUrl, { action: 'tao_formula_search_ativos', nonce: nonce, q: '10543', grupo: '' }, function (resp) {
+        if (_excipienteEnv) { aplicar(_excipienteEnv); return; }
+        $.getJSON(ajaxUrl, { action: 'tao_formula_search_ativos', nonce: nonce, q: '10577', grupo: '' }, function (resp) {
             var lista = (resp && Array.isArray(resp.data)) ? resp.data : [];
             var ativo = null;
-            for (var i = 0; i < lista.length; i++) { if (String(lista[i].codigo_fc) === '10543') { ativo = lista[i]; break; } }
+            for (var i = 0; i < lista.length; i++) { if (String(lista[i].codigo_fc) === '10577') { ativo = lista[i]; break; } }
             if (!ativo && lista.length) ativo = lista[0];
-            _baseEfervescente = ativo;
+            _excipienteEnv = ativo;
             aplicar(ativo);
         });
     }
