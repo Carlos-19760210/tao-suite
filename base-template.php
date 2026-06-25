@@ -351,6 +351,10 @@ foreach ( $nav as $gid => $entry ) {
             .taof-totais-table{ width:100% !important; }
             .taof-totais-table td{ white-space:normal !important; }
             .taof-totais-table .taof-res-val{ white-space:nowrap !important; text-align:right; }
+            /* Card: cabeçalho das seções (Itens/Orçamentos) com botões quebra linha */
+            .crm-itens-header{ flex-wrap:wrap; gap:6px; }
+            #taof-sim-range{ flex:1 1 80px; min-width:70px; width:auto !important; }
+            #taof-sim-aplicar{ margin-left:0 !important; }
         }
 
         /* ── Layout geral ── */

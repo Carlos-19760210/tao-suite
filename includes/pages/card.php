@@ -389,7 +389,7 @@ function tao_crm_page_card() {
                     <div class="crm-itens-section" id="crm-formulas-section" style="margin-top:10px">
                         <div class="crm-itens-header">
                             <strong style="font-size:13px">&#x1F9EA; Or&ccedil;amentos F&oacute;rmula</strong>
-                            <div style="display:flex;gap:5px">
+                            <div style="display:flex;gap:5px;flex-wrap:wrap">
                                 <button type="button" id="crm-formula-associar-btn"
                                         class="button button-small"
                                         style="font-size:11px;display:none;color:#92400e;border-color:#fbbf24"
@@ -421,7 +421,7 @@ function tao_crm_page_card() {
                                 </button>
                             </div>
                         </div>
-                        <div id="crm-formulas-list" style="font-size:12px;color:#94a3b8;padding:4px 0;max-height:280px;overflow-y:auto">
+                        <div id="crm-formulas-list" style="font-size:12px;color:#94a3b8;padding:4px 0;max-height:280px;overflow-y:auto;overflow-x:auto">
                             Carregando...
                         </div>
 
