@@ -262,34 +262,20 @@
         $row.data({ subtotal: subtotal, 'qtd-total-g': qspG, 'volapa-ul': 0 });
     }
 
-    // QSP do Envelope: peso-alvo POR ENVELOPE informado na dose da linha QSP (independe da capacidade);
-    // o excipiente completa os ativos até esse peso × nº de envelopes.
+    // QSP do Envelope: excipiente (base efervescente) = 1 g A MAIS que o volume da fórmula POR ENVELOPE
+    // → 1 g por envelope, independente da capacidade. Total = 1 g × nº de envelopes.
+    var TAOF_ENV_QSP_G_POR_ENV = 1;
     function _qspEnvelope($row) {
-        var dose     = parseFloat($row.find('.taof-orc-dose').val()) || 0;
-        var doseUnit = $row.find('.taof-orc-dose-unit').val() || 'g';
-        var alvoGperEnv;
-        if      (doseUnit === 'mg')  alvoGperEnv = dose / 1000;
-        else if (doseUnit === 'mcg') alvoGperEnv = dose / 1e6;
-        else                          alvoGperEnv = dose;            // g (padrão)
-        var alvoGtotal = alvoGperEnv * getVol() * getPotes();        // getVol() = nº de envelopes
-
-        // Soma dos ativos não-QSP (já multiplicados pela qtde) em gramas
-        var sumG = 0;
-        $('#taof-itens-body .taof-item-row:not(.taof-row-qsp)').each(function () {
-            sumG += parseFloat($(this).data('qtd-total-g')) || 0;
-        });
-
-        var qspG  = Math.max(0, alvoGtotal - sumG);
+        var qspG  = TAOF_ENV_QSP_G_POR_ENV * getVol() * getPotes();   // getVol() = nº de envelopes
         var qspMg = qspG * 1000;
         var vendaUnit  = parseFloat($row.data('venda-unit'))  || 0;
         var unidPadrao = $row.data('unid-padrao') || 'g';
         var qtdEmUnid  = unidPadrao === 'g' ? qspG : unidPadrao === 'mg' ? qspMg : qspG;
         var subtotal   = qtdEmUnid * vendaUnit;
 
-        $row.find('.taof-orc-qtd-total').text(fmt(qspMg, 2) + ' mg (QSP ' + fmt(alvoGperEnv, 2) + ' g/env)');
+        $row.find('.taof-orc-qtd-total').text(fmt(qspMg, 2) + ' mg (' + fmt(TAOF_ENV_QSP_G_POR_ENV, 0) + ' g/env)');
         $row.find('.taof-orc-subtotal').text('R$ ' + fmt(subtotal));
-        $row.data({ subtotal: subtotal, 'qtd-total-g': qspG, 'volapa-ul': 0,
-            dose: dose, 'dose-unit': doseUnit });
+        $row.data({ subtotal: subtotal, 'qtd-total-g': qspG, 'volapa-ul': 0 });
     }
 
     function _qspCapsula($row) {
@@ -678,6 +664,7 @@
         }
 
         if (!_loadingEdit) $('#taof-itens-body .taof-item-row').each(function () { calcularLinha($(this)); });
+        if (!_loadingEdit) setTimeout(garantirExcipienteEnvelope, 120);   // envelope: garante base efervescente
     });
 
     // Recalcula quando atendente altera Vol/Qtde, Tipo Capsula, Unidade, Potes ou Vol/dose
@@ -744,12 +731,7 @@
             });
             $row.addClass('taof-row-qsp');
             $row.find('.taof-btn-qsp').addClass('ativo').text('QSP v');
-            // Envelope: a dose vira o peso-alvo por envelope (editável). Demais formas: QSP automático.
-            if (formaAtual && formaAtual.tipo === 'envelope') {
-                $row.find('.taof-orc-dose').prop('readonly', false);
-            } else {
-                $row.find('.taof-orc-dose').prop('readonly', true).val('');
-            }
+            $row.find('.taof-orc-dose').prop('readonly', true).val('');   // QSP auto (cápsula=volume, envelope=1g/env)
         } else {
             $row.removeClass('taof-row-qsp');
             $row.find('.taof-btn-qsp').removeClass('ativo').text('QSP');
@@ -883,6 +865,38 @@
         $row.find('.taof-orc-dose-unit').val(u);
         $row.find('.taof-ac-dropdown').hide().empty();
         calcularLinha($row);
+        // Envelope: ao associar um ativo (não-QSP), garante o excipiente base efervescente
+        if (!$row.hasClass('taof-row-qsp') && formaAtual && formaAtual.tipo === 'envelope') {
+            setTimeout(garantirExcipienteEnvelope, 120);
+        }
+    }
+
+    // ── Envelope: auto-associa BASE EFERVESCENTE (cód 10543) na linha QSP (1 g/env) ──
+    var _baseEfervescente = null;
+    function garantirExcipienteEnvelope() {
+        if (_loadingEdit) return;
+        if (!formaAtual || formaAtual.tipo !== 'envelope') return;
+        if (!$('#taof-itens-body .taof-item-row:not(.taof-row-qsp)').length) return;   // ainda sem ativos
+        var $qsp = $('#taof-itens-body .taof-item-row.taof-row-qsp').first();
+        if ($qsp.length && $qsp.find('.taof-orc-ativo-id').val()) return;              // já associada
+
+        var aplicar = function (ativo) {
+            if (!ativo) return;
+            var $row = $('#taof-itens-body .taof-item-row.taof-row-qsp').first();
+            if (!$row.length) $row = adicionarLinha();
+            if (!$row.hasClass('taof-row-qsp')) toggleQSP($row, true);
+            selecionarAtivo($row, ativo, 'BASE EFERVESCENTE');
+            calcularTotais();
+        };
+        if (_baseEfervescente) { aplicar(_baseEfervescente); return; }
+        $.getJSON(ajaxUrl, { action: 'tao_formula_search_ativos', nonce: nonce, q: '10543', grupo: '' }, function (resp) {
+            var lista = (resp && Array.isArray(resp.data)) ? resp.data : [];
+            var ativo = null;
+            for (var i = 0; i < lista.length; i++) { if (String(lista[i].codigo_fc) === '10543') { ativo = lista[i]; break; } }
+            if (!ativo && lista.length) ativo = lista[0];
+            _baseEfervescente = ativo;
+            aplicar(ativo);
+        });
     }
 
     // ── Autocomplete — Ativos ─────────────────────────────────────────
@@ -1616,6 +1630,8 @@
         setTimeout(function () {
             calcularTotais();   // _loadingEdit ainda true → atualizarQSPRow pula; usa subtotal salvo
             _loadingEdit = false;
+            // Envelope: garante o excipiente base efervescente na linha QSP (auto-associa se faltar)
+            setTimeout(garantirExcipienteEnvelope, 150);
             // Foca no 1º ativo não associado (ativo_id vazio mas tem nome)
             var $primeiro = $('#taof-itens-body .taof-item-row').filter(function() {
                 return !$(this).find('.taof-orc-ativo-id').val() &&
