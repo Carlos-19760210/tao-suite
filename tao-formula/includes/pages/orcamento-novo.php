@@ -742,6 +742,21 @@ function tao_formula_page_orcamento_novo() {
         border:1px solid #cbd5e1; border-radius:5px; text-align:right;
     }
     .taof-pct-inp:focus { border-color:#0ea5e9; outline:none; }
+
+    /* ── Mobile (vale também no modal-iframe wp-admin, onde o portal não carrega) ── */
+    @media (max-width:768px){
+        /* Quadro de totais cabe na tela: rótulo quebra, valor visível à direita */
+        .taof-totais-table{ width:100% !important; table-layout:auto; }
+        .taof-totais-table td{ white-space:normal !important; word-break:break-word; }
+        .taof-totais-table .taof-res-val{ white-space:nowrap !important; text-align:right; min-width:72px; }
+        .taof-totais-card{ overflow-x:hidden; }
+        /* Simulação de margem: slider flexível não estoura */
+        #taof-sim-range{ flex:1 1 80px; min-width:70px; width:auto !important; }
+        #taof-sim-aplicar{ margin-left:0 !important; }
+        /* Tabelas de itens/análise rolam na horizontal */
+        .taof-detail-table, #taof-analise-body{ }
+        .taof-detail-table th, .taof-detail-table td{ white-space:nowrap; }
+    }
     </style>
 
     <script>
