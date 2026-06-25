@@ -4666,10 +4666,16 @@ function tao_crm_sync_valor_oportunidade( string $card_id ): void {
     $ri = tao_crm_api( "/crm_card_itens?card_id=eq.$card_id&select=total" );
     if ( $ri['ok'] ) $total += array_sum( array_column( $ri['data'] ?? [], 'total' ) );
 
-    // Orçamentos de fórmula vinculados ao card
-    $ro = tao_crm_api( "/orcamentos?card_id=eq.$card_id&select=total_orcamento" );
+    // Orçamentos de fórmula vinculados ao card.
+    // O valor do card reflete o que foi IMPORTADO (valor_final_fc = com acréscimo/desconto do FC);
+    // fallback para total_orcamento (orçamentos criados manualmente, sem valor FC).
+    $ro = tao_crm_api( "/orcamentos?card_id=eq.$card_id&select=total_orcamento,valor_final_fc" );
     if ( $ro['ok'] ) {
-        foreach ( $ro['data'] ?? [] as $o ) $total += floatval( $o['total_orcamento'] ?? 0 );
+        foreach ( $ro['data'] ?? [] as $o ) {
+            $ov = floatval( $o['valor_final_fc'] ?? 0 );
+            if ( $ov <= 0 ) $ov = floatval( $o['total_orcamento'] ?? 0 );
+            $total += $ov;
+        }
     }
 
     // Desconto concedido no card (R$ ou %) — subtraído do subtotal (sem limite; valor mínimo 0)
