@@ -2957,16 +2957,21 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
             }
             tao_crm_log_error( 'dispatch', '[2] card_humano=' . ( $card_id ? substr($card_id,0,8) : 'none' ) . ' n8n_blocked=' . ( $_n8n_blocked_by_card ? 'sim' : 'nao' ), [ 'num' => $num_plain, 'from_me' => $from_me, 'msg' => mb_substr($conteudo,0,80) ] );
 
-            // ── Detecta pedido de opt-out — somente se não há atendimento humano ativo ─
+            // ── Detecta pedido de opt-out — só COMANDO explícito (evita falso positivo: "vou parar de tomar", "pode parar" etc. não optam o cliente fora) ─
             if ( ! $from_me && $tipo === 'text' && ! $_n8n_blocked_by_card ) {
-                $optout_kws = [ 'stop', 'parar', 'cancelar mensagens', 'nao quero mais', 'não quero mais', 'descadastrar', 'remover da lista' ];
-                $ct_lc = mb_strtolower( $conteudo );
-                foreach ( $optout_kws as $kw ) {
-                    if ( strpos( $ct_lc, $kw ) !== false ) {
-                        tao_crm_set_opt_out( $num );
-                        tao_crm_evolution_send( $inst, $num, 'Você foi removido da nossa lista. Para voltar ao atendimento, envie qualquer mensagem.' );
-                        continue 2; // pula para próxima mensagem no foreach($msgs)
-                    }
+                $ct_lc = trim( mb_strtolower( $conteudo ) );
+                // a mensagem INTEIRA precisa ser o comando
+                $optout_exato  = [ 'stop', 'parar', 'pare', 'sair', 'cancelar', 'descadastrar', 'remover', 'unsubscribe' ];
+                // ou conter uma frase inequívoca
+                $optout_frase  = [ 'cancelar mensagens', 'parar de receber', 'parar mensagens', 'remover da lista', 'não quero mais receber', 'nao quero mais receber', 'não quero mais mensagens', 'nao quero mais mensagens', 'descadastrar' ];
+                $is_optout = in_array( $ct_lc, $optout_exato, true );
+                if ( ! $is_optout ) {
+                    foreach ( $optout_frase as $kw ) { if ( strpos( $ct_lc, $kw ) !== false ) { $is_optout = true; break; } }
+                }
+                if ( $is_optout ) {
+                    tao_crm_set_opt_out( $num );
+                    tao_crm_evolution_send( $inst, $num, 'Você foi removido da nossa lista. Para voltar ao atendimento, envie qualquer mensagem.' );
+                    continue 2; // pula para próxima mensagem no foreach($msgs)
                 }
             }
 
