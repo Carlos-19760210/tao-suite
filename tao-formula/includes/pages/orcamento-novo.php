@@ -747,11 +747,11 @@ function tao_formula_page_orcamento_novo() {
     @media (max-width:768px){
         /* Quadro de totais cabe na tela: rótulo quebra, valor visível à direita */
         .taof-totais-table{ width:100% !important; table-layout:auto; }
-        .taof-totais-table td{ white-space:normal !important; }          /* quebra só nos espaços, não letra a letra */
+        .taof-totais-table td{ white-space:normal !important; padding:7px 5px !important; font-size:12px; line-height:1.25; }  /* quebra só nos espaços */
         .taof-totais-table td:first-child{ width:auto; }
-        .taof-totais-table .taof-res-val{ white-space:nowrap !important; text-align:right; width:78px; }
-        .taof-totais-table .taof-money-inp{ width:78px !important; }
-        .taof-totais-table .taof-pct-inp{ width:46px !important; }
+        .taof-totais-table .taof-res-val{ white-space:nowrap !important; text-align:right; width:66px; font-size:13px; }
+        .taof-totais-table .taof-money-inp{ width:58px !important; padding:4px 5px !important; }
+        .taof-totais-table .taof-pct-inp{ width:38px !important; padding:4px 4px !important; }
         .taof-totais-card{ overflow-x:hidden; }
         /* Simulação de margem: slider flexível não estoura */
         #taof-sim-range{ flex:1 1 80px; min-width:70px; width:auto !important; }
