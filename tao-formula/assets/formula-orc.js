@@ -513,37 +513,37 @@
         }
 
         var subtotal  = calculado + custoFixo + custoCapsula;
+        window._taofSubtotal = subtotal;   // exposto p/ Recalcular e Aplicar margem
 
-        // Desconto: % → valor (auto) ou valor → % (manual) — calculado antes do acréscimo
-        var $dscInp  = $('#taof-desconto-val-inp');
-        var desctPct = parseFloat($('#taof-desconto-pct').val()) || 0;
-        var desctVal;
-        if ($dscInp.data('manual')) {
-            desctVal = parseFloat($dscInp.val()) || 0;
-            if (subtotal > 0) $('#taof-desconto-pct').val((desctVal / subtotal * 100).toFixed(1));
-        } else {
-            desctVal = subtotal * desctPct / 100;
-            $dscInp.val(desctVal.toFixed(2));
-        }
-
-        // Acréscimo: importado = VALOR FINAL − Sub-Total (auto); editável manualmente
-        var $acrInp   = $('#taof-acrescimo-val-inp');
-        var acrescPct = parseFloat($('#taof-acrescimo-pct').val()) || 0;
+        // ── Acréscimo: % → valor (Sub-Total × %)  |  valor → % (valor ÷ Sub-Total) ──
+        var $acrInp = $('#taof-acrescimo-val-inp');
         var acrescVal;
-        if (_valorFinalTravado != null && !$acrInp.data('manual')) {
-            acrescVal = _valorFinalTravado - subtotal;
-            $acrInp.val(acrescVal.toFixed(2));
-            if (subtotal > 0) $('#taof-acrescimo-pct').val((acrescVal / subtotal * 100).toFixed(1));
-        } else if ($acrInp.data('manual')) {
+        if ($acrInp.data('manual')) {
             acrescVal = parseFloat($acrInp.val()) || 0;
-            if (subtotal > 0) $('#taof-acrescimo-pct').val((acrescVal / subtotal * 100).toFixed(1));
+            $('#taof-acrescimo-pct').val(subtotal > 0 ? (acrescVal / subtotal * 100).toFixed(2) : '0');
         } else {
+            var acrescPct = parseFloat($('#taof-acrescimo-pct').val()) || 0;
             acrescVal = subtotal * acrescPct / 100;
             $acrInp.val(acrescVal.toFixed(2));
         }
 
-        // VALOR FINAL: importado com acréscimo automático = valor travado; se editar o acréscimo, soma das linhas
-        var final = (_valorFinalTravado != null && !$acrInp.data('manual')) ? _valorFinalTravado : (subtotal + acrescVal - desctVal);
+        // Valor Sem Desconto = Sub-Total + Acréscimo
+        var semDesconto = subtotal + acrescVal;
+
+        // ── Desconto: % → valor (Sem Desconto × %)  |  valor → % (valor ÷ Sem Desconto) ──
+        var $dscInp = $('#taof-desconto-val-inp');
+        var desctVal;
+        if ($dscInp.data('manual')) {
+            desctVal = parseFloat($dscInp.val()) || 0;
+            $('#taof-desconto-pct').val(semDesconto > 0 ? (desctVal / semDesconto * 100).toFixed(2) : '0');
+        } else {
+            var desctPct = parseFloat($('#taof-desconto-pct').val()) || 0;
+            desctVal = semDesconto * desctPct / 100;
+            $dscInp.val(desctVal.toFixed(2));
+        }
+
+        // VALOR FINAL (Com Desconto) = Valor Sem Desconto − Desconto
+        var final = semDesconto - desctVal;
 
         // Valor mínimo da forma
         var valorMinimo = formaAtual ? (formaAtual.valorMinimo || 0) : 0;
@@ -561,7 +561,6 @@
         // Botão "Recalcular (importação)" só aparece em orçamento importado do FC
         if (typeof window._taofFcFinal !== 'undefined') $('#taof-recalc-import-wrap').toggle(window._taofFcFinal != null);
 
-        var semDesconto = final + desctVal;   // Valor Sem Desconto = Valor Com Desconto + Desconto
         $('#taof-res-calculado').text('R$ ' + fmt(calculado));
         $('#taof-res-custo-fixo').text('R$ ' + fmt(custoFixo));
         $('#taof-res-subtotal').text('R$ ' + fmt(subtotal));
@@ -660,10 +659,13 @@
     });
     // Recalcular pelas regras da importação (FINAL e Desconto do FC; Acréscimo = FINAL − Sub-Total)
     $('#taof-recalc-import').on('click', function () {
-        if (window._taofFcFinal != null)    _valorFinalTravado = window._taofFcFinal;
-        $('#taof-acrescimo-val-inp').removeData('manual');          // acréscimo volta ao automático
-        if (window._taofFcDesconto != null) {
-            $('#taof-desconto-val-inp').val(window._taofFcDesconto.toFixed(2)).data('manual', true);
+        var sub  = window._taofSubtotal || 0;
+        var desc = (window._taofFcDesconto != null) ? window._taofFcDesconto : 0;
+        if (window._taofFcDesconto != null) $('#taof-desconto-val-inp').val(desc.toFixed(2)).data('manual', true);
+        if (window._taofFcFinal != null) {
+            // acréscimo p/ o valor final voltar a ser o do FC: final = sub + acr − desc = FC
+            var acr = window._taofFcFinal + desc - sub;
+            $('#taof-acrescimo-val-inp').val(acr.toFixed(2)).data('manual', true);
         }
         calcularTotais();
     });
@@ -1229,8 +1231,9 @@
     function renderLinha(nome, unid, precoComp, precoCusto, precoVenda, subtotalVenda, isTotal, isSep) {
         if (isSep) return '<tr><td colspan="7" style="padding:4px 16px;background:#f8fafc;font-size:11px;color:#64748b;font-weight:600">' + nome + '</td></tr>';
         var baseV     = isTotal ? subtotalVenda : precoVenda;   // no TOTAL a margem é (venda total ÷ custo total)
-        var margem    = precoCusto > 0 ? baseV / precoCusto : null;
-        var margBruta = precoCusto > 0 ? baseV - precoCusto : null;
+        var divisor   = precoCusto > 0 ? precoCusto : precoComp; // custo; se não houver, usa o preço de compra
+        var margem    = divisor > 0 ? baseV / divisor : null;
+        var margBruta = divisor > 0 ? baseV - divisor : null;
         var mTxt = margem !== null
             ? fmt(margem, 2) + 'x <small>(' + fmt((margem - 1) * 100, 1) + '%)</small>'
             : '<span style="color:#94a3b8">—</span>';
@@ -1269,9 +1272,10 @@
             // qtd robusto: deriva do subtotal de venda (vale também p/ orçamentos importados sem qtd-em-padrao)
             var qtd        = precoVenda > 0 ? ( subtotalV / precoVenda ) : ( parseFloat($r.data('qtd-em-padrao')) || 0 );
             var subtotalC  = precoComp > 0 ? qtd * precoComp : 0;
-            if (precoCusto <= 0) temItemSemCompra = true;   // aviso de simulação = item sem preço de custo
+            var custoBase  = precoCusto > 0 ? precoCusto : precoComp;   // custo; se não houver, compra
+            if (custoBase <= 0) temItemSemCompra = true;   // sem custo E sem compra
             totalCompra += subtotalC;
-            totalCusto  += qtd * precoCusto;
+            totalCusto  += qtd * custoBase;
             totalVenda  += subtotalV;
             mpLinhas.push({ nome: nome, unid: unid, precoComp: precoComp, precoCusto: precoCusto, precoVenda: precoVenda, subtotalV: subtotalV });
         });
@@ -1370,13 +1374,16 @@
         simularMargem(v);
     });
 
-    // Aplica a margem simulada ao valor final do orçamento (trava o final = custo × margem)
+    // Aplica a margem simulada ao valor final do orçamento (final = custo × margem), via acréscimo
     function aplicarMargem() {
         if (!_analiseCompraTotal) { alert('Sem custo total para aplicar margem.'); return; }
         var mult = Math.max(0.01, parseFloat($('#taof-sim-inp').val()) || 0);
         var alvo = _analiseCompraTotal * mult;
-        _valorFinalTravado = alvo;                            // final fixado no alvo
-        $('#taof-acrescimo-val-inp').removeData('manual');    // acréscimo vira o automático (alvo − subtotal)
+        var sub  = window._taofSubtotal || 0;
+        var desc = parseFloat($('#taof-desconto-val-inp').val()) || 0;
+        $('#taof-desconto-val-inp').data('manual', true);     // congela o desconto atual (R$)
+        var acr = alvo + desc - sub;                          // final = sub + acr − desc = alvo
+        $('#taof-acrescimo-val-inp').val(acr.toFixed(2)).data('manual', true);
         calcularTotais();
         $('#taof-modal-analise').hide(); document.body.style.overflow = '';
         if (typeof taofToast === 'function') taofToast('✓ Margem ' + fmt(mult, 2) + 'x aplicada — valor final R$ ' + fmt(alvo));
