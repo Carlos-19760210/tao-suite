@@ -3686,6 +3686,7 @@ function tao_crm_export_csv_handler() {
         if ( $re['ok'] ) foreach ( $re['data'] ?? [] as $e ) $estagios_map[ $e['id'] ] = $e['nome'];
     }
 
+    while ( ob_get_level() > 0 ) ob_end_clean();   // descarta byte espúrio (?/0x3F) antes do BOM — senão o Excel ignora o BOM e quebra os acentos
     header( 'Content-Type: text/csv; charset=UTF-8' );
     header( 'Content-Disposition: attachment; filename="tao-crm-' . date( 'Y-m-d' ) . '.csv"' );
     header( 'Cache-Control: no-cache, no-store' );
@@ -4225,6 +4226,7 @@ function tao_crm_export_relatorio_csv() {
         $stats[$uid]['valor_total'] += floatval( $c['valor_oportunidade'] ?? 0 );
     }
 
+    while ( ob_get_level() > 0 ) ob_end_clean();   // descarta byte espúrio (?/0x3F) antes do BOM
     header( 'Content-Type: text/csv; charset=utf-8' );
     header( 'Content-Disposition: attachment; filename="relatorio_crm_' . date('Y-m-d') . '.csv"' );
     $out = fopen( 'php://output', 'w' );
@@ -4281,6 +4283,7 @@ function tao_crm_export_relatorio_financeiro() {
         }
     }
 
+    while ( ob_get_level() > 0 ) ob_end_clean();   // descarta byte espúrio (?/0x3F) antes do BOM
     header( 'Content-Type: text/csv; charset=utf-8' );
     header( 'Content-Disposition: attachment; filename="relatorio_financeiro_' . date( 'Y-m-d' ) . '.csv"' );
     $out = fopen( 'php://output', 'w' );
