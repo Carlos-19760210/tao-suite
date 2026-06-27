@@ -3689,7 +3689,7 @@ function tao_crm_page_settings() {
                     <textarea name="mensagem" id="crm-renov-msg" rows="5" class="large-text"><?php echo esc_textarea( $rnv_msg ); ?></textarea>
                 </td></tr>
                 <tr><th>"Lembrar novamente" em (dias)</th><td><input type="number" id="crm-renov-snooze" min="1" max="60" value="<?php echo esc_attr( $rnv_snooze ); ?>" style="width:80px"> <span style="color:#94a3b8;font-size:12px">quando o cliente responde "3"</span></td></tr>
-                <tr><th>Sem resposta &rarr; "Sem Resposta" após (dias)</th><td><input type="number" id="crm-renov-semr" min="1" max="90" value="<?php echo esc_attr( $rnv_semr ); ?>" style="width:80px"></td></tr>
+                <tr><th>Mover p/ "Sem Resposta" após (dias)</th><td><input type="number" id="crm-renov-semr" min="1" max="90" value="<?php echo esc_attr( $rnv_semr ); ?>" style="width:80px"> <span style="color:#94a3b8;font-size:12px">sem resposta do cliente após o lembrete</span></td></tr>
             </table>
             <button type="submit" class="button button-primary">Salvar</button>
             <span id="crm-renov-status" style="margin-left:8px;font-size:13px"></span>
