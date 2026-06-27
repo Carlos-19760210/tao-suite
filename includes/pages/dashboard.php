@@ -245,6 +245,30 @@ function tao_crm_page_dashboard() {
     }
     $tma_med = $tma_secs ? array_sum( $tma_secs ) / count( $tma_secs ) : 0;
 
+    // Tempo médio (horas úteis): criação do card → FECHAMENTO (ganho), no período
+    $tg_secs = [];
+    foreach ( $ganho_events as $cid => $dt ) {
+        $cri = $card_map[ $cid ]['criado_em'] ?? '';
+        if ( $cri && $dt ) { $d = $bsec( $cri, $dt ); if ( $d > 0 ) $tg_secs[] = $d; }
+    }
+    $tempo_ganho_med = $tg_secs ? array_sum( $tg_secs ) / count( $tg_secs ) : 0;
+
+    // Tempo médio (horas úteis): criação → CANCELAMENTO, apenas cancelamentos COM orçamento associado
+    $perd_cids   = array_keys( $perdido_events );
+    $perd_com_orc = [];
+    if ( $perd_cids ) {
+        $ro_c = tao_crm_api( "/orcamentos?card_id=in.(" . implode( ',', $perd_cids ) . ")&select=card_id" );
+        foreach ( ( $ro_c['ok'] ? ( $ro_c['data'] ?? [] ) : [] ) as $o ) $perd_com_orc[ $o['card_id'] ] = true;
+    }
+    $tc_secs = [];
+    foreach ( $perdido_events as $cid => $dt ) {
+        if ( ! isset( $perd_com_orc[ $cid ] ) ) continue;   // só cancelamentos com orçamento
+        $cri = $card_map[ $cid ]['criado_em'] ?? '';
+        if ( $cri && $dt ) { $d = $bsec( $cri, $dt ); if ( $d > 0 ) $tc_secs[] = $d; }
+    }
+    $tempo_canc_med = $tc_secs ? array_sum( $tc_secs ) / count( $tc_secs ) : 0;
+    $n_canc_orc     = count( $tc_secs );
+
     // TMR = tempo médio até a 1ª resposta (1ª msg 'in' → 1ª msg 'out' seguinte), no período
     $tmr_secs = [];
     $rm = tao_crm_api(
@@ -557,6 +581,16 @@ function tao_crm_page_dashboard() {
                 <span class="kpi-label">TMA</span>
                 <span class="kpi-value"><?php echo esc_html( $fmt_dur( $tma_med ) ); ?></span>
                 <span class="kpi-sub">criação &rarr; resolução (<?php echo count( $tma_secs ); ?> cards)</span>
+            </div>
+            <div class="crm-dash-kpi-card kpi-green" title="Tempo médio (em horas úteis) entre a criação do card e o fechamento do negócio (ganho), no período">
+                <span class="kpi-label">Tempo até ganho</span>
+                <span class="kpi-value"><?php echo esc_html( $fmt_dur( $tempo_ganho_med ) ); ?></span>
+                <span class="kpi-sub">criação &rarr; ganho (<?php echo count( $tg_secs ); ?> negócios)</span>
+            </div>
+            <div class="crm-dash-kpi-card kpi-red" title="Tempo médio (em horas úteis) entre a criação do card e o cancelamento — apenas cancelamentos com orçamento associado, no período">
+                <span class="kpi-label">Tempo até cancelar</span>
+                <span class="kpi-value"><?php echo esc_html( $fmt_dur( $tempo_canc_med ) ); ?></span>
+                <span class="kpi-sub">criação &rarr; cancelado c/ orçamento (<?php echo $n_canc_orc; ?>)</span>
             </div>
             <div class="crm-dash-kpi-card kpi-amber" title="Tempo Médio de Resposta: da 1ª mensagem do cliente até a 1ª resposta">
                 <span class="kpi-label">TMR</span>
