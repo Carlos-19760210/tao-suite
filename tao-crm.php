@@ -1044,6 +1044,18 @@ function tao_crm_ajax_move_card() {
         }
     }
 
+    // Regra: mover p/ "Flw Orçamento Enviado" exige ≥1 item OU ≥1 orçamento (valor sozinho não basta)
+    if ( $de_estagio !== $estagio_id ) {
+        $rde   = tao_crm_api( "/crm_estagios?id=eq.$estagio_id&select=nome&limit=1" );
+        $dnome = mb_strtoupper( ( $rde['ok'] && ! empty( $rde['data'] ) ) ? ( $rde['data'][0]['nome'] ?? '' ) : '' );
+        if ( ( strpos( $dnome, 'ORÇAMENTO ENVIADO' ) !== false || strpos( $dnome, 'ORCAMENTO ENVIADO' ) !== false ) && ! tao_crm_card_tem_negocio( $card_id ) ) {
+            wp_send_json_error( [
+                'code' => 'sem_negocio',
+                'msg'  => 'Adicione ao menos um item ou orçamento ao negócio antes de movimentar o card para Flw Orçamento Enviado.',
+            ] );
+        }
+    }
+
     $r = tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [
         'estagio_id' => $estagio_id,
         'movido_em'  => gmdate( 'c' ),
@@ -1147,13 +1159,11 @@ function tao_crm_ajax_get_campos_destino() {
 // ─── AJAX: CAMPOS OBRIGATÓRIOS DO ESTÁGIO GANHO (dado card_id) ───────────────
 
 /**
- * O card tem "negócio" para fechar como ganho?
- * Regra: ≥1 item do negócio OU ≥1 orçamento de fórmula OU valor_oportunidade > 0.
+ * O card tem "negócio" (item ou orçamento)?
+ * Regra: ≥1 item do negócio OU ≥1 orçamento de fórmula. Valor sozinho NÃO conta.
  */
 function tao_crm_card_tem_negocio( $card_id ) {
     if ( ! $card_id ) return false;
-    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=valor_oportunidade&limit=1" );
-    if ( $rc['ok'] && ! empty( $rc['data'] ) && floatval( $rc['data'][0]['valor_oportunidade'] ?? 0 ) > 0 ) return true;
     $ri = tao_crm_api( "/crm_card_itens?card_id=eq.$card_id&select=id&limit=1" );
     if ( $ri['ok'] && ! empty( $ri['data'] ) ) return true;
     $ro = tao_crm_api( "/orcamentos?card_id=eq.$card_id&select=id&limit=1" );
