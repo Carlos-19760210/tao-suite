@@ -1044,15 +1044,26 @@ function tao_crm_ajax_move_card() {
         }
     }
 
-    // Regra: mover p/ "Flw Orçamento Enviado" exige ≥1 item OU ≥1 orçamento (valor sozinho não basta)
+    // Regra: mover p/ "Flw Orçamento Enviado" ou QUALQUER fase posterior exige ≥1 item OU ≥1 orçamento (valor sozinho não basta)
     if ( $de_estagio !== $estagio_id ) {
-        $rde   = tao_crm_api( "/crm_estagios?id=eq.$estagio_id&select=nome&limit=1" );
-        $dnome = mb_strtoupper( ( $rde['ok'] && ! empty( $rde['data'] ) ) ? ( $rde['data'][0]['nome'] ?? '' ) : '' );
-        if ( ( strpos( $dnome, 'ORÇAMENTO ENVIADO' ) !== false || strpos( $dnome, 'ORCAMENTO ENVIADO' ) !== false ) && ! tao_crm_card_tem_negocio( $card_id ) ) {
-            wp_send_json_error( [
-                'code' => 'sem_negocio',
-                'msg'  => 'Adicione ao menos um item ou orçamento ao negócio antes de movimentar o card para Flw Orçamento Enviado.',
-            ] );
+        $rde = tao_crm_api( "/crm_estagios?id=eq.$estagio_id&select=ordem,pipeline_id&limit=1" );
+        if ( $rde['ok'] && ! empty( $rde['data'] ) ) {
+            $dord = (int) ( $rde['data'][0]['ordem'] ?? 0 );
+            $dpl  = $rde['data'][0]['pipeline_id'] ?? '';
+            $flw_ord = -1;
+            if ( $dpl ) {
+                $rall = tao_crm_api( "/crm_estagios?pipeline_id=eq.$dpl&select=nome,ordem" );
+                foreach ( ( $rall['ok'] ? ( $rall['data'] ?? [] ) : [] ) as $s ) {
+                    $sn = mb_strtoupper( $s['nome'] ?? '' );
+                    if ( strpos( $sn, 'ORÇAMENTO ENVIADO' ) !== false || strpos( $sn, 'ORCAMENTO ENVIADO' ) !== false ) { $flw_ord = (int) ( $s['ordem'] ?? 0 ); break; }
+                }
+            }
+            if ( $flw_ord >= 0 && $dord >= $flw_ord && ! tao_crm_card_tem_negocio( $card_id ) ) {
+                wp_send_json_error( [
+                    'code' => 'sem_negocio',
+                    'msg'  => 'Adicione ao menos um item ou orçamento ao negócio antes de movimentar para essa fase.',
+                ] );
+            }
         }
     }
 
