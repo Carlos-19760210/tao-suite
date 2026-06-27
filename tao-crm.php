@@ -1893,6 +1893,9 @@ function tao_crm_renovacao_cron() {
         $ws_id = $w['id'];
         $rsd = tao_crm_renov_stages( $ws_id );
         if ( empty( $rsd['renovacao'] ) ) continue;
+        if ( ! get_option( 'tao_crm_renov_ativo_' . $ws_id, 1 ) ) continue;   // renovação desligada p/ este workspace
+        $r_snooze  = (int) get_option( 'tao_crm_renov_snooze_'  . $ws_id, 5 );
+        $r_semresp = (int) get_option( 'tao_crm_renov_semresp_' . $ws_id, 15 );
         $rc = tao_crm_api( "/crm_cards?workspace_id=eq.$ws_id&estagio_id=eq.{$rsd['renovacao']}&fechado=eq.false&select=id,contato_nome,contato_whatsapp,criado_em,instancia_id,workspace_id,atendimento_humano&limit=500" );
         foreach ( ( $rc['ok'] ? ( $rc['data'] ?? [] ) : [] ) as $card ) {
             if ( ! empty( $card['atendimento_humano'] ) ) continue;
@@ -1904,16 +1907,16 @@ function tao_crm_renovacao_cron() {
                      : ( strtotime( $card['criado_em'] ) + tao_crm_formula_dias( $cid ) * DAY_IN_SECONDS );
                 if ( time() >= $due ) {
                     $nome   = trim( $card['contato_nome'] ?? '' );
-                    $padrao = "Olá" . ( $nome ? " $nome" : '' ) . "! Notamos que sua fórmula está acabando. 🌿\n\nDeseja renovar?\nResponda *1* para RENOVAR, *2* para não renovar ou *3* para te lembrarmos novamente em 5 dias.";
+                    $padrao = "Olá" . ( $nome ? " $nome" : '' ) . "! Notamos que sua fórmula está acabando. 🌿\n\nDeseja renovar?\nResponda *1* para RENOVAR, *2* para não renovar ou *3* para te lembrarmos novamente em {dias} dias.";
                     $msg    = get_option( 'tao_crm_renov_msg_' . $ws_id, $padrao );
-                    $msg    = str_replace( '{nome}', $nome, $msg );
+                    $msg    = str_replace( [ '{nome}', '{dias}' ], [ $nome, $r_snooze ], $msg );
                     tao_crm_evolution_send( tao_crm_get_evo_creds( $card ), $card['contato_whatsapp'], $msg );
                     tao_crm_lock_chatbot( preg_replace( '/\D/', '', $card['contato_whatsapp'] ), $ws_id );
                     tao_crm_renov_set( $cid, [ 'enviado_em' => gmdate( 'c' ), 'proximo' => null ] );
                     tao_crm_log_error( 'renovacao', 'lembrete enviado card=' . substr( $cid, 0, 8 ), [ 'ws' => substr( $ws_id, 0, 8 ) ] );
                 }
             } else {
-                if ( time() >= strtotime( $enviado ) + 15 * DAY_IN_SECONDS ) {
+                if ( time() >= strtotime( $enviado ) + $r_semresp * DAY_IN_SECONDS ) {
                     if ( ! empty( $rsd['sem_resposta'] ) ) tao_crm_api( "/crm_cards?id=eq.$cid", 'PATCH', [ 'estagio_id' => $rsd['sem_resposta'], 'movido_em' => gmdate( 'c' ) ] );
                     tao_crm_renov_del( $cid );
                     tao_crm_log_error( 'renovacao', 'sem resposta 15d card=' . substr( $cid, 0, 8 ), [ 'ws' => substr( $ws_id, 0, 8 ) ] );
@@ -2848,6 +2851,23 @@ function tao_crm_ajax_save_nps() {
     wp_send_json_success();
 }
 
+// ─── AJAX: SALVAR CONFIG RENOVAÇÃO ────────────────────────────────────────────
+add_action( 'wp_ajax_tao_crm_save_renov', 'tao_crm_ajax_save_renov' );
+function tao_crm_ajax_save_renov() {
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Acesso negado' );
+    $ws_id = sanitize_text_field( $_POST['ws_id'] ?? '' );
+    if ( ! $ws_id ) wp_send_json_error( 'Workspace inválido' );
+    update_option( 'tao_crm_renov_ativo_' . $ws_id, ! empty( $_POST['ativo'] ) ? 1 : 0, false );
+    $msg = sanitize_textarea_field( $_POST['mensagem'] ?? '' );
+    if ( $msg ) update_option( 'tao_crm_renov_msg_' . $ws_id, $msg, false );
+    $snooze  = max( 1, min( 60, intval( $_POST['snooze']  ?? 5 ) ) );
+    $semresp = max( 1, min( 90, intval( $_POST['semresp'] ?? 15 ) ) );
+    update_option( 'tao_crm_renov_snooze_'  . $ws_id, $snooze,  false );
+    update_option( 'tao_crm_renov_semresp_' . $ws_id, $semresp, false );
+    wp_send_json_success();
+}
+
 function tao_crm_rest_dispatch( WP_REST_Request $req ) {
     $provided_key = $req->get_header( 'X-Tao-Key' ) ?: $req->get_param( 'key' );
     $global_key   = get_option( 'tao_crm_dispatch_key', 'tao-crm-dispatch-2026' );
@@ -3064,8 +3084,9 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
                             $is_neg = (bool) preg_match( '/^\s*2\b/', $rtxt ) || preg_match( '/\b(n[aã]o|agora n[aã]o)\b/u', $rtxt );
                             $is_zzz = (bool) preg_match( '/^\s*3\b/', $rtxt ) || strpos( $rtxt, 'lembr' ) !== false || strpos( $rtxt, '5 dia' ) !== false || strpos( $rtxt, 'depois' ) !== false;
                             if ( $is_zzz ) {
-                                tao_crm_renov_set( $rcard['id'], [ 'enviado_em' => null, 'proximo' => gmdate( 'c', time() + 5 * DAY_IN_SECONDS ) ] );
-                                tao_crm_evolution_send( $inst, $num, 'Combinado! Vou te lembrar em 5 dias. 🌿' );
+                                $r_snz = (int) get_option( 'tao_crm_renov_snooze_' . $WS_ID, 5 );
+                                tao_crm_renov_set( $rcard['id'], [ 'enviado_em' => null, 'proximo' => gmdate( 'c', time() + $r_snz * DAY_IN_SECONDS ) ] );
+                                tao_crm_evolution_send( $inst, $num, 'Combinado! Vou te lembrar em ' . $r_snz . ' dias. 🌿' );
                             } elseif ( $is_neg ) {
                                 if ( ! empty( $rsd['nao_renovado'] ) ) tao_crm_api( "/crm_cards?id=eq.{$rcard['id']}", 'PATCH', [ 'estagio_id' => $rsd['nao_renovado'], 'movido_em' => gmdate( 'c' ) ] );
                                 tao_crm_renov_del( $rcard['id'] );

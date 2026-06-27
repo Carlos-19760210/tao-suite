@@ -3672,6 +3672,41 @@ function tao_crm_page_settings() {
             </script>
         </div>
 
+        <!-- Renovação Pós-Vendas -->
+        <div class="tao-crm-settings-section" style="margin-top:24px">
+            <h2>&#x1F33F; Renovação Pós-Vendas</h2>
+            <p style="color:#64748b;font-size:13px">Com o card em <strong>"Renovação em Curso"</strong>, o lembrete é enviado na data de <em>abertura do card + "Fórmula para quanto tempo? (Dias)"</em> (se &lt;10 ou vazio, usa 30). O cliente responde <strong>1</strong> (renovar), <strong>2</strong> (não) ou <strong>3</strong> (lembrar depois). Variáveis: <code>{nome}</code>, <code>{dias}</code>.</p>
+            <?php
+            $rnv_ativo  = get_option( 'tao_crm_renov_ativo_' . $ws_id_sel, 1 );
+            $rnv_snooze = (int) get_option( 'tao_crm_renov_snooze_' . $ws_id_sel, 5 );
+            $rnv_semr   = (int) get_option( 'tao_crm_renov_semresp_' . $ws_id_sel, 15 );
+            $rnv_msg    = get_option( 'tao_crm_renov_msg_' . $ws_id_sel, "Olá {nome}! Notamos que sua fórmula está acabando. \xF0\x9F\x8C\xBF\n\nDeseja renovar?\nResponda *1* para RENOVAR, *2* para não renovar ou *3* para te lembrarmos novamente em {dias} dias." );
+            ?>
+            <form id="crm-renov-form">
+            <table class="form-table">
+                <tr><th>Ativo</th><td><label><input type="checkbox" name="ativo" id="crm-renov-ativo" <?php checked( $rnv_ativo ); ?>> Habilitar lembrete de renovação</label></td></tr>
+                <tr><th>Mensagem do lembrete</th><td>
+                    <textarea name="mensagem" id="crm-renov-msg" rows="5" class="large-text"><?php echo esc_textarea( $rnv_msg ); ?></textarea>
+                </td></tr>
+                <tr><th>"Lembrar novamente" em (dias)</th><td><input type="number" id="crm-renov-snooze" min="1" max="60" value="<?php echo esc_attr( $rnv_snooze ); ?>" style="width:80px"> <span style="color:#94a3b8;font-size:12px">quando o cliente responde "3"</span></td></tr>
+                <tr><th>Sem resposta &rarr; "Sem Resposta" após (dias)</th><td><input type="number" id="crm-renov-semr" min="1" max="90" value="<?php echo esc_attr( $rnv_semr ); ?>" style="width:80px"></td></tr>
+            </table>
+            <button type="submit" class="button button-primary">Salvar</button>
+            <span id="crm-renov-status" style="margin-left:8px;font-size:13px"></span>
+            </form>
+            <script>
+            (function($){
+                $('#crm-renov-form').on('submit', function(e){
+                    e.preventDefault();
+                    crmPost({action:'tao_crm_save_renov', nonce:taoCrm.nonce, ws_id:<?php echo wp_json_encode($ws_id_sel); ?>, ativo:$('#crm-renov-ativo').is(':checked')?'1':'', mensagem:$('#crm-renov-msg').val(), snooze:$('#crm-renov-snooze').val(), semresp:$('#crm-renov-semr').val()}, function(r){
+                        $('#crm-renov-status').text(r.success?'✔ Salvo':'✘ Erro').css('color', r.success?'#16a34a':'#dc2626');
+                        setTimeout(function(){ $('#crm-renov-status').text(''); }, 2500);
+                    });
+                });
+            })(jQuery);
+            </script>
+        </div>
+
         <div class="tao-crm-settings-section">
             <!-- Dashboard CSAT -->
             <div style="margin-top:28px;padding-top:20px;border-top:1px solid #e2e8f0">
