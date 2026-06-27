@@ -108,6 +108,9 @@ add_action( 'init', function() {
     if ( ! wp_next_scheduled( 'tao_crm_check_sem_resposta' ) ) {
         wp_schedule_event( time(), 'tao_crm_hourly', 'tao_crm_check_sem_resposta' );
     }
+    if ( ! wp_next_scheduled( 'tao_crm_renovacao_check' ) ) {
+        wp_schedule_event( time(), 'tao_crm_hourly', 'tao_crm_renovacao_check' );
+    }
     if ( ! wp_next_scheduled( 'tao_crm_processar_agendadas' ) ) {
         wp_schedule_event( time(), 'tao_crm_every_minute', 'tao_crm_processar_agendadas' );
     }
@@ -1796,6 +1799,130 @@ function tao_crm_nps_disparar( $card_id, $estagio_id ) {
     tao_crm_log_error( 'nps', 'pesquisa enviada card=' . substr( $card_id, 0, 8 ), [ 'num' => $fone ] );
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+//  RENOVAÇÃO PÓS-VENDAS (após NPS) — lembrete por data de abertura + clonagem
+// ════════════════════════════════════════════════════════════════════════════
+
+// Estado de renovação por card, em wp_options (persistente; sobrevive a cache flush)
+function tao_crm_renov_get( $card_id ) { $v = get_option( 'tao_crm_renov_' . $card_id, [] ); return is_array( $v ) ? $v : []; }
+function tao_crm_renov_set( $card_id, $st ) { update_option( 'tao_crm_renov_' . $card_id, $st, false ); }
+function tao_crm_renov_del( $card_id ) { delete_option( 'tao_crm_renov_' . $card_id ); }
+
+// Resolve os estágios da renovação por NOME (cacheado em option por workspace)
+function tao_crm_renov_stages( $ws_id ) {
+    if ( ! $ws_id ) return [];
+    $cached = get_option( 'tao_crm_renov_stages_' . $ws_id, null );
+    if ( is_array( $cached ) && ! empty( $cached['renovacao'] ) && ! empty( $cached['aguardando'] ) ) return $cached;
+
+    $funil = ''; $pv = get_option( 'tao_crm_pos_vendas_pipeline_' . $ws_id, '' );
+    $rp = tao_crm_api( "/crm_pipelines?workspace_id=eq.$ws_id&ativo=eq.true&order=ordem.asc&limit=3" );
+    $pls = $rp['ok'] ? ( $rp['data'] ?? [] ) : [];
+    if ( ! empty( $pls[0] ) ) $funil = $pls[0]['id'];
+    if ( ! $pv && ! empty( $pls[1] ) ) $pv = $pls[1]['id'];
+
+    $map = [ 'pos' => $pv, 'funil' => $funil, 'renovacao' => '', 'renovado' => '', 'sem_resposta' => '', 'nao_renovado' => '', 'aguardando' => '' ];
+    if ( $pv ) {
+        $re = tao_crm_api( "/crm_estagios?pipeline_id=eq.$pv&select=id,nome" );
+        foreach ( ( $re['ok'] ? ( $re['data'] ?? [] ) : [] ) as $e ) {
+            $n = mb_strtoupper( trim( $e['nome'] ?? '' ) );
+            if ( strpos( $n, 'RENOVA' ) !== false && strpos( $n, 'CURSO' ) !== false ) $map['renovacao'] = $e['id'];
+            elseif ( $n === 'RENOVADO' ) $map['renovado'] = $e['id'];
+            elseif ( strpos( $n, 'SEM RESPOSTA' ) !== false ) $map['sem_resposta'] = $e['id'];
+            elseif ( strpos( $n, 'RENOVADO' ) !== false && ( strpos( $n, 'NAO' ) !== false || strpos( $n, 'NÃO' ) !== false ) ) $map['nao_renovado'] = $e['id'];
+        }
+    }
+    if ( $funil ) {
+        $rh = tao_crm_api( "/crm_estagios?pipeline_id=eq.$funil&tipo=eq.handoff&limit=1" );
+        if ( $rh['ok'] && ! empty( $rh['data'] ) ) $map['aguardando'] = $rh['data'][0]['id'];
+    }
+    if ( $map['renovacao'] ) update_option( 'tao_crm_renov_stages_' . $ws_id, $map, false );
+    return $map;
+}
+
+// "Fórmula para quanto tempo? (Dias)" do card — < 10 ou ausente => 30
+function tao_crm_formula_dias( $card_id ) {
+    $vals = function_exists( 'tao_crm_get_card_valores_por_chave' ) ? tao_crm_get_card_valores_por_chave( $card_id ) : [];
+    $d = intval( $vals['formula_para_quanto_tempo_dias'] ?? 0 );
+    return ( $d < 10 ) ? 30 : $d;
+}
+
+// Clona o card (+ orçamentos) num novo card em Funil › Aguardando Atendimento e move o atual p/ Renovado
+function tao_crm_renovar_card( $card, $rsd ) {
+    $ws  = $card['workspace_id'];
+    $tel = preg_replace( '/\D/', '', $card['contato_whatsapp'] ?? '' );
+    $novo_id = null;
+    if ( ! empty( $rsd['funil'] ) && ! empty( $rsd['aguardando'] ) ) {
+        $rn = tao_crm_api( '/crm_cards', 'POST', [
+            'workspace_id'       => $ws,
+            'pipeline_id'        => $rsd['funil'],
+            'estagio_id'         => $rsd['aguardando'],
+            'instancia_id'       => $card['instancia_id'] ?? null,
+            'contato_id'         => $card['contato_id'] ?? null,
+            'titulo'             => 'RENOVACAO ' . $tel,
+            'contato_nome'       => $card['contato_nome'] ?: $tel,
+            'contato_whatsapp'   => $card['contato_whatsapp'],
+            'atendimento_humano' => true,
+            'criado_em'          => gmdate( 'c' ),
+            'movido_em'          => gmdate( 'c' ),
+        ], [ 'Prefer' => 'return=representation' ] );
+        $novo_id = ( $rn['ok'] && ! empty( $rn['data'] ) ) ? $rn['data'][0]['id'] : null;
+    }
+    // Clona os orçamentos (mesma base Supabase) com o novo card_id — formula idêntica
+    if ( $novo_id ) {
+        $ro = tao_crm_api( "/orcamentos?card_id=eq.{$card['id']}&select=*" );
+        foreach ( ( $ro['ok'] ? ( $ro['data'] ?? [] ) : [] ) as $o ) {
+            unset( $o['id'], $o['criado_em'], $o['atualizado_em'] );
+            $o['card_id'] = $novo_id;
+            tao_crm_api( '/orcamentos', 'POST', $o );
+        }
+    }
+    if ( ! empty( $rsd['renovado'] ) ) tao_crm_api( "/crm_cards?id=eq.{$card['id']}", 'PATCH', [ 'estagio_id' => $rsd['renovado'], 'movido_em' => gmdate( 'c' ) ] );
+    tao_crm_renov_del( $card['id'] );
+    if ( $tel ) tao_crm_lock_chatbot( $tel, $ws );
+    tao_crm_evolution_send( tao_crm_get_evo_creds( $card ), $card['contato_whatsapp'], 'Que ótimo! 🎉 Já encaminhei sua renovação para nossa equipe — em breve entramos em contato.' );
+    if ( $novo_id ) tao_crm_disparar_automacoes( $novo_id, $rsd['aguardando'], 'entrar_fase', false, $ws );
+    tao_crm_log_error( 'renovacao', 'renovado: novo card=' . substr( (string) $novo_id, 0, 8 ) . ' de=' . substr( $card['id'], 0, 8 ), [ 'tel' => $tel ] );
+    return $novo_id;
+}
+
+// Cron horário: envia o lembrete (abertura + formula_dias) e move p/ Sem Resposta após 15 dias
+add_action( 'tao_crm_renovacao_check', 'tao_crm_renovacao_cron' );
+function tao_crm_renovacao_cron() {
+    $rws = tao_crm_api( "/crm_workspaces?select=id&limit=200" );
+    foreach ( ( $rws['ok'] ? ( $rws['data'] ?? [] ) : [] ) as $w ) {
+        $ws_id = $w['id'];
+        $rsd = tao_crm_renov_stages( $ws_id );
+        if ( empty( $rsd['renovacao'] ) ) continue;
+        $rc = tao_crm_api( "/crm_cards?workspace_id=eq.$ws_id&estagio_id=eq.{$rsd['renovacao']}&fechado=eq.false&select=id,contato_nome,contato_whatsapp,criado_em,instancia_id,workspace_id,atendimento_humano&limit=500" );
+        foreach ( ( $rc['ok'] ? ( $rc['data'] ?? [] ) : [] ) as $card ) {
+            if ( ! empty( $card['atendimento_humano'] ) ) continue;
+            $cid = $card['id'];
+            $st  = tao_crm_renov_get( $cid );
+            $enviado = $st['enviado_em'] ?? null;
+            if ( ! $enviado ) {
+                $due = ! empty( $st['proximo'] ) ? strtotime( $st['proximo'] )
+                     : ( strtotime( $card['criado_em'] ) + tao_crm_formula_dias( $cid ) * DAY_IN_SECONDS );
+                if ( time() >= $due ) {
+                    $nome   = trim( $card['contato_nome'] ?? '' );
+                    $padrao = "Olá" . ( $nome ? " $nome" : '' ) . "! Notamos que sua fórmula está acabando. 🌿\n\nDeseja renovar?\nResponda *1* para RENOVAR, *2* para não renovar ou *3* para te lembrarmos novamente em 5 dias.";
+                    $msg    = get_option( 'tao_crm_renov_msg_' . $ws_id, $padrao );
+                    $msg    = str_replace( '{nome}', $nome, $msg );
+                    tao_crm_evolution_send( tao_crm_get_evo_creds( $card ), $card['contato_whatsapp'], $msg );
+                    tao_crm_lock_chatbot( preg_replace( '/\D/', '', $card['contato_whatsapp'] ), $ws_id );
+                    tao_crm_renov_set( $cid, [ 'enviado_em' => gmdate( 'c' ), 'proximo' => null ] );
+                    tao_crm_log_error( 'renovacao', 'lembrete enviado card=' . substr( $cid, 0, 8 ), [ 'ws' => substr( $ws_id, 0, 8 ) ] );
+                }
+            } else {
+                if ( time() >= strtotime( $enviado ) + 15 * DAY_IN_SECONDS ) {
+                    if ( ! empty( $rsd['sem_resposta'] ) ) tao_crm_api( "/crm_cards?id=eq.$cid", 'PATCH', [ 'estagio_id' => $rsd['sem_resposta'], 'movido_em' => gmdate( 'c' ) ] );
+                    tao_crm_renov_del( $cid );
+                    tao_crm_log_error( 'renovacao', 'sem resposta 15d card=' . substr( $cid, 0, 8 ), [ 'ws' => substr( $ws_id, 0, 8 ) ] );
+                }
+            }
+        }
+    }
+}
+
 // ─── AJAX: ESTATÍSTICAS CSAT ──────────────────────────────────────────────────
 add_action( 'wp_ajax_tao_crm_get_csat_stats', 'tao_crm_ajax_get_csat_stats' );
 function tao_crm_ajax_get_csat_stats() {
@@ -2908,12 +3035,48 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
                         } elseif ( $cat === 'neutro' ) {
                             tao_crm_evolution_send( $inst, $num, 'Obrigado pela avaliação (' . $nota . ')! 🙏 Seguimos melhorando pra te atender cada vez melhor.' );
                         } else {
-                            tao_crm_evolution_send( $inst, $num, 'Obrigado pelo retorno. 🙏 Sentimos muito que a experiência não tenha sido a melhor — um atendente vai te chamar para entender e resolver.' );
-                            tao_crm_api( "/crm_cards?id=eq.$nps_card", 'PATCH', [ 'atendimento_humano' => true, 'movido_em' => gmdate( 'c' ) ] );
-                            tao_crm_lock_chatbot( $nps_num, $WS_ID );
+                            tao_crm_evolution_send( $inst, $num, 'Obrigado pelo retorno. 🙏 Sentimos muito que a experiência não tenha sido a melhor — vamos trabalhar para melhorar.' );
                         }
-                        tao_crm_log_error( 'nps', 'resposta ' . $nota . ' (' . $cat . ') card=' . substr( (string) $nps_card, 0, 8 ), [ 'num' => $nps_num ] );
+                        // Pós-NPS: move o card para "Renovação em Curso" e inicia o ciclo de renovação
+                        $rs_nps = tao_crm_renov_stages( $WS_ID );
+                        if ( ! empty( $rs_nps['renovacao'] ) ) {
+                            tao_crm_api( "/crm_cards?id=eq.$nps_card", 'PATCH', [ 'estagio_id' => $rs_nps['renovacao'], 'movido_em' => gmdate( 'c' ) ] );
+                            $nps_stage_cancel = get_option( 'tao_crm_nps_stage_' . $WS_ID, '' );
+                            if ( $nps_stage_cancel && function_exists( 'tao_crm_cancelar_fila' ) ) tao_crm_cancelar_fila( $nps_card, $nps_stage_cancel );
+                            tao_crm_renov_set( $nps_card, [ 'enviado_em' => null, 'proximo' => null ] );
+                        }
+                        tao_crm_log_error( 'nps', 'resposta ' . $nota . ' (' . $cat . ') -> Renovacao card=' . substr( (string) $nps_card, 0, 8 ), [ 'num' => $nps_num ] );
                         continue; // não processa como mensagem normal
+                    }
+                }
+            }
+
+            // ── Renovação em Curso: captura 1/2/3 do lembrete de renovação ──────────
+            if ( ! $from_me && $tipo === 'text' ) {
+                $rsd = tao_crm_renov_stages( $WS_ID );
+                if ( ! empty( $rsd['renovacao'] ) ) {
+                    $rrc = tao_crm_api( "/crm_cards?workspace_id=eq.$WS_ID&contato_whatsapp=eq.$num&estagio_id=eq.{$rsd['renovacao']}&fechado=eq.false&select=id,contato_id,contato_nome,contato_whatsapp,instancia_id,workspace_id&order=criado_em.desc&limit=1" );
+                    if ( $rrc['ok'] && ! empty( $rrc['data'] ) ) {
+                        $rcard = $rrc['data'][0];
+                        $rst   = tao_crm_renov_get( $rcard['id'] );
+                        if ( ! empty( $rst['enviado_em'] ) ) {   // só age se há lembrete aguardando resposta
+                            $rtxt   = mb_strtolower( trim( $conteudo ) );
+                            $is_neg = (bool) preg_match( '/^\s*2\b/', $rtxt ) || preg_match( '/\b(n[aã]o|agora n[aã]o)\b/u', $rtxt );
+                            $is_zzz = (bool) preg_match( '/^\s*3\b/', $rtxt ) || strpos( $rtxt, 'lembr' ) !== false || strpos( $rtxt, '5 dia' ) !== false || strpos( $rtxt, 'depois' ) !== false;
+                            if ( $is_zzz ) {
+                                tao_crm_renov_set( $rcard['id'], [ 'enviado_em' => null, 'proximo' => gmdate( 'c', time() + 5 * DAY_IN_SECONDS ) ] );
+                                tao_crm_evolution_send( $inst, $num, 'Combinado! Vou te lembrar em 5 dias. 🌿' );
+                            } elseif ( $is_neg ) {
+                                if ( ! empty( $rsd['nao_renovado'] ) ) tao_crm_api( "/crm_cards?id=eq.{$rcard['id']}", 'PATCH', [ 'estagio_id' => $rsd['nao_renovado'], 'movido_em' => gmdate( 'c' ) ] );
+                                tao_crm_renov_del( $rcard['id'] );
+                                tao_crm_unlock_chatbot( $num, $WS_ID );
+                                tao_crm_evolution_send( $inst, $num, 'Tudo bem! Quando quiser renovar, é só nos chamar. 🌿' );
+                            } else {
+                                tao_crm_renovar_card( $rcard, $rsd );   // positiva (1/sim/quero/… ou ambígua)
+                            }
+                            tao_crm_log_error( 'renovacao', 'resposta "' . substr( $rtxt, 0, 14 ) . '" card=' . substr( $rcard['id'], 0, 8 ), [ 'num' => $num ] );
+                            continue;
+                        }
                     }
                 }
             }
