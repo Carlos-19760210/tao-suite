@@ -15,6 +15,7 @@ define( 'TAOF_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
 require_once TAOF_PLUGIN_DIR . 'includes/api.php';
 require_once TAOF_PLUGIN_DIR . 'includes/ajax.php';
+require_once TAOF_PLUGIN_DIR . 'includes/import.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/dashboard.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/orcamentos.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/orcamento-novo.php';

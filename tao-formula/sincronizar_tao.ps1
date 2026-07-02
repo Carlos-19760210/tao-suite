@@ -316,30 +316,57 @@ foreach ($linha in $linhas_emb) {
 
 Write-Host "Total para sync: $($payload.Count) registros" -ForegroundColor Cyan
 
-# ── 4. Sync ativos: DELETE + INSERT ──────────────────────────────────────────
+# ── 4. Sync ativos: UPSERT por codigo_fc (preserva id -> mantem sinonimos/config) ──
 $BATCH    = 200
 $total    = $payload.Count
 $enviados = 0
 $erros    = 0
 $url      = "$SUPABASE_URL/rest/v1/ativos"
 
-Write-Host "Removendo registros existentes do cliente..." -ForegroundColor Yellow
+# 4a. Mapa codigo_fc -> id dos ativos JA existentes do cliente (paginado).
+#     Preserva a chave primaria: sem isso, reinserir geraria UUIDs novos e
+#     orfanaria ativos_sinonimos.ativo_id e qualquer config ligada ao ativo.
+Write-Host "Mapeando ativos existentes (codigo_fc -> id)..." -ForegroundColor Yellow
+$mapaId = @{}
 try {
-    Invoke-RestMethod -Uri "${url}?cliente_id=eq.${CLIENTE_ID}" `
-        -Method Delete -Headers $h_del -UserAgent "TAO-Suite-Sync/1.0" -ErrorAction Stop | Out-Null
-    Write-Host "  Limpeza: OK" -ForegroundColor Green
+    $off = 0; $pg = 1000
+    while ($true) {
+        $u   = "${url}?cliente_id=eq.${CLIENTE_ID}&select=id,codigo_fc&limit=$pg&offset=$off"
+        $res = @(Invoke-RestMethod -Uri $u -Method Get -Headers $h_del -UserAgent "TAO-Suite-Sync/1.0" -ErrorAction Stop)
+        if ($res.Count -eq 0) { break }
+        foreach ($a in $res) { if ($a.codigo_fc) { $mapaId[[string]$a.codigo_fc] = $a.id } }
+        if ($res.Count -lt $pg) { break }
+        $off += $pg
+    }
 } catch {
     try { $stream = $_.Exception.Response.GetResponseStream(); $detalhe = (New-Object System.IO.StreamReader($stream)).ReadToEnd() } catch { $detalhe = "$_" }
-    Write-Host "  ERRO limpeza: $detalhe" -ForegroundColor Red; exit 1
+    Write-Host "  ERRO ao mapear existentes (abortando p/ nao duplicar): $detalhe" -ForegroundColor Red; exit 1
+}
+Write-Host "  Existentes mapeados: $($mapaId.Count)" -ForegroundColor Green
+
+# 4b. Anexa o id: existente (UPDATE) ou GUID novo (INSERT). Upsert pela PK.
+$novos = 0; $atualizados = 0
+foreach ($a in $payload) {
+    $cod = [string]$a.codigo_fc
+    if ($mapaId.ContainsKey($cod)) { $a.id = $mapaId[$cod]; $atualizados++ }
+    else                           { $a.id = [guid]::NewGuid().ToString(); $novos++ }
+}
+Write-Host "  A atualizar: $atualizados | a inserir: $novos" -ForegroundColor Cyan
+
+$h_upsert = @{
+    "apikey"        = $SUPABASE_KEY
+    "Authorization" = "Bearer $SUPABASE_KEY"
+    "Content-Type"  = "application/json"
+    "Prefer"        = "resolution=merge-duplicates,return=minimal"
 }
 
-Write-Host "Inserindo $total registros em lotes de $BATCH..." -ForegroundColor Yellow
+Write-Host "Upsert de $total registros em lotes de $BATCH (conflito = id)..." -ForegroundColor Yellow
 for ($i = 0; $i -lt $total; $i += $BATCH) {
     $fim  = [Math]::Min($i + $BATCH - 1, $total - 1)
     $lote = $payload[$i..$fim]
     $json = $lote | ConvertTo-Json -Depth 5 -Compress
     try {
-        Invoke-RestMethod -Uri $url -Method Post -Headers $h_ins -Body $json -UserAgent "TAO-Suite-Sync/1.0" -ErrorAction Stop | Out-Null
+        Invoke-RestMethod -Uri "${url}?on_conflict=id" -Method Post -Headers $h_upsert -Body $json -UserAgent "TAO-Suite-Sync/1.0" -ErrorAction Stop | Out-Null
         $enviados += $lote.Count
         Write-Host "  Lote $([Math]::Floor($i/$BATCH)+1): $($lote.Count) OK" -ForegroundColor Green
     } catch {
@@ -347,6 +374,25 @@ for ($i = 0; $i -lt $total; $i += $BATCH) {
         try { $stream = $_.Exception.Response.GetResponseStream(); $detalhe = (New-Object System.IO.StreamReader($stream)).ReadToEnd() } catch { $detalhe = "$_" }
         Write-Host "  Lote $([Math]::Floor($i/$BATCH)+1): ERRO -- $detalhe" -ForegroundColor Red
     }
+}
+
+# 4c. Soft-desativa os ativos que sumiram do FCerta (nao tocados neste sync).
+#     Mantem id + sinonimos; a busca ja filtra ativo=eq.true, entao somem da UI.
+#     So roda se o upsert foi 100% OK (evita desativar por causa de lote que falhou).
+if ($erros -eq 0 -and $enviados -gt 0) {
+    Write-Host "Desativando (soft) ativos ausentes no FCerta..." -ForegroundColor Yellow
+    try {
+        $agoraEnc = [uri]::EscapeDataString($agora)
+        Invoke-RestMethod -Uri "${url}?cliente_id=eq.${CLIENTE_ID}&sincronizado_em=lt.${agoraEnc}" `
+            -Method Patch -Headers $h_ins -Body '{"ativo":false,"em_estoque":false}' `
+            -UserAgent "TAO-Suite-Sync/1.0" -ErrorAction Stop | Out-Null
+        Write-Host "  Desativacao de ausentes: OK" -ForegroundColor Green
+    } catch {
+        try { $stream = $_.Exception.Response.GetResponseStream(); $detalhe = (New-Object System.IO.StreamReader($stream)).ReadToEnd() } catch { $detalhe = "$_" }
+        Write-Host "  ERRO desativacao: $detalhe" -ForegroundColor Red
+    }
+} else {
+    Write-Host "Pulei a desativacao de ausentes (houve erro no upsert ou nada enviado)." -ForegroundColor Yellow
 }
 
 # ── 5. Sync capsulas ──────────────────────────────────────────────────────────

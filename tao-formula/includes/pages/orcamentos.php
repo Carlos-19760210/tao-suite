@@ -18,7 +18,7 @@ function tao_formula_page_orcamentos() {
     ];
 
     if ( $cliente_id ) {
-        $qs = "/orcamentos?cliente_id=eq.$cliente_id&select=id,status,criado_em,nome_paciente,whatsapp,forma_nome,total_orcamento,farmaceutico_id,numero_orcamento&order=criado_em.desc&limit=100";
+        $qs = "/orcamentos?cliente_id=eq.$cliente_id&select=id,status,criado_em,nome_paciente,whatsapp,forma_nome,total_orcamento,farmaceutico_id,numero_orcamento,receita_url,medicamento_controlado,aprovado_em,motivo_rejeicao&order=criado_em.desc&limit=100";
         if ( $filtro_st ) $qs .= "&status=eq.$filtro_st";
         $r          = tao_formula_api( $qs );
         $orcamentos = $r['ok'] ? ( $r['data'] ?? [] ) : [];
@@ -87,21 +87,33 @@ function tao_formula_page_orcamentos() {
             <td><?php echo esc_html($o['forma_nome']??'—'); ?></td>
             <td class="taof-col-r taof-td-total">R$&nbsp;<?php echo number_format((float)($o['total_orcamento']??0),2,',','.'); ?></td>
             <td>
-                <span class="taof-badge" style="background:<?php echo esc_attr($stl[1]); ?>;color:<?php echo esc_attr($stl[2]); ?>">
+                <span class="taof-badge" style="background:<?php echo esc_attr($stl[1]); ?>;color:<?php echo esc_attr($stl[2]); ?>"<?php
+                    echo ( $st === 'rejeitado' && ! empty($o['motivo_rejeicao']) ) ? ' title="Motivo: '.esc_attr($o['motivo_rejeicao']).'"' : ''; ?>>
                     <?php echo esc_html($stl[3].' '.$stl[0]); ?>
                 </span>
+                <?php
+                if ( ! empty( $o['medicamento_controlado'] ) ) {
+                    echo '<span class="taof-badge" style="background:#fee2e2;color:#991b1b" title="Medicamento sujeito a controle especial (Portaria 344/98)">🔒 Controlado</span>';
+                }
+                if ( ! empty( $o['receita_url'] ) ) {
+                    echo '<a class="taof-badge" style="background:#e0e7ff;color:#3730a3;text-decoration:none" target="_blank" rel="noopener" href="'.esc_url($o['receita_url']).'" title="Ver receita">📄 Receita</a>';
+                }
+                if ( $st === 'aprovado_farma' && ! empty($o['aprovado_em']) ) {
+                    $_ap_nome = '';
+                    if ( ! empty($o['farmaceutico_id']) && ( $_u = get_userdata( (int)$o['farmaceutico_id'] ) ) ) $_ap_nome = $_u->display_name;
+                    echo '<div class="taof-aprov-info" style="font-size:11px;color:#166534;margin-top:3px">✔ '
+                        . esc_html( $_ap_nome ? $_ap_nome.' · ' : '' ) . esc_html( wp_date('d/m H:i', strtotime($o['aprovado_em'])) ) . '</div>';
+                }
+                ?>
             </td>
             <td class="taof-td-dt"><?php echo esc_html($dt); ?></td>
             <td class="taof-col-c taof-td-acoes">
                 <a class="taof-btn taof-btn-sm" href="<?php echo esc_url( add_query_arg( 'orc_id', $o['id'], $novo_url ) ); ?>" title="Abrir/editar fórmula">✎ Editar</a>
                 <?php if ( $st === 'pendente_revisao' ) : ?>
                 <button class="taof-btn taof-btn-sm taof-btn-primary taof-orc-aprovar"
-                        data-id="<?php echo esc_attr($o['id']); ?>">✅ Aprovar</button>
+                        data-id="<?php echo esc_attr($o['id']); ?>">✅ Aprovar e Enviar</button>
                 <button class="taof-btn taof-btn-sm taof-btn-danger taof-orc-rejeitar"
                         data-id="<?php echo esc_attr($o['id']); ?>">❌ Rejeitar</button>
-                <?php elseif ( $st === 'aprovado_farma' ) : ?>
-                <button class="taof-btn taof-btn-sm taof-orc-enviar"
-                        data-id="<?php echo esc_attr($o['id']); ?>">📤 Marcar Enviado</button>
                 <?php else : ?>
                 <span class="taof-td-sem-acao">—</span>
                 <?php endif; ?>
@@ -119,25 +131,26 @@ function tao_formula_page_orcamentos() {
         var ajaxUrl = (typeof taoFormula !== 'undefined') ? taoFormula.ajaxUrl : '/wp-admin/admin-ajax.php';
         var nonce   = (typeof taoFormula !== 'undefined') ? taoFormula.nonce : '';
 
-        function updateStatus(id, status, $btn) {
+        function updateStatus(id, status, $btn, extra) {
+            var txt = $btn.text();
             $btn.prop('disabled', true).text('...');
-            $.post(ajaxUrl, { action:'tao_formula_update_orc_status', nonce:nonce, id:id, status:status },
-            function(r) {
+            var payload = $.extend({ action:'tao_formula_update_orc_status', nonce:nonce, id:id, status:status }, extra||{});
+            $.post(ajaxUrl, payload, function(r) {
                 if (r.success) location.reload();
-                else { alert('Erro: ' + (r.data||'?')); $btn.prop('disabled',false); }
+                else { alert('Erro: ' + (r.data||'?')); $btn.prop('disabled',false).text(txt); }
             });
         }
 
         $(document).on('click', '.taof-orc-aprovar', function() {
-            if (!confirm('Aprovar este orçamento?')) return;
+            if (!confirm('Atesto que avaliei a prescrição e a fórmula está farmacotecnicamente adequada para manipulação.\n\nAo aprovar, o orçamento é liberado para envio ao paciente. Confirmar?')) return;
             updateStatus($(this).data('id'), 'aprovado_farma', $(this));
         });
         $(document).on('click', '.taof-orc-rejeitar', function() {
-            if (!confirm('Rejeitar este orçamento?')) return;
-            updateStatus($(this).data('id'), 'rejeitado', $(this));
-        });
-        $(document).on('click', '.taof-orc-enviar', function() {
-            updateStatus($(this).data('id'), 'enviado_paciente', $(this));
+            var motivo = prompt('Motivo da rejeição (obrigatório):', '');
+            if (motivo === null) return;
+            motivo = (motivo || '').trim();
+            if (!motivo) { alert('É necessário informar o motivo da rejeição.'); return; }
+            updateStatus($(this).data('id'), 'rejeitado', $(this), { motivo: motivo });
         });
     })(jQuery);
     </script>

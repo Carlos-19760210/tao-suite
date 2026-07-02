@@ -1275,12 +1275,16 @@
             qtde_potes:      getPotes(),
             custo_fixo:      custoFixo,
             total_insumos:   calculado,
-            margem_pct:      acrescPct,
+            acrescimo:       acrescVal,     // Acréscimo em R$ (fonte da verdade)
+            desconto_val:    desctVal,      // Desconto em R$ (fonte da verdade → desconto_fc)
+            margem_pct:      acrescPct,     // % derivado (exibição)
             desconto_pct:    desctPct,
             total_orcamento: final,
             observacoes:     $('#taof-observacoes').val(),
             itens:           JSON.stringify(itens)
         };
+        // Orçamento importado do FC: propaga o Final pro card (Kanban lê valor_final_fc)
+        if (window._taofFcFinal != null) postData.valor_final_fc = final;
 
         $.post(ajaxUrl, postData, function (resp) {
             $sp.css('visibility', 'hidden');
@@ -1601,19 +1605,26 @@
             initEmbRow($row);
         });
 
-        // Custo fixo / acréscimo / desconto
+        // Custo fixo / acréscimo / desconto — REGRA: o VALOR (R$) manda, o % é só derivado.
+        // Carrega sempre pelo R$ salvo (reproduz exato, sem "andar"); o % aparece recalculado.
+        // No modal o atendente pode digitar % OU valor pra ajustar.
         if (data.custo_fixo_aplicado !== undefined && data.custo_fixo_aplicado !== null) {
             $('#taof-custo-fixo-inp').val(parseFloat(data.custo_fixo_aplicado).toFixed(2)).data('manual', true);
         }
-        if (data.margem_aplicada) {
-            $('#taof-acrescimo-pct').val(parseFloat(data.margem_aplicada).toFixed(1));
+        // Acréscimo: pelo valor R$ salvo; fallback p/ % (orçamentos antigos sem o R$)
+        if (data.acrescimo_aplicado !== undefined && data.acrescimo_aplicado !== null && data.acrescimo_aplicado !== '') {
+            $('#taof-acrescimo-val-inp').val(parseFloat(data.acrescimo_aplicado).toFixed(2)).data('manual', true);
+        } else if (data.margem_aplicada) {
+            $('#taof-acrescimo-pct').val(parseFloat(data.margem_aplicada).toFixed(2));
             $('#taof-acrescimo-val-inp').removeData('manual');
         }
+        // Desconto: pelo valor R$ salvo (desconto_fc); fallback p/ %
         if (window._taofFcDesconto != null) {
-            // Importado do FC: desconto fixo em R$ (não flutua com o sub-total)
             $('#taof-desconto-val-inp').val(window._taofFcDesconto.toFixed(2)).data('manual', true);
+        } else if (data.desconto_fc !== undefined && data.desconto_fc !== null && data.desconto_fc !== '') {
+            $('#taof-desconto-val-inp').val(parseFloat(data.desconto_fc).toFixed(2)).data('manual', true);
         } else if (data.desconto_pct) {
-            $('#taof-desconto-pct').val(parseFloat(data.desconto_pct).toFixed(1));
+            $('#taof-desconto-pct').val(parseFloat(data.desconto_pct).toFixed(2));
             $('#taof-desconto-val-inp').removeData('manual');
         }
 
@@ -1629,6 +1640,18 @@
 
         setTimeout(function () {
             calcularTotais();   // _loadingEdit ainda true → atualizarQSPRow pula; usa subtotal salvo
+            // Self-healing dos orçamentos FC antigos (sem acrescimo_aplicado salvo):
+            // re-ancora o Acréscimo(R$) pelo Sub-Total já calculado p/ reproduzir o Final do FC
+            // (Sem Desconto = Final + Desconto = bruto). Evita o desconto em dobro da margem antiga.
+            // Novas importações já gravam acrescimo_aplicado, então não caem aqui.
+            if (window._taofFcFinal != null &&
+                (data.acrescimo_aplicado === undefined || data.acrescimo_aplicado === null || data.acrescimo_aplicado === '')) {
+                var _sub  = window._taofSubtotal || 0;
+                var _desc = (window._taofFcDesconto != null) ? window._taofFcDesconto : 0;
+                $('#taof-acrescimo-val-inp').val((window._taofFcFinal + _desc - _sub).toFixed(2)).data('manual', true);
+                if (window._taofFcDesconto != null) $('#taof-desconto-val-inp').val(_desc.toFixed(2)).data('manual', true);
+                calcularTotais();
+            }
             _loadingEdit = false;
             // Envelope: garante o excipiente base efervescente na linha QSP (auto-associa se faltar)
             setTimeout(garantirExcipienteEnvelope, 150);

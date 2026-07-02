@@ -36,6 +36,10 @@ function tao_formula_page_ativos() {
                 style="background:none;border:none;border-bottom:2px solid #2271b1;padding:8px 16px;cursor:pointer;font-size:14px;color:#2271b1;font-weight:600;margin-bottom:-2px">Ativos</button>
         <button type="button" class="taof-tab-btn" data-pane="sinonimos"
                 style="background:none;border:none;border-bottom:2px solid transparent;padding:8px 16px;cursor:pointer;font-size:14px;color:#475569;margin-bottom:-2px">Sinônimos</button>
+        <?php if ( tao_formula_is_master() ) : ?>
+        <button type="button" class="taof-tab-btn" data-pane="importar"
+                style="background:none;border:none;border-bottom:2px solid transparent;padding:8px 16px;cursor:pointer;font-size:14px;color:#475569;margin-bottom:-2px">📥 Importar planilha</button>
+        <?php endif; ?>
     </div>
 
     <div id="taof-pane-ativos">
@@ -152,6 +156,50 @@ function tao_formula_page_ativos() {
             <tbody id="taof-sin-tbody"><tr><td colspan="3" style="color:#94a3b8">Carregando...</td></tr></tbody>
         </table>
     </div>
+
+    <?php if ( tao_formula_is_master() ) :
+        $_cli_nome = '';
+        if ( $cliente_id ) {
+            $_rc = tao_formula_api( "/clientes?id=eq.$cliente_id&select=nome_negocio&limit=1" );
+            $_cli_nome = ( $_rc['ok'] && ! empty( $_rc['data'] ) ) ? ( $_rc['data'][0]['nome_negocio'] ?? '' ) : '';
+        }
+    ?>
+    <div id="taof-pane-importar" style="display:none">
+        <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px">
+            ⚠️ A importação grava no catálogo de: <strong><?php echo esc_html( $_cli_nome ?: $cliente_id ); ?></strong>
+        </div>
+        <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:13px;line-height:1.5">
+            <strong>📥 Importar catálogo por planilha</strong><br>
+            Envie um arquivo <code>.xlsx</code> no modelo (abas <em>Materias-Primas</em>, <em>Embalagens</em>, <em>Tipos-Capsula</em>).
+            A coluna <code>codigo</code> é a chave: o mesmo código <strong>atualiza</strong> o item (preservando vínculos/sinônimos);
+            código novo <strong>cria</strong>.
+        </div>
+
+        <div style="max-width:640px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:18px">
+            <p style="margin:0 0 10px">
+                <label style="font-weight:600;display:block;margin-bottom:6px">Arquivo (.xlsx)</label>
+                <input type="file" id="taof-imp-file" accept=".xlsx">
+            </p>
+
+            <p style="margin:14px 0 6px;font-weight:600">Modo de importação</p>
+            <label style="display:block;margin-bottom:6px;font-size:13px">
+                <input type="radio" name="taof-imp-modo" value="full" checked>
+                <strong>Completo</strong> — substitui o catálogo: inclui/atualiza e <strong>desativa</strong> os itens que não estão na planilha.
+            </label>
+            <label style="display:block;margin-bottom:6px;font-size:13px">
+                <input type="radio" name="taof-imp-modo" value="incremental">
+                <strong>Incremental</strong> — apenas inclui/atualiza; não desativa nada.
+            </label>
+
+            <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
+                <button type="button" class="button" id="taof-imp-preview">🔍 Pré-visualizar</button>
+                <button type="button" class="button button-primary" id="taof-imp-go">⬆️ Importar agora</button>
+            </div>
+
+            <div id="taof-imp-result" style="display:none;margin-top:16px;padding:12px 14px;border-radius:8px;font-size:13px;line-height:1.6"></div>
+        </div>
+    </div>
+    <?php endif; ?>
     </div>
 
     <div id="taof-ativo-modal" style="display:none">
@@ -400,8 +448,58 @@ function tao_formula_page_ativos() {
                 $(this).css({ borderBottomColor:'#2271b1', color:'#2271b1', fontWeight:'600' });
                 $('#taof-pane-ativos').toggle( pane === 'ativos' );
                 $('#taof-pane-sinonimos').toggle( pane === 'sinonimos' );
+                $('#taof-pane-importar').toggle( pane === 'importar' );
                 if ( pane === 'sinonimos' && ! window._taofSinLoaded ) { window._taofSinLoaded = true; carregar(); }
             });
+
+            // ── Importar planilha (.xlsx) ─────────────────────────────────
+            (function(){
+                var $r = $('#taof-imp-result');
+                function show(html, tipo){
+                    var c = tipo==='err' ? {bg:'#fef2f2',bd:'#fecaca',fg:'#991b1b'}
+                          : tipo==='ok'  ? {bg:'#f0fdf4',bd:'#bbf7d0',fg:'#166534'}
+                          :                 {bg:'#f8fafc',bd:'#e2e8f0',fg:'#334155'};
+                    $r.css({display:'block',background:c.bg,border:'1px solid '+c.bd,color:c.fg}).html(html);
+                }
+                function enviar(dry){
+                    var inp = document.getElementById('taof-imp-file');
+                    if ( ! inp.files.length ) { show('Selecione um arquivo .xlsx primeiro.','err'); return; }
+                    if ( ! dry && ! confirm('Confirmar a importação? Itens serão incluídos/atualizados' +
+                        ( $('input[name=taof-imp-modo]:checked').val()==='full' ? ' e os ausentes serão DESATIVADOS.' : '.' )) ) return;
+                    var fd = new FormData();
+                    fd.append('action','tao_formula_importar_planilha');
+                    fd.append('nonce', _nonce);
+                    fd.append('arquivo', inp.files[0]);
+                    fd.append('modo', $('input[name=taof-imp-modo]:checked').val());
+                    if ( dry ) fd.append('dry','1');
+                    show('Processando planilha…');
+                    $('#taof-imp-preview,#taof-imp-go').prop('disabled',true);
+                    $.ajax({ url:_ajax, method:'POST', data:fd, processData:false, contentType:false })
+                    .done(function(resp){
+                        if ( ! resp || ! resp.success ) {
+                            var d = resp && resp.data ? resp.data : {};
+                            var msg = (d.message||d||'Falha na importação');
+                            if ( d.erros && d.erros.length ) msg += '<ul style="margin:6px 0 0 18px">' + d.erros.map(function(e){return '<li>'+e+'</li>';}).join('') + '</ul>';
+                            show(msg,'err'); return;
+                        }
+                        var d = resp.data;
+                        var base = 'Matérias-Primas: <strong>'+d.mp+'</strong> · Embalagens: <strong>'+d.emb+'</strong> · Cápsulas: <strong>'+d.caps+'</strong><br>'+
+                                   'A atualizar: <strong>'+d.atualizar+'</strong> · A incluir: <strong>'+d.inserir+'</strong>';
+                        if ( d.erros && d.erros.length ) base += '<br><span style="color:#b45309">Avisos:</span><ul style="margin:4px 0 0 18px">'+d.erros.map(function(e){return '<li>'+e+'</li>';}).join('')+'</ul>';
+                        if ( d.dry ) {
+                            show('<strong>Pré-visualização (nada gravado):</strong><br>'+base+'<br><br>Confira e clique em <strong>Importar agora</strong>.', d.erros&&d.erros.length?'':'ok');
+                        } else {
+                            show('<strong>✅ Importação concluída.</strong><br>'+base+'<br>Gravados: <strong>'+d.enviados+'</strong>'+
+                                 ( d.modo==='full' ? ' · Desativados (ausentes): <strong>'+d.desativados+'</strong>' : '' )+
+                                 ( d.caps_ok===false ? '<br><span style="color:#b45309">Atenção: erro ao gravar cápsulas.</span>' : '' ), 'ok');
+                        }
+                    })
+                    .fail(function(x){ show('Erro de comunicação ('+x.status+'). '+(x.responseJSON&&x.responseJSON.data&&x.responseJSON.data.message?x.responseJSON.data.message:''),'err'); })
+                    .always(function(){ $('#taof-imp-preview,#taof-imp-go').prop('disabled',false); });
+                }
+                $('#taof-imp-preview').on('click', function(){ enviar(true); });
+                $('#taof-imp-go').on('click', function(){ enviar(false); });
+            })();
 
             // ── Carregar (dispatcher: lista de sinônimos OU termos sem associação) ─
             function carregar(){

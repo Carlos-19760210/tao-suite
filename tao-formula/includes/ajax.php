@@ -130,7 +130,7 @@ function tao_formula_build_descricao( $forma_nome, $forma_vol, $forma_unidade, $
 
 function tao_formula_orc_payload( $itens ) {
     $forma_id = sanitize_text_field( $_POST['forma_id'] ?? '' );
-    return [
+    $p = [
         'nome_paciente'       => sanitize_text_field( $_POST['nome_paciente'] ?? '' ),
         'whatsapp'            => sanitize_text_field( $_POST['whatsapp'] ?? '' ),
         'forma_id'            => $forma_id ?: null,
@@ -140,13 +140,22 @@ function tao_formula_orc_payload( $itens ) {
         'qtde_potes'          => max( 1, (int) ( $_POST['qtde_potes'] ?? 1 ) ),
         'custo_fixo_aplicado' => (float) ( $_POST['custo_fixo']      ?? 0 ),
         'total_insumos'       => (float) ( $_POST['total_insumos']   ?? 0 ),
-        'margem_aplicada'     => (float) ( $_POST['margem_pct']      ?? 0 ),
+        'acrescimo_aplicado'  => (float) ( $_POST['acrescimo']       ?? 0 ),  // Acréscimo(R$) — fonte da verdade
+        'margem_aplicada'     => (float) ( $_POST['margem_pct']      ?? 0 ),  // % derivado (exibição)
         'desconto_pct'        => (float) ( $_POST['desconto_pct']    ?? 0 ),
         'total_orcamento'     => (float) ( $_POST['total_orcamento'] ?? 0 ),
         'observacoes'         => sanitize_textarea_field( $_POST['observacoes'] ?? '' ),
         'itens'               => $itens,
         'atualizado_em'       => gmdate( 'c' ),
     ];
+    // Desconto em R$ = fonte da verdade (reaproveita a coluna desconto_fc).
+    if ( isset( $_POST['desconto_val'] ) && $_POST['desconto_val'] !== '' )
+        $p['desconto_fc'] = (float) $_POST['desconto_val'];
+    // Consistência do card: orçamento FC guarda o Final também em valor_final_fc,
+    // pra o Kanban (tao_crm_sync_valor_oportunidade lê valor_final_fc) refletir a edição.
+    if ( isset( $_POST['valor_final_fc'] ) && $_POST['valor_final_fc'] !== '' )
+        $p['valor_final_fc'] = (float) $_POST['valor_final_fc'];
+    return $p;
 }
 
 // ── Salvar Orçamento Manual ───────────────────────────────────────────────────
@@ -278,6 +287,7 @@ add_action( 'wp_ajax_tao_formula_get_orcamentos_card', function() {
 // ── Formas Farmacêuticas ─────────────────────────────────────────────────────
 
 add_action( 'wp_ajax_tao_formula_save_forma', function() {
+    while ( ob_get_level() > 0 ) ob_end_clean();
     check_ajax_referer( 'tao_formula_nonce', 'nonce' );
     if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
 
@@ -325,6 +335,7 @@ add_action( 'wp_ajax_tao_formula_save_forma', function() {
 } );
 
 add_action( 'wp_ajax_tao_formula_delete_forma', function() {
+    while ( ob_get_level() > 0 ) ob_end_clean();
     check_ajax_referer( 'tao_formula_nonce', 'nonce' );
     if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
 
@@ -343,6 +354,7 @@ add_action( 'wp_ajax_tao_formula_delete_forma', function() {
 // ── Configurações ─────────────────────────────────────────────────────────────
 
 add_action( 'wp_ajax_tao_formula_save_config', function() {
+    while ( ob_get_level() > 0 ) ob_end_clean();
     check_ajax_referer( 'tao_formula_nonce', 'nonce' );
     if ( ! tao_formula_is_master() ) wp_send_json_error( 'Acesso negado', 403 );
 
@@ -354,21 +366,51 @@ add_action( 'wp_ajax_tao_formula_save_config', function() {
 // ── Status do orçamento ───────────────────────────────────────────────────────
 
 add_action( 'wp_ajax_tao_formula_update_orc_status', function() {
+    while ( ob_get_level() > 0 ) ob_end_clean();
     check_ajax_referer( 'tao_formula_nonce', 'nonce' );
     if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
 
     $id     = sanitize_text_field( $_POST['id'] ?? '' );
     $status = sanitize_text_field( $_POST['status'] ?? '' );
+    $motivo = sanitize_textarea_field( $_POST['motivo'] ?? '' );
     $allowed = [ 'pendente_revisao', 'aprovado_farma', 'enviado_paciente', 'aceito_paciente', 'rejeitado' ];
     if ( ! $id || ! in_array( $status, $allowed, true ) ) wp_send_json_error( 'Parâmetros inválidos', 400 );
 
     $cliente_id = tao_formula_cliente_id();
+
+    // ── Avaliação farmacêutica (RDC 67) ──────────────────────────────────────
+    // Só o farmacêutico responsável (gestor) ou o master pode aprovar/rejeitar.
+    $pode_avaliar = tao_formula_is_master()
+        || ( function_exists( 'cbpm_is_gestor' ) && cbpm_is_gestor() );
+    if ( in_array( $status, [ 'aprovado_farma', 'rejeitado' ], true ) && ! $pode_avaliar ) {
+        wp_send_json_error( 'Apenas o farmacêutico responsável pode avaliar o orçamento.', 403 );
+    }
+
+    // Estado atual (para impor a sequência exigida pela RDC)
+    $cur = tao_formula_api( "/orcamentos?id=eq.$id&cliente_id=eq.$cliente_id&select=status&limit=1" );
+    $status_atual = ( $cur['ok'] && ! empty( $cur['data'] ) ) ? ( $cur['data'][0]['status'] ?? '' ) : '';
+
+    // Trava: não envia ao paciente sem avaliação farmacêutica aprovada.
+    if ( $status === 'enviado_paciente' && $status_atual !== 'aprovado_farma' ) {
+        wp_send_json_error( 'O orçamento precisa ser aprovado pelo farmacêutico antes do envio ao paciente.', 409 );
+    }
+
     $data = [
         'status'       => $status,
         'atualizado_em'=> gmdate( 'c' ),
     ];
     if ( $status === 'aprovado_farma' ) {
         $data['farmaceutico_id'] = get_current_user_id();
+        $data['aprovado_em']     = gmdate( 'c' );
+        // Por ora, aprovar = enviar: marca o envio no mesmo ato.
+        $data['enviado_em']      = gmdate( 'c' );
+        $data['motivo_rejeicao'] = null;
+    } elseif ( $status === 'rejeitado' ) {
+        if ( $motivo === '' ) wp_send_json_error( 'Informe o motivo da rejeição.', 400 );
+        $data['farmaceutico_id'] = get_current_user_id();
+        $data['motivo_rejeicao'] = $motivo;
+    } elseif ( $status === 'enviado_paciente' ) {
+        $data['enviado_em'] = gmdate( 'c' );
     }
 
     $r = tao_formula_api( "/orcamentos?id=eq.$id&cliente_id=eq.$cliente_id", 'PATCH', $data );
@@ -1928,9 +1970,13 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
         // ── 6. Opção 2: Desconto = informado; Acréscimo = FINAL − Desconto − Sub-Total ──
         // VALOR FINAL (total_orcamento) = $valor (com desconto), exibido direto do orçamento.
         $desconto_val  = max( 0.0, round( $valor_bruto - $valor, 2 ) );          // desconto informado (bruto − final)
-        $acrescimo_val = round( $valor - $subtotal_calc, 2 );                    // Acréscimo = VALOR FINAL − Sub-Total
+        // Acréscimo ancorado no SEM desconto (bruto): Sub-Total + Acréscimo = valor_bruto.
+        // O editor calcula Final = (Sub-Total + Acréscimo) − Desconto — se ancorasse no
+        // valor FINAL, o desconto seria aplicado EM DOBRO. Regra: valor manda, % é derivado.
+        $acrescimo_val = round( $valor_bruto - $subtotal_calc, 2 );              // Acréscimo(R$) = SEM desconto − Sub-Total
+        $sem_desconto  = $subtotal_calc + $acrescimo_val;                        // = valor_bruto
         $acrescimo_pct = $subtotal_calc > 0.005 ? round( $acrescimo_val / $subtotal_calc * 100, 2 ) : 0.0;
-        $desconto_pct  = $subtotal_calc > 0.005 ? round( $desconto_val  / $subtotal_calc * 100, 2 ) : 0.0;
+        $desconto_pct  = $sem_desconto   > 0.005 ? round( $desconto_val  / $sem_desconto   * 100, 2 ) : 0.0;
         // Evita "numeric field overflow": colunas de % têm precisão limitada.
         // No orçamento importado o acréscimo é re-derivado no editor (FINAL travado), então capar é seguro.
         $acrescimo_pct = max( -999.99, min( 999.99, $acrescimo_pct ) );
@@ -1953,7 +1999,8 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
             'qtde_potes'          => $qtde_potes,
             'custo_fixo_aplicado' => round( $custo_fixo, 2 ),
             'total_insumos'       => round( $calculado, 2 ),
-            'margem_aplicada'     => $acrescimo_pct,
+            'acrescimo_aplicado'  => $acrescimo_val,  // Acréscimo(R$) — fonte da verdade
+            'margem_aplicada'     => $acrescimo_pct,  // % derivado (exibição)
             'desconto_pct'        => $desconto_pct,
             'total_orcamento'     => $valor,
             'valor_final_fc'      => $valor,          // FINAL do FC (com desconto) — travado/durável
