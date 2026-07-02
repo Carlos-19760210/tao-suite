@@ -687,16 +687,19 @@
         'Venda concluída presencialmente',
         'Outro (especificar)'
     ];
+    // Motivos de cancelamento (equalizado com o Bitrix, jul/2026)
     var motivosPerdido = [
-        'Sem retorno do cliente',
-        'Cliente desistiu da compra',
-        'Orçamento reprovado',
-        'Concorrência — preço',
-        'Concorrência — produto',
-        'Fora do perfil do produto',
-        'Lead inválido / número errado',
-        'Cancelamento solicitado pelo cliente',
-        'Outro (especificar)'
+        'Não responde os contatos',
+        'Não há mais interesse no serviço',
+        'Falta de Insumo',
+        'Não remete à venda',
+        'Fechou com concorrente',
+        'Declinamos o trabalho',
+        'Colírio/Injetável',
+        'Homeopatia',
+        'Somente buscando preço',
+        'Antibiótico',
+        'Declinamos: Orçamento negado por preço'
     ];
 
     function preencherMotivos(lista) {
@@ -709,9 +712,14 @@
     }
 
     $('#tao-crm-fechar-motivo').on('change', function(){
-        var isOutro = $(this).val() === 'Outro (especificar)';
-        $('#tao-crm-fechar-outro-wrap').toggle(isOutro);
-        if(isOutro) $('#tao-crm-fechar-outro').focus();
+        var v        = $(this).val();
+        var isOutro  = v === 'Outro (especificar)';
+        var isInsumo = v === 'Falta de Insumo';
+        $('#tao-crm-fechar-outro')
+            .attr('placeholder', isInsumo ? 'Qual insumo faltou? (obrigatório)' : 'Descreva o motivo...')
+            .css('borderColor', '#d1d5db');
+        $('#tao-crm-fechar-outro-wrap').toggle(isOutro || isInsumo);
+        if(isOutro || isInsumo) $('#tao-crm-fechar-outro').focus();
     });
 
     var _fecharValores = {};
@@ -805,11 +813,28 @@
         var motivo = $('#tao-crm-fechar-motivo').val();
         if (motivo === 'Outro (especificar)') {
             motivo = $('#tao-crm-fechar-outro').val().trim() || 'Outro';
+        } else if (motivo === 'Falta de Insumo') {
+            // Regra: informar QUAL insumo faltou é obrigatório
+            var insumo = $('#tao-crm-fechar-outro').val().trim();
+            if (!insumo) {
+                $('#tao-crm-fechar-outro-wrap').show();
+                $('#tao-crm-fechar-outro').css('borderColor', '#ef4444').focus();
+                return;
+            }
+            $('#tao-crm-fechar-outro').css('borderColor', '#d1d5db');
+            motivo = 'Falta de Insumo: ' + insumo;
         }
         var $btn = $('#tao-crm-fechar-btn').prop('disabled', true).text('Fechando...');
         var cardToClose = _fecharCardId || (typeof taoCrmCardId !== 'undefined' ? taoCrmCardId : '');
         var postData = {action: 'tao_crm_fechar_card', nonce: taoCrm.nonce, card_id: cardToClose, tipo: tipo, motivo: motivo};
         $.each(_fecharValores || {}, function(k, v) { postData['valores[' + k + ']'] = v; });
+        // Inclui os valores atuais dos campos da ficha (evita corrida com o auto-save debounced).
+        document.querySelectorAll('.campo-input').forEach(function(el){
+            var cid = el.getAttribute('data-campo-id'); if(!cid) return;
+            if (el.type === 'radio'){ if(el.checked) postData['valores['+cid+']'] = el.value; }
+            else if (el.type === 'checkbox'){ if(el.checked) postData['valores['+cid+']'] = '1'; }
+            else { var v = (el.value||'').trim(); if(v !== '') postData['valores['+cid+']'] = v; }
+        });
         crmPost(
             postData,
             function(resp){
@@ -830,8 +855,19 @@
                         }
                     }, 200);
                 } else {
-                    alert('Erro: ' + (resp.data || 'Configure os estágios terminais em Configurações → Pipelines e Estágios.'));
                     $('#tao-crm-fechar-modal').hide();
+                    if (resp.data && resp.data.code === 'campos_pos') {
+                        var _av = document.querySelector('.card-campos-aviso');
+                        if (_av) {
+                            _av.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            _av.style.transition = 'box-shadow .3s';
+                            _av.style.boxShadow = '0 0 0 3px #f59e0b';
+                            setTimeout(function(){ _av.style.boxShadow = ''; }, 2500);
+                        }
+                        alert(resp.data.msg || 'Preencha os campos obrigatórios desta fase para concluir.');
+                    } else {
+                        alert('Erro: ' + (resp.data || 'Configure os estágios terminais em Configurações → Pipelines e Estágios.'));
+                    }
                 }
             },
             function(err){ $btn.prop('disabled', false).text('Confirmar'); _fecharCardId = ''; alert('Erro: ' + err); }
@@ -1149,7 +1185,10 @@
         _searchTimer = setTimeout(function(){
             crmPost({action:'tao_crm_search_global', nonce:taoCrm.nonce, q:q}, function(r){
                 if (!r.success || !r.data || !r.data.length) { $dd.hide(); return; }
-                var cardUrl  = taoCrm.adminUrl + 'admin.php?page=tao-crm-kanban&view=card&card_id=';
+                // card_base_url funciona nos dois contextos (frontend /robos/ e wp-admin)
+                var cardUrl  = taoCrm.card_base_url
+                    ? taoCrm.card_base_url + (taoCrm.card_base_url.slice(-1) === '=' ? '' : '=')
+                    : taoCrm.adminUrl + 'admin.php?page=tao-crm-kanban&action=card&id=';
                 var contUrl  = taoCrm.adminUrl + 'admin.php?page=tao-crm-contatos&edit=';
                 var html = r.data.map(function(item){
                     var href = item.tipo === 'card' ? cardUrl + item.id : contUrl + item.id;

@@ -7,7 +7,24 @@ function tao_crm_page_kanban() {
     }
 
     $action = sanitize_key( $_GET['action'] ?? 'list' );
-    if ( $action === 'card' ) { tao_crm_page_card(); return; }
+    // Compat: links no formato view=card&card_id= (ex.: busca global antiga, e-mails)
+    // — normaliza para action=card&id= em vez de cair no kanban e perder o card
+    if ( $action !== 'card' && ( $_GET['view'] ?? '' ) === 'card' && ! empty( $_GET['card_id'] ) ) {
+        $_GET['id'] = sanitize_text_field( wp_unslash( $_GET['card_id'] ) );
+        $action     = 'card';
+    }
+    if ( $action === 'card' ) {
+        // Ficha do card vive no PORTAL: acesso via wp-admin redireciona p/ /robos/
+        global $cbpm_is_frontend;
+        if ( empty( $cbpm_is_frontend ) && function_exists( 'cbpm_url' ) ) {
+            $portal_url = cbpm_url( 'crm-kanban', [ 'action' => 'card', 'id' => sanitize_text_field( wp_unslash( $_GET['id'] ?? '' ) ) ] );
+            echo '<script>location.replace(' . wp_json_encode( $portal_url ) . ');</script>';
+            echo '<p style="padding:20px">Abrindo o card no portal… <a href="' . esc_url( $portal_url ) . '">clique aqui</a> se não redirecionar.</p>';
+            return;
+        }
+        tao_crm_page_card();
+        return;
+    }
 
     $ws_id    = sanitize_text_field( $_GET['workspace_id'] ?? '' );
     $todos_ws = tao_crm_get_workspaces();
@@ -363,6 +380,19 @@ function tao_crm_page_kanban() {
                 $cards_campos_values[ $row['card_id'] ][ $row['campo_id'] ] = $row['valor'];
             }
         }
+        // Fallback do nº da requisição: deriva do orçamento vinculado (segmento do meio de
+        // numero_orcamento) quando o campo customizado estiver vazio. Garante a requisição em
+        // QUALQUER fase (Vendas e Pós-vendas), não só onde o campo foi preenchido na mão.
+        $req_orc_map = [];  // card_id => requisição
+        if ( ! empty( $card_ids ) ) {
+            $ro_batch = tao_crm_api( "/orcamentos?card_id=in.($ids_str)&select=card_id,numero_orcamento,criado_em&order=criado_em.desc" );
+            foreach ( ( $ro_batch['ok'] ? ( $ro_batch['data'] ?? [] ) : [] ) as $row ) {
+                $cid = $row['card_id'] ?? '';
+                if ( ! $cid || isset( $req_orc_map[ $cid ] ) ) continue;   // order desc → mantém o mais recente
+                $_np = explode( '-', preg_replace( '/^ORC:?\s*/i', '', (string) ( $row['numero_orcamento'] ?? '' ) ) );
+                if ( count( $_np ) >= 2 && $_np[1] !== '' ) $req_orc_map[ $cid ] = $_np[1];
+            }
+        }
         // Descobre o campo_id de "Número Requisição" por nome direto — independe de
         // quais campos têm valores nos cards da view atual.
         // Exclui campos de pergunta (nome com '?') para não confundir com
@@ -421,6 +451,7 @@ function tao_crm_page_kanban() {
                          <?php
                              $_card_campos_vals = $cards_campos_values[ $card['id'] ] ?? [];
                              $_req_num = $req_num_campo_id ? ( $_card_campos_vals[ $req_num_campo_id ] ?? '' ) : '';
+                             if ( $_req_num === '' || $_req_num === null ) $_req_num = $req_orc_map[ $card['id'] ] ?? '';
                              $_campos_txt = implode( ' ', $_card_campos_vals );
                              $_search_str = mb_strtolower( ( $card['titulo'] ?: $card['contato_nome'] ) . ' ' . $card['contato_whatsapp'] . ' ' . $card['contato_nome'] . ' ' . $_campos_txt );
                          ?>

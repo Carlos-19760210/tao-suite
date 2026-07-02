@@ -246,7 +246,9 @@ add_action( 'admin_menu', 'tao_crm_register_menus', 20 );
 function tao_crm_register_menus() {
     if ( ! function_exists( 'cbpm_can_access' ) || ! cbpm_can_access() ) return;
 
-    $cap          = 'cbpm_cliente';
+    // Admin WP não tem a cap 'cbpm_cliente' (role dos atendentes) — sem o fallback
+    // p/ manage_options, o wp-admin nega as páginas do CRM ao próprio admin (403).
+    $cap          = current_user_can( 'manage_options' ) ? 'manage_options' : 'cbpm_cliente';
     $cap_gestor   = current_user_can( 'manage_options' ) ? 'manage_options' : 'tao_crm_gestor';
     $cap_adm      = 'manage_options';
 
@@ -655,7 +657,10 @@ function tao_crm_enqueue_assets( $hook ) {
         'nonce'        => wp_create_nonce( 'tao_crm_nonce' ),
         'supabase_url' => function_exists( 'cbpm_supabase_url' ) ? cbpm_supabase_url() : get_option( 'cbpm_supabase_url', '' ),
         'supabase_key' => function_exists( 'cbpm_supabase_key' ) ? cbpm_supabase_key() : get_option( 'cbpm_supabase_key', '' ),
-        'card_base_url'=> admin_url( 'admin.php?page=tao-crm-kanban&action=card&id=' ),
+        // Ficha do card abre SEMPRE no portal /robos/ (não no wp-admin)
+        'card_base_url'=> function_exists( 'cbpm_url' )
+            ? cbpm_url( 'crm-kanban', [ 'action' => 'card', 'id' => '' ] )
+            : admin_url( 'admin.php?page=tao-crm-kanban&action=card&id=' ),
         'adminUrl'     => admin_url(),
         'ws_id'        => $ws_notif['id'] ?? '',
     ] );
@@ -689,7 +694,7 @@ function tao_crm_get_card_valores_por_chave( $card_id ) {
 }
 
 function tao_crm_executar_automacao_item( $auto, $card_id ) {
-    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=contato_nome,contato_whatsapp,titulo,workspace_id,estagio_id,instancia_id" );
+    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=contato_nome,contato_whatsapp,titulo,workspace_id,estagio_id,instancia_id,pipeline_id,fechado" );
     if ( ! $rc['ok'] || empty( $rc['data'] ) ) return [ 'ok' => false, 'detalhe' => 'Card não encontrado' ];
     $card = $rc['data'][0];
 
@@ -746,6 +751,38 @@ function tao_crm_executar_automacao_item( $auto, $card_id ) {
                 : "Card '{$card['titulo']}' requer atenção.";
             $ok = wp_mail( $auto['email_destino'], $assunto, $corpo );
             return $ok ? [ 'ok' => true, 'detalhe' => 'Email enviado' ] : [ 'ok' => false, 'detalhe' => 'Falha ao enviar email' ];
+
+        case 'fechar_perdido':
+            // Fecha o card como perdido (ex.: Última Tentativa sem resposta após N min)
+            if ( ! empty( $card['fechado'] ) ) return [ 'ok' => true, 'detalhe' => 'Card já fechado' ];
+            if ( empty( $card['pipeline_id'] ) ) return [ 'ok' => false, 'detalhe' => 'Card sem pipeline' ];
+            $rp = tao_crm_api( "/crm_estagios?pipeline_id=eq.{$card['pipeline_id']}&tipo=eq.perdido&limit=1" );
+            if ( ! $rp['ok'] || empty( $rp['data'] ) ) return [ 'ok' => false, 'detalhe' => 'Pipeline sem estágio do tipo perdido' ];
+            $perdido_id = $rp['data'][0]['id'];
+            $de         = $card['estagio_id'];
+            $r = tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [
+                'estagio_id' => $perdido_id,
+                'movido_em'  => gmdate( 'c' ),
+                'fechado'    => true,
+                'status'     => 'fechado',
+            ] );
+            if ( ! $r['ok'] ) return [ 'ok' => false, 'detalhe' => $r['error'] ];
+            // Motivo da perda: usa o campo "mensagem" da automação (permite alinhar com a
+            // lista padrão de motivos, ex. "Não responde os contatos"); fallback genérico.
+            $motivo_auto = trim( (string) ( $auto['mensagem'] ?? '' ) );
+            tao_crm_api( '/crm_cards_historico', 'POST', [
+                'card_id'         => $card_id,
+                'de_estagio_id'   => $de,
+                'para_estagio_id' => $perdido_id,
+                'usuario_id'      => 0,
+                'motivo'          => $motivo_auto !== '' ? $motivo_auto : 'Automação: ' . ( $auto['nome'] ?? 'encerrado por inatividade' ),
+                'obs'             => 'Automação: ' . ( $auto['nome'] ?? '' ),
+            ] );
+            tao_crm_cancelar_fila( $card_id );
+            if ( function_exists( 'tao_crm_fire_webhook' ) ) {
+                tao_crm_fire_webhook( $card['workspace_id'], 'card_fechado_perdido', [ 'card_id' => $card_id, 'motivo' => 'automacao' ] );
+            }
+            return [ 'ok' => true, 'detalhe' => 'Card fechado como perdido' ];
 
         case 'atribuir_responsavel_rr':
             $rr = tao_crm_api( "/crm_round_robin?workspace_id=eq.{$card['workspace_id']}&limit=1" );
@@ -995,6 +1032,47 @@ function tao_crm_cruzar_para_pos_vendas( $card_id, array $card, $de_estagio, $mo
     return $pos_stage_id;
 }
 
+// ─── Responsável: quem altera o card assume a responsabilidade ───────────────
+// Regra (Carlos): qualquer alteração no card → o autor vira o responsável.
+// Só age se houver usuário logado e se ele for diferente do responsável atual.
+function tao_crm_assumir_responsavel( $card_id ) {
+    if ( ! $card_id ) return;
+    $uid = get_current_user_id();
+    if ( ! $uid ) return;
+    if ( function_exists( 'cbpm_can_access' ) && ! cbpm_can_access() ) return;
+
+    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=responsavel_id&limit=1" );
+    if ( ! $rc['ok'] || empty( $rc['data'] ) ) return;
+    $atual = intval( $rc['data'][0]['responsavel_id'] ?? 0 );
+    if ( $atual === $uid ) return;
+
+    $u  = wp_get_current_user();
+    $de = '—';
+    if ( $atual ) { $du = get_userdata( $atual ); if ( $du ) $de = $du->display_name; }
+
+    tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [ 'responsavel_id' => $uid ] );
+    tao_crm_api( '/crm_cards_historico', 'POST', [
+        'card_id'    => $card_id,
+        'usuario_id' => $uid,
+        'motivo'     => "Responsável: {$de} → {$u->display_name} (alterou o card)",
+        'criado_em'  => gmdate( 'c' ),
+    ] );
+}
+// Pré-gancho (prioridade 1, antes do handler) nas ações que MEXEM no card.
+// Exclui as explícitas (save_responsavel, transferir_card) e mensagem/anexo (já fazem inline).
+foreach ( [
+    'move_card', 'save_valor', 'fechar_card', 'reabrir_card', 'save_nota', 'update_card_info',
+    'set_card_tags', 'save_lembrete', 'complete_lembrete', 'delete_lembrete',
+    'save_valor_oportunidade', 'save_desconto', 'save_comentario', 'delete_comentario',
+    'save_card_item', 'delete_card_item', 'save_msg_agendada', 'enviar_orcamento_formula',
+] as $_acao_card ) {
+    add_action( "wp_ajax_tao_crm_$_acao_card", function () {
+        if ( ! check_ajax_referer( 'tao_crm_nonce', 'nonce', false ) ) return;
+        $cid = sanitize_text_field( $_POST['card_id'] ?? '' );
+        if ( $cid ) tao_crm_assumir_responsavel( $cid );
+    }, 1 );
+}
+
 // ─── AJAX: MOVER CARD ────────────────────────────────────────────────────────
 
 add_action( 'wp_ajax_tao_crm_move_card', 'tao_crm_ajax_move_card' );
@@ -1009,6 +1087,45 @@ function tao_crm_ajax_move_card() {
     $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=estagio_id,pipeline_id,workspace_id" );
     $card_atual  = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? $rc['data'][0] : [];
     $de_estagio  = $card_atual['estagio_id'] ?? null;
+
+    // Persiste JÁ os valores preenchidos no modal — se a validação abaixo bloquear o move,
+    // o que o usuário digitou não se perde (antes, era descartado e a crítica se repetia).
+    $_vals_post = [];
+    foreach ( (array) ( $_POST['valores'] ?? [] ) as $_pc => $_pv ) {
+        $_pc = sanitize_text_field( $_pc );
+        $_pv = sanitize_text_field( $_pv );
+        if ( $_pc && $_pv !== '' ) $_vals_post[ $_pc ] = $_pv;
+    }
+    if ( $_vals_post ) tao_crm_salvar_campos_card( $card_id, $_vals_post );
+
+    // ── EXCLUSIVO PÓS-VENDAS: exige os campos obrigatórios da fase ATUAL antes de avançar ──
+    //    (regra só do funil de Pós-vendas; os demais funis seguem a regra padrão abaixo, inalterada)
+    if ( $de_estagio && $de_estagio !== $estagio_id ) {
+        $_pv = get_option( 'tao_crm_pos_vendas_pipeline_' . ( $card_atual['workspace_id'] ?? '' ), '' );
+        if ( ! $_pv && ! empty( $card_atual['workspace_id'] ) ) {
+            $_rpl = tao_crm_api( "/crm_pipelines?workspace_id=eq.{$card_atual['workspace_id']}&ativo=eq.true&order=ordem.asc&select=id&limit=2" );
+            $_apl = $_rpl['ok'] ? ( $_rpl['data'] ?? [] ) : [];
+            if ( count( $_apl ) >= 2 ) $_pv = $_apl[1]['id'];
+        }
+        if ( $_pv && ( $card_atual['pipeline_id'] ?? '' ) === $_pv ) {
+            $_rco  = tao_crm_api( "/crm_campos_estagio?estagio_id=eq.$de_estagio&na_entrada=eq.true&obrigatorio=eq.true" );
+            $_cobr = $_rco['ok'] ? ( $_rco['data'] ?? [] ) : [];
+            if ( $_cobr ) {
+                $_cids = array_column( $_cobr, 'campo_id' );
+                $_rv   = tao_crm_api( "/crm_cards_valores?card_id=eq.$card_id&campo_id=in.(" . implode( ',', $_cids ) . ")&select=campo_id,valor" );
+                $_vals = [];
+                foreach ( ( $_rv['ok'] ? ( $_rv['data'] ?? [] ) : [] ) as $_v ) $_vals[ $_v['campo_id'] ] = $_v['valor'];
+                foreach ( (array) ( $_POST['valores'] ?? [] ) as $_c => $_vv ) { $_c = sanitize_text_field( $_c ); if ( $_vv !== '' && $_vv !== null ) $_vals[ $_c ] = $_vv; }
+                $_faltam = [];
+                foreach ( $_cobr as $_cf ) { $_cid = $_cf['campo_id']; $_vx = $_vals[ $_cid ] ?? ''; if ( $_vx === '' || $_vx === null ) $_faltam[] = $_cid; }
+                if ( $_faltam ) {
+                    $_rcd   = tao_crm_api( '/crm_campos_definicao?id=in.(' . implode( ',', $_faltam ) . ')&select=nome' );
+                    $_nomes = array_map( function ( $d ) { return trim( str_replace( '\\', '', $d['nome'] ?? '' ) ); }, $_rcd['ok'] ? ( $_rcd['data'] ?? [] ) : [] );
+                    wp_send_json_error( [ 'code' => 'campos_faltando', 'campos' => $_nomes, 'msg' => 'Preencha os campos obrigatórios desta fase (Pós-vendas) antes de avançar: ' . implode( ', ', $_nomes ) ] );
+                }
+            }
+        }
+    }
 
     // Validar campos obrigatórios na saída do estágio — bloqueia apenas se destino também os exige
     if ( $de_estagio && $de_estagio !== $estagio_id ) {
@@ -1142,12 +1259,33 @@ function tao_crm_ajax_get_campos_destino() {
     $estagio_id = sanitize_text_field( $_POST['estagio_id'] ?? '' );
     $card_id    = sanitize_text_field( $_POST['card_id']    ?? '' );
     if ( ! $estagio_id ) wp_send_json_error( 'estagio_id obrigatório' );
-    $r = tao_crm_api( "/crm_campos_estagio?estagio_id=eq.$estagio_id&na_entrada=eq.true&order=ordem.asc" );
+    $r = tao_crm_api( "/crm_campos_estagio?estagio_id=eq.$estagio_id&order=ordem.asc" );
     if ( ! $r['ok'] ) wp_send_json_error( $r['error'] );
-    $assigns = $r['data'] ?? [];
-    if ( empty( $assigns ) ) { wp_send_json_success( [ 'campos' => [], 'valores' => [] ] ); return; }
-    $campo_ids     = array_column( $assigns, 'campo_id' );
-    $ordem_map     = array_column( $assigns, 'ordem',      'campo_id' );
+    $all = $r['data'] ?? [];
+    if ( empty( $all ) ) { wp_send_json_success( [ 'campos' => [], 'valores' => [] ] ); return; }
+
+    $valores = [];
+    if ( $card_id ) {
+        $ids_str = implode( ',', array_column( $all, 'campo_id' ) );
+        $rv = tao_crm_api( "/crm_cards_valores?card_id=eq.$card_id&campo_id=in.($ids_str)&select=campo_id,valor" );
+        if ( $rv['ok'] && ! empty( $rv['data'] ) ) {
+            foreach ( $rv['data'] as $v ) $valores[ $v['campo_id'] ] = $v['valor'];
+        }
+    }
+
+    // Modal deve oferecer TUDO que a validação do move pode exigir:
+    // na_entrada=true sempre; obrigatório sem na_entrada entra quando está vazio no card
+    // (senão o move bloqueia por um campo que o modal nunca pergunta — beco sem saída).
+    $assigns = array_values( array_filter( $all, function ( $a ) use ( $valores, $card_id ) {
+        if ( ! empty( $a['na_entrada'] ) ) return true;
+        if ( empty( $a['obrigatorio'] ) || ! $card_id ) return false;
+        $v = $valores[ $a['campo_id'] ] ?? '';
+        return ( $v === '' || $v === null );
+    } ) );
+    if ( empty( $assigns ) ) { wp_send_json_success( [ 'campos' => [], 'valores' => $valores ] ); return; }
+
+    $campo_ids       = array_column( $assigns, 'campo_id' );
+    $ordem_map       = array_column( $assigns, 'ordem',       'campo_id' );
     $obrigatorio_map = array_column( $assigns, 'obrigatorio', 'campo_id' );
     $r2   = tao_crm_api( '/crm_campos_definicao?id=in.(' . implode( ',', $campo_ids ) . ')&select=id,nome,tipo,opcoes,chave' );
     $defs = $r2['ok'] ? ( $r2['data'] ?? [] ) : [];
@@ -1156,14 +1294,6 @@ function tao_crm_ajax_get_campos_destino() {
     }
     unset( $def );
     usort( $defs, fn( $a, $b ) => ( $ordem_map[ $a['id'] ] ?? 0 ) <=> ( $ordem_map[ $b['id'] ] ?? 0 ) );
-    $valores = [];
-    if ( $card_id ) {
-        $ids_str = implode( ',', $campo_ids );
-        $rv = tao_crm_api( "/crm_cards_valores?card_id=eq.$card_id&campo_id=in.($ids_str)&select=campo_id,valor" );
-        if ( $rv['ok'] && ! empty( $rv['data'] ) ) {
-            foreach ( $rv['data'] as $v ) $valores[ $v['campo_id'] ] = $v['valor'];
-        }
-    }
     wp_send_json_success( [ 'campos' => $defs, 'valores' => $valores ] );
 }
 
@@ -1230,7 +1360,7 @@ function tao_crm_ajax_send_message() {
     $mensagem = sanitize_textarea_field( $_POST['mensagem'] ?? '' );
     if ( ! $card_id || ! $mensagem ) wp_send_json_error( 'Dados inválidos' );
 
-    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=contato_whatsapp,workspace_id,instancia_id,responsavel_id" );
+    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=contato_whatsapp,workspace_id,instancia_id,responsavel_id,estagio_id" );
     if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( 'Card não encontrado' );
 
     $card       = $rc['data'][0];
@@ -1274,6 +1404,12 @@ function tao_crm_ajax_send_message() {
         $responsavel_changed = [ 'id' => $user->ID, 'nome' => $user->display_name ];
     }
 
+    // Gatilho "enviou_mensagem": atendente respondeu pelo CRM → automações da fase atual
+    // (ex.: Em Conversa → Aguarda Resp Conversa; Em Negociação → Aguard Resp Negociação)
+    if ( ! empty( $card['estagio_id'] ) ) {
+        tao_crm_disparar_automacoes( $card_id, $card['estagio_id'], 'enviou_mensagem', false, $ws_id );
+    }
+
     wp_send_json_success( [ 'msg' => $rm['ok'] ? $rm['data'][0] : null, 'responsavel_changed' => $responsavel_changed ] );
 }
 
@@ -1292,7 +1428,7 @@ function tao_crm_ajax_send_attachment() {
     $max_bytes = 20 * 1024 * 1024; // 20 MB
     if ( $file['size'] > $max_bytes ) wp_send_json_error( 'Arquivo muito grande (máx 20 MB)' );
 
-    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=contato_whatsapp,workspace_id,instancia_id,responsavel_id" );
+    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=contato_whatsapp,workspace_id,instancia_id,responsavel_id,estagio_id" );
     if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( 'Card não encontrado' );
 
     $card       = $rc['data'][0];
@@ -1349,6 +1485,12 @@ function tao_crm_ajax_send_attachment() {
             'criado_em'  => gmdate( 'c' ),
         ] );
         $responsavel_changed = [ 'id' => $user->ID, 'nome' => $user->display_name ];
+    }
+
+    // Gatilho "enviou_mensagem": atendente respondeu pelo CRM → automações da fase atual
+    // (ex.: Em Conversa → Aguarda Resp Conversa; Em Negociação → Aguard Resp Negociação)
+    if ( ! empty( $card['estagio_id'] ) ) {
+        tao_crm_disparar_automacoes( $card_id, $card['estagio_id'], 'enviou_mensagem', false, $ws_id );
     }
 
     wp_send_json_success( [ 'msg' => $rm['ok'] ? $rm['data'][0] : null, 'responsavel_changed' => $responsavel_changed ] );
@@ -1604,8 +1746,8 @@ function tao_crm_ajax_save_automacao() {
     if ( ! $workspace_id || ! $pipeline_id || ! $estagio_id || ! $nome || ! $tipo || ! $acao ) {
         wp_send_json_error( 'Campos obrigatórios faltando' );
     }
-    if ( ! in_array( $tipo, [ 'entrar_fase','sair_fase','tempo_na_fase','recebeu_mensagem','sem_resposta' ] ) ||
-         ! in_array( $acao, [ 'enviar_mensagem','mover_fase','atribuir_responsavel','notificar_email','atribuir_responsavel_rr' ] ) ) {
+    if ( ! in_array( $tipo, [ 'entrar_fase','sair_fase','tempo_na_fase','recebeu_mensagem','enviou_mensagem','sem_resposta' ] ) ||
+         ! in_array( $acao, [ 'enviar_mensagem','mover_fase','atribuir_responsavel','notificar_email','atribuir_responsavel_rr','fechar_perdido' ] ) ) {
         wp_send_json_error( 'Tipo ou ação inválidos' );
     }
 
@@ -1657,6 +1799,23 @@ function tao_crm_salvar_campos_card( $card_id, $valores ) {
     }
 }
 
+// ─── AJAX: SALVAR CAMPOS OBRIGATÓRIOS (enforcement Pós-vendas ao abrir o card) ─
+add_action( 'wp_ajax_tao_crm_salvar_campos_obrig', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+    if ( ! function_exists( 'cbpm_can_access' ) || ! cbpm_can_access() ) wp_send_json_error( 'Acesso negado' );
+    $card_id = sanitize_text_field( $_POST['card_id'] ?? '' );
+    if ( ! $card_id ) wp_send_json_error( 'card_id obrigatório' );
+    $valores = [];
+    foreach ( (array) ( $_POST['valores'] ?? [] ) as $cid => $val ) {
+        $cid = sanitize_text_field( $cid );
+        if ( $cid ) $valores[ $cid ] = sanitize_textarea_field( wp_unslash( $val ) );
+    }
+    if ( empty( $valores ) ) wp_send_json_error( 'Nenhum campo enviado' );
+    tao_crm_salvar_campos_card( $card_id, $valores );
+    wp_send_json_success();
+} );
+
 add_action( 'wp_ajax_tao_crm_fechar_card', 'tao_crm_ajax_fechar_card' );
 function tao_crm_ajax_fechar_card() {
     check_ajax_referer( 'tao_crm_nonce', 'nonce' );
@@ -1674,9 +1833,44 @@ function tao_crm_ajax_fechar_card() {
 
     if ( ! $card_id || ! in_array( $tipo, [ 'ganho', 'perdido' ] ) ) wp_send_json_error( 'Dados inválidos' );
 
+    // Cancelamento exige motivo; "Falta de Insumo" exige o insumo (após os dois-pontos)
+    if ( $tipo === 'perdido' ) {
+        if ( $motivo === '' ) wp_send_json_error( 'Informe o motivo do cancelamento.' );
+        if ( preg_match( '/^falta de insumo\s*:?\s*$/iu', $motivo ) ) wp_send_json_error( 'Informe qual insumo faltou.' );
+    }
+
     $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=estagio_id,pipeline_id,contato_whatsapp,workspace_id,instancia_id&limit=1" );
     if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( 'Card não encontrado' );
     $card = $rc['data'][0];
+
+    // ── EXCLUSIVO PÓS-VENDAS: concluir (ganho) exige os campos obrigatórios da FASE ATUAL ──
+    //    (Cancelar/perdido NÃO é bloqueado, p/ permitir descartar cards errados. Demais funis: inalterado.)
+    if ( $tipo === 'ganho' && ! empty( $card['estagio_id'] ) ) {
+        $_pv = get_option( 'tao_crm_pos_vendas_pipeline_' . ( $card['workspace_id'] ?? '' ), '' );
+        if ( ! $_pv && ! empty( $card['workspace_id'] ) ) {
+            $_rpl = tao_crm_api( "/crm_pipelines?workspace_id=eq.{$card['workspace_id']}&ativo=eq.true&order=ordem.asc&select=id&limit=2" );
+            $_apl = $_rpl['ok'] ? ( $_rpl['data'] ?? [] ) : [];
+            if ( count( $_apl ) >= 2 ) $_pv = $_apl[1]['id'];
+        }
+        if ( $_pv && ( $card['pipeline_id'] ?? '' ) === $_pv ) {
+            $_rco  = tao_crm_api( "/crm_campos_estagio?estagio_id=eq.{$card['estagio_id']}&na_entrada=eq.true&obrigatorio=eq.true" );
+            $_cobr = $_rco['ok'] ? ( $_rco['data'] ?? [] ) : [];
+            if ( $_cobr ) {
+                $_cids = array_column( $_cobr, 'campo_id' );
+                $_rv   = tao_crm_api( "/crm_cards_valores?card_id=eq.$card_id&campo_id=in.(" . implode( ',', $_cids ) . ")&select=campo_id,valor" );
+                $_vals = [];
+                foreach ( ( $_rv['ok'] ? ( $_rv['data'] ?? [] ) : [] ) as $_v ) $_vals[ $_v['campo_id'] ] = $_v['valor'];
+                foreach ( $valores as $_c => $_vv ) { if ( $_vv !== '' && $_vv !== null ) $_vals[ $_c ] = $_vv; }
+                $_faltam = [];
+                foreach ( $_cobr as $_cf ) { $_cid = $_cf['campo_id']; $_vx = $_vals[ $_cid ] ?? ''; if ( $_vx === '' || $_vx === null ) $_faltam[] = $_cid; }
+                if ( $_faltam ) {
+                    $_rcd   = tao_crm_api( '/crm_campos_definicao?id=in.(' . implode( ',', $_faltam ) . ')&select=nome' );
+                    $_nomes = array_map( function ( $d ) { return trim( str_replace( '\\', '', $d['nome'] ?? '' ) ); }, $_rcd['ok'] ? ( $_rcd['data'] ?? [] ) : [] );
+                    wp_send_json_error( [ 'code' => 'campos_pos', 'msg' => 'Preencha os campos obrigatórios desta fase para concluir o card.' ] );
+                }
+            }
+        }
+    }
 
     $re = tao_crm_api( "/crm_estagios?pipeline_id=eq.{$card['pipeline_id']}&tipo=eq.$tipo&limit=1" );
     if ( ! $re['ok'] || empty( $re['data'] ) ) {
@@ -1867,6 +2061,17 @@ function tao_crm_formula_dias( $card_id ) {
     return ( $d < 10 ) ? 30 : $d;
 }
 
+// Data-base da renovação = ENTREGA (aproximada pela entrada no estágio NPS,
+// que acontece quando a fórmula é entregue). Fallback: criação do card.
+function tao_crm_renov_base_ts( $card ) {
+    $nps_stage = get_option( 'tao_crm_nps_stage_' . ( $card['workspace_id'] ?? '' ), '' );
+    if ( $nps_stage && ! empty( $card['id'] ) ) {
+        $rh = tao_crm_api( "/crm_cards_historico?card_id=eq.{$card['id']}&para_estagio_id=eq.$nps_stage&select=criado_em&order=criado_em.desc&limit=1" );
+        if ( $rh['ok'] && ! empty( $rh['data'][0]['criado_em'] ) ) return strtotime( $rh['data'][0]['criado_em'] );
+    }
+    return strtotime( $card['criado_em'] );
+}
+
 // Clona o card (+ orçamentos) num novo card em Funil › Aguardando Atendimento e move o atual p/ Renovado
 function tao_crm_renovar_card( $card, $rsd ) {
     $ws  = $card['workspace_id'];
@@ -1897,7 +2102,17 @@ function tao_crm_renovar_card( $card, $rsd ) {
             tao_crm_api( '/orcamentos', 'POST', $o );
         }
     }
-    if ( ! empty( $rsd['renovado'] ) ) tao_crm_api( "/crm_cards?id=eq.{$card['id']}", 'PATCH', [ 'estagio_id' => $rsd['renovado'], 'movido_em' => gmdate( 'c' ) ] );
+    if ( ! empty( $rsd['renovado'] ) ) {
+        tao_crm_api( "/crm_cards?id=eq.{$card['id']}", 'PATCH', [ 'estagio_id' => $rsd['renovado'], 'movido_em' => gmdate( 'c' ) ] );
+        tao_crm_api( '/crm_cards_historico', 'POST', [
+            'card_id'         => $card['id'],
+            'de_estagio_id'   => $rsd['renovacao'] ?: null,
+            'para_estagio_id' => $rsd['renovado'],
+            'usuario_id'      => 0,
+            'motivo'          => 'Renovação aceita',
+            'obs'             => 'Renovação: cliente respondeu 1; novo card ' . (string) $novo_id,
+        ] );
+    }
     tao_crm_renov_del( $card['id'] );
     if ( $tel ) tao_crm_lock_chatbot( $tel, $ws );
     tao_crm_evolution_send( tao_crm_get_evo_creds( $card ), $card['contato_whatsapp'], 'Que ótimo! 🎉 Já encaminhei sua renovação para nossa equipe — em breve entramos em contato.' );
@@ -1917,6 +2132,11 @@ function tao_crm_renovacao_cron() {
         if ( ! get_option( 'tao_crm_renov_ativo_' . $ws_id, 1 ) ) continue;   // renovação desligada p/ este workspace
         $r_snooze  = (int) get_option( 'tao_crm_renov_snooze_'  . $ws_id, 5 );
         $r_semresp = (int) get_option( 'tao_crm_renov_semresp_' . $ws_id, 15 );
+        // Anti-rajada: máx. N lembretes por ciclo do cron (resto fica p/ a próxima hora),
+        // com pausa entre envios e somente dentro do horário comercial do workspace.
+        $max_ciclo = max( 1, (int) get_option( 'tao_crm_renov_maxrun_' . $ws_id, 3 ) );
+        $env_ciclo = 0;
+        $em_horario = ! function_exists( 'tao_crm_esta_em_horario' ) || tao_crm_esta_em_horario( $ws_id );
         $rc = tao_crm_api( "/crm_cards?workspace_id=eq.$ws_id&estagio_id=eq.{$rsd['renovacao']}&fechado=eq.false&select=id,contato_nome,contato_whatsapp,criado_em,instancia_id,workspace_id,atendimento_humano&limit=500" );
         foreach ( ( $rc['ok'] ? ( $rc['data'] ?? [] ) : [] ) as $card ) {
             if ( ! empty( $card['atendimento_humano'] ) ) continue;
@@ -1925,8 +2145,10 @@ function tao_crm_renovacao_cron() {
             $enviado = $st['enviado_em'] ?? null;
             if ( ! $enviado ) {
                 $due = ! empty( $st['proximo'] ) ? strtotime( $st['proximo'] )
-                     : ( strtotime( $card['criado_em'] ) + tao_crm_formula_dias( $cid ) * DAY_IN_SECONDS );
+                     : ( tao_crm_renov_base_ts( $card ) + tao_crm_formula_dias( $cid ) * DAY_IN_SECONDS );
                 if ( time() >= $due ) {
+                    if ( ! $em_horario || $env_ciclo >= $max_ciclo ) continue;   // fica pendente p/ o próximo ciclo
+                    if ( $env_ciclo > 0 ) sleep( rand( 8, 20 ) );                // nunca 2 msgs no mesmo instante
                     $nome   = trim( $card['contato_nome'] ?? '' );
                     $padrao = "Olá" . ( $nome ? " $nome" : '' ) . "! Notamos que sua fórmula está acabando. 🌿\n\nDeseja renovar?\nResponda *1* para RENOVAR, *2* para não renovar ou *3* para te lembrarmos novamente em {dias} dias.";
                     $msg    = get_option( 'tao_crm_renov_msg_' . $ws_id, $padrao );
@@ -1934,11 +2156,31 @@ function tao_crm_renovacao_cron() {
                     tao_crm_evolution_send( tao_crm_get_evo_creds( $card ), $card['contato_whatsapp'], $msg );
                     tao_crm_lock_chatbot( preg_replace( '/\D/', '', $card['contato_whatsapp'] ), $ws_id );
                     tao_crm_renov_set( $cid, [ 'enviado_em' => gmdate( 'c' ), 'proximo' => null ] );
+                    $env_ciclo++;
+                    // Evento datado p/ o indicador "Renovações" do painel
+                    tao_crm_api( '/crm_cards_historico', 'POST', [
+                        'card_id'         => $cid,
+                        'de_estagio_id'   => $rsd['renovacao'],
+                        'para_estagio_id' => $rsd['renovacao'],
+                        'usuario_id'      => 0,
+                        'motivo'          => 'Lembrete de renovação enviado',
+                        'obs'             => 'Renovação: lembrete enviado',
+                    ] );
                     tao_crm_log_error( 'renovacao', 'lembrete enviado card=' . substr( $cid, 0, 8 ), [ 'ws' => substr( $ws_id, 0, 8 ) ] );
                 }
             } else {
                 if ( time() >= strtotime( $enviado ) + $r_semresp * DAY_IN_SECONDS ) {
-                    if ( ! empty( $rsd['sem_resposta'] ) ) tao_crm_api( "/crm_cards?id=eq.$cid", 'PATCH', [ 'estagio_id' => $rsd['sem_resposta'], 'movido_em' => gmdate( 'c' ) ] );
+                    if ( ! empty( $rsd['sem_resposta'] ) ) {
+                        tao_crm_api( "/crm_cards?id=eq.$cid", 'PATCH', [ 'estagio_id' => $rsd['sem_resposta'], 'movido_em' => gmdate( 'c' ) ] );
+                        tao_crm_api( '/crm_cards_historico', 'POST', [
+                            'card_id'         => $cid,
+                            'de_estagio_id'   => $rsd['renovacao'],
+                            'para_estagio_id' => $rsd['sem_resposta'],
+                            'usuario_id'      => 0,
+                            'motivo'          => 'Não responde os contatos',
+                            'obs'             => 'Renovação: ' . $r_semresp . ' dias sem resposta ao lembrete',
+                        ] );
+                    }
                     tao_crm_renov_del( $cid );
                     tao_crm_log_error( 'renovacao', 'sem resposta 15d card=' . substr( $cid, 0, 8 ), [ 'ws' => substr( $ws_id, 0, 8 ) ] );
                 }
@@ -1969,6 +2211,195 @@ function tao_crm_ajax_get_csat_stats() {
 }
 
 // ─── AJAX: INBOX — cards com mensagens não lidas ──────────────────────────────
+
+// ─── AJAX: ANÁLISE DE PREÇOS DO CARD (todos os orçamentos) ────────────────────
+// Resumo por orçamento (calculado, cobrado, custo, margem) + consolidado.
+// Custo = Σ MPs (custo_por_unidade do item, fallback cadastro de ativos)
+//       + embalagens (quantidade × custo) + cápsulas (tipos_capsula → ativo).
+add_action( 'wp_ajax_tao_crm_card_analise_precos', 'tao_crm_ajax_card_analise_precos' );
+function tao_crm_ajax_card_analise_precos() {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    nocache_headers();
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+    if ( ! function_exists( 'cbpm_can_access' ) || ! cbpm_can_access() ) wp_send_json_error( 'Acesso negado' );
+    $card_id = sanitize_text_field( $_POST['card_id'] ?? '' );
+    if ( ! $card_id ) wp_send_json_error( 'card_id obrigatório' );
+
+    // Valor do concorrente: persiste quando enviado (vazio = limpar)
+    if ( isset( $_POST['valor_concorrente'] ) ) {
+        $vc_raw = preg_replace( '/[^\d.,]/', '', (string) wp_unslash( $_POST['valor_concorrente'] ) );
+        // "1.234,56" → 1234.56 | "150.50" → 150.50 | "150,50" → 150.50
+        if ( strpos( $vc_raw, ',' ) !== false ) $vc_raw = str_replace( [ '.', ',' ], [ '', '.' ], $vc_raw );
+        if ( $vc_raw === '' || (float) $vc_raw <= 0 ) delete_option( 'tao_crm_conc_' . $card_id );
+        else update_option( 'tao_crm_conc_' . $card_id, (float) $vc_raw, false );
+    }
+
+    $ro = tao_crm_api( "/orcamentos?card_id=eq.$card_id&select=id,numero_orcamento,total_orcamento,valor_final_fc,itens,forma_vol,forma_unidade,qtde_potes,cliente_id,custo_fixo_aplicado,acrescimo_aplicado,forma_id&order=criado_em.asc" );
+    if ( ! $ro['ok'] ) wp_send_json_error( $ro['error'] );
+    $orcs = $ro['data'] ?? [];
+    if ( ! $orcs ) wp_send_json_success( [ 'linhas' => [], 'total' => null, 'valor_concorrente' => (float) get_option( 'tao_crm_conc_' . $card_id, 0 ) ] );
+
+    // ── 1ª passada: decodifica itens e coleta fallbacks necessários ─────────
+    $need_ativo = [];   // ativo_ids de MPs sem custo no item
+    $need_caps  = [];   // "tipo|numero" de cápsulas
+    foreach ( $orcs as &$o ) {
+        $it = is_string( $o['itens'] ) ? json_decode( $o['itens'], true ) : $o['itens'];
+        $o['_itens'] = is_array( $it ) ? $it : [];
+        foreach ( $o['_itens'] as $i ) {
+            if ( ( $i['tipo'] ?? '' ) === 'mp' ) {
+                if ( (float) ( $i['custo_por_unidade'] ?? 0 ) <= 0 && ! empty( $i['ativo_id'] ) ) $need_ativo[ $i['ativo_id'] ] = 1;
+                if ( ! empty( $i['capsula_tipo'] ) ) $need_caps[ strtolower( $i['capsula_tipo'] ) . '|' . ( $i['capsula_numero'] ?? '' ) ] = 1;
+            }
+        }
+    }
+    unset( $o );
+
+    // Fallback de custo das MPs pelo cadastro de ativos
+    $ativo_custo = [];
+    if ( $need_ativo ) {
+        $ra = tao_crm_api( '/ativos?id=in.(' . implode( ',', array_keys( $need_ativo ) ) . ')&select=id,custo_por_unidade,preco_compra' );
+        foreach ( ( $ra['ok'] ? ( $ra['data'] ?? [] ) : [] ) as $a ) {
+            $ativo_custo[ $a['id'] ] = (float) ( $a['custo_por_unidade'] ?? 0 ) ?: (float) ( $a['preco_compra'] ?? 0 );
+        }
+    }
+
+    // Custo unitário da cápsula: tipos_capsula (tipo+numero) → ativo (cdpro_fc) → fallback nome INCOLOR
+    $caps_custo = [];
+    if ( $need_caps ) {
+        $cli = $orcs[0]['cliente_id'] ?? '';
+        $rtc = tao_crm_api( "/tipos_capsula?cliente_id=eq.$cli&select=tipo,numero,cdpro_fc" );
+        $tc_map = [];
+        foreach ( ( $rtc['ok'] ? ( $rtc['data'] ?? [] ) : [] ) as $tc ) $tc_map[ strtolower( $tc['tipo'] ) . '|' . $tc['numero'] ] = $tc['cdpro_fc'] ?? '';
+        $codes = array_filter( array_map( function ( $k ) use ( $tc_map ) { return $tc_map[ $k ] ?? ''; }, array_keys( $need_caps ) ) );
+        $code_price = [];
+        if ( $codes ) {
+            $rca = tao_crm_api( '/ativos?codigo_fc=in.(' . implode( ',', array_unique( $codes ) ) . ')&select=codigo_fc,custo_por_unidade,preco_compra,preco_venda' );
+            foreach ( ( $rca['ok'] ? ( $rca['data'] ?? [] ) : [] ) as $a ) {
+                $code_price[ $a['codigo_fc'] ] = (float) ( $a['custo_por_unidade'] ?? 0 ) ?: ( (float) ( $a['preco_compra'] ?? 0 ) ?: (float) ( $a['preco_venda'] ?? 0 ) );
+            }
+        }
+        $incolor = null;   // lazy: só busca se precisar
+        foreach ( array_keys( $need_caps ) as $k ) {
+            $custo_u = $code_price[ $tc_map[ $k ] ?? '' ] ?? 0;
+            if ( $custo_u <= 0 ) {
+                if ( $incolor === null ) {
+                    $ri = tao_crm_api( "/ativos?cliente_id=eq.$cli&nome=ilike.*INCOLOR*&select=nome,custo_por_unidade,preco_compra,preco_venda&limit=100" );
+                    $incolor = $ri['ok'] ? ( $ri['data'] ?? [] ) : [];
+                }
+                $num = explode( '|', $k )[1];
+                foreach ( $incolor as $ia ) {
+                    if ( $num !== '' && preg_match( '/\b' . preg_quote( $num, '/' ) . '\b/', strtoupper( $ia['nome'] ?? '' ) ) ) {
+                        $custo_u = (float) ( $ia['custo_por_unidade'] ?? 0 ) ?: ( (float) ( $ia['preco_compra'] ?? 0 ) ?: (float) ( $ia['preco_venda'] ?? 0 ) );
+                        break;
+                    }
+                }
+            }
+            $caps_custo[ $k ] = $custo_u;
+        }
+    }
+
+    // Custo fixo cadastrado por forma farmacêutica (fallback quando o orçamento não tem CF salvo)
+    $forma_cf  = [];
+    $forma_ids = array_filter( array_unique( array_column( $orcs, 'forma_id' ) ) );
+    if ( $forma_ids ) {
+        $rf = tao_crm_api( '/formas_farmaceuticas?id=in.(' . implode( ',', $forma_ids ) . ')&select=id,custo_fixo,custo_fixo_tipo' );
+        foreach ( ( $rf['ok'] ? ( $rf['data'] ?? [] ) : [] ) as $f ) {
+            $forma_cf[ $f['id'] ] = [ 'valor' => (float) ( $f['custo_fixo'] ?? 0 ), 'tipo' => $f['custo_fixo_tipo'] ?? '' ];
+        }
+    }
+
+    // ── 2ª passada: custo e margem por orçamento ─────────────────────────────
+    // Custo = Ativos (MPs) + Embalagens + Cápsulas + Custo Fixo aplicado.
+    // CF sem valor salvo no orçamento → usa o cadastro da forma: 'pct' aplica o % sobre
+    // o custo (ativos+emb+cáps); 'R' usa o valor fixo.
+    // Acréscimo aplicado é exibido na composição, mas NÃO soma (compõe o preço, não o custo).
+    $linhas = [];
+    $tot    = [ 'calculado' => 0.0, 'cobrado' => 0.0, 'custo' => 0.0,
+                'ativos' => 0.0, 'embalagens' => 0.0, 'capsulas' => 0.0, 'custo_fixo' => 0.0, 'acrescimo' => 0.0 ];
+    foreach ( $orcs as $o ) {
+        $c_mp = 0.0; $c_emb = 0.0; $c_caps = 0.0; $sem_custo = false;
+        $cap_key = ''; $n_per_dose = 1;
+        foreach ( $o['_itens'] as $i ) {
+            $tipo_i = $i['tipo'] ?? '';
+            if ( $tipo_i === 'mp' ) {
+                $cpu = (float) ( $i['custo_por_unidade'] ?? 0 );
+                if ( $cpu <= 0 ) $cpu = $ativo_custo[ $i['ativo_id'] ?? '' ] ?? 0;
+                $qtd = (float) ( $i['qtd_total_g'] ?? 0 );
+                if ( $cpu <= 0 && $qtd > 0 ) $sem_custo = true;
+                $c_mp += $qtd * $cpu;
+                if ( ! empty( $i['capsula_tipo'] ) ) {
+                    $cap_key    = strtolower( $i['capsula_tipo'] ) . '|' . ( $i['capsula_numero'] ?? '' );
+                    $n_per_dose = max( 1, intval( $i['n_caps_por_dose'] ?? 1 ) );
+                }
+            } elseif ( $tipo_i === 'emb' ) {
+                $cpu = (float) ( $i['custo_por_unidade'] ?? 0 );
+                $qty = (float) ( $i['quantidade'] ?? 1 );
+                $c_emb += $cpu > 0 ? $qty * $cpu : (float) ( $i['subtotal'] ?? 0 );
+            }
+        }
+        // Cápsulas: total = doses (forma_vol) × potes × cápsulas por dose
+        if ( $cap_key && stripos( (string) ( $o['forma_unidade'] ?? '' ), 'cap' ) !== false ) {
+            $ncaps  = (float) ( $o['forma_vol'] ?? 0 ) * max( 1, intval( $o['qtde_potes'] ?? 1 ) ) * $n_per_dose;
+            $cap_cu = $caps_custo[ $cap_key ] ?? 0;
+            if ( $cap_cu <= 0 && $ncaps > 0 ) $sem_custo = true;
+            $c_caps = $ncaps * $cap_cu;
+        }
+        $c_fixo = (float) ( $o['custo_fixo_aplicado'] ?? 0 );
+        if ( $c_fixo <= 0 && ! empty( $forma_cf[ $o['forma_id'] ?? '' ]['valor'] ) ) {
+            $fc = $forma_cf[ $o['forma_id'] ];
+            $c_fixo = ( $fc['tipo'] === 'pct' )
+                ? round( ( $c_mp + $c_emb + $c_caps ) * $fc['valor'] / 100, 2 )
+                : $fc['valor'];   // 'R' (ou legado sem tipo): valor fixo em R$
+        }
+        $acresc = (float) ( $o['acrescimo_aplicado'] ?? 0 );
+        $custo  = $c_mp + $c_emb + $c_caps + $c_fixo;
+        $calculado = (float) ( $o['total_orcamento'] ?? 0 );
+        $cobrado   = (float) ( $o['valor_final_fc'] ?? 0 ) ?: $calculado;
+        $linhas[]  = [
+            'numero'     => $o['numero_orcamento'] ?: '—',
+            'calculado'  => round( $calculado, 2 ),
+            'cobrado'    => round( $cobrado, 2 ),
+            'custo'      => round( $custo, 2 ),
+            'comp'       => [
+                'ativos'     => round( $c_mp, 2 ),
+                'embalagens' => round( $c_emb, 2 ),
+                'capsulas'   => round( $c_caps, 2 ),
+                'custo_fixo' => round( $c_fixo, 2 ),
+                'acrescimo'  => round( $acresc, 2 ),
+            ],
+            'margem_rs'  => round( $cobrado - $custo, 2 ),
+            'margem_pct' => $custo > 0 ? round( ( $cobrado - $custo ) / $custo * 100, 1 ) : null,
+            'sem_custo'  => $sem_custo,
+        ];
+        $tot['calculado']  += $calculado;
+        $tot['cobrado']    += $cobrado;
+        $tot['custo']      += $custo;
+        $tot['ativos']     += $c_mp;
+        $tot['embalagens'] += $c_emb;
+        $tot['capsulas']   += $c_caps;
+        $tot['custo_fixo'] += $c_fixo;
+        $tot['acrescimo']  += $acresc;
+    }
+    $total = [
+        'calculado'  => round( $tot['calculado'], 2 ),
+        'cobrado'    => round( $tot['cobrado'], 2 ),
+        'custo'      => round( $tot['custo'], 2 ),
+        'comp'       => [
+            'ativos'     => round( $tot['ativos'], 2 ),
+            'embalagens' => round( $tot['embalagens'], 2 ),
+            'capsulas'   => round( $tot['capsulas'], 2 ),
+            'custo_fixo' => round( $tot['custo_fixo'], 2 ),
+            'acrescimo'  => round( $tot['acrescimo'], 2 ),
+        ],
+        'margem_rs'  => round( $tot['cobrado'] - $tot['custo'], 2 ),
+        'margem_pct' => $tot['custo'] > 0 ? round( ( $tot['cobrado'] - $tot['custo'] ) / $tot['custo'] * 100, 1 ) : null,
+    ];
+    wp_send_json_success( [
+        'linhas'            => $linhas,
+        'total'             => $total,
+        'valor_concorrente' => (float) get_option( 'tao_crm_conc_' . $card_id, 0 ),
+    ] );
+}
 
 // ─── AJAX: Enviar orçamento(s) de fórmula via WhatsApp ───────────────────────
 
@@ -3109,7 +3540,17 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
                                 tao_crm_renov_set( $rcard['id'], [ 'enviado_em' => null, 'proximo' => gmdate( 'c', time() + $r_snz * DAY_IN_SECONDS ) ] );
                                 tao_crm_evolution_send( $inst, $num, 'Combinado! Vou te lembrar em ' . $r_snz . ' dias. 🌿' );
                             } elseif ( $is_neg ) {
-                                if ( ! empty( $rsd['nao_renovado'] ) ) tao_crm_api( "/crm_cards?id=eq.{$rcard['id']}", 'PATCH', [ 'estagio_id' => $rsd['nao_renovado'], 'movido_em' => gmdate( 'c' ) ] );
+                                if ( ! empty( $rsd['nao_renovado'] ) ) {
+                                    tao_crm_api( "/crm_cards?id=eq.{$rcard['id']}", 'PATCH', [ 'estagio_id' => $rsd['nao_renovado'], 'movido_em' => gmdate( 'c' ) ] );
+                                    tao_crm_api( '/crm_cards_historico', 'POST', [
+                                        'card_id'         => $rcard['id'],
+                                        'de_estagio_id'   => $rsd['renovacao'],
+                                        'para_estagio_id' => $rsd['nao_renovado'],
+                                        'usuario_id'      => 0,
+                                        'motivo'          => 'Não há mais interesse no serviço',
+                                        'obs'             => 'Renovação: cliente respondeu que não quer renovar',
+                                    ] );
+                                }
                                 tao_crm_renov_del( $rcard['id'] );
                                 tao_crm_unlock_chatbot( $num, $WS_ID );
                                 tao_crm_evolution_send( $inst, $num, 'Tudo bem! Quando quiser renovar, é só nos chamar. 🌿' );
@@ -4788,6 +5229,7 @@ function tao_crm_ajax_save_msg_agendada() {
     $card_id      = sanitize_text_field( $_POST['card_id']       ?? '' );
     $conteudo     = sanitize_textarea_field( $_POST['conteudo']  ?? '' );
     $agendado_str = sanitize_text_field( $_POST['agendado_para'] ?? '' );
+    $para_estagio = sanitize_text_field( $_POST['para_estagio_id'] ?? '' );   // Retorno Futuro: mover card ao enviar
     if ( ! $card_id || ! $conteudo || ! $agendado_str ) wp_send_json_error( 'Campos obrigatórios' );
     // Parse datetime-local → UTC ISO
     $ts = strtotime( $agendado_str );
@@ -4801,6 +5243,10 @@ function tao_crm_ajax_save_msg_agendada() {
         'conteudo'      => $conteudo,
         'agendado_para' => gmdate( 'c', $ts ),
     ], [ 'Prefer' => 'return=representation' ] );
+    // Fase de destino fica em wp_options (sem migration); o cron move o card após enviar
+    if ( $r['ok'] && $para_estagio && ! empty( $r['data'][0]['id'] ) ) {
+        update_option( 'tao_crm_agmov_' . $r['data'][0]['id'], $para_estagio, false );
+    }
     $r['ok'] ? wp_send_json_success() : wp_send_json_error( $r['error'] );
 }
 
@@ -4815,9 +5261,10 @@ function tao_crm_processar_msgs_agendadas() {
         $ws_id  = $msg['workspace_id'];
         $texto  = $msg['conteudo'];
         // Busca dados do card para enviar via Evolution
-        $rc = tao_crm_api( "/crm_cards?id=eq.$cid&select=contato_whatsapp,workspace_id&limit=1" );
+        $rc = tao_crm_api( "/crm_cards?id=eq.$cid&select=contato_whatsapp,workspace_id,estagio_id,fechado&limit=1" );
         if ( ! $rc['ok'] || empty( $rc['data'] ) ) {
             tao_crm_api( "/crm_msgs_agendadas?id=eq.$mid", 'PATCH', [ 'enviado' => true, 'erro' => 'card não encontrado' ] );
+            delete_option( 'tao_crm_agmov_' . $mid );
             continue;
         }
         $card = $rc['data'][0];
@@ -4831,8 +5278,27 @@ function tao_crm_processar_msgs_agendadas() {
                 'conteudo'     => $texto,
             ] );
             tao_crm_api( "/crm_msgs_agendadas?id=eq.$mid", 'PATCH', [ 'enviado' => true, 'enviado_em' => gmdate( 'c' ) ] );
+            // Retorno Futuro: mensagem enviada → devolve o card ao fluxo (fase escolhida no agendamento)
+            $mover = get_option( 'tao_crm_agmov_' . $mid, '' );
+            if ( $mover ) {
+                delete_option( 'tao_crm_agmov_' . $mid );
+                if ( empty( $card['fechado'] ) && $card['estagio_id'] !== $mover ) {
+                    tao_crm_api( "/crm_cards?id=eq.$cid", 'PATCH', [ 'estagio_id' => $mover, 'movido_em' => gmdate( 'c' ) ] );
+                    tao_crm_api( '/crm_cards_historico', 'POST', [
+                        'card_id'         => $cid,
+                        'de_estagio_id'   => $card['estagio_id'],
+                        'para_estagio_id' => $mover,
+                        'usuario_id'      => 0,
+                        'motivo'          => 'Retorno futuro: mensagem agendada enviada',
+                    ] );
+                    tao_crm_cancelar_fila( $cid, $card['estagio_id'] );
+                    tao_crm_disparar_automacoes( $cid, $mover, 'entrar_fase', false, $ws_id );
+                    tao_crm_disparar_automacoes( $cid, $mover, 'tempo_na_fase', false, $ws_id );
+                }
+            }
         } else {
             tao_crm_api( "/crm_msgs_agendadas?id=eq.$mid", 'PATCH', [ 'enviado' => true, 'erro' => 'falha no envio WhatsApp' ] );
+            delete_option( 'tao_crm_agmov_' . $mid );
         }
     }
 }

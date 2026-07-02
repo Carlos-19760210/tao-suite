@@ -35,6 +35,61 @@ function tao_crm_page_card() {
         }
     }
 
+    // Primeiro a abrir um card SEM responsável assume a responsabilidade (claim ao abrir).
+    // Depois disso, só muda quando alguém de fato manipula o card (responde, etc.).
+    if ( empty( $card['responsavel_id'] ) ) {
+        $uid_open = get_current_user_id();
+        if ( $uid_open ) {
+            tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [ 'responsavel_id' => $uid_open ] );
+            $u_open = wp_get_current_user();
+            tao_crm_api( '/crm_cards_historico', 'POST', [
+                'card_id'    => $card_id,
+                'usuario_id' => $uid_open,
+                'motivo'     => 'Responsável definido: ' . $u_open->display_name . ' (abriu o card)',
+                'criado_em'  => gmdate( 'c' ),
+            ] );
+            $card['responsavel_id'] = $uid_open;   // reflete na combo e no restante da tela
+        }
+    }
+
+    // ── Campos obrigatórios pendentes (enforcement no Pós-vendas) ───────────────
+    // Ao abrir um card do funil de Pós-vendas, exige os campos obrigatórios
+    // configurados no estágio atual (mesma fonte do move_card / fechamento de Vendas).
+    $campos_obrig_pend = [];
+    $_pv_pl = get_option( 'tao_crm_pos_vendas_pipeline_' . ( $card['workspace_id'] ?? '' ), '' );
+    if ( ! $_pv_pl && ! empty( $card['workspace_id'] ) ) {
+        $_rpl = tao_crm_api( "/crm_pipelines?workspace_id=eq.{$card['workspace_id']}&ativo=eq.true&order=ordem.asc&select=id&limit=2" );
+        $_apl = $_rpl['ok'] ? ( $_rpl['data'] ?? [] ) : [];
+        if ( count( $_apl ) >= 2 ) $_pv_pl = $_apl[1]['id'];
+    }
+    $is_pos_card = ( $_pv_pl && ( $card['pipeline_id'] ?? '' ) === $_pv_pl );
+    if ( $is_pos_card && ! empty( $card['estagio_id'] ) ) {
+        $_rce  = tao_crm_api( "/crm_campos_estagio?estagio_id=eq.{$card['estagio_id']}&na_entrada=eq.true&obrigatorio=eq.true&order=ordem.asc" );
+        $_reqs = $_rce['ok'] ? ( $_rce['data'] ?? [] ) : [];
+        if ( $_reqs ) {
+            $_cids = array_column( $_reqs, 'campo_id' );
+            $_in   = implode( ',', $_cids );
+            $_rv   = tao_crm_api( "/crm_cards_valores?card_id=eq.$card_id&campo_id=in.($_in)&select=campo_id,valor" );
+            $_vals = [];
+            foreach ( ( $_rv['ok'] ? ( $_rv['data'] ?? [] ) : [] ) as $_v ) $_vals[ $_v['campo_id'] ] = $_v['valor'];
+            $_rdef = tao_crm_api( "/crm_campos_definicao?id=in.($_in)&select=id,nome,tipo,opcoes" );
+            $_defs = [];
+            foreach ( ( $_rdef['ok'] ? ( $_rdef['data'] ?? [] ) : [] ) as $_d ) $_defs[ $_d['id'] ] = $_d;
+            foreach ( $_reqs as $_rq ) {
+                $_cid = $_rq['campo_id'];
+                $_val = $_vals[ $_cid ] ?? '';
+                if ( ( $_val === '' || $_val === null ) && isset( $_defs[ $_cid ] ) ) {
+                    $campos_obrig_pend[] = [
+                        'id'     => $_cid,
+                        'nome'   => $_defs[ $_cid ]['nome'],
+                        'tipo'   => $_defs[ $_cid ]['tipo'] ?? 'texto',
+                        'opcoes' => $_defs[ $_cid ]['opcoes'] ?? null,
+                    ];
+                }
+            }
+        }
+    }
+
     $re       = tao_crm_api( "/crm_estagios?pipeline_id=eq.{$card['pipeline_id']}&order=ordem.asc" );
     $estagios = $re['ok'] ? ( $re['data'] ?? [] ) : [];
 
@@ -419,10 +474,28 @@ function tao_crm_page_card() {
                                         title="Importar orçamentos via texto (formato ORC:…)">
                                     &#x1F4CB; Importar
                                 </button>
+                                <button type="button" id="crm-analise-btn"
+                                        class="button button-small"
+                                        style="font-size:11px;color:#1d4ed8;border-color:#93c5fd"
+                                        title="Resumo de margem de todos os orçamentos do card">
+                                    &#x1F4CA; Análise de preços
+                                </button>
                             </div>
                         </div>
                         <div id="crm-formulas-list" style="font-size:12px;color:#94a3b8;padding:4px 0;max-height:280px;overflow-y:auto;overflow-x:auto">
                             Carregando...
+                        </div>
+
+                        <!-- Análise de preços do card (todos os orçamentos) -->
+                        <div id="crm-analise-panel" style="display:none;margin-top:8px;border:1px solid #bfdbfe;border-radius:6px;background:#f8fafc;padding:10px">
+                            <div id="crm-analise-body" style="overflow-x:auto;font-size:12px">Carregando…</div>
+                            <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+                                <label style="font-size:12px;font-weight:600;color:#475569">&#x1F93A; Valor do concorrente (total do card):</label>
+                                <input type="text" id="crm-analise-conc" placeholder="R$ 0,00" inputmode="decimal"
+                                       style="width:110px;border:1px solid #cbd5e1;border-radius:4px;padding:4px 8px;font-size:13px">
+                                <span id="crm-analise-conc-status" style="font-size:11px;color:#64748b"></span>
+                            </div>
+                            <div id="crm-analise-cenario" style="margin-top:8px"></div>
                         </div>
 
                         <?php if ( empty( $card['fechado'] ) ) : ?>
@@ -516,6 +589,52 @@ function tao_crm_page_card() {
                 </div>
                 <?php endif; ?>
 
+                <?php if ( ! empty( $campos_obrig_pend ) ) : ?>
+                <div class="card-campos-aviso" style="background:#fffbeb;border:1px solid #fde68a;border-left:4px solid #f59e0b;border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:13px;color:#92400e">
+                    <strong class="cob-title">&#x26A0;&#xFE0F; Campos obrigatórios pendentes nesta fase</strong>
+                    <div style="margin:4px 0 0">Preencha abaixo para liberar o avanço do card:</div>
+                    <ul style="margin:6px 0 0 18px">
+                        <?php foreach ( $campos_obrig_pend as $_cpb ) : ?>
+                        <li data-campo-id="<?php echo esc_attr( $_cpb['id'] ); ?>"><?php echo esc_html( trim( str_replace( '\\', '', (string) ( $_cpb['nome'] ?? '' ) ) ) ); ?></li>
+                        <?php endforeach; ?>
+                    </ul>
+                </div>
+                <script>
+                (function(){
+                    var banner = document.querySelector('.card-campos-aviso');
+                    if (!banner) return;
+                    function answered(cid){
+                        var els = document.querySelectorAll('.campo-input[data-campo-id="'+cid+'"]');
+                        for (var i=0;i<els.length;i++){
+                            var e=els[i];
+                            if (e.type==='radio'){ if(e.checked) return true; }
+                            else if (e.type==='checkbox'){ if(e.checked) return true; }
+                            else if ((e.value||'').trim()!=='') return true;
+                        }
+                        return false;
+                    }
+                    function refresh(){
+                        var pend=0;
+                        banner.querySelectorAll('li[data-campo-id]').forEach(function(li){
+                            if (answered(li.getAttribute('data-campo-id'))){
+                                li.style.color='#16a34a'; li.style.textDecoration='line-through';
+                                if(!li.querySelector('.cob-ck')){ var s=document.createElement('span'); s.className='cob-ck'; s.textContent=' ✓'; s.style.textDecoration='none'; li.appendChild(s); }
+                            } else {
+                                pend++; li.style.color=''; li.style.textDecoration='';
+                                var ck=li.querySelector('.cob-ck'); if(ck) ck.remove();
+                            }
+                        });
+                        var t=banner.querySelector('.cob-title');
+                        if (pend===0){ banner.style.background='#f0fdf4'; banner.style.borderColor='#bbf7d0'; banner.style.borderLeftColor='#16a34a'; banner.style.color='#166534'; if(t) t.innerHTML='✅ Todos os campos obrigatórios preenchidos'; }
+                        else { banner.style.background='#fffbeb'; banner.style.borderColor='#fde68a'; banner.style.borderLeftColor='#f59e0b'; banner.style.color='#92400e'; if(t) t.innerHTML='⚠️ Campos obrigatórios pendentes nesta fase ('+pend+')'; }
+                    }
+                    document.addEventListener('change', function(e){ if(e.target&&e.target.classList&&e.target.classList.contains('campo-input')) refresh(); });
+                    document.addEventListener('input',  function(e){ if(e.target&&e.target.classList&&e.target.classList.contains('campo-input')) refresh(); });
+                    refresh();
+                })();
+                </script>
+                <?php endif; ?>
+
                 <!-- Campos do estágio atual -->
                 <?php if ( ! empty( $campos_estagio ) ) : ?>
                 <div class="card-campos-section">
@@ -532,7 +651,7 @@ function tao_crm_page_card() {
                             <?php echo esc_html( $def['nome'] ); ?>
                             <?php if ( $obg ) : ?><span class="campo-required" title="Obrigatório">*</span><?php endif; ?>
                         </label>
-                        <?php echo tao_crm_render_campo_input( $def, $val, $card_id ); ?>
+                        <?php echo tao_crm_render_campo_input( $def, $val, $card_id, $is_pos_card ); ?>
                         <span class="campo-saved" style="display:none">✔ salvo</span>
                     </div>
                     <?php endforeach; ?>
@@ -548,7 +667,7 @@ function tao_crm_page_card() {
                     ?>
                     <div class="campo-item" data-campo-id="<?php echo esc_attr( $cid ); ?>">
                         <label class="campo-label"><?php echo esc_html( $def['nome'] ); ?></label>
-                        <?php echo tao_crm_render_campo_input( $def, $val, $card_id ); ?>
+                        <?php echo tao_crm_render_campo_input( $def, $val, $card_id, $is_pos_card ); ?>
                         <span class="campo-saved" style="display:none">✔ salvo</span>
                     </div>
                     <?php endforeach; ?>
@@ -745,6 +864,13 @@ function tao_crm_page_card() {
                                     style="border:1px solid #cbd5e1;border-radius:4px;padding:6px 8px;font-size:13px"></textarea>
                                 <input type="datetime-local" id="crm-agendar-quando"
                                     style="border:1px solid #cbd5e1;border-radius:4px;padding:6px 8px;font-size:13px">
+                                <select id="crm-agendar-mover"
+                                    style="border:1px solid #cbd5e1;border-radius:4px;padding:6px 8px;font-size:13px">
+                                    <option value="">Ao enviar, não mover o card</option>
+                                    <?php foreach ( $estagios as $e ) : if ( $e['id'] === ( $card['estagio_id'] ?? '' ) ) continue; ?>
+                                    <option value="<?php echo esc_attr( $e['id'] ); ?>">Ao enviar, mover para: <?php echo esc_html( $e['nome'] ); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
                                 <div style="display:flex;gap:8px">
                                     <button type="button" id="crm-agendar-salvar" class="button button-primary">Agendar</button>
                                     <button type="button" id="crm-agendar-cancelar" class="button">Cancelar</button>
@@ -1157,6 +1283,8 @@ function tao_crm_page_card() {
             </div>
         </div>
     </div>
+
+    <?php /* Validação de campos obrigatórios do Pós-vendas: agora é AVISO inline (acima da seção de campos) + trava no avançar (move_card). Modal removido. */ ?>
 
     <?php endif; ?>
 
@@ -1606,9 +1734,11 @@ function tao_crm_page_card() {
             document.getElementById('crm-agendar-salvar').addEventListener('click', function(){
                 var txt    = document.getElementById('crm-agendar-texto').value.trim();
                 var quando = document.getElementById('crm-agendar-quando').value;
+                var moverEl = document.getElementById('crm-agendar-mover');
+                var mover  = moverEl ? moverEl.value : '';
                 var st     = document.getElementById('crm-agendar-status');
                 if (!txt || !quando) { st.textContent='Preencha mensagem e data/hora'; st.style.color='red'; return; }
-                crmPost({action:'tao_crm_save_msg_agendada', nonce:taoCrm.nonce, card_id:taoCrmCardId, conteudo:txt, agendado_para:quando}, function(r){
+                crmPost({action:'tao_crm_save_msg_agendada', nonce:taoCrm.nonce, card_id:taoCrmCardId, conteudo:txt, agendado_para:quando, para_estagio_id:mover}, function(r){
                     if (r.success) {
                         st.style.color='green'; st.textContent='✔ Agendada!';
                         setTimeout(function(){ document.getElementById('crm-agendar-form').style.display='none'; st.textContent=''; }, 2000);
@@ -1674,6 +1804,109 @@ function tao_crm_page_card() {
             fecharModal();
             if (e.data.taofSaved) carregarFormulas();
         });
+
+        // ── Análise de preços do card (todos os orçamentos) ───────────
+        (function () {
+            var anBtn   = document.getElementById('crm-analise-btn');
+            var anPanel = document.getElementById('crm-analise-panel');
+            if (!anBtn || !anPanel) return;
+            var anBody  = document.getElementById('crm-analise-body');
+            var anCen   = document.getElementById('crm-analise-cenario');
+            var anConc  = document.getElementById('crm-analise-conc');
+            var anSt    = document.getElementById('crm-analise-conc-status');
+            var anTotais = null, anLoaded = false, anTimer = null;
+
+            function moeda(v){ return (v == null ? 0 : v).toLocaleString('pt-BR', {style:'currency', currency:'BRL'}); }
+            function mrgTxt(p){ return (p === null || p === undefined) ? '—' : p.toLocaleString('pt-BR', {maximumFractionDigits:1}) + '%'; }
+            function corRs(v){ return v < 0 ? 'color:#dc2626;font-weight:600' : 'color:#16a34a;font-weight:600'; }
+            function parseVal(s){ s = (s || '').replace(/[^\d.,]/g, ''); if (s.indexOf(',') >= 0) s = s.replace(/\./g, '').replace(',', '.'); return parseFloat(s) || 0; }
+
+            function renderCenario(){
+                if (!anTotais) { anCen.innerHTML = ''; return; }
+                var vc = parseVal(anConc.value);
+                if (!vc) { anCen.innerHTML = ''; return; }
+                var mrs  = vc - anTotais.custo;
+                var mpct = anTotais.custo > 0 ? (mrs / anTotais.custo * 100) : null;
+                var dif  = anTotais.cobrado - vc;
+                var difPct = vc > 0 ? Math.abs(dif) / vc * 100 : 0;
+                anCen.innerHTML =
+                    '<div style="border-top:1px dashed #cbd5e1;padding-top:8px;font-size:12px;color:#334155">' +
+                    '<strong>🥊 Cenário concorrente:</strong> cobrindo o valor de ' + moeda(vc) +
+                    ', a margem do card seria <span style="' + corRs(mrs) + '">' + moeda(mrs) + '</span> (' + mrgTxt(mpct) + ').' +
+                    '<br>Nosso valor cobrado (' + moeda(anTotais.cobrado) + ') está <span style="' + (dif > 0 ? 'color:#dc2626' : 'color:#16a34a') + ';font-weight:600">' +
+                    moeda(Math.abs(dif)) + ' (' + difPct.toLocaleString('pt-BR', {maximumFractionDigits:1}) + '%) ' + (dif > 0 ? 'ACIMA' : 'ABAIXO') + '</span> do concorrente.</div>';
+            }
+
+            function compTxt(c){
+                if (!c) return '';
+                return '<div style="font-size:10px;color:#64748b;font-weight:400;white-space:nowrap;margin-top:2px">' +
+                    'Ativos ' + moeda(c.ativos) + ' · Emb ' + moeda(c.embalagens) + ' · Cáps ' + moeda(c.capsulas) +
+                    ' · C.Fixo ' + moeda(c.custo_fixo) +
+                    ' · <span title="Acréscimo compõe o preço cobrado (não soma no custo)">Acrésc ' + moeda(c.acrescimo) + '</span></div>';
+            }
+            function renderTabela(d){
+                if (!d.linhas.length) { anBody.innerHTML = '<span style="color:#94a3b8">Nenhum orçamento no card.</span>'; return; }
+                var h = '<table style="width:100%;border-collapse:collapse;min-width:640px">' +
+                    '<thead><tr style="text-align:left;color:#64748b;font-size:11px;text-transform:uppercase">' +
+                    '<th style="padding:4px 6px">Orçamento</th><th style="padding:4px 6px">Vlr Calculado</th>' +
+                    '<th style="padding:4px 6px">Vlr Cobrado</th><th style="padding:4px 6px">Custo/Compra</th>' +
+                    '<th style="padding:4px 6px">Margem %</th><th style="padding:4px 6px">Margem R$</th></tr></thead><tbody>';
+                d.linhas.forEach(function (l) {
+                    h += '<tr style="border-top:1px solid #e2e8f0">' +
+                        '<td style="padding:4px 6px;font-weight:600;vertical-align:top">' + l.numero +
+                        (l.sem_custo ? ' <span title="Há itens sem custo cadastrado — custo pode estar subestimado" style="color:#d97706;cursor:help">⚠</span>' : '') + '</td>' +
+                        '<td style="padding:4px 6px;vertical-align:top">' + moeda(l.calculado) + '</td>' +
+                        '<td style="padding:4px 6px;vertical-align:top">' + moeda(l.cobrado) + '</td>' +
+                        '<td style="padding:4px 6px;vertical-align:top">' + moeda(l.custo) + compTxt(l.comp) + '</td>' +
+                        '<td style="padding:4px 6px;vertical-align:top">' + mrgTxt(l.margem_pct) + '</td>' +
+                        '<td style="padding:4px 6px;vertical-align:top;' + corRs(l.margem_rs) + '">' + moeda(l.margem_rs) + '</td></tr>';
+                });
+                var t = d.total;
+                if (t) {
+                    h += '<tr style="border-top:2px solid #93c5fd;background:#eff6ff;font-weight:700">' +
+                        '<td style="padding:5px 6px;vertical-align:top">TOTAL DO CARD</td>' +
+                        '<td style="padding:5px 6px;vertical-align:top">' + moeda(t.calculado) + '</td>' +
+                        '<td style="padding:5px 6px;vertical-align:top">' + moeda(t.cobrado) + '</td>' +
+                        '<td style="padding:5px 6px;vertical-align:top">' + moeda(t.custo) + compTxt(t.comp) + '</td>' +
+                        '<td style="padding:5px 6px;vertical-align:top">' + mrgTxt(t.margem_pct) + '</td>' +
+                        '<td style="padding:5px 6px;vertical-align:top;' + corRs(t.margem_rs) + '">' + moeda(t.margem_rs) + '</td></tr>';
+                }
+                anBody.innerHTML = h + '</tbody></table>';
+            }
+
+            function carregarAnalise(persistir){
+                var body = new URLSearchParams({ action: 'tao_crm_card_analise_precos', nonce: taoCrm.nonce, card_id: cardId });
+                if (persistir) body.set('valor_concorrente', anConc.value);
+                fetch(ajaxUrl, { method: 'POST', credentials: 'same-origin',
+                                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString() })
+                    .then(function (r) { return r.text(); })
+                    .then(function (txt) {
+                        var resp, i = txt.indexOf('{');
+                        try { resp = JSON.parse(i > 0 ? txt.slice(i) : txt); }
+                        catch (e) { anBody.innerHTML = '<span style="color:#dc2626">Erro ao carregar análise.</span>'; return; }
+                        if (!resp.success) { anBody.innerHTML = '<span style="color:#dc2626">' + (resp.data || 'Erro') + '</span>'; return; }
+                        anTotais = resp.data.total;
+                        if (!anLoaded && resp.data.valor_concorrente > 0) {
+                            anConc.value = resp.data.valor_concorrente.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+                        }
+                        anLoaded = true;
+                        renderTabela(resp.data);
+                        renderCenario();
+                        if (persistir && anSt) { anSt.textContent = '✔ salvo'; setTimeout(function(){ anSt.textContent = ''; }, 1500); }
+                    });
+            }
+
+            anBtn.addEventListener('click', function () {
+                var vis = anPanel.style.display !== 'none';
+                anPanel.style.display = vis ? 'none' : 'block';
+                if (!vis && !anLoaded) carregarAnalise(false);
+            });
+            anConc.addEventListener('input', function () {
+                renderCenario();
+                clearTimeout(anTimer);
+                anTimer = setTimeout(function () { carregarAnalise(true); }, 900);
+            });
+        })();
 
         // ── Carrega lista de orçamentos do card ───────────────────────
         function statusLabel(st) {
@@ -2392,7 +2625,7 @@ function tao_crm_page_card() {
 
 // ─── RENDER CAMPO INPUT ───────────────────────────────────────────────────────
 
-function tao_crm_render_campo_input( $def, $val, $card_id ) {
+function tao_crm_render_campo_input( $def, $val, $card_id, $bool_radio = false ) {
     $id    = esc_attr( $def['id'] );
     $tipo  = $def['tipo'] ?? 'text';
     $val_e = esc_attr( $val );
@@ -2402,6 +2635,16 @@ function tao_crm_render_campo_input( $def, $val, $card_id ) {
         return "<textarea $attrs rows='3'>" . esc_textarea( $val ) . "</textarea>";
     }
     if ( $tipo === 'boolean' ) {
+        // Pós-vendas: Sim/Não explícito como COMBO (select) — exige escolha e navega por setas.
+        if ( $bool_radio ) {
+            $s1 = ( $val === '1' || $val === 'true' )  ? 'selected' : '';
+            $s0 = ( $val === '0' || $val === 'false' ) ? 'selected' : '';
+            return "<select $attrs style='min-width:120px'>"
+                 . "<option value=''>— selecione —</option>"
+                 . "<option value='1' $s1>Sim</option>"
+                 . "<option value='0' $s0>Não</option>"
+                 . "</select>";
+        }
         $chk = $val === '1' || $val === 'true' ? 'checked' : '';
         return "<label class='campo-bool'><input type='checkbox' $attrs $chk value='1'> Sim</label>";
     }

@@ -1,0 +1,23 @@
+Status	Significado
+OK	Teste passou conforme esperado
+NOK	Teste falhou — comportamento errado
+Não Previsto	Funcionalidade não implementada ou fora do escopo
+	
+Bloco	Descrição
+1	Navegação e Layout
+2	TAO Neo: Configurações de Negócio
+3	TAO Neo: Operações
+4	TAO CRM: Configurações
+5	TAO CRM: Operações
+6	Controle de Acesso
+7	Integrações
+8	CSAT e Delivery Status
+9	Homologação Magis-TAO: Fluxo Real
+10	Concorrência e uso simultâneo
+11	Falhas, resiliência e recuperação
+12	Carga, volume e performance
+13	IA, contexto e qualidade de resposta
+14	Segurança, permissões e LGPD
+15	Billing, planos e provisionamento
+16	Backup, restore, auditoria e logs
+17	Operação final Magis-TAO / Go-Live

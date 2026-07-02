@@ -1,0 +1,17 @@
+Arquivo	Descrição	Testes Relacionados
+ev_kanban_board_dashboard.png	Kanban com sidebar e Dashboard	1.1, 1.4, 5.1, 5.2
+ev_kanban_board_full.png	Kanban completo com colunas e filtros	4.2, 4.3, 5.3, 5.17, 5.24
+ev_card_detail_chat.png	Card aberto com chat completo	5.5, 5.6, 5.10, 5.11, 5.12, 5.14, 10.6_wh
+ev_card_detail_responsavel_dario.png	Card com responsável Dario Santos	4.12, 5.5, 5.7
+ev_card_detail_responsavel_email.png	Card com responsável email	5.14
+ev_card_valor_88_salvo.png	Card com valor R$ 88 salvo	5.8
+ev_kanban_valor_88.png	Kanban mostrando R$ 88 no card	5.8
+ev_card_detail_instancia.png	Card mostrando instância TAO-2	10.5_wh
+ev_automacoes_flw_orcamento.png	Automações Flw Orçamento Enviado (3)	1.2, 4.1, 4.11, 6.4
+ev_automacoes_list_new.png	Lista de automações (novo layout)	4.11, 7.3
+ev_automacao_followup_22min.png	Follow-up orçamento 22min detalhe	4.11
+ev_automacao_followup_22min_detail.png	Detalhe automação 22min com variáveis	4.11
+ev_automacao_followup_33min.png	Follow-up orçamento 33min editado	4.11
+ev_horario_atendimento_sabado.png	Horário com sábado ativo 09-13h	4.17
+ev_horario_atendimento_semana.png	Horário semana seg-sex 08-18h	4.17
+log_ssh_tests.txt	Log completo dos testes SSH/API	Todos os testes automatizados

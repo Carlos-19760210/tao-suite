@@ -1738,6 +1738,8 @@ function tao_crm_page_settings() {
 
                                 'recebeu_mensagem'  => '&#x1F4AC; Receber msg',
 
+                                'enviou_mensagem'   => '&#x1F4E8; Enviou msg',
+
                                 'sem_resposta'      => '&#x23F0; ' . ( $a['horas_sem_resposta'] ?? 24 ) . 'h s/resposta',
 
                             ];
@@ -1751,6 +1753,8 @@ function tao_crm_page_settings() {
                                 'atribuir_responsavel' => '&#x1F464; Atribuir',
 
                                 'notificar_email'      => '&#x1F4E7; E-mail',
+
+                                'fechar_perdido'       => '&#x274C; Perder',
 
                             ];
 
@@ -1842,6 +1846,8 @@ function tao_crm_page_settings() {
 
                                 <option value="recebeu_mensagem" <?php selected( $tipo_sel, 'recebeu_mensagem' ); ?>>&#x1F4AC; Ao receber mensagem</option>
 
+                                <option value="enviou_mensagem"  <?php selected( $tipo_sel, 'enviou_mensagem' ); ?>>&#x1F4E8; Ao atendente enviar mensagem</option>
+
                                 <option value="sem_resposta"     <?php selected( $tipo_sel, 'sem_resposta' ); ?>>&#x23F0; Lead sem resposta há X horas</option>
 
                             </select>
@@ -1895,6 +1901,8 @@ function tao_crm_page_settings() {
                                 <option value="atribuir_responsavel" <?php selected( $acao_sel, 'atribuir_responsavel' ); ?>>&#x1F464; Atribuir responsável</option>
 
                                 <option value="notificar_email"      <?php selected( $acao_sel, 'notificar_email' ); ?>>&#x1F4E7; Notificar atendente por e-mail</option>
+
+                                <option value="fechar_perdido"       <?php selected( $acao_sel, 'fechar_perdido' ); ?>>&#x274C; Fechar card como perdido</option>
 
                             </select>
 

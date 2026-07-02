@@ -109,6 +109,7 @@ function tao_crm_page_dashboard() {
 
     $ganho_events      = []; // [ card_id => data_evento ] no período (distinct)
     $perdido_events    = []; // [ card_id => data_evento ] no período (distinct)
+    $perdido_motivos   = []; // [ card_id => motivo do fechamento ]
     $ganho_week_events = []; // [ [ 'dt'=>, 'card_id'=> ] ] últimas 8 semanas
 
     if ( ! empty( $para_in ) ) {
@@ -116,7 +117,7 @@ function tao_crm_page_dashboard() {
         $rh = tao_crm_api(
             "/crm_cards_historico?para_estagio_id=in.($in_list)" .
             "&criado_em=gte." . urlencode( $hist_desde ) .
-            "&select=card_id,de_estagio_id,para_estagio_id,criado_em" .
+            "&select=card_id,de_estagio_id,para_estagio_id,criado_em,motivo" .
             "&order=criado_em.desc&limit=5000"
         );
         foreach ( ( $rh['ok'] ? ( $rh['data'] ?? [] ) : [] ) as $h ) {
@@ -135,7 +136,8 @@ function tao_crm_page_dashboard() {
                 if ( $dt >= $desde && ! isset( $ganho_events[ $cid ] ) ) $ganho_events[ $cid ] = $dt;
             }
             if ( $is_perdido && $dt >= $desde && ! isset( $perdido_events[ $cid ] ) ) {
-                $perdido_events[ $cid ] = $dt;
+                $perdido_events[ $cid ]  = $dt;
+                $perdido_motivos[ $cid ] = $h['motivo'] ?? '';
             }
         }
     }
@@ -171,6 +173,55 @@ function tao_crm_page_dashboard() {
     };
     $ganhos_per   = $tao_build_lista( $ganho_events );
     $perdidos_per = $tao_build_lista( $perdido_events );
+
+    // ── Perdas por motivo (período) — conta + valor; agrupa "Falta de Insumo: X" ──
+    $perdas_motivo = [];
+    foreach ( $perdido_events as $cid => $dt ) {
+        $m = trim( (string) ( $perdido_motivos[ $cid ] ?? '' ) );
+        if ( $m === '' ) {
+            $m = '(sem motivo)';
+        } elseif ( stripos( $m, 'falta de insumo' ) === 0 ) {
+            $m = 'Falta de Insumo';   // "Falta de Insumo: MAGNÉSIO" → agrupa; insumo fica no card
+        } elseif ( stripos( $m, 'automação' ) === 0 || stripos( $m, 'automacao' ) === 0 ) {
+            $m = 'Fechado por automação (sem resposta)';
+        }
+        if ( ! isset( $perdas_motivo[ $m ] ) ) $perdas_motivo[ $m ] = [ 'qtd' => 0, 'valor' => 0.0 ];
+        $perdas_motivo[ $m ]['qtd']++;
+        $perdas_motivo[ $m ]['valor'] += floatval( $card_map[ $cid ]['valor_oportunidade'] ?? 0 );
+    }
+    uasort( $perdas_motivo, fn( $a, $b ) => $b['qtd'] <=> $a['qtd'] );
+
+    // ── Renovações (período) — eficiência do serviço ─────────────────────────
+    // Eventos gravados pelo fluxo de renovação (obs começa com "Renovação:")
+    $renov = [ 'enviados' => 0, 'aceites' => 0, 'recusas' => 0, 'semresp' => 0, 'vendas' => 0, 'receita' => 0.0 ];
+    $renov_novos = [];   // ids dos cards clonados nos aceites
+    $rrv = tao_crm_api( "/crm_cards_historico?obs=ilike." . rawurlencode( 'Renovação:' ) . "*" .
+                        "&criado_em=gte." . urlencode( $desde ) .
+                        "&select=card_id,motivo,obs&order=criado_em.desc&limit=2000" );
+    foreach ( ( $rrv['ok'] ? ( $rrv['data'] ?? [] ) : [] ) as $h ) {
+        $hm = $h['motivo'] ?? ''; $ho = $h['obs'] ?? '';
+        if ( stripos( $ho, 'lembrete enviado' ) !== false )            $renov['enviados']++;
+        elseif ( $hm === 'Renovação aceita' ) {
+            $renov['aceites']++;
+            if ( preg_match( '/novo card ([0-9a-f-]{36})/i', $ho, $mm ) ) $renov_novos[] = $mm[1];
+        }
+        elseif ( stripos( $ho, 'não quer renovar' ) !== false )        $renov['recusas']++;
+        elseif ( stripos( $ho, 'sem resposta ao lembrete' ) !== false ) $renov['semresp']++;
+    }
+    if ( $renov_novos ) {
+        // Desfecho dos cards clonados: virou venda = está no Pós-vendas ou em estágio ganho
+        $rrn = tao_crm_api( '/crm_cards?id=in.(' . implode( ',', array_unique( $renov_novos ) ) . ')&select=id,estagio_id,valor_oportunidade' );
+        foreach ( ( $rrn['ok'] ? ( $rrn['data'] ?? [] ) : [] ) as $nc ) {
+            if ( isset( $pos_set[ $nc['estagio_id'] ] ) || isset( $ganho_set[ $nc['estagio_id'] ] ) ) {
+                $renov['vendas']++;
+                $renov['receita'] += floatval( $nc['valor_oportunidade'] ?? 0 );
+            }
+        }
+    }
+    $renov_decididos  = $renov['aceites'] + $renov['recusas'] + $renov['semresp'];
+    $renov_tem_dados  = ( $renov['enviados'] + $renov_decididos ) > 0;
+    $renov_tx_aceite  = $renov_decididos > 0 ? round( $renov['aceites'] / $renov_decididos * 100 ) : 0;
+    $renov_tx_venda   = $renov['aceites'] > 0 ? round( $renov['vendas'] / $renov['aceites'] * 100 ) : 0;
 
     $n_ganhos_per   = count( $ganhos_per );
     $n_perdidos_per = count( $perdidos_per );
@@ -678,6 +729,69 @@ function tao_crm_page_dashboard() {
                 <?php $render_lista_cards( $perdidos_per, '#991b1b' ); ?>
             </div>
         </div>
+
+        <?php if ( ! empty( $renov_tem_dados ) ) : ?>
+        <!-- Renovações (período) — eficiência do serviço -->
+        <div class="crm-dash-kpi-card" style="border-left:4px solid #0d9488;background:#f0fdfa;margin-bottom:24px">
+            <span class="kpi-label">&#x1F504; Renova&ccedil;&otilde;es &mdash; &uacute;ltimos <?php echo $dias; ?>d</span>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-top:10px">
+                <div>
+                    <div style="font-size:26px;font-weight:700;color:#0f766e"><?php echo $renov['enviados']; ?></div>
+                    <div style="font-size:12px;color:#134e4a">Lembretes enviados</div>
+                </div>
+                <div>
+                    <div style="font-size:26px;font-weight:700;color:#16a34a"><?php echo $renov['aceites']; ?></div>
+                    <div style="font-size:12px;color:#134e4a">Aceitaram renovar<?php echo $renov_decididos ? ' (' . $renov_tx_aceite . '%)' : ''; ?></div>
+                </div>
+                <div>
+                    <div style="font-size:26px;font-weight:700;color:#dc2626"><?php echo $renov['recusas']; ?></div>
+                    <div style="font-size:12px;color:#134e4a">N&atilde;o renovaram</div>
+                </div>
+                <div>
+                    <div style="font-size:26px;font-weight:700;color:#64748b"><?php echo $renov['semresp']; ?></div>
+                    <div style="font-size:12px;color:#134e4a">Sem resposta</div>
+                </div>
+                <div>
+                    <div style="font-size:26px;font-weight:700;color:#0d9488"><?php echo $renov['vendas']; ?><?php echo $renov['aceites'] ? ' <small style="font-size:13px">(' . $renov_tx_venda . '%)</small>' : ''; ?></div>
+                    <div style="font-size:12px;color:#134e4a">Viraram venda &middot; R$&nbsp;<?php echo number_format( $renov['receita'], 0, ',', '.' ); ?></div>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
+
+        <?php if ( ! empty( $perdas_motivo ) ) : $pm_total = max( 1, $n_perdidos_per ); ?>
+        <!-- Perdas por motivo (período) -->
+        <div class="crm-dash-kpi-card" style="border-left:4px solid #f59e0b;background:#fffbeb;margin-bottom:24px">
+            <span class="kpi-label">&#x1F4C9; Perdas por motivo &mdash; &uacute;ltimos <?php echo $dias; ?>d</span>
+            <div class="cbpm-tscroll" style="overflow-x:auto;margin-top:8px">
+                <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:420px">
+                    <thead><tr style="text-align:left;color:#92400e;font-size:11px;text-transform:uppercase">
+                        <th style="padding:4px 6px">Motivo</th>
+                        <th style="padding:4px 6px;width:70px">Cards</th>
+                        <th style="padding:4px 6px;width:110px">Valor perdido</th>
+                        <th style="padding:4px 6px">%</th>
+                    </tr></thead>
+                    <tbody>
+                    <?php foreach ( $perdas_motivo as $pm_nome => $pm ) : $pm_pct = round( $pm['qtd'] / $pm_total * 100 ); ?>
+                    <tr style="border-top:1px solid #fde68a">
+                        <td style="padding:5px 6px;font-weight:600;color:#78350f"><?php echo esc_html( $pm_nome ); ?></td>
+                        <td style="padding:5px 6px"><?php echo $pm['qtd']; ?></td>
+                        <td style="padding:5px 6px">R$&nbsp;<?php echo number_format( $pm['valor'], 0, ',', '.' ); ?></td>
+                        <td style="padding:5px 6px">
+                            <div style="display:flex;align-items:center;gap:6px">
+                                <div style="flex:1;max-width:160px;background:#fde68a;border-radius:4px;height:8px;overflow:hidden">
+                                    <div style="width:<?php echo $pm_pct; ?>%;background:#f59e0b;height:8px"></div>
+                                </div>
+                                <span style="font-size:12px;color:#92400e"><?php echo $pm_pct; ?>%</span>
+                            </div>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <?php endif; ?>
 
         <!-- Gráficos 2x2 -->
         <div class="crm-charts-grid">
