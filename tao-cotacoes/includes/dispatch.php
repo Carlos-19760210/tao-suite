@@ -95,6 +95,21 @@ function tao_cotacoes_fornecedor_msg( $ws_id, $num, $inst_id, $from_me, $tipo, $
     $cid = $forn['cliente_id'] ?? null;
     if ( ! $cid ) return true; // fornecedor sem cliente resolvido: desvia mesmo assim
 
+    // Eco do webhook: msg enviada PELO PAINEL volta como from_me — já foi gravada
+    // na hora do envio. Ignora se há out recente equivalente (texto igual, ou
+    // qualquer mídia out nos últimos 2 min).
+    if ( $from_me ) {
+        $desde = rawurlencode( gmdate( 'c', time() - 120 ) );
+        $chk = tao_cot_api( "/fornecedor_mensagens?fornecedor_id=eq.{$forn['id']}&direcao=eq.out&criado_em=gte.$desde&select=tipo,conteudo&order=criado_em.desc&limit=8" );
+        if ( $chk['ok'] ) {
+            foreach ( $chk['data'] as $mm ) {
+                $eco_txt   = $tipo === 'text' && trim( (string) $mm['conteudo'] ) === trim( (string) $conteudo );
+                $eco_midia = $tipo !== 'text' && ( $mm['tipo'] ?? 'text' ) !== 'text';
+                if ( $eco_txt || $eco_midia ) return true;
+            }
+        }
+    }
+
     $aberta = tao_cotacoes_cotacao_aberta_do_fornecedor( $forn['id'] );
 
     tao_cot_api( '/fornecedor_mensagens', 'POST', [
