@@ -298,6 +298,133 @@ add_action( 'wp_ajax_tao_cot_set_status', function() {
     wp_send_json_success();
 } );
 
+// ── Chat com fornecedor (thread própria do módulo, fora do CRM) ──────────────
+
+/**
+ * Resolve a instância de envio: a da cotação (se informada) → a da última
+ * mensagem da thread → a primeira instância do cliente.
+ */
+function tao_cot_chat_instancia( $cid, $fornecedor_id, $cotacao_id = '' ) {
+    $inst_id = null;
+    if ( $cotacao_id ) {
+        $rc = tao_cot_api( "/cotacoes?id=eq.$cotacao_id&cliente_id=eq.$cid&select=instancia_id" );
+        if ( $rc['ok'] && ! empty( $rc['data'] ) ) $inst_id = $rc['data'][0]['instancia_id'];
+    }
+    if ( ! $inst_id ) {
+        $rm = tao_cot_api( "/fornecedor_mensagens?fornecedor_id=eq.$fornecedor_id&instancia_id=not.is.null&select=instancia_id&order=criado_em.desc&limit=1" );
+        if ( $rm['ok'] && ! empty( $rm['data'] ) ) $inst_id = $rm['data'][0]['instancia_id'];
+    }
+    if ( $inst_id ) {
+        $ri = tao_cot_api( "/crm_instancias?id=eq.$inst_id" );
+        if ( $ri['ok'] && ! empty( $ri['data'] ) ) return $ri['data'][0];
+    }
+    $all = tao_cot_instancias( $cid );
+    return $all[0] ?? null;
+}
+
+add_action( 'wp_ajax_tao_cot_chat_get', function() {
+    $cid = tao_cot_ajax_guard();
+    $fid = sanitize_text_field( $_POST['fornecedor_id'] ?? '' );
+    if ( ! $fid ) wp_send_json_error( 'Fornecedor inválido' );
+
+    $after  = sanitize_text_field( $_POST['after'] ?? '' );
+    $filtro = "/fornecedor_mensagens?cliente_id=eq.$cid&fornecedor_id=eq.$fid";
+    $q      = $filtro . '&select=id,cotacao_id,direcao,tipo,conteudo,midia_url,midia_mime,criado_em&order=criado_em.asc&limit=300';
+    if ( $after ) $q .= '&criado_em=gt.' . rawurlencode( $after );
+
+    $r = tao_cot_api( $q );
+    if ( ! $r['ok'] ) wp_send_json_error( 'Falha ao buscar mensagens' );
+
+    // marca recebidas como lidas
+    tao_cot_api( $filtro . '&direcao=eq.in&lida=eq.false', 'PATCH', [ 'lida' => true ] );
+
+    wp_send_json_success( $r['data'] );
+} );
+
+add_action( 'wp_ajax_tao_cot_chat_send', function() {
+    $cid   = tao_cot_ajax_guard();
+    $fid   = sanitize_text_field( $_POST['fornecedor_id'] ?? '' );
+    $texto = trim( sanitize_textarea_field( $_POST['texto'] ?? '' ) );
+    $cot   = sanitize_text_field( $_POST['cotacao_id'] ?? '' );
+    if ( ! $fid || $texto === '' ) wp_send_json_error( 'Mensagem vazia' );
+
+    $rf = tao_cot_api( "/fornecedores?id=eq.$fid&cliente_id=eq.$cid&select=id,whatsapp" );
+    if ( ! $rf['ok'] || empty( $rf['data'] ) ) wp_send_json_error( 'Fornecedor não encontrado' );
+    $forn = $rf['data'][0];
+
+    $instancia = tao_cot_chat_instancia( $cid, $fid, $cot );
+    if ( ! $instancia ) wp_send_json_error( 'Nenhuma instância WhatsApp disponível' );
+
+    $rs = tao_cot_evolution_send( $instancia, $forn['whatsapp'], $texto );
+    if ( ! $rs['ok'] ) wp_send_json_error( 'Falha no envio: ' . ( $rs['error'] ?? ( 'HTTP ' . ( $rs['code'] ?? '?' ) ) ) );
+
+    $aberta = tao_cotacoes_cotacao_aberta_do_fornecedor( $fid );
+    $ri = tao_cot_api( '/fornecedor_mensagens', 'POST', [
+        'cliente_id'    => $cid,
+        'fornecedor_id' => $fid,
+        'cotacao_id'    => $cot ?: ( $aberta['cotacao_id'] ?? null ),
+        'instancia_id'  => $instancia['id'] ?? null,
+        'direcao'       => 'out',
+        'tipo'          => 'text',
+        'conteudo'      => $texto,
+        'enviado_por'   => get_current_user_id(),
+        'lida'          => true,
+        'criado_em'     => gmdate( 'c' ),
+    ] );
+    wp_send_json_success( $ri['data'][0] ?? [] );
+} );
+
+add_action( 'wp_ajax_tao_cot_chat_send_file', function() {
+    $cid = tao_cot_ajax_guard();
+    $fid = sanitize_text_field( $_POST['fornecedor_id'] ?? '' );
+    $cot = sanitize_text_field( $_POST['cotacao_id'] ?? '' );
+    if ( ! $fid ) wp_send_json_error( 'Fornecedor inválido' );
+    if ( empty( $_FILES['file']['tmp_name'] ) ) wp_send_json_error( 'Nenhum arquivo recebido' );
+    if ( $_FILES['file']['size'] > 12 * 1024 * 1024 ) wp_send_json_error( 'Arquivo acima de 12 MB' );
+
+    if ( ! function_exists( 'tao_crm_save_media_file' ) || ! function_exists( 'tao_crm_evolution_send_media' ) ) {
+        wp_send_json_error( 'TAO CRM inativo — envio de mídia indisponível' );
+    }
+
+    $fname = sanitize_file_name( $_FILES['file']['name'] ?? 'arquivo' );
+    $mime  = mime_content_type( $_FILES['file']['tmp_name'] ) ?: 'application/octet-stream';
+    $permitidos = [ 'application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/gif',
+                    'audio/ogg', 'audio/mpeg', 'application/vnd.ms-excel',
+                    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ];
+    if ( ! in_array( $mime, $permitidos, true ) ) wp_send_json_error( "Tipo de arquivo não permitido ($mime)" );
+
+    $rf = tao_cot_api( "/fornecedores?id=eq.$fid&cliente_id=eq.$cid&select=id,whatsapp" );
+    if ( ! $rf['ok'] || empty( $rf['data'] ) ) wp_send_json_error( 'Fornecedor não encontrado' );
+    $forn = $rf['data'][0];
+
+    $instancia = tao_cot_chat_instancia( $cid, $fid, $cot );
+    if ( ! $instancia ) wp_send_json_error( 'Nenhuma instância WhatsApp disponível' );
+
+    $midia_url = tao_crm_save_media_file( file_get_contents( $_FILES['file']['tmp_name'] ), $mime, $fname );
+    if ( ! $midia_url ) wp_send_json_error( 'Erro ao salvar arquivo no servidor' );
+
+    $rs = tao_crm_evolution_send_media( $instancia, $forn['whatsapp'], $midia_url, $mime, $fname );
+    if ( empty( $rs['ok'] ) ) wp_send_json_error( 'Falha no envio: ' . ( $rs['error'] ?? '' ) );
+
+    $tipo = str_starts_with( $mime, 'image/' ) ? 'image' : ( str_starts_with( $mime, 'audio/' ) ? 'audio' : 'document' );
+    $aberta = tao_cotacoes_cotacao_aberta_do_fornecedor( $fid );
+    $ri = tao_cot_api( '/fornecedor_mensagens', 'POST', [
+        'cliente_id'    => $cid,
+        'fornecedor_id' => $fid,
+        'cotacao_id'    => $cot ?: ( $aberta['cotacao_id'] ?? null ),
+        'instancia_id'  => $instancia['id'] ?? null,
+        'direcao'       => 'out',
+        'tipo'          => $tipo,
+        'conteudo'      => $fname,
+        'midia_url'     => $midia_url,
+        'midia_mime'    => $mime,
+        'enviado_por'   => get_current_user_id(),
+        'lida'          => true,
+        'criado_em'     => gmdate( 'c' ),
+    ] );
+    wp_send_json_success( $ri['data'][0] ?? [] );
+} );
+
 add_action( 'wp_ajax_tao_cot_excluir_cotacao', function() {
     $cid = tao_cot_ajax_guard();
     $id  = sanitize_text_field( $_POST['id'] ?? '' );

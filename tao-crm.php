@@ -3492,6 +3492,18 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
                 $midia = tao_crm_download_media( $inst, $msg['key'], $m );
             }
 
+            // ── Fornecedor de cotação (TAO Cotações): conversa 100% fora do CRM ──
+            // Sem card, sem Kanban, sem N8N — a mensagem vai pra thread do módulo.
+            if ( function_exists( 'tao_cotacoes_num_fornecedor' ) ) {
+                $_cot_forn = tao_cotacoes_num_fornecedor( $WS_ID, $num );
+                if ( $_cot_forn ) {
+                    $_cot_mime = $m['imageMessage']['mimetype'] ?? $m['documentMessage']['mimetype']
+                              ?? $m['audioMessage']['mimetype'] ?? $m['videoMessage']['mimetype'] ?? null;
+                    tao_cotacoes_fornecedor_msg( $WS_ID, $num, $INST_ID, $from_me, $tipo, $conteudo, $midia ?? null, $_cot_mime, $_cot_forn );
+                    continue;
+                }
+            }
+
             // ── 1. Lookup/create contato ─────────────────────────────────────────
             $contato_id = null;
             $is_retorno = false;
@@ -3509,15 +3521,6 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
             // ── Opt-out: ignora número que pediu exclusão da lista ────────────────
             if ( ! $from_me && tao_crm_num_opt_out( $num ) ) continue;
 
-            // ── Fornecedor de cotação (TAO Cotações): garante card em handoff ─────
-            // A mensagem segue o fluxo normal (é registrada no card); o bot fica
-            // bloqueado pelo atendimento_humano=true que o helper garante.
-            if ( ! $from_me && function_exists( 'tao_cotacoes_num_fornecedor' ) ) {
-                $_cot_forn = tao_cotacoes_num_fornecedor( $WS_ID, $num );
-                if ( $_cot_forn ) {
-                    tao_cotacoes_fornecedor_inbound( $WS_ID, $num, $contato_id, $INST_ID, $PL_ID, $HANDOFF_STAGE_ID, $_cot_forn );
-                }
-            }
 
             // opt-out: verificado APÓS o check de atendimento humano (mais abaixo)
 

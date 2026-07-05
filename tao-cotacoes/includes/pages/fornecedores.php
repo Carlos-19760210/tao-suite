@@ -11,6 +11,7 @@ function tao_cotacoes_page_fornecedores() {
         $r    = tao_cot_api( "/fornecedores?cliente_id=eq.$cid&order=ativo.desc,nome.asc&limit=500" );
         $rows = $r['ok'] ? ( $r['data'] ?? [] ) : [];
     }
+    $unread = $cid ? tao_cot_unread_por_fornecedor( $cid, array_map( fn( $f ) => $f['id'], $rows ) ) : [];
     ?>
     <div class="wrap taocot-wrap">
         <div class="taocot-bar">
@@ -56,6 +57,11 @@ function tao_cotacoes_page_fornecedores() {
                     <td><?php echo esc_html( $f['contato'] ?? '' ); ?></td>
                     <td style="text-align:center"><span class="taocot-pill <?php echo $ativo ? 'on' : 'off'; ?>"><?php echo $ativo ? 'Ativo' : 'Inativo'; ?></span></td>
                     <td style="text-align:center">
+                        <button class="taocot-btn" data-cot-chat
+                            data-fid="<?php echo esc_attr( $f['id'] ); ?>"
+                            data-nome="<?php echo esc_attr( $f['nome'] ?? '' ); ?>">&#x1F4AC;
+                            <?php $u = $unread[ $f['id'] ] ?? 0; if ( $u ) : ?><span class="taocot-badge"><?php echo $u; ?></span><?php endif; ?>
+                        </button>
                         <button class="taocot-btn" data-cot-edit data-modal="taocot-forn-modal">Editar</button>
                         <button class="taocot-btn taocot-btn-danger" data-cot-del data-action="tao_cot_delete_fornecedor">Excluir</button>
                     </td>
@@ -64,7 +70,7 @@ function tao_cotacoes_page_fornecedores() {
             </tbody>
         </table>
         </div>
-        <p class="taocot-muted">Quando um fornecedor cadastrado responder no WhatsApp, o card dele vai direto para <strong>Aguardando Atendimento</strong> (o bot não responde fornecedores). Fornecedor já usado em cotação é desativado em vez de excluído.</p>
+        <p class="taocot-muted">A conversa com o fornecedor acontece <strong>aqui no módulo</strong> (botão 💬) — fornecedor não aparece no Kanban e o bot nunca responde a ele. Serve também para conversas fora de cotação (dúvidas técnicas etc.). Fornecedor já usado em cotação é desativado em vez de excluído.</p>
         <?php endif; ?>
     </div>
 

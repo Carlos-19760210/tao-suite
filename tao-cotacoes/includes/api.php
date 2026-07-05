@@ -97,6 +97,18 @@ function tao_cot_instancias( $cliente_id ) {
 }
 
 /**
+ * Contagem de mensagens não lidas por fornecedor.
+ */
+function tao_cot_unread_por_fornecedor( $cid, $forn_ids ) {
+    if ( empty( $forn_ids ) ) return [];
+    $in = implode( ',', array_map( 'rawurlencode', $forn_ids ) );
+    $r  = tao_cot_api( "/fornecedor_mensagens?cliente_id=eq.$cid&fornecedor_id=in.($in)&direcao=eq.in&lida=eq.false&select=fornecedor_id&limit=1000" );
+    $out = [];
+    if ( $r['ok'] ) foreach ( $r['data'] as $m ) $out[ $m['fornecedor_id'] ] = ( $out[ $m['fornecedor_id'] ] ?? 0 ) + 1;
+    return $out;
+}
+
+/**
  * Envia texto via Evolution usando uma linha de crm_instancias.
  */
 function tao_cot_evolution_send( $instancia, $numero, $texto ) {
@@ -204,7 +216,26 @@ function tao_cot_assets() {
     .taocot-upload:hover{border-color:#152C42}
     .taocot-upload input{display:none}
     .taocot-status-msg{margin:10px 0;font-size:13px;color:#475569}
-    @media(max-width:900px){.taocot-table{min-width:640px}}
+    .taocot-badge{display:inline-block;min-width:18px;padding:1px 6px;border-radius:12px;background:#dc2626;color:#fff;font-size:11px;font-weight:700;text-align:center;vertical-align:middle}
+    /* chat */
+    .taocot-chat-box{position:relative;max-width:560px;margin:5vh auto;background:#fff;border-radius:12px;box-shadow:0 20px 50px rgba(0,0,0,.3);display:flex;flex-direction:column;height:80vh}
+    .taocot-chat-head{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:#152C42;color:#fff;border-radius:12px 12px 0 0}
+    .taocot-chat-head strong{font-size:14px}
+    .taocot-chat-head .sub{font-size:11px;opacity:.75}
+    .taocot-chat-close{background:none;border:none;color:#fff;font-size:20px;cursor:pointer;line-height:1}
+    .taocot-chat-msgs{flex:1;overflow-y:auto;padding:14px;background:#f1f5f9;display:flex;flex-direction:column;gap:8px}
+    .taocot-bub{max-width:78%;padding:8px 11px;border-radius:10px;font-size:13px;line-height:1.45;word-wrap:break-word;white-space:pre-wrap}
+    .taocot-bub.in{align-self:flex-start;background:#fff;border:1px solid #e2e8f0}
+    .taocot-bub.out{align-self:flex-end;background:#d9e7d6}
+    .taocot-bub .meta{display:block;font-size:10px;color:#94a3b8;margin-top:4px;text-align:right}
+    .taocot-bub img{max-width:100%;border-radius:8px;display:block;margin-bottom:4px}
+    .taocot-bub audio{max-width:230px;display:block}
+    .taocot-bub .doc{display:inline-flex;align-items:center;gap:6px;color:#1d4ed8;text-decoration:none;font-weight:600}
+    .taocot-chat-foot{display:flex;gap:8px;align-items:flex-end;padding:10px 12px;border-top:1px solid #e2e8f0;background:#fff;border-radius:0 0 12px 12px}
+    .taocot-chat-foot textarea{flex:1;resize:none;height:44px;padding:9px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;box-sizing:border-box}
+    .taocot-chat-foot .taocot-btn{padding:9px 12px}
+    .taocot-chat-status{font-size:11px;color:#94a3b8;padding:0 14px 8px;background:#fff}
+    @media(max-width:900px){.taocot-table{min-width:640px}.taocot-chat-box{max-width:96vw;height:86vh;margin:2vh auto}}
     </style>
     <script>
     window.taoCot = { ajaxUrl: <?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>, nonce: <?php echo wp_json_encode( $nonce ); ?> };
@@ -329,7 +360,111 @@ function tao_cot_assets() {
             });
             inp.addEventListener('blur', function(){ setTimeout(function(){ list.style.display='none'; }, 180); });
         };
+
+        /* Chat com fornecedor — thread própria do módulo (fora do CRM). */
+        var chat = { fid:null, cot:'', timer:null };
+        function chatEl(id){ return document.getElementById(id); }
+        function esc(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML; }
+        function hora(iso){
+            try { var d=new Date(iso); return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); }
+            catch(e){ return ''; }
+        }
+        function renderMsgs(list){
+            var box = chatEl('taocot-chat-msgs');
+            var atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 40;
+            box.innerHTML = '';
+            list.forEach(function(m){
+                var b = document.createElement('div');
+                b.className = 'taocot-bub ' + (m.direcao==='out'?'out':'in');
+                var inner = '';
+                if(m.midia_url){
+                    if(m.tipo==='image')      inner += '<a href="'+esc(m.midia_url)+'" target="_blank"><img src="'+esc(m.midia_url)+'" alt=""></a>';
+                    else if(m.tipo==='audio') inner += '<audio controls src="'+esc(m.midia_url)+'"></audio>';
+                    else                      inner += '<a class="doc" href="'+esc(m.midia_url)+'" target="_blank">&#x1F4CE; '+esc(m.conteudo||'arquivo')+'</a>';
+                    if(m.tipo!=='document' && m.conteudo && m.conteudo.charAt(0)!=='[') inner += esc(m.conteudo);
+                } else {
+                    inner += esc(m.conteudo);
+                }
+                inner += '<span class="meta">'+hora(m.criado_em)+'</span>';
+                b.innerHTML = inner;
+                box.appendChild(b);
+            });
+            if(atEnd) box.scrollTop = box.scrollHeight;
+        }
+        function chatLoad(){
+            if(!chat.fid) return;
+            C.post('tao_cot_chat_get', { fornecedor_id: chat.fid }).then(function(r){
+                if(r.success) renderMsgs(r.data||[]);
+            });
+        }
+        C.openChat = function(fid, nome, cotacaoId){
+            chat.fid = fid; chat.cot = cotacaoId||'';
+            chatEl('taocot-chat-nome').textContent = nome||'Fornecedor';
+            chatEl('taocot-chat-msgs').innerHTML = '<div class="taocot-muted" style="text-align:center">Carregando...</div>';
+            chatEl('taocot-chat-modal').style.display = 'block';
+            chatLoad();
+            setTimeout(function(){ var b=chatEl('taocot-chat-msgs'); b.scrollTop=b.scrollHeight; }, 600);
+            clearInterval(chat.timer);
+            chat.timer = setInterval(chatLoad, 8000);
+        };
+        function chatClose(){
+            chatEl('taocot-chat-modal').style.display = 'none';
+            clearInterval(chat.timer); chat.fid = null;
+        }
+        document.addEventListener('click', function(e){
+            var t;
+            if(t = e.target.closest('[data-cot-chat]')){
+                C.openChat(t.getAttribute('data-fid'), t.getAttribute('data-nome'), t.getAttribute('data-cot')||'');
+                var bd = t.querySelector('.taocot-badge'); if(bd) bd.remove();
+            } else if(e.target.closest('.taocot-chat-close')){
+                chatClose();
+            }
+        });
+        document.addEventListener('DOMContentLoaded', function(){
+            var ta = chatEl('taocot-chat-input'), send = chatEl('taocot-chat-send'), file = chatEl('taocot-chat-file');
+            if(!ta) return;
+            function doSend(){
+                var txt = ta.value.trim(); if(!txt || !chat.fid) return;
+                send.disabled = true;
+                C.post('tao_cot_chat_send', { fornecedor_id: chat.fid, cotacao_id: chat.cot, texto: txt }).then(function(r){
+                    send.disabled = false;
+                    if(r.success){ ta.value=''; chatLoad(); setTimeout(function(){ var b=chatEl('taocot-chat-msgs'); b.scrollTop=b.scrollHeight; },400); }
+                    else alert('Erro: '+(r.data||'falha no envio'));
+                }).catch(function(){ send.disabled=false; alert('Falha de rede'); });
+            }
+            send.addEventListener('click', doSend);
+            ta.addEventListener('keydown', function(e){ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); doSend(); } });
+            file.addEventListener('change', function(){
+                var f = file.files[0]; if(!f || !chat.fid) return;
+                var st = chatEl('taocot-chat-st'); st.textContent = 'Enviando '+f.name+'...';
+                C.postFile('tao_cot_chat_send_file', f, { fornecedor_id: chat.fid, cotacao_id: chat.cot }).then(function(r){
+                    st.textContent = r.success ? '' : ('Erro: '+(r.data||'falha'));
+                    if(r.success){ chatLoad(); setTimeout(function(){ var b=chatEl('taocot-chat-msgs'); b.scrollTop=b.scrollHeight; },400); }
+                }).catch(function(){ st.textContent='Falha de rede'; });
+                file.value = '';
+            });
+        });
     })();
     </script>
+
+    <!-- Modal de chat com fornecedor -->
+    <div id="taocot-chat-modal" class="taocot-modal">
+        <div class="taocot-overlay taocot-chat-close" style="cursor:default"></div>
+        <div class="taocot-chat-box">
+            <div class="taocot-chat-head">
+                <div><strong id="taocot-chat-nome">Fornecedor</strong><div class="sub">Conversa do m&oacute;dulo Cota&ccedil;&otilde;es &mdash; fora do CRM</div></div>
+                <button class="taocot-chat-close" title="Fechar">&times;</button>
+            </div>
+            <div class="taocot-chat-msgs" id="taocot-chat-msgs"></div>
+            <div class="taocot-chat-status" id="taocot-chat-st"></div>
+            <div class="taocot-chat-foot">
+                <label class="taocot-btn" title="Enviar anexo (PDF, imagem, planilha, áudio)" style="cursor:pointer">&#x1F4CE;
+                    <input type="file" id="taocot-chat-file" accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,.mp3,.ogg,.xls,.xlsx" style="display:none">
+                </label>
+                <textarea id="taocot-chat-input" placeholder="Escreva a mensagem (Enter envia, Shift+Enter quebra linha)..."></textarea>
+                <button class="taocot-btn taocot-btn-primary" id="taocot-chat-send">Enviar</button>
+            </div>
+        </div>
+    </div>
     <?php
 }

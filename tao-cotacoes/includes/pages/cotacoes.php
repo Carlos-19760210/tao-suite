@@ -96,6 +96,7 @@ function tao_cotacoes_render_view( $cot_id ) {
 
     $rf    = tao_cot_api( "/cotacao_fornecedores?cotacao_id=eq.$cot_id&select=*,fornecedores(nome,whatsapp,contato)&order=enviado_em.asc" );
     $parts = $rf['ok'] ? $rf['data'] : [];
+    $unread = tao_cot_unread_por_fornecedor( $cid, array_map( fn( $p ) => $p['fornecedor_id'], $parts ) );
 
     $ri        = tao_cot_api( "/crm_instancias?id=eq.{$cot['instancia_id']}&select=nome,evolution_instancia" );
     $inst_nome = ( $ri['ok'] && ! empty( $ri['data'] ) ) ? ( $ri['data'][0]['nome'] ?: $ri['data'][0]['evolution_instancia'] ) : '—';
@@ -149,9 +150,12 @@ function tao_cotacoes_render_view( $cot_id ) {
                         <td><?php echo esc_html( tao_cot_dt( $p['enviado_em'] ?? '' ) ); ?></td>
                         <td><?php echo esc_html( tao_cot_dt( $p['respondeu_em'] ?? '' ) ); ?></td>
                         <td>
-                            <?php if ( ! empty( $p['card_id'] ) && function_exists( 'cbpm_url' ) ) : ?>
-                            <a class="taocot-btn" href="<?php echo esc_url( cbpm_url( 'crm-kanban', [ 'action' => 'card', 'id' => $p['card_id'] ] ) ); ?>">Ver conversa</a>
-                            <?php endif; ?>
+                            <button class="taocot-btn" data-cot-chat
+                                data-fid="<?php echo esc_attr( $p['fornecedor_id'] ); ?>"
+                                data-nome="<?php echo esc_attr( $f['nome'] ?? '' ); ?>"
+                                data-cot="<?php echo esc_attr( $cot_id ); ?>">&#x1F4AC; Conversa
+                                <?php $u = $unread[ $p['fornecedor_id'] ] ?? 0; if ( $u ) : ?><span class="taocot-badge"><?php echo $u; ?></span><?php endif; ?>
+                            </button>
                         </td>
                     </tr>
                 <?php endforeach; ?>
