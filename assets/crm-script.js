@@ -316,7 +316,15 @@
                     window.taoCrmCurrentStage = estagioId;
                     _mostrarPosMovBar();
                 } else {
-                    if(resp.data && resp.data.code === 'campos_faltando'){
+                    if(resp.data && resp.data.code === 'perdido_motivo'){
+                        // Mover p/ estágio perdido pela ficha: reencaminha ao fluxo de cancelamento
+                        if($status) $status.text('');
+                        $('#tao-crm-btn-perdido').trigger('click');
+                    } else if(resp.data && resp.data.code === 'ganho_confirmar'){
+                        // Mover p/ estágio ganho pela ficha: reencaminha ao fluxo de ganho
+                        if($status) $status.text('');
+                        $('#tao-crm-btn-ganho').trigger('click');
+                    } else if(resp.data && resp.data.code === 'campos_faltando'){
                         mostrarCamposFaltando(resp.data.campos);
                     } else if(resp.data && resp.data.code === 'sem_negocio'){
                         alert(resp.data.msg);
@@ -384,6 +392,34 @@
         crmPost(data,
             function(resp){
                 if(!resp.success){
+                    // Arrasto p/ estágio PERDIDO: motivo é obrigatório → abre o modal de cancelamento
+                    if(resp.data && resp.data.code === 'perdido_motivo'){
+                        _fecharCardId  = cardId;
+                        _fecharViaDrag = true;
+                        _abrirModalFechar('perdido', [], {});
+                        return; // sem reload — fechar o modal sem confirmar reverte o card
+                    }
+                    // Arrasto p/ estágio GANHO: fluxo de ganho com confirmação do Valor Final
+                    if(resp.data && resp.data.code === 'ganho_confirmar'){
+                        _fecharCardId  = cardId;
+                        _fecharViaDrag = true;
+                        crmPost({ action:'tao_crm_get_ganho_campos', nonce:taoCrm.nonce, card_id:cardId },
+                            function(r2){
+                                var d = (r2 && r2.success && r2.data) ? r2.data : {};
+                                if(d.tem_negocio === false){
+                                    alert('Adicione ao menos um item ou orçamento ao negócio antes de fechar como ganho.');
+                                    _fecharViaDrag = false; location.reload(); return;
+                                }
+                                if (!_confirmarValorGanho(d.valor || resp.data.valor || 0)) {
+                                    _fecharViaDrag = false; location.reload(); return;   // negativa: card volta
+                                }
+                                _fecharValorGanho = d.valor || (resp.data.valor || 0);
+                                _abrirModalFechar('ganho', d.campos || [], d.valores || {});
+                            },
+                            function(){ _fecharViaDrag = false; location.reload(); }
+                        );
+                        return;
+                    }
                     if(resp.data && resp.data.code === 'campos_faltando'){
                         mostrarCamposFaltando(resp.data.campos);
                     } else if(resp.data && resp.data.code === 'sem_negocio'){
@@ -702,17 +738,21 @@
         'Declinamos: Orçamento negado por preço'
     ];
 
-    function preencherMotivos(lista) {
+    function preencherMotivos(lista, comPlaceholder) {
         var $sel = $('#tao-crm-fechar-motivo').empty();
+        // Cancelamento: NENHUMA sugestão pré-selecionada — o atendente precisa escolher
+        if (comPlaceholder) $sel.append('<option value="">— Selecione o motivo —</option>');
         $.each(lista, function(i, v){
             $sel.append('<option value="' + v + '">' + v + '</option>');
         });
+        $sel.css('borderColor', '#d1d5db');
         $('#tao-crm-fechar-outro-wrap').hide();
         $('#tao-crm-fechar-outro').val('');
     }
 
     $('#tao-crm-fechar-motivo').on('change', function(){
         var v        = $(this).val();
+        $(this).css('borderColor', '#d1d5db');
         var isOutro  = v === 'Outro (especificar)';
         var isInsumo = v === 'Falta de Insumo';
         $('#tao-crm-fechar-outro')
@@ -724,9 +764,21 @@
 
     var _fecharValores = {};
     var _fecharCardId  = '';
+    var _bulkPerdidoIds  = null;   // fechamento em lote como perdido (mesmo motivo p/ todos)
+    var _fecharValorGanho = 0;     // Valor Final do card p/ confirmação do ganho (kanban)
+    var _fecharViaDrag    = false; // modal aberto por arrasto: fechar sem confirmar => reload (reverte visual)
+
+    // Confirmação do Valor Final ANTES de abrir o formulário do ganho
+    // (regra: o atendente confirma o valor primeiro; negativa = nada acontece,
+    //  sem risco de preencher os campos obrigatórios e perder o trabalho)
+    function _confirmarValorGanho(valor){
+        var v = (parseFloat(valor) || 0).toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
+        return confirm('Confirmar fechamento como GANHO?\n\nValor Final (R$): ' + v + '\n\nEste valor será registrado como o valor do negócio.');
+    }
 
     function _abrirModalFechar(tipo, campos, valores) {
         campos = campos || []; valores = valores || {};
+        _bulkPerdidoIds = null;   // handlers em lote setam DEPOIS desta chamada
         if (tipo === 'ganho') {
             $('#tao-crm-fechar-titulo').text('✅ Fechar Negócio');
             $('#tao-crm-fechar-desc').text('O card será movido para Venda Concluída e fechado. A próxima mensagem do cliente abrirá um novo card automaticamente.');
@@ -738,7 +790,7 @@
             $('#tao-crm-fechar-tipo').val('perdido');
             $('#tao-crm-fechar-btn').removeClass('button-primary').addClass('btn-perdido').text('Confirmar');
         }
-        preencherMotivos(tipo === 'ganho' ? motivosGanho : motivosPerdido);
+        preencherMotivos(tipo === 'ganho' ? motivosGanho : motivosPerdido, tipo === 'perdido');
         var css = {width:'100%',fontSize:'13px',padding:'6px 8px',border:'1px solid #d1d5db',borderRadius:'4px',boxSizing:'border-box'};
         var $wrap = $('#tao-crm-fechar-campos-wrap').empty().toggle(campos.length > 0);
         campos.forEach(function(c) {
@@ -778,6 +830,9 @@
             alert('Adicione ao menos um item ou orçamento ao negócio antes de fechar como ganho.');
             return;
         }
+        // Confirma o Valor Final ANTES do formulário (negativa = card não é movimentado)
+        var _vEl = document.getElementById('crm-valor-oportunidade');
+        if (!_confirmarValorGanho(_vEl ? _vEl.value : 0)) return;
         var cardId = (typeof taoCrmCardId !== 'undefined') ? taoCrmCardId : '';
         _fecharCardId = cardId;
         var campos = (typeof taoCrmGanhoCampos !== 'undefined') ? taoCrmGanhoCampos : [];
@@ -791,7 +846,14 @@
     });
 
     $('#tao-crm-fechar-modal').on('click', function(e){
-        if($(e.target).is('#tao-crm-fechar-modal')) $(this).hide();
+        if($(e.target).is('#tao-crm-fechar-modal')){
+            $(this).hide();
+            if(_fecharViaDrag){ _fecharViaDrag = false; location.reload(); }
+        }
+    });
+    // Fechar o modal (X / Voltar) após um arrasto: recarrega p/ reverter o card na coluna
+    $(document).on('click', '#tao-crm-fechar-modal .tao-crm-modal-close, #tao-crm-fechar-modal .tao-crm-modal-footer .button:not(#tao-crm-fechar-btn)', function(){
+        if(_fecharViaDrag){ _fecharViaDrag = false; location.reload(); }
     });
 
     $('#tao-crm-fechar-form').on('submit', function(e){
@@ -811,6 +873,11 @@
         _fecharValores = camposValores;
         var tipo   = $('#tao-crm-fechar-tipo').val();
         var motivo = $('#tao-crm-fechar-motivo').val();
+        // Cancelamento sem motivo ESCOLHIDO: bloqueia (o placeholder tem value vazio)
+        if (tipo === 'perdido' && !motivo) {
+            $('#tao-crm-fechar-motivo').css('borderColor', '#ef4444').focus();
+            return;
+        }
         if (motivo === 'Outro (especificar)') {
             motivo = $('#tao-crm-fechar-outro').val().trim() || 'Outro';
         } else if (motivo === 'Falta de Insumo') {
@@ -824,9 +891,26 @@
             $('#tao-crm-fechar-outro').css('borderColor', '#d1d5db');
             motivo = 'Falta de Insumo: ' + insumo;
         }
+
+        // Fechamento em LOTE como perdido (kanban): mesmo motivo para todos os selecionados
+        if (tipo === 'perdido' && _bulkPerdidoIds && _bulkPerdidoIds.length) {
+            var idsB  = _bulkPerdidoIds; _bulkPerdidoIds = null;
+            var $btnB = $('#tao-crm-fechar-btn').prop('disabled', true).text('Fechando...');
+            var payB  = { action:'tao_crm_bulk_action', nonce:taoCrm.nonce, bulk_action:'fechar_perdido', motivo: motivo };
+            idsB.forEach(function(id, i){ payB['card_ids[' + i + ']'] = id; });
+            crmPost(payB, function(resp){
+                $btnB.prop('disabled', false).text('Confirmar');
+                $('#tao-crm-fechar-modal').hide();
+                if(resp.success){ alert('✅ ' + resp.data.ok + '/' + resp.data.total + ' card(s) cancelado(s).'); }
+                else { alert('Erro: ' + (resp.data || 'falha')); }
+                location.reload();
+            }, function(err){ $btnB.prop('disabled', false).text('Confirmar'); alert('Erro: ' + err); });
+            return;
+        }
         var $btn = $('#tao-crm-fechar-btn').prop('disabled', true).text('Fechando...');
         var cardToClose = _fecharCardId || (typeof taoCrmCardId !== 'undefined' ? taoCrmCardId : '');
         var postData = {action: 'tao_crm_fechar_card', nonce: taoCrm.nonce, card_id: cardToClose, tipo: tipo, motivo: motivo};
+        if (tipo === 'ganho') postData.valor_ok = 1;   // Valor Final confirmado no diálogo acima
         $.each(_fecharValores || {}, function(k, v) { postData['valores[' + k + ']'] = v; });
         // Inclui os valores atuais dos campos da ficha (evita corrida com o auto-save debounced).
         document.querySelectorAll('.campo-input').forEach(function(el){
@@ -1385,52 +1469,26 @@
                         if(d.tem_negocio === false){ alert('Adicione ao menos um item ou orçamento ao negócio antes de fechar como ganho.'); return; }
                         var campos = (d.campos && d.campos.length) ? d.campos
                                    : ((typeof taoCrmGanhoCampos !== 'undefined') ? taoCrmGanhoCampos : []);
+                        if (!_confirmarValorGanho(d.valor || 0)) return;   // confirma ANTES do formulário
+                        _fecharValorGanho = d.valor || 0;
                         _abrirModalFechar('ganho', campos, d.valores || {});
                     },
                     function(e){ _abrirModalFechar('ganho', (typeof taoCrmGanhoCampos !== 'undefined') ? taoCrmGanhoCampos : [], {}); }
                 );
             } else {
-                // Vários cards: se o funil exige campos no ganho, não dá pra coletar em lote → força 1 a 1
-                if((typeof taoCrmGanhoCampos !== 'undefined') && taoCrmGanhoCampos.length){
-                    alert('Este funil exige campos obrigatórios ao fechar. Feche os cards um a um para preenchê-los.');
-                    return;
-                }
-                if(!confirm('Fechar ' + ids.length + ' card(s) como GANHO?')) return;
-                var $btn = $(this).prop('disabled', true).text('Fechando...');
-                var payload = { action:'tao_crm_bulk_action', nonce:taoCrm.nonce, bulk_action:'fechar_ganho' };
-                ids.forEach(function(id, i){ payload['card_ids['+i+']'] = id; });
-                crmPost(payload,
-                    function(resp){
-                        $btn.prop('disabled', false).text('✅ Fechar como Ganho');
-                        if(resp.success) alert('✅ ' + resp.data.ok + '/' + resp.data.total + ' cards fechados.');
-                        else alert('Erro: ' + (resp.data||'falha'));
-                        $('.crm-card-checkbox').prop('checked', false);
-                        _ocultarKanbanPosMovBar();
-                        location.reload();
-                    },
-                    function(err){ $btn.prop('disabled', false).text('✅ Fechar como Ganho'); alert('Erro: ' + err); }
-                );
+                // Vários cards: cada ganho exige confirmar o Valor Final do card → 1 a 1
+                alert('Para confirmar o Valor Final de cada negócio, feche os cards como ganho um a um.');
+                return;
             }
         });
 
         $('#crm-kposm-perdido').on('click', function(){
             var ids = $('.crm-card-checkbox:checked').map(function(){ return $(this).data('card-id'); }).get();
             if(!ids.length) return;
-            if(!confirm('Fechar ' + ids.length + ' card(s) como PERDIDO?')) return;
-            var $btn = $(this).prop('disabled', true).text('Fechando...');
-            var payload = { action:'tao_crm_bulk_action', nonce:taoCrm.nonce, bulk_action:'fechar_perdido' };
-            ids.forEach(function(id, i){ payload['card_ids['+i+']'] = id; });
-            crmPost(payload,
-                function(resp){
-                    $btn.prop('disabled', false).text('❌ Negócio Perdido');
-                    if(resp.success) alert('✅ ' + resp.data.ok + '/' + resp.data.total + ' cards fechados.');
-                    else alert('Erro: ' + (resp.data||'falha'));
-                    $('.crm-card-checkbox').prop('checked', false);
-                    _ocultarKanbanPosMovBar();
-                    location.reload();
-                },
-                function(err){ $btn.prop('disabled', false).text('❌ Negócio Perdido'); alert('Erro: ' + err); }
-            );
+            // Motivo é OBRIGATÓRIO: abre o modal de cancelamento (mesmo motivo p/ todos)
+            _fecharCardId = ids[0];
+            _abrirModalFechar('perdido', [], {});
+            _bulkPerdidoIds = ids;
         });
 
         $('#crm-kposm-transferir').on('click', function(){
@@ -1501,23 +1559,25 @@
                         if(d.tem_negocio === false){ alert('Adicione ao menos um item ou orçamento ao negócio antes de fechar como ganho.'); return; }
                         var campos = (d.campos && d.campos.length) ? d.campos
                                    : ((typeof taoCrmGanhoCampos !== 'undefined') ? taoCrmGanhoCampos : []);
+                        if (!_confirmarValorGanho(d.valor || 0)) return;   // confirma ANTES do formulário
+                        _fecharValorGanho = d.valor || 0;
                         _abrirModalFechar('ganho', campos, d.valores || {});
                     },
                     function(){ _abrirModalFechar('ganho', (typeof taoCrmGanhoCampos !== 'undefined') ? taoCrmGanhoCampos : [], {}); }
                 );
                 return;
             }
-            // Vários cards: se o funil exige campos no ganho, não dá pra coletar em lote → força 1 a 1
-            if((typeof taoCrmGanhoCampos !== 'undefined') && taoCrmGanhoCampos.length){
-                alert('Este funil exige campos obrigatórios ao fechar. Feche os cards um a um para preenchê-los.');
-                return;
-            }
-            if(!confirm('Fechar ' + ids.length + ' card(s) como GANHO?')) return;
-            _bulkSend('fechar_ganho', {}, function(d){ alert('✅ ' + d.ok + '/' + d.total + ' cards fechados.'); _bulkClear(); location.reload(); });
+            // Vários cards: cada ganho exige confirmar o Valor Final do card → 1 a 1
+            alert('Para confirmar o Valor Final de cada negócio, feche os cards como ganho um a um.');
+            return;
         });
         $('#crm-bulk-perdido').on('click', function(){
-            if(!confirm('Fechar ' + _bulkSelected().length + ' card(s) como PERDIDO?')) return;
-            _bulkSend('fechar_perdido', {}, function(d){ alert('✅ ' + d.ok + '/' + d.total + ' cards fechados.'); _bulkClear(); location.reload(); });
+            var ids = _bulkSelected();
+            if(!ids.length) return;
+            // Motivo é OBRIGATÓRIO: abre o modal de cancelamento (mesmo motivo p/ todos)
+            _fecharCardId = ids[0];
+            _abrirModalFechar('perdido', [], {});
+            _bulkPerdidoIds = ids;
         });
 
         $('#crm-bulk-transferir').on('click', function(){

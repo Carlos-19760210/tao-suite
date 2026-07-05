@@ -2635,17 +2635,21 @@ function tao_crm_render_campo_input( $def, $val, $card_id, $bool_radio = false )
         return "<textarea $attrs rows='3'>" . esc_textarea( $val ) . "</textarea>";
     }
     if ( $tipo === 'boolean' ) {
+        // Aceita os DOIS formatos gravados no sistema: '1'/'0' (ficha) e 'Sim'/'Não' (modais)
+        $val_lc  = mb_strtolower( trim( (string) $val ) );
+        $is_sim  = in_array( $val_lc, [ '1', 'true', 'sim' ], true );
+        $is_nao  = in_array( $val_lc, [ '0', 'false', 'não', 'nao' ], true );
         // Pós-vendas: Sim/Não explícito como COMBO (select) — exige escolha e navega por setas.
         if ( $bool_radio ) {
-            $s1 = ( $val === '1' || $val === 'true' )  ? 'selected' : '';
-            $s0 = ( $val === '0' || $val === 'false' ) ? 'selected' : '';
+            $s1 = $is_sim ? 'selected' : '';
+            $s0 = $is_nao ? 'selected' : '';
             return "<select $attrs style='min-width:120px'>"
                  . "<option value=''>— selecione —</option>"
                  . "<option value='1' $s1>Sim</option>"
                  . "<option value='0' $s0>Não</option>"
                  . "</select>";
         }
-        $chk = $val === '1' || $val === 'true' ? 'checked' : '';
+        $chk = $is_sim ? 'checked' : '';
         return "<label class='campo-bool'><input type='checkbox' $attrs $chk value='1'> Sim</label>";
     }
     if ( $tipo === 'select' ) {
