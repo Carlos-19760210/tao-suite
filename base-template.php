@@ -55,6 +55,13 @@ if ( $has_caixa ) {
     $secoes['tao-caixa-formas']      = [ 'fn' => 'tao_caixa_page_formas_pgto',  'label' => 'Caixa — Formas de Pagamento' ];
 }
 
+$has_cotacoes = function_exists( 'tao_cotacoes_page_lista' );
+if ( $has_cotacoes ) {
+    $secoes['tao-cotacoes']              = [ 'fn' => 'tao_cotacoes_page_lista',        'label' => 'Cotações' ];
+    $secoes['tao-cotacoes-nova']         = [ 'fn' => 'tao_cotacoes_page_nova',         'label' => 'Nova Cotação' ];
+    $secoes['tao-cotacoes-fornecedores'] = [ 'fn' => 'tao_cotacoes_page_fornecedores', 'label' => 'Cotações — Fornecedores' ];
+}
+
 $page_atual = $_GET['page'] ?? 'chatbot-platform';
 // O plugin mapeia slug 'negocios' → 'chatbot-platform', mas queremos Negócios e não Visão Geral
 if ( get_query_var( 'cbpm_page', '' ) === 'negocios' ) $page_atual = 'chatbot-platform-negocios';
@@ -127,6 +134,18 @@ if ( $has_caixa && function_exists( 'tao_caixa_pode_operar' ) && tao_caixa_pode_
     ];
 }
 
+// 📋 Cotações (compras)
+if ( $has_cotacoes && function_exists( 'tao_cot_pode' ) && tao_cot_pode() ) {
+    $nav['cotacoes'] = [
+        'label' => 'Cota&ccedil;&otilde;es',
+        'icon'  => '&#x1F4CB;',
+        'items' => [
+            [ 'slug' => 'tao-cotacoes',      'label' => 'Cota&ccedil;&otilde;es',      'url' => cbpm_url('cotacoes') ],
+            [ 'slug' => 'tao-cotacoes-nova', 'label' => 'Nova Cota&ccedil;&atilde;o',  'url' => cbpm_url('cotacoes-nova') ],
+        ],
+    ];
+}
+
 // ⚙️ Configurações — recolhe toda a configuração (sub-grupos por módulo)
 $cfg_subs = [];
 $cfg_subs['cfg-geral'] = [
@@ -169,6 +188,15 @@ if ( $has_caixa && function_exists( 'tao_caixa_pode_operar' ) && tao_caixa_pode_
             [ 'slug' => 'tao-caixa-adquirentes', 'label' => 'Operadoras de Cart&atilde;o', 'url' => cbpm_url('caixa-adquirentes') ],
             [ 'slug' => 'tao-caixa-taxas',       'label' => 'Taxas (MDR)',                 'url' => cbpm_url('caixa-taxas') ],
             [ 'slug' => 'tao-caixa-formas',      'label' => 'Formas de Pagamento',         'url' => cbpm_url('caixa-formas') ],
+        ],
+    ];
+}
+if ( $has_cotacoes && function_exists( 'tao_cot_pode' ) && tao_cot_pode() ) {
+    $cfg_subs['cfg-cotacoes'] = [
+        'label' => 'Cota&ccedil;&otilde;es',
+        'icon'  => '&#x1F4CB;',
+        'items' => [
+            [ 'slug' => 'tao-cotacoes-fornecedores', 'label' => 'Fornecedores', 'url' => cbpm_url('cotacoes-fornecedores') ],
         ],
     ];
 }

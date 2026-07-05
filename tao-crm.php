@@ -1163,8 +1163,22 @@ function tao_crm_ajax_move_card() {
 
     // Regra: mover p/ "Flw Orçamento Enviado" ou QUALQUER fase posterior exige ≥1 item OU ≥1 orçamento (valor sozinho não basta)
     if ( $de_estagio !== $estagio_id ) {
-        $rde = tao_crm_api( "/crm_estagios?id=eq.$estagio_id&select=ordem,pipeline_id&limit=1" );
+        $rde = tao_crm_api( "/crm_estagios?id=eq.$estagio_id&select=ordem,pipeline_id,tipo&limit=1" );
         if ( $rde['ok'] && ! empty( $rde['data'] ) ) {
+            // Estágios TERMINAIS não aceitam arrasto direto: perdido exige motivo e
+            // ganho exige confirmação do Valor Final — o front reencaminha pro fluxo de fechamento.
+            $dtipo = $rde['data'][0]['tipo'] ?? 'normal';
+            if ( $dtipo === 'perdido' ) {
+                wp_send_json_error( [ 'code' => 'perdido_motivo', 'msg' => 'Para cancelar o negócio, informe o motivo do cancelamento.' ] );
+            }
+            if ( $dtipo === 'ganho' ) {
+                $rvv = tao_crm_api( "/crm_cards?id=eq.$card_id&select=valor_oportunidade&limit=1" );
+                wp_send_json_error( [
+                    'code'  => 'ganho_confirmar',
+                    'valor' => ( $rvv['ok'] && ! empty( $rvv['data'] ) ) ? (float) ( $rvv['data'][0]['valor_oportunidade'] ?? 0 ) : 0,
+                    'msg'   => 'Confirme o Valor Final do negócio para fechar como ganho.',
+                ] );
+            }
             $dord = (int) ( $rde['data'][0]['ordem'] ?? 0 );
             $dpl  = $rde['data'][0]['pipeline_id'] ?? '';
             $flw_ord = -1;
@@ -1320,15 +1334,16 @@ function tao_crm_ajax_get_ganho_campos() {
     $card_id = sanitize_text_field( $_POST['card_id'] ?? '' );
     if ( ! $card_id ) wp_send_json_error( 'card_id obrigatório' );
     $tem_negocio = tao_crm_card_tem_negocio( $card_id );
-    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=pipeline_id&limit=1" );
+    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=pipeline_id,valor_oportunidade&limit=1" );
     if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( 'Card não encontrado' );
     $pipeline_id = $rc['data'][0]['pipeline_id'] ?? '';
-    if ( ! $pipeline_id ) wp_send_json_success( [ 'campos' => [], 'valores' => [], 'ganho_stage_id' => '', 'tem_negocio' => $tem_negocio ] );
+    $valor_card  = (float) ( $rc['data'][0]['valor_oportunidade'] ?? 0 );   // Valor Final p/ confirmação do ganho
+    if ( ! $pipeline_id ) wp_send_json_success( [ 'campos' => [], 'valores' => [], 'ganho_stage_id' => '', 'tem_negocio' => $tem_negocio, 'valor' => $valor_card ] );
     $rg = tao_crm_api( "/crm_estagios?pipeline_id=eq.$pipeline_id&tipo=eq.ganho&limit=1" );
-    if ( ! $rg['ok'] || empty( $rg['data'] ) ) wp_send_json_success( [ 'campos' => [], 'valores' => [], 'ganho_stage_id' => '', 'tem_negocio' => $tem_negocio ] );
+    if ( ! $rg['ok'] || empty( $rg['data'] ) ) wp_send_json_success( [ 'campos' => [], 'valores' => [], 'ganho_stage_id' => '', 'tem_negocio' => $tem_negocio, 'valor' => $valor_card ] );
     $ganho_stage_id = $rg['data'][0]['id'];
     $r = tao_crm_api( "/crm_campos_estagio?estagio_id=eq.$ganho_stage_id&na_entrada=eq.true&order=ordem.asc" );
-    if ( ! $r['ok'] || empty( $r['data'] ) ) wp_send_json_success( [ 'campos' => [], 'valores' => [], 'ganho_stage_id' => $ganho_stage_id, 'tem_negocio' => $tem_negocio ] );
+    if ( ! $r['ok'] || empty( $r['data'] ) ) wp_send_json_success( [ 'campos' => [], 'valores' => [], 'ganho_stage_id' => $ganho_stage_id, 'tem_negocio' => $tem_negocio, 'valor' => $valor_card ] );
     $assigns         = $r['data'];
     $campo_ids       = array_column( $assigns, 'campo_id' );
     $ordem_map       = array_column( $assigns, 'ordem',      'campo_id' );
@@ -1346,7 +1361,7 @@ function tao_crm_ajax_get_ganho_campos() {
     if ( $rv['ok'] && ! empty( $rv['data'] ) ) {
         foreach ( $rv['data'] as $v ) $valores[ $v['campo_id'] ] = $v['valor'];
     }
-    wp_send_json_success( [ 'campos' => $defs, 'valores' => $valores, 'ganho_stage_id' => $ganho_stage_id, 'tem_negocio' => $tem_negocio ] );
+    wp_send_json_success( [ 'campos' => $defs, 'valores' => $valores, 'ganho_stage_id' => $ganho_stage_id, 'tem_negocio' => $tem_negocio, 'valor' => $valor_card ] );
 }
 
 // ─── AJAX: ENVIAR MENSAGEM ────────────────────────────────────────────────────
@@ -1824,7 +1839,15 @@ function tao_crm_ajax_fechar_card() {
     $card_id = sanitize_text_field( $_POST['card_id']   ?? '' );
     $tipo    = sanitize_key( $_POST['tipo']              ?? '' );
     $motivo  = sanitize_textarea_field( $_POST['motivo'] ?? '' );
+    // O PHP converte "valores[uuid]=x" em $_POST['valores'][uuid] — ler o ARRAY.
+    // (o formato antigo com chave literal nunca chega; era por isso que os campos
+    //  preenchidos no modal de fechamento NÃO eram persistidos)
     $valores = [];
+    foreach ( (array) ( $_POST['valores'] ?? [] ) as $k => $v ) {
+        $k = sanitize_text_field( $k );
+        if ( $k ) $valores[ $k ] = sanitize_textarea_field( wp_unslash( $v ) );
+    }
+    // Fallback legado: chaves literais "valores[...]" (caso algum cliente envie assim)
     foreach ( $_POST as $k => $v ) {
         if ( preg_match( '/^valores\[([a-f0-9\-]+)\]$/', $k, $m ) ) {
             $valores[ $m[1] ] = sanitize_textarea_field( wp_unslash( $v ) );
@@ -1839,9 +1862,19 @@ function tao_crm_ajax_fechar_card() {
         if ( preg_match( '/^falta de insumo\s*:?\s*$/iu', $motivo ) ) wp_send_json_error( 'Informe qual insumo faltou.' );
     }
 
-    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=estagio_id,pipeline_id,contato_whatsapp,workspace_id,instancia_id&limit=1" );
+    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=estagio_id,pipeline_id,contato_whatsapp,workspace_id,instancia_id,valor_oportunidade&limit=1" );
     if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( 'Card não encontrado' );
     $card = $rc['data'][0];
+
+    // Ganho exige confirmação explícita do Valor Final pelo usuário (o front mostra
+    // o valor e só envia valor_ok=1 após o "Sim"; sem isso o card não é movimentado)
+    if ( $tipo === 'ganho' && empty( $_POST['valor_ok'] ) ) {
+        wp_send_json_error( [
+            'code'  => 'ganho_confirmar',
+            'valor' => (float) ( $card['valor_oportunidade'] ?? 0 ),
+            'msg'   => 'Confirme o Valor Final do negócio para fechar como ganho.',
+        ] );
+    }
 
     // ── EXCLUSIVO PÓS-VENDAS: concluir (ganho) exige os campos obrigatórios da FASE ATUAL ──
     //    (Cancelar/perdido NÃO é bloqueado, p/ permitir descartar cards errados. Demais funis: inalterado.)
@@ -2708,6 +2741,8 @@ function tao_crm_ajax_bulk_action() {
         }
     } elseif ( in_array( $action, [ 'fechar_ganho', 'fechar_perdido' ], true ) ) {
         $tipo = $action === 'fechar_ganho' ? 'ganho' : 'perdido';
+        $bulk_motivo = sanitize_textarea_field( wp_unslash( $_POST['motivo'] ?? '' ) );
+        if ( $tipo === 'perdido' && $bulk_motivo === '' ) wp_send_json_error( 'Informe o motivo do cancelamento.' );
         foreach ( $card_ids as $cid ) {
             $rc = tao_crm_api( "/crm_cards?id=eq.$cid&limit=1" );
             if ( ! $rc['ok'] || empty( $rc['data'] ) ) { $results[$cid] = 'err'; continue; }
@@ -2735,8 +2770,9 @@ function tao_crm_ajax_bulk_action() {
                 'de_estagio_id'   => $de,
                 'para_estagio_id' => $close_stage,
                 'usuario_id'      => get_current_user_id(),
+                'motivo'          => $tipo === 'perdido' ? $bulk_motivo : null,
             ] );
-            tao_crm_fire_webhook( $card['workspace_id'], 'card_fechado_' . $tipo, [ 'card_id' => $cid ] );
+            tao_crm_fire_webhook( $card['workspace_id'], 'card_fechado_' . $tipo, [ 'card_id' => $cid, 'motivo' => $bulk_motivo ?: null ] );
             $results[ $cid ] = 'ok';
         }
     } else {
@@ -3473,6 +3509,16 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
             // ── Opt-out: ignora número que pediu exclusão da lista ────────────────
             if ( ! $from_me && tao_crm_num_opt_out( $num ) ) continue;
 
+            // ── Fornecedor de cotação (TAO Cotações): garante card em handoff ─────
+            // A mensagem segue o fluxo normal (é registrada no card); o bot fica
+            // bloqueado pelo atendimento_humano=true que o helper garante.
+            if ( ! $from_me && function_exists( 'tao_cotacoes_num_fornecedor' ) ) {
+                $_cot_forn = tao_cotacoes_num_fornecedor( $WS_ID, $num );
+                if ( $_cot_forn ) {
+                    tao_cotacoes_fornecedor_inbound( $WS_ID, $num, $contato_id, $INST_ID, $PL_ID, $HANDOFF_STAGE_ID, $_cot_forn );
+                }
+            }
+
             // opt-out: verificado APÓS o check de atendimento humano (mais abaixo)
 
             // ── NPS: detecta resposta 0-10 (prioridade sobre CSAT) ──────────────────
@@ -3680,7 +3726,8 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
             }
 
             // ── 2d. Verifica resposta de agendamento fora do horário ─────────────
-            $is_handoff_req = tao_crm_is_user_handoff_request( $conteudo );
+            // (chatbot_primary: pedido genérico de humano não conta como handoff — a IA decide)
+            $is_handoff_req = ! $_chatbot_primary && tao_crm_is_user_handoff_request( $conteudo );
             $agend_key      = 'tao_crm_agend_' . $WS_ID . '_' . $num_plain;
             if ( ! $from_me && ! $card_id && get_transient( $agend_key ) ) {
                 $resp_lc     = mb_strtolower( trim( $conteudo ) );
@@ -3800,7 +3847,10 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
             // ── 3. Handoff detectado na mensagem ENTRANTE do usuário ────────────
             // Evolution v2 não dispara webhook para mensagens enviadas via API,
             // então detectamos o handoff diretamente na solicitação do usuário.
-            $is_handoff_phrase = tao_crm_is_user_handoff_request( $conteudo );
+            // Em workspaces chatbot_primary (ex.: Iluminar) o pedido GENÉRICO de humano
+            // NÃO escala — quem decide o handoff é a IA (intenção HANDOFF nos casos
+            // direcionados: crise, parcerias, imprensa, problemas com pedido).
+            $is_handoff_phrase = ! $_chatbot_primary && tao_crm_is_user_handoff_request( $conteudo );
             tao_crm_log_error( 'dispatch', '[3] handoff_check: from_me=' . ($from_me?'1':'0') . ' card_id=' . ($card_id?substr($card_id,0,8):'none') . ' HANDOFF_STAGE=' . ($HANDOFF_STAGE_ID?substr($HANDOFF_STAGE_ID,0,8):'none') . ' PL_ID=' . ($PL_ID?substr($PL_ID,0,8):'none') . ' is_req=' . ($is_handoff_phrase?'SIM':'NÃO') );
             if ( ! $from_me && ! $card_id && $HANDOFF_STAGE_ID && $PL_ID && $is_handoff_phrase ) {
                 // Verifica horário de atendimento antes de criar handoff
@@ -3981,6 +4031,79 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
                         tao_crm_lock_chatbot( $num, $WS_ID );
                         tao_crm_disparar_automacoes( $card_id, $HANDOFF_STAGE_ID, 'entrar_fase', false, $WS_ID );
                         tao_crm_disparar_automacoes( $card_id, $HANDOFF_STAGE_ID, 'tempo_na_fase', false, $WS_ID );
+                    }
+                }
+            }
+
+            // ── 2g. Chatbot-primary (ex.: Iluminar): todo novo contato ganha card ──
+            // no 1º estágio do funil (ex.: "Curioso"), sem travar o chatbot —
+            // o funil fica visível no Kanban desde a primeira mensagem.
+            if ( ! $from_me && ! $card_id && ! $tracking_card_id && $_chatbot_primary && $PL_ID ) {
+                if ( ! isset( $fs_cache[ $PL_ID ] ) ) {
+                    $rfs = tao_crm_api( "/crm_estagios?pipeline_id=eq.$PL_ID&order=ordem.asc&limit=1" );
+                    $fs_cache[ $PL_ID ] = ( $rfs['ok'] && ! empty( $rfs['data'] ) ) ? $rfs['data'][0]['id'] : null;
+                }
+                if ( ! empty( $fs_cache[ $PL_ID ] ) ) {
+                    $push_2g = trim( $msg['pushName'] ?? '' );
+                    $nome_2g = ( $push_2g && $push_2g !== '.' ) ? $push_2g : $num_plain;
+                    $rc2g = tao_crm_api( '/crm_cards', 'POST', [
+                        'workspace_id'       => $WS_ID,
+                        'pipeline_id'        => $PL_ID,
+                        'estagio_id'         => $fs_cache[ $PL_ID ],
+                        'instancia_id'       => $INST_ID,
+                        'contato_id'         => $contato_id,
+                        'titulo'             => $nome_2g,
+                        'contato_nome'       => $nome_2g,
+                        'contato_whatsapp'   => $num,
+                        'atendimento_humano' => false,
+                        'criado_em'          => gmdate( 'c' ),
+                        'movido_em'          => gmdate( 'c' ),
+                    ], [ 'Prefer' => 'return=representation' ] );
+                    if ( $rc2g['ok'] && ! empty( $rc2g['data'] ) ) {
+                        $tracking_card_id = $rc2g['data'][0]['id'];
+                        if ( $contato_id ) tao_crm_api( '/rpc/crm_contato_novo_atendimento', 'POST', [ 'p_id' => $contato_id ] );
+                        tao_crm_log_error( 'dispatch', '[2g] card auto-criado (chatbot_primary) ' . substr( $tracking_card_id, 0, 8 ), [ 'num' => $num_plain ] );
+                    }
+                }
+            }
+
+            // ── 2h. Chatbot-primary: progressão automática do card por intenção ────
+            // Move o card conforme o que a pessoa expressa (nunca regride; nome do
+            // estágio destino é resolvido por fragmento — funciona em qualquer funil).
+            if ( ! $from_me && $tipo === 'text' && $_chatbot_primary && $tracking_card_id && ! $card_id ) {
+                $ct2h  = mb_strtolower( $conteudo );
+                $alvo  = '';
+                if ( preg_match( '/receber o livro|quero o livro|ser herdeiro|herdeiro da luz/u', $ct2h ) )                    $alvo = 'HERDEIRO';
+                elseif ( preg_match( '/auto[\s\-]?irradia|para mim mesm|minha propria entrada|minha própria entrada/u', $ct2h ) ) $alvo = 'AUTO-IRRADIA';
+                elseif ( preg_match( '/patrocinar|patrocinio|patrocínio|irradiador|quero doar/u', $ct2h ) )                     $alvo = 'IRRADIADOR';
+                elseif ( preg_match( '/me cadastrei|fiz o cadastro|acabei de me cadastrar|cadastro feito/u', $ct2h ) )          $alvo = 'PORTAL';
+                if ( $alvo ) {
+                    if ( ! isset( $prog_cache[ $PL_ID ] ) ) {
+                        $rpe = tao_crm_api( "/crm_estagios?pipeline_id=eq.$PL_ID&select=id,nome,ordem&order=ordem.asc" );
+                        $prog_cache[ $PL_ID ] = $rpe['ok'] ? ( $rpe['data'] ?? [] ) : [];
+                    }
+                    $dest = null;
+                    foreach ( $prog_cache[ $PL_ID ] as $e2h ) {
+                        $n2h = mb_strtoupper( $e2h['nome'] );
+                        $hit = ( $alvo === 'PORTAL' ) ? ( strpos( $n2h, 'PORTAL' ) !== false ) : ( strpos( $n2h, $alvo ) !== false );
+                        if ( $hit ) { $dest = $e2h; break; }
+                    }
+                    if ( $dest ) {
+                        $rcur = tao_crm_api( "/crm_cards?id=eq.$tracking_card_id&select=estagio_id&limit=1" );
+                        $cur_id = ( $rcur['ok'] && ! empty( $rcur['data'] ) ) ? $rcur['data'][0]['estagio_id'] : '';
+                        $cur_ord = -1;
+                        foreach ( $prog_cache[ $PL_ID ] as $e2h ) { if ( $e2h['id'] === $cur_id ) { $cur_ord = (int) $e2h['ordem']; break; } }
+                        if ( $cur_id && $cur_id !== $dest['id'] && (int) $dest['ordem'] > $cur_ord ) {
+                            tao_crm_api( "/crm_cards?id=eq.$tracking_card_id", 'PATCH', [ 'estagio_id' => $dest['id'], 'movido_em' => gmdate( 'c' ) ] );
+                            tao_crm_api( '/crm_cards_historico', 'POST', [
+                                'card_id'         => $tracking_card_id,
+                                'de_estagio_id'   => $cur_id,
+                                'para_estagio_id' => $dest['id'],
+                                'usuario_id'      => 0,
+                                'motivo'          => 'Progressão automática (intenção: ' . $alvo . ')',
+                            ] );
+                            tao_crm_log_error( 'dispatch', '[2h] card ' . substr( $tracking_card_id, 0, 8 ) . ' → ' . $dest['nome'], [ 'num' => $num_plain ] );
+                        }
                     }
                 }
             }
@@ -4227,7 +4350,16 @@ function tao_crm_rest_lead_to_card( WP_REST_Request $req ) {
         'movido_em'          => gmdate( 'c' ),
     ], [ 'Prefer' => 'return=representation' ] );
 
-    if ( ! $r['ok'] ) return new WP_Error( 'create_failed', $r['error'] ?? 'Erro ao criar card', [ 'status' => 500 ] );
+    if ( ! $r['ok'] ) {
+        // Corrida com o dispatch (2g/handoff): o gatilho anti-duplicata do banco barra
+        // este insert quando um card acabou de nascer por outro caminho (<120s).
+        // Recupera o card existente e responde idempotente em vez de erro.
+        $r_retry = tao_crm_api( $dedup_filter );
+        if ( $r_retry['ok'] && ! empty( $r_retry['data'] ) ) {
+            return rest_ensure_response( [ 'ok' => true, 'card_id' => $r_retry['data'][0]['id'], 'criado' => false, 'recuperado' => true ] );
+        }
+        return new WP_Error( 'create_failed', $r['error'] ?? 'Erro ao criar card', [ 'status' => 500 ] );
+    }
 
     $new_card = $r['data'][0];
     if ( $contato_id ) tao_crm_api( '/rpc/crm_contato_novo_atendimento', 'POST', [ 'p_id' => $contato_id ] );
