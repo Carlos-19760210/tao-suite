@@ -5296,12 +5296,57 @@ function tao_crm_ajax_reabrir_card() {
     check_ajax_referer( 'tao_crm_nonce', 'nonce' );
     $card_id = sanitize_text_field( $_POST['card_id'] ?? '' );
     if ( ! $card_id ) wp_send_json_error( 'card_id obrigatório' );
-    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=workspace_id&limit=1" );
+    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=workspace_id,estagio_id,pipeline_id&limit=1" );
     if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( 'Card não encontrado' );
-    $ws_id = $rc['data'][0]['workspace_id'] ?? '';
+    $card  = $rc['data'][0];
+    $ws_id = $card['workspace_id'] ?? '';
     if ( ! tao_crm_is_gestor( $ws_id ) ) wp_send_json_error( 'Acesso negado — apenas gestores podem reabrir cards' );
-    $r = tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [ 'fechado' => false, 'status' => 'aberto' ] );
-    $r['ok'] ? wp_send_json_success() : wp_send_json_error( $r['error'] );
+
+    // Volta o card para a fase de ORIGEM (de onde saiu ao ser fechado), se a fase
+    // atual for terminal (ganho/perdido). Fallback: primeira fase normal do funil.
+    $est_atual = $card['estagio_id'] ?? '';
+    $destino   = null;
+    $re_atual  = $est_atual ? tao_crm_api( "/crm_estagios?id=eq.$est_atual&select=id,nome,tipo,pipeline_id" ) : [ 'ok' => false, 'data' => [] ];
+    $tipo_atual = ( $re_atual['ok'] && ! empty( $re_atual['data'] ) ) ? ( $re_atual['data'][0]['tipo'] ?? '' ) : '';
+
+    if ( in_array( $tipo_atual, [ 'ganho', 'perdido' ], true ) ) {
+        // Origem = de_estagio do último movimento PARA a fase terminal atual
+        $rh = tao_crm_api( "/crm_cards_historico?card_id=eq.$card_id&para_estagio_id=eq.$est_atual&de_estagio_id=not.is.null&select=de_estagio_id&order=criado_em.desc&limit=1" );
+        $origem = ( $rh['ok'] && ! empty( $rh['data'] ) ) ? $rh['data'][0]['de_estagio_id'] : null;
+        if ( $origem ) {
+            $ro = tao_crm_api( "/crm_estagios?id=eq.$origem&select=id,nome,tipo,pipeline_id" );
+            if ( $ro['ok'] && ! empty( $ro['data'] )
+                 && ! in_array( $ro['data'][0]['tipo'] ?? '', [ 'ganho', 'perdido' ], true )
+                 && ( $ro['data'][0]['pipeline_id'] ?? '' ) === ( $card['pipeline_id'] ?? '' ) ) {
+                $destino = $ro['data'][0];
+            }
+        }
+        if ( ! $destino && ! empty( $card['pipeline_id'] ) ) {
+            $rf = tao_crm_api( "/crm_estagios?pipeline_id=eq.{$card['pipeline_id']}&tipo=eq.normal&order=ordem.asc&limit=1" );
+            if ( $rf['ok'] && ! empty( $rf['data'] ) ) $destino = $rf['data'][0];
+        }
+    }
+
+    $patch = [ 'fechado' => false, 'status' => 'aberto' ];
+    if ( $destino ) {
+        $patch['estagio_id'] = $destino['id'];
+        $patch['movido_em']  = gmdate( 'c' );
+    }
+    $r = tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', $patch );
+    if ( ! $r['ok'] ) wp_send_json_error( $r['error'] );
+
+    // Auditoria (sem disparar automações de entrar_fase — reabertura é ato administrativo)
+    $nome_atual = ( $re_atual['ok'] && ! empty( $re_atual['data'] ) ) ? ( $re_atual['data'][0]['nome'] ?? '' ) : '';
+    tao_crm_api( '/crm_cards_historico', 'POST', [
+        'card_id'         => $card_id,
+        'usuario_id'      => get_current_user_id(),
+        'de_estagio_id'   => $est_atual ?: null,
+        'para_estagio_id' => $destino ? $destino['id'] : ( $est_atual ?: null ),
+        'motivo'          => 'Card reaberto',
+        'obs'             => $destino ? ( 'Reaberto: ' . $nome_atual . ' → ' . $destino['nome'] ) : 'Reaberto na fase atual',
+        'criado_em'       => gmdate( 'c' ),
+    ] );
+    wp_send_json_success( [ 'estagio_destino' => $destino['nome'] ?? null ] );
 }
 
 // ── Metas por atendente ───────────────────────────────────────────────────────
