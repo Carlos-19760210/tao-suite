@@ -35,12 +35,22 @@ function tao_crm_page_dashboard() {
     }
 
     // ── Buscar cards ──────────────────────────────────────────────────────────
-    $rc_all = tao_crm_api(
-        "/crm_cards?workspace_id=eq.$ws_id" .
-        "&select=id,fechado,estagio_id,pipeline_id,responsavel_id,criado_em,movido_em,atendimento_humano,valor_oportunidade,titulo,contato_nome" .
-        "&limit=2000"
-    );
-    $all = $rc_all['ok'] ? ( $rc_all['data'] ?? [] ) : [];
+    // PostgREST corta a resposta em 1000 linhas SEM erro — paginar com Range
+    // (workspace Magis passou de 1000 cards em jul/2026 e o painel truncava).
+    $all   = [];
+    $_page = 0;
+    do {
+        $rc_all = tao_crm_api(
+            "/crm_cards?workspace_id=eq.$ws_id" .
+            "&select=id,fechado,estagio_id,pipeline_id,responsavel_id,criado_em,movido_em,atendimento_humano,valor_oportunidade,titulo,contato_nome" .
+            "&order=criado_em.asc",
+            'GET', null,
+            [ 'Range-Unit' => 'items', 'Range' => ( $_page * 1000 ) . '-' . ( $_page * 1000 + 999 ) ]
+        );
+        $_chunk = $rc_all['ok'] ? ( $rc_all['data'] ?? [] ) : [];
+        $all    = array_merge( $all, $_chunk );
+        $_page++;
+    } while ( count( $_chunk ) === 1000 && $_page < 30 );
 
     // ── Estágios ──────────────────────────────────────────────────────────────
     // Pegar todos os pipeline_ids distintos dos cards
