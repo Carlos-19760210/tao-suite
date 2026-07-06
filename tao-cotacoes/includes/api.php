@@ -382,6 +382,9 @@ function tao_cot_assets() {
                     else if(m.tipo==='audio') inner += '<audio controls src="'+esc(m.midia_url)+'"></audio>';
                     else                      inner += '<a class="doc" href="'+esc(m.midia_url)+'" target="_blank">&#x1F4CE; '+esc(m.conteudo||'arquivo')+'</a>';
                     if(m.tipo!=='document' && m.conteudo && m.conteudo.charAt(0)!=='[') inner += esc(m.conteudo);
+                    if(m.direcao==='in' && (m.tipo==='document' || m.tipo==='image')){
+                        inner += '<div style="margin-top:6px"><button class="taocot-btn taocot-chat-prop" data-url="'+esc(m.midia_url)+'" style="font-size:11px;padding:4px 9px">&#x1F4CA; Processar como proposta</button></div>';
+                    }
                 } else {
                     inner += esc(m.conteudo);
                 }
@@ -416,6 +419,16 @@ function tao_cot_assets() {
             if(t = e.target.closest('[data-cot-chat]')){
                 C.openChat(t.getAttribute('data-fid'), t.getAttribute('data-nome'), t.getAttribute('data-cot')||'');
                 var bd = t.querySelector('.taocot-badge'); if(bd) bd.remove();
+            } else if(t = e.target.closest('.taocot-chat-prop')){
+                if(!chat.fid) return;
+                if(!confirm('Processar este anexo como proposta do fornecedor? A IA extrai os preços e o comparativo é atualizado.')) return;
+                t.disabled = true; t.textContent = 'Extraindo (pode levar ~30s)...';
+                C.post('tao_cot_proposta_processar', { fornecedor_id: chat.fid, cotacao_id: chat.cot, midia_url: t.getAttribute('data-url') }).then(function(r){
+                    if(r.success){
+                        t.textContent = '✓ '+r.data.gravados+' itens ('+r.data.divergencias+' divergências)';
+                        if(document.querySelector('.taocot-wrap') && chat.cot) setTimeout(function(){ location.reload(); }, 1200);
+                    } else { t.disabled=false; t.textContent='📊 Processar como proposta'; alert('Erro: '+(r.data||'falha')); }
+                }).catch(function(){ t.disabled=false; t.textContent='📊 Processar como proposta'; alert('Falha de rede'); });
             } else if(e.target.closest('.taocot-chat-close')){
                 chatClose();
             }

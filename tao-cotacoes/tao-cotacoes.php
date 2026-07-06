@@ -16,6 +16,7 @@ define( 'TAOCOT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 require_once TAOCOT_PLUGIN_DIR . 'includes/api.php';
 require_once TAOCOT_PLUGIN_DIR . 'includes/ajax.php';
 require_once TAOCOT_PLUGIN_DIR . 'includes/dispatch.php';
+require_once TAOCOT_PLUGIN_DIR . 'includes/proposta.php';
 require_once TAOCOT_PLUGIN_DIR . 'includes/pages/cotacoes.php';
 require_once TAOCOT_PLUGIN_DIR . 'includes/pages/cotacao-nova.php';
 require_once TAOCOT_PLUGIN_DIR . 'includes/pages/fornecedores.php';
