@@ -25,6 +25,7 @@ CREATE INDEX IF NOT EXISTS idx_fornecedores_cnpj ON fornecedores (cliente_id, cn
 ALTER TABLE orcamentos ADD COLUMN IF NOT EXISTS posologia    text;
 ALTER TABLE orcamentos ADD COLUMN IF NOT EXISTS prescritor   text;   -- nome + conselho/UF livre (ex: DR FULANO CRM 12345/SP)
 ALTER TABLE orcamentos ADD COLUMN IF NOT EXISTS nome_cliente text;   -- quem contrata (ex: mãe); nome_paciente = quem usa (ex: filho)
+ALTER TABLE orcamentos ADD COLUMN IF NOT EXISTS forma_tipo   text;   -- tipo cápsula (GELATINOSA…) / capacidade envelope — editor já restaura, faltava persistir
 
 -- 3. Histórico — repetição exata + prescritor da fórmula origem
 ALTER TABLE hist_formulas ADD COLUMN IF NOT EXISTS tpcap      text;  -- tipo cápsula FCerta (G=gelatinosa...)

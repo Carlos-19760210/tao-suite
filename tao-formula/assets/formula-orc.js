@@ -1339,6 +1339,9 @@
             orc_id:          EDIT_ORC_ID || '',
             card_id:         window.taofCardId || '',
             nome_paciente:   $('#taof-nome-paciente').val(),
+            nome_cliente:    $('#taof-nome-cliente').val() || '',
+            prescritor:      $('#taof-prescritor').val()   || '',
+            posologia:       $('#taof-posologia').val()    || '',
             whatsapp:        $('#taof-whatsapp').val(),
             forma_id:        $('#taof-forma-sel').val() || '',
             forma_nome:      formaAtual ? formaAtual.nome : (EDIT_DATA ? (EDIT_DATA.forma_nome || '') : ''),
@@ -1577,8 +1580,11 @@
         window._taofFcFinal    = _valorFinalTravado;
         window._taofFcDesconto = (data.desconto_fc !== undefined && data.desconto_fc !== null) ? parseFloat(data.desconto_fc) : null;
 
-        // Paciente
+        // Paciente / cliente (contratante) / prescritor / posologia
         $('#taof-nome-paciente').val(data.nome_paciente || '');
+        $('#taof-nome-cliente').val(data.nome_cliente || '');
+        $('#taof-prescritor').val(data.prescritor || '');
+        $('#taof-posologia').val(data.posologia || '');
         $('#taof-whatsapp').val(data.whatsapp || '');
 
         // Forma farmacêutica

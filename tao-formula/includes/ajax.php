@@ -286,7 +286,24 @@ function tao_formula_orc_payload( $itens ) {
     // pra o Kanban (tao_crm_sync_valor_oportunidade lê valor_final_fc) refletir a edição.
     if ( isset( $_POST['valor_final_fc'] ) && $_POST['valor_final_fc'] !== '' )
         $p['valor_final_fc'] = (float) $_POST['valor_final_fc'];
+    // Campos opcionais (migration_v2): cliente (contratante) ≠ paciente; prescritor livre; posologia;
+    // forma_tipo (tipo cápsula) — o editor sempre enviou, faltava a coluna p/ persistir
+    $p['nome_cliente'] = sanitize_text_field( $_POST['nome_cliente'] ?? '' ) ?: null;
+    $p['prescritor']   = sanitize_text_field( $_POST['prescritor']   ?? '' ) ?: null;
+    $p['posologia']    = sanitize_textarea_field( $_POST['posologia'] ?? '' ) ?: null;
+    $p['forma_tipo']   = sanitize_text_field( $_POST['forma_tipo']   ?? '' ) ?: null;
     return $p;
+}
+
+// Grava orçamento tolerando migration_v2 pendente: se o Supabase recusar coluna
+// desconhecida, remove os campos novos e tenta de novo (não perde o orçamento).
+function tao_formula_orc_gravar( $path, $method, $data ) {
+    $r = tao_formula_api( $path, $method, $data );
+    if ( ! $r['ok'] && strpos( (string) ( $r['raw'] ?? '' ), 'column' ) !== false ) {
+        unset( $data['nome_cliente'], $data['prescritor'], $data['posologia'], $data['forma_tipo'] );
+        $r = tao_formula_api( $path, $method, $data );
+    }
+    return $r;
 }
 
 // ── Salvar Orçamento Manual ───────────────────────────────────────────────────
@@ -314,7 +331,7 @@ add_action( 'wp_ajax_tao_formula_save_orcamento', function() {
         'status'           => 'pendente_revisao',
     ] );
 
-    $r = tao_formula_api( '/orcamentos', 'POST', $data );
+    $r = tao_formula_orc_gravar( '/orcamentos', 'POST', $data );
     if ( $r['ok'] ) {
         $id = $r['data'][0]['id'] ?? null;
         if ( $card_id && $id ) {
@@ -354,7 +371,7 @@ add_action( 'wp_ajax_tao_formula_update_orcamento', function() {
 
     $data = tao_formula_orc_payload( $itens );
 
-    $r = tao_formula_api( "/orcamentos?id=eq.$orc_id&cliente_id=eq.$cliente_id", 'PATCH', $data );
+    $r = tao_formula_orc_gravar( "/orcamentos?id=eq.$orc_id&cliente_id=eq.$cliente_id", 'PATCH', $data );
     if ( $r['ok'] ) {
         $card_id = $exist['card_id'] ?? null;
         if ( $card_id ) {
@@ -2426,15 +2443,49 @@ add_action( 'wp_ajax_tao_formula_hist_repetir', function () {
 
     $nome_pac = $form['nome_paciente'] ?: '';
     $dt_fmt   = $form['dt_cadastro'] ? date( 'd/m/Y', strtotime( $form['dt_cadastro'] ) ) : '?';
-    $obs      = '[REPETIÇÃO FCerta] Req ' . $form['nrrqu'] . '/' . $form['serier'] . ' de ' . $dt_fmt .
-                ' — valor da época R$ ' . number_format( (float) $form['preco_cobrado'], 2, ',', '.' ) . '.';
-    if ( $form['posologia'] )    $obs .= ' Posologia: ' . $form['posologia'] . '.';
-    if ( $nao_encontrados )      $obs .= ' ⚠ Sem cadastro atual: ' . implode( ', ', $nao_encontrados ) . '.';
-    $obs .= ' Confira forma farmacêutica, doses e preços antes de aprovar.';
+
+    // Cliente (contratante) = cliente do histórico (pode diferir do paciente — ex. mãe/filho)
+    $nome_cli = '';
+    if ( ! empty( $form['hist_cliente_id'] ) ) {
+        $rc = tao_formula_api( "/hist_clientes?id=eq.{$form['hist_cliente_id']}&select=nome&limit=1" );
+        $nome_cli = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? ( $rc['data'][0]['nome'] ?? '' ) : '';
+    }
 
     $univol   = strtoupper( trim( (string) ( $form['univol'] ?? '' ) ) );
     $uni_map  = [ 'CAP' => 'caps', 'G' => 'g', 'ML' => 'ml', 'UN' => 'un', 'ENV' => 'env', 'L' => 'L' ];
     $uni_form = $uni_map[ $univol ] ?? '';
+
+    // Forma farmacêutica REAL (repetição exata): CAP→cap, ENV→envelope; demais são ambíguas
+    // (ML pode ser solução/loção/floral; G pode ser creme/gel) → atendente confirma
+    $forma_id = null; $forma_nome = '';
+    $tipo_forma_alvo = [ 'CAP' => 'cap', 'ENV' => 'envelope' ][ $univol ] ?? null;
+    if ( $tipo_forma_alvo ) {
+        $rf2 = tao_formula_api( "/formas_farmaceuticas?cliente_id=eq.$cliente_id&ativo=eq.true&tipo=eq.$tipo_forma_alvo&select=id,nome&order=nome.asc&limit=1" );
+        if ( $rf2['ok'] && ! empty( $rf2['data'] ) ) {
+            $forma_id   = $rf2['data'][0]['id'];
+            $forma_nome = $rf2['data'][0]['nome'];
+        }
+    }
+
+    // Tipo da cápsula: TPCAP do FCerta casa por 1ª letra com tipos_capsula do TAO
+    // (G=GELATINOSA, E=ENTÉRICA, I=INCOLOR, L=LIPOFILICA, T=TAPIOCA, V=VEGETAL)
+    $forma_tipo = ''; $tpcap = strtoupper( trim( (string) ( $form['tpcap'] ?? '' ) ) );
+    if ( $tpcap && $forma_id && $univol === 'CAP' ) {
+        $rt = tao_formula_api( "/tipos_capsula?cliente_id=eq.$cliente_id&ativo=eq.true&select=tipo&limit=50" );
+        foreach ( ( $rt['ok'] ? $rt['data'] : [] ) as $tc ) {
+            if ( mb_strtoupper( mb_substr( $tc['tipo'], 0, 1 ) ) === $tpcap ) { $forma_tipo = $tc['tipo']; break; }
+        }
+    }
+
+    $obs = '[REPETIÇÃO FCerta] Req ' . $form['nrrqu'] . '/' . $form['serier'] . ' de ' . $dt_fmt .
+           ' — cobrado na última aprovação: R$ ' . number_format( (float) $form['preco_cobrado'], 2, ',', '.' ) .
+           ' (' . $potes . ' un × ' . rtrim( rtrim( number_format( $vol, 2, ',', '' ), '0' ), ',' ) . ' ' . $univol .
+           ( $forma_tipo ? ', cápsula ' . $forma_tipo : '' ) . ').';
+    if ( ! empty( $form['prescritor'] ) ) $obs .= ' Prescritor: ' . $form['prescritor'] . '.';
+    if ( $form['posologia'] )    $obs .= ' Posologia: ' . $form['posologia'] . '.';
+    if ( $nao_encontrados )      $obs .= ' ⚠ Sem cadastro atual: ' . implode( ', ', $nao_encontrados ) . '.';
+    if ( ! $forma_id )           $obs .= ' Confira a forma farmacêutica.';
+    $obs .= ' Preços recalculados pela tabela atual.';
 
     $numero  = tao_formula_gerar_numero( $cliente_id );
     $payload = [
@@ -2444,10 +2495,14 @@ add_action( 'wp_ajax_tao_formula_hist_repetir', function () {
         'status'              => 'pendente_revisao',
         'tipo_entrada'        => 'texto',
         'nome_paciente'       => $nome_pac,
+        'nome_cliente'        => ( $nome_cli && $nome_cli !== $nome_pac ) ? $nome_cli : null,
+        'prescritor'          => $form['prescritor'] ?? null,
+        'posologia'           => $form['posologia']  ?? null,
         'whatsapp'            => '',
-        'forma_id'            => null,
-        'forma_nome'          => $univol ? "Histórico FCerta ($univol)" : 'Histórico FCerta',
+        'forma_id'            => $forma_id,
+        'forma_nome'          => $forma_nome ?: ( $univol ? "Histórico FCerta ($univol)" : 'Histórico FCerta' ),
         'forma_vol'           => $vol,
+        'forma_tipo'          => $forma_tipo ?: null,
         'forma_unidade'       => $uni_form,
         'qtde_potes'          => $potes,
         'itens'               => $itens,
@@ -2460,7 +2515,7 @@ add_action( 'wp_ajax_tao_formula_hist_repetir', function () {
         'atualizado_em'       => gmdate( 'c' ),
     ];
 
-    $r = tao_formula_api( '/orcamentos', 'POST', $payload );
+    $r = tao_formula_orc_gravar( '/orcamentos', 'POST', $payload );
     if ( ! $r['ok'] ) wp_send_json_error( [ 'message' => 'Erro ao criar orçamento: ' . mb_substr( (string) $r['raw'], 0, 300 ) ] );
 
     wp_send_json_success( [

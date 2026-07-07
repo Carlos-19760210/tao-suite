@@ -99,6 +99,8 @@ def main():
     ap.add_argument("--db-file", default=None, help="caminho completo do .ib (ignora --db-dir)")
     ap.add_argument("--full",    action="store_true", help="reconcilia o histórico inteiro (todas as chaves)")
     ap.add_argument("--force",   action="store_true", help="recopia o banco mesmo sem mudança de mtime/tamanho")
+    ap.add_argument("--backfill-extra", action="store_true",
+                    help="preenche tpcap/prescritor em TODAS as fórmulas já carregadas (upsert; requer migration_v2)")
     args = ap.parse_args()
 
     fonte = args.db_file or os.path.join(args.db_dir, DB_ARQ_PADRAO)
@@ -126,6 +128,55 @@ def main():
     con = fdb.connect(database=work_ib, user="SYSDBA", password="masterkey",
                       fb_library_name=FB_DLL, charset="NONE")
     cur = con.cursor()
+
+    # migration_v2 rodada? (colunas tpcap/prescritor em hist_formulas)
+    try:
+        sbq(f"/hist_formulas?select=tpcap&limit=1")
+        tem_v2 = True
+    except Exception:
+        tem_v2 = False
+        print("AVISO: migration_v2 pendente — tpcap/prescritor NÃO serão gravados nesta sync")
+
+    # Prescritor: nome via FC04000 (chave NRCRM+UFCRM); requisição guarda só o CRM
+    presc_map = {}
+    if tem_v2:
+        cur.execute("SELECT NRCRM, UFCRM, NOMEMED FROM FC04000 WHERE NRCRM IS NOT NULL")
+        for crm, uf, nomemed in cur.fetchall():
+            presc_map[(crm, s(uf) or "")] = s(nomemed) or ""
+
+    def presc_str(nrcrm, ufcrm):
+        if not nrcrm: return None
+        uf   = s(ufcrm) or ""
+        nome = presc_map.get((nrcrm, uf), "")
+        return (f"{nome} — CRM {nrcrm}/{uf}" if nome else f"CRM {nrcrm}/{uf}").strip()
+
+    # ── Backfill: tpcap/prescritor nas fórmulas JÁ carregadas (upsert por chave) ──
+    if args.backfill_extra:
+        if not tem_v2: sys.exit("--backfill-extra requer a migration_v2 (colunas ausentes)")
+        print("== backfill tpcap/prescritor ==")
+        # Só chaves que JÁ existem no TAO (upsert em chave nova criaria fórmula-esqueleto)
+        ja_tao = {(c["nrrqu"], c["serier"]) for c in
+                  sb_all(f"/hist_formulas?cliente_id=eq.{CID}&select=nrrqu,serier&order=nrrqu.asc")}
+        cur.execute("SELECT NRRQU, SERIER, TPCAP, NRCRM, UFCRM FROM FC12100")
+        rows = []
+        for nrrqu, serier, tpcap, nrcrm, ufcrm in cur.fetchall():
+            sr = serier_int(serier)
+            if (nrrqu, sr) not in ja_tao: continue   # fórmula nova → sync normal cuida
+            rows.append({"cliente_id": CID, "nrrqu": nrrqu, "serier": sr,
+                         "tpcap": s(tpcap) or None, "prescritor": presc_str(nrcrm, ufcrm)})
+        print(f"  {len(rows)} fórmulas (existentes no TAO)")
+        for i in range(0, len(rows), 500):
+            for tent in range(3):
+                try:
+                    sb_req("/hist_formulas?on_conflict=cliente_id,nrrqu,serier", "POST",
+                           rows[i:i+500], prefer="resolution=merge-duplicates,return=minimal")
+                    break
+                except Exception as e:
+                    if tent == 2: raise
+                    print(f"  retry lote {i}: {e}"); time.sleep(2)
+            if (i // 500) % 20 == 0: print(f"  backfill: {min(i+500, len(rows))}/{len(rows)}")
+        print("BACKFILL CONCLUÍDO")
+        con.close(); return
 
     # ── 1. Clientes: insere os que faltam ───────────────────────────────────
     print("== clientes ==")
@@ -161,16 +212,16 @@ def main():
     existentes = {(c["nrrqu"], c["serier"]) for c in chaves}
 
     cur.execute(f"""SELECT NRRQU, SERIER, CDCLI, NRORC, DTCAD, DTRET, VOLUME, UNIVOL, QTCONT,
-                           POSOL, NOMEPA, PRCOBR, PRCUSTO, INDREPET, DTVAL
+                           POSOL, NOMEPA, PRCOBR, PRCUSTO, INDREPET, DTVAL, TPCAP, NRCRM, UFCRM
                     FROM FC12100{corte_sql}""")
     form_map, novas = {}, []
     for (nrrqu, serier, cdcli, nrorc, dtcad, dtret, vol, univol, qtcont,
-         posol, nomepa, prcobr, prcusto, indrep, dtval) in cur.fetchall():
+         posol, nomepa, prcobr, prcusto, indrep, dtval, tpcap, nrcrm, ufcrm) in cur.fetchall():
         sr = serier_int(serier)
         if (nrrqu, sr) in existentes: continue
         fid = str(uuid.uuid4())
         form_map[(nrrqu, sr)] = fid
-        novas.append({
+        nova = {
             "id": fid, "cliente_id": CID,
             "hist_cliente_id": cli_map.get(cdcli),
             "cdcli": cdcli or None, "nrrqu": nrrqu, "serier": sr, "nrorc": nrorc or None,
@@ -179,7 +230,11 @@ def main():
             "posologia": s(posol) or None, "nome_paciente": s(nomepa) or None,
             "preco_cobrado": num(prcobr), "preco_custo": num(prcusto),
             "ind_repet": s(indrep) == "S", "dt_validade": d(dtval),
-        })
+        }
+        if tem_v2:
+            nova["tpcap"]      = s(tpcap) or None
+            nova["prescritor"] = presc_str(nrcrm, ufcrm)
+        novas.append(nova)
     print(f"  novas fórmulas: {len(novas)}")
     post_batches("hist_formulas", novas, label="hist_formulas")
 

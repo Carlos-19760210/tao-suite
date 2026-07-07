@@ -202,14 +202,19 @@ function tao_formula_page_orcamento_novo() {
         <input type="hidden" id="taof-card-id" name="card_id" value="<?php echo esc_attr( $card_id ); ?>">
         <input type="hidden" id="taof-orc-id"  name="orc_id"  value="<?php echo esc_attr( $orc_id ); ?>">
 
-        <!-- Linha 1: Cliente + WhatsApp -->
+        <!-- Linha 1: Paciente + Cliente (contratante) + WhatsApp -->
         <div class="taof-row">
             <div class="taof-field" style="flex:3">
-                <label class="taof-label">Cliente</label>
+                <label class="taof-label">Paciente <small style="color:#94a3b8;font-weight:400">(quem usa)</small></label>
                 <input type="text" id="taof-nome-paciente" name="nome_paciente"
                        class="taof-inp" placeholder="Nome do paciente"
                        value="<?php echo esc_attr( $pre_nome ); ?>"
                        <?php echo ( $card_id && $pre_nome ) ? 'readonly style="background:#f8fafc;color:#64748b"' : ''; ?>>
+            </div>
+            <div class="taof-field" style="flex:3">
+                <label class="taof-label">Cliente <small style="color:#94a3b8;font-weight:400">(quem contrata — se diferente)</small></label>
+                <input type="text" id="taof-nome-cliente" name="nome_cliente"
+                       class="taof-inp" placeholder="Ex: mãe, responsável (opcional)">
             </div>
             <div class="taof-field" style="flex:2">
                 <label class="taof-label">WhatsApp</label>
@@ -217,6 +222,20 @@ function tao_formula_page_orcamento_novo() {
                        class="taof-inp" placeholder="5511999999999"
                        value="<?php echo esc_attr( $pre_wa ); ?>"
                        <?php echo ( $card_id && $pre_wa ) ? 'readonly style="background:#f8fafc;color:#64748b"' : ''; ?>>
+            </div>
+        </div>
+
+        <!-- Linha 1b: Prescritor (opcional em orçamento) + Posologia -->
+        <div class="taof-row">
+            <div class="taof-field" style="flex:2">
+                <label class="taof-label">Prescritor <small style="color:#94a3b8;font-weight:400">(opcional no orçamento)</small></label>
+                <input type="text" id="taof-prescritor" name="prescritor"
+                       class="taof-inp" placeholder="Ex: DR FULANO — CRM 12345/SP">
+            </div>
+            <div class="taof-field" style="flex:3">
+                <label class="taof-label">Posologia</label>
+                <input type="text" id="taof-posologia" name="posologia"
+                       class="taof-inp" placeholder="Ex: Tomar 1 cápsula à noite">
             </div>
         </div>
 
