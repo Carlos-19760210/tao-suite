@@ -2674,3 +2674,50 @@ add_action( 'wp_ajax_tao_formula_fpad_detalhe', function () {
 
     wp_send_json_success( [ 'formula' => $formula, 'itens' => $itens ] );
 } );
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EMPRESA / FILIAL — dados da farmácia (rótulo RDC 67 + fiscal). 1 por tenant.
+// ═══════════════════════════════════════════════════════════════════════════
+
+add_action( 'wp_ajax_tao_formula_empresa_get', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( 'Cliente não identificado', 400 );
+    $r = tao_formula_api( "/empresa_config?cliente_id=eq.$cliente_id&limit=1" );
+    if ( ! $r['ok'] && strpos( (string) $r['raw'], 'does not exist' ) !== false ) {
+        wp_send_json_error( [ 'message' => 'Tabela empresa_config pendente (migration_v4_empresa.sql).' ] );
+    }
+    wp_send_json_success( ( $r['ok'] && ! empty( $r['data'] ) ) ? $r['data'][0] : null );
+} );
+
+add_action( 'wp_ajax_tao_formula_empresa_save', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_is_master() ) wp_send_json_error( [ 'message' => 'Só o administrador pode editar a empresa' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+
+    $txt = function( $k, $upper = false ) {
+        $v = trim( sanitize_text_field( $_POST[ $k ] ?? '' ) );
+        if ( $upper ) $v = strtoupper( $v );
+        return $v === '' ? null : $v;
+    };
+    $campos = [ 'razao_social', 'nome_fantasia', 'cnpj', 'inscr_estadual', 'inscr_municipal',
+        'endereco', 'bairro', 'cidade', 'uf', 'cep', 'telefone', 'email',
+        'rt_nome', 'rt_crf', 'rt_uf', 'licenca_afe', 'licenca_cevs', 'licenca_crf_pj', 'autorizacao_esp' ];
+    $payload = [ 'atualizado_em' => gmdate( 'c' ) ];
+    foreach ( $campos as $c ) $payload[ $c ] = $txt( $c, in_array( $c, [ 'uf', 'rt_uf' ], true ) );
+    if ( $payload['cnpj'] ) $payload['cnpj'] = preg_replace( '/\D/', '', $payload['cnpj'] );
+
+    // 1 registro por tenant (PK = cliente_id): existe → PATCH, senão POST
+    $chk = tao_formula_api( "/empresa_config?cliente_id=eq.$cliente_id&select=cliente_id&limit=1" );
+    if ( $chk['ok'] && ! empty( $chk['data'] ) ) {
+        $r = tao_formula_api( "/empresa_config?cliente_id=eq.$cliente_id", 'PATCH', $payload );
+    } else {
+        $payload['cliente_id'] = $cliente_id;
+        $r = tao_formula_api( '/empresa_config', 'POST', $payload );
+    }
+    $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => 'Erro ao salvar: ' . mb_substr( (string) $r['raw'], 0, 250 ) ] );
+} );
