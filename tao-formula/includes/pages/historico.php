@@ -90,14 +90,17 @@ function tao_formula_page_historico() {
                     var vol = (f.volume ? parseFloat(f.volume) : '') + (f.univol ? ' ' + f.univol : '');
                     var pot = (f.qt_potes > 1) ? ' × ' + f.qt_potes : '';
                     var card = $('<div class="taof-hist-card">').data('fid', f.id);
+                    var resumo = f.resumo || '';
                     var head = $('<div class="taof-hist-head">').html(
                         '<span style="font-weight:700;color:#0f172a">' + fmtData(f.dt_cadastro) + '</span>' +
                         '<span>' + esc(vol + pot) + '</span>' +
                         (f.ind_repet ? '<span class="taof-hist-badge">repetição</span>' : '') +
-                        '<span style="color:#475569;flex:1;min-width:140px">' + esc((f.posologia || '').substring(0, 60)) + '</span>' +
+                        '<span style="color:#334155;flex:1;min-width:180px" title="' + esc(resumo) + '">' +
+                            esc(resumo.length > 90 ? resumo.substring(0, 90) + '…' : resumo) + '</span>' +
                         '<span style="font-weight:600">R$ ' + fmtBR(f.preco_cobrado) + '</span>' +
                         '<button type="button" class="button button-primary button-small taof-hist-repetir">↻ Repetir</button>'
                     );
+                    card.data('posologia', f.posologia || '');
                     var body = $('<div class="taof-hist-itens">');
                     head.on('click', function(e){
                         if ($(e.target).hasClass('taof-hist-repetir')) return;
@@ -124,7 +127,11 @@ function tao_formula_page_historico() {
                             '<td>' + (it.dose != null ? parseFloat(it.dose) + ' ' + esc(it.unidade || '') : '—') + '</td>' +
                             '<td style="color:#64748b">' + tipo + '</td></tr>';
                 });
-                body.html('<div class="taof-hist-twrap"><table><tr><th>Cód.</th><th>Componente</th><th>Dose</th><th></th></tr>' + rows + '</table></div>').data('ok', 1);
+                var posol = card.data('posologia');
+                body.html(
+                    (posol ? '<p style="margin:2px 0 8px;color:#0369a1;font-size:12px"><strong>Posologia:</strong> ' + esc(posol) + '</p>' : '') +
+                    '<div class="taof-hist-twrap"><table><tr><th>Cód.</th><th>Componente</th><th>Dose</th><th></th></tr>' + rows + '</table></div>'
+                ).data('ok', 1);
             });
         }
 
@@ -134,7 +141,9 @@ function tao_formula_page_historico() {
             $btn.prop('disabled', true).text('Criando…');
             $.post(ajaxUrl, {action:'tao_formula_hist_repetir', nonce:nonce, formula_id:fid}, function(resp){
                 if (resp.success && resp.data && resp.data.orc_id) {
-                    window.location.href = editorBase + '&orc_id=' + encodeURIComponent(resp.data.orc_id);
+                    // Portal usa URL amigável (sem query string) → '?'; wp-admin já tem '?page=' → '&'
+                    var sep = editorBase.indexOf('?') > -1 ? '&' : '?';
+                    window.location.href = editorBase + sep + 'orc_id=' + encodeURIComponent(resp.data.orc_id);
                 } else {
                     alert('Erro ao criar a repetição: ' + (resp.data && resp.data.message || 'desconhecido'));
                     $btn.prop('disabled', false).text('↻ Repetir');

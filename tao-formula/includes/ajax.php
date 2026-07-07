@@ -2209,8 +2209,32 @@ add_action( 'wp_ajax_tao_formula_hist_formulas', function () {
         "&select=id,nrrqu,serier,dt_cadastro,volume,univol,qt_potes,posologia,preco_cobrado,ind_repet" .
         "&order=dt_cadastro.desc,nrrqu.desc&limit=200"
     );
-    $r['ok'] ? wp_send_json_success( $r['data'] ?? [] )
-             : wp_send_json_error( [ 'message' => mb_substr( (string) $r['raw'], 0, 200 ) ] );
+    if ( ! $r['ok'] ) wp_send_json_error( [ 'message' => mb_substr( (string) $r['raw'], 0, 200 ) ] );
+    $formulas = $r['data'] ?? [];
+
+    // Resumo dos ativos (componentes C não-QSP) por fórmula — uma query p/ a lista toda
+    if ( $formulas ) {
+        $ids = implode( ',', array_column( $formulas, 'id' ) );
+        $ri  = tao_formula_api(
+            "/hist_formulas_itens?formula_id=in.($ids)&tpcmp=eq.C" .
+            "&select=formula_id,descr,dose,unidade,is_qsp&order=ordem.asc&limit=3000"
+        );
+        $por_form = [];
+        foreach ( ( $ri['ok'] ? $ri['data'] : [] ) as $it ) {
+            if ( ! empty( $it['is_qsp'] ) ) continue;
+            $nome = rtrim( trim( (string) $it['descr'] ), '@' );
+            $dose = (float) ( $it['dose'] ?? 0 );
+            $lbl  = $nome . ( $dose > 0 ? ' ' . rtrim( rtrim( number_format( $dose, 2, ',', '' ), '0' ), ',' ) . strtolower( (string) $it['unidade'] ) : '' );
+            $por_form[ $it['formula_id'] ][] = $lbl;
+        }
+        foreach ( $formulas as &$f ) {
+            $ativos = $por_form[ $f['id'] ] ?? [];
+            $extra  = count( $ativos ) - 4;
+            $f['resumo'] = implode( ' + ', array_slice( $ativos, 0, 4 ) ) . ( $extra > 0 ? " +{$extra}" : '' );
+        }
+        unset( $f );
+    }
+    wp_send_json_success( $formulas );
 } );
 
 // ── Itens de uma fórmula ──────────────────────────────────────────────────────
