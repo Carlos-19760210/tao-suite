@@ -23,6 +23,7 @@ require_once TAOF_PLUGIN_DIR . 'includes/pages/formas.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/ativos.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/configuracoes.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/sinonimos.php';
+require_once TAOF_PLUGIN_DIR . 'includes/pages/historico.php';
 
 // ── Admin menu ────────────────────────────────────────────────────────────────
 add_action( 'admin_menu', function() {
@@ -36,6 +37,7 @@ add_action( 'admin_menu', function() {
     add_submenu_page( 'tao-formula', 'Dashboard',            'Dashboard',            'read', 'tao-formula',            'tao_formula_page_dashboard' );
     add_submenu_page( 'tao-formula', 'Orçamentos',           'Orçamentos',           'read', 'tao-formula-orcamentos', 'tao_formula_page_orcamentos' );
     add_submenu_page( 'tao-formula', 'Novo Orçamento',       'Novo Orçamento',       'read', 'tao-formula-orc-novo',  'tao_formula_page_orcamento_novo' );
+    add_submenu_page( 'tao-formula', 'Histórico',            'Histórico',            'read', 'tao-formula-historico', 'tao_formula_page_historico' );
     add_submenu_page( 'tao-formula', 'Formas Farmacêuticas', 'Formas Farmacêuticas', 'read', 'tao-formula-formas',    'tao_formula_page_formas' );
     add_submenu_page( 'tao-formula', 'Ativos',               'Ativos',               'read', 'tao-formula-ativos',    'tao_formula_page_ativos' );
     add_submenu_page( 'tao-formula', 'Sinônimos',            'Sinônimos',            'read', 'tao-formula-sinonimos', 'tao_formula_page_sinonimos' );

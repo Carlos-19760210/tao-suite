@@ -42,6 +42,7 @@ function tao_formula_url( $section = 'formula-dashboard', $params = [] ) {
         'formula-dashboard'  => 'tao-formula',
         'formula-orcamentos' => 'tao-formula-orcamentos',
         'formula-novo-orc'   => 'tao-formula-orc-novo',
+        'formula-historico'  => 'tao-formula-historico',
         'formula-formas'     => 'tao-formula-formas',
         'formula-ativos'     => 'tao-formula-ativos',
         'formula-config'     => 'tao-formula-config',

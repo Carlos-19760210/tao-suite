@@ -2112,3 +2112,260 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
     if ( $card_id && function_exists( 'tao_crm_sync_valor_oportunidade' ) ) tao_crm_sync_valor_oportunidade( $card_id );
     wp_send_json_success( [ 'criados' => $criados, 'erros' => $erros ] );
 } );
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HISTÓRICO FCerta — consulta de fórmulas por cliente + repetição
+// Tabelas: hist_clientes / hist_formulas / hist_formulas_itens
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── Busca de cliente por nome ─────────────────────────────────────────────────
+
+add_action( 'wp_ajax_tao_formula_hist_busca', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $q          = sanitize_text_field( $_GET['q'] ?? '' );
+    if ( ! $cliente_id || mb_strlen( $q ) < 3 ) { wp_send_json_success( [] ); return; }
+    $enc = rawurlencode( $q );
+
+    $rc = tao_formula_api(
+        "/hist_clientes?cliente_id=eq.$cliente_id&nome=ilike.*{$enc}*" .
+        "&select=id,cdcli,nome&order=nome.asc&limit=12"
+    );
+    if ( ! $rc['ok'] ) {
+        $msg = strpos( (string) $rc['raw'], 'does not exist' ) !== false
+            ? 'Tabelas do histórico ainda não criadas (migration_historico_v1.sql pendente).'
+            : 'Erro na busca: ' . mb_substr( (string) $rc['raw'], 0, 200 );
+        wp_send_json_error( [ 'message' => $msg ] );
+    }
+    $clientes = $rc['data'] ?? [];
+    $out      = [];
+
+    if ( $clientes ) {
+        // Total de fórmulas + última data por cliente (uma query só)
+        $ids = implode( ',', array_column( $clientes, 'id' ) );
+        $rf  = tao_formula_api(
+            "/hist_formulas?cliente_id=eq.$cliente_id&hist_cliente_id=in.($ids)" .
+            "&select=hist_cliente_id,dt_cadastro&order=dt_cadastro.desc&limit=5000"
+        );
+        $agg = [];
+        foreach ( ( $rf['ok'] ? $rf['data'] : [] ) as $f ) {
+            $h = $f['hist_cliente_id'];
+            if ( ! isset( $agg[ $h ] ) ) $agg[ $h ] = [ 'n' => 0, 'ult' => $f['dt_cadastro'] ];
+            $agg[ $h ]['n']++;
+        }
+        foreach ( $clientes as $c ) {
+            $out[] = [
+                'hist_cliente_id' => $c['id'],
+                'cdcli'           => $c['cdcli'],
+                'nome'            => $c['nome'],
+                'total_formulas'  => $agg[ $c['id'] ]['n']   ?? 0,
+                'ultima'          => $agg[ $c['id'] ]['ult'] ?? null,
+            ];
+        }
+    }
+
+    // Fórmulas sem cadastro de cliente (CDCLI vazio no FCerta): busca pelo nome do paciente
+    $ra = tao_formula_api(
+        "/hist_formulas?cliente_id=eq.$cliente_id&hist_cliente_id=is.null&nome_paciente=ilike.*{$enc}*" .
+        "&select=nome_paciente,dt_cadastro&order=dt_cadastro.desc&limit=200"
+    );
+    $avulsos = [];
+    foreach ( ( $ra['ok'] ? $ra['data'] : [] ) as $f ) {
+        $n = $f['nome_paciente'];
+        if ( ! $n ) continue;
+        if ( ! isset( $avulsos[ $n ] ) ) $avulsos[ $n ] = [ 'n' => 0, 'ult' => $f['dt_cadastro'] ];
+        $avulsos[ $n ]['n']++;
+    }
+    foreach ( $avulsos as $nome => $a ) {
+        $out[] = [
+            'hist_cliente_id' => null,
+            'cdcli'           => null,
+            'nome'            => $nome,
+            'total_formulas'  => $a['n'],
+            'ultima'          => $a['ult'],
+        ];
+    }
+    wp_send_json_success( $out );
+} );
+
+// ── Fórmulas de um cliente ────────────────────────────────────────────────────
+
+add_action( 'wp_ajax_tao_formula_hist_formulas', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $hist_id    = sanitize_text_field( $_GET['hist_cliente_id'] ?? '' );
+    $nome_pac   = sanitize_text_field( $_GET['nome_paciente']   ?? '' );
+    if ( ! $cliente_id || ( ! $hist_id && ! $nome_pac ) ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+
+    $filtro = $hist_id
+        ? 'hist_cliente_id=eq.' . $hist_id
+        : 'hist_cliente_id=is.null&nome_paciente=eq.' . rawurlencode( $nome_pac );
+    $r = tao_formula_api(
+        "/hist_formulas?cliente_id=eq.$cliente_id&$filtro" .
+        "&select=id,nrrqu,serier,dt_cadastro,volume,univol,qt_potes,posologia,preco_cobrado,ind_repet" .
+        "&order=dt_cadastro.desc,nrrqu.desc&limit=200"
+    );
+    $r['ok'] ? wp_send_json_success( $r['data'] ?? [] )
+             : wp_send_json_error( [ 'message' => mb_substr( (string) $r['raw'], 0, 200 ) ] );
+} );
+
+// ── Itens de uma fórmula ──────────────────────────────────────────────────────
+
+add_action( 'wp_ajax_tao_formula_hist_itens', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $fid        = sanitize_text_field( $_GET['formula_id'] ?? '' );
+    if ( ! $cliente_id || ! $fid ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+
+    // Confirma que a fórmula pertence ao tenant antes de listar
+    $rf = tao_formula_api( "/hist_formulas?id=eq.$fid&cliente_id=eq.$cliente_id&select=id&limit=1" );
+    if ( ! $rf['ok'] || empty( $rf['data'] ) ) wp_send_json_error( [ 'message' => 'Fórmula não encontrada' ] );
+
+    $r = tao_formula_api(
+        "/hist_formulas_itens?formula_id=eq.$fid" .
+        "&select=tpcmp,codigo_fc,descr,dose,unidade,qt_real,is_qsp,ordem&order=ordem.asc&limit=100"
+    );
+    $r['ok'] ? wp_send_json_success( $r['data'] ?? [] )
+             : wp_send_json_error( [ 'message' => mb_substr( (string) $r['raw'], 0, 200 ) ] );
+} );
+
+// ── Repetir: cria orçamento novo a partir da fórmula histórica ────────────────
+
+add_action( 'wp_ajax_tao_formula_hist_repetir', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $fid        = sanitize_text_field( $_POST['formula_id'] ?? '' );
+    if ( ! $cliente_id || ! $fid ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+
+    $rf = tao_formula_api( "/hist_formulas?id=eq.$fid&cliente_id=eq.$cliente_id&limit=1" );
+    if ( ! $rf['ok'] || empty( $rf['data'] ) ) wp_send_json_error( [ 'message' => 'Fórmula não encontrada' ] );
+    $form = $rf['data'][0];
+
+    $ri = tao_formula_api(
+        "/hist_formulas_itens?formula_id=eq.$fid&tpcmp=eq.C" .
+        "&select=codigo_fc,descr,dose,unidade,is_qsp,ordem&order=ordem.asc&limit=100"
+    );
+    $hist_itens = ( $ri['ok'] ? $ri['data'] : [] );
+    if ( ! $hist_itens ) wp_send_json_error( [ 'message' => 'Fórmula sem componentes' ] );
+
+    // Associa ativos pelo codigo_fc (vínculo do sync) em uma query
+    $cods = array_values( array_unique( array_filter( array_column( $hist_itens, 'codigo_fc' ) ) ) );
+    $mapa = [];
+    if ( $cods ) {
+        $in = implode( ',', array_map( 'rawurlencode', $cods ) );
+        $ra = tao_formula_api(
+            "/ativos?cliente_id=eq.$cliente_id&codigo_fc=in.($in)" .
+            "&select=id,codigo_fc,nome,unidade_padrao,preco_venda,custo_por_unidade,fator_perda,diluicao,teor&limit=" . count( $cods )
+        );
+        foreach ( ( $ra['ok'] ? $ra['data'] : [] ) as $at ) $mapa[ (string) $at['codigo_fc'] ] = $at;
+    }
+
+    $vol      = (float) ( $form['volume'] ?? 0 ) ?: 1;
+    $potes    = max( 1, (int) ( $form['qt_potes'] ?? 1 ) );
+    $mult     = $vol * $potes;
+    $unit_map = [ 'MG' => 'mg', 'G' => 'g', 'MCG' => 'mcg', 'ML' => 'ml', '%' => '%',
+                  'UI' => 'UI', 'UFC' => 'UFC', 'BLH' => 'BLH' ];
+
+    $itens           = [];
+    $nao_encontrados = [];
+    foreach ( $hist_itens as $hi ) {
+        $at     = $mapa[ (string) ( $hi['codigo_fc'] ?? '' ) ] ?? null;
+        if ( ! $at ) $nao_encontrados[] = $hi['descr'];
+        $is_qsp    = ! empty( $hi['is_qsp'] );
+        $dose      = (float) ( $hi['dose'] ?? 0 );
+        $unida     = strtoupper( trim( (string) ( $hi['unidade'] ?? 'MG' ) ) );
+        $dose_unit = $unit_map[ $unida ] ?? 'mg';
+        $fp        = (float) ( $at['fator_perda'] ?? 1 ) ?: 1;
+        $diluicao  = (float) ( $at['diluicao']    ?? 1 ) ?: 1;
+        $teor      = (float) ( $at['teor']        ?? 100 ) ?: 100;
+        $preco     = (float) ( $at['preco_venda'] ?? 0 );
+        $unid_p    = strtolower( $at['unidade_padrao'] ?? 'mg' );
+
+        // Subtotal preliminar (unidades de massa) — o editor recalcula na revisão
+        $qtd_tot_g = 0.0;
+        $subtotal  = 0.0;
+        if ( ! $is_qsp && $dose > 0 && $preco > 0 && in_array( $dose_unit, [ 'mg', 'g', 'mcg' ], true ) ) {
+            $dose_mg = $dose_unit === 'g' ? $dose * 1000 : ( $dose_unit === 'mcg' ? $dose / 1000 : $dose );
+            $dose_mg_real = $dose_mg * $diluicao / max( 0.001, $teor / 100 );
+            $qtd_total_mg = $dose_mg_real * $fp * $mult;
+            $qtd_tot_g    = $qtd_total_mg / 1000;
+            $qtd_em_u     = $unid_p === 'g' ? $qtd_tot_g : $qtd_total_mg;
+            $subtotal     = round( $qtd_em_u * $preco, 4 );
+        }
+
+        $itens[] = [
+            'tipo'              => 'mp',
+            'ativo_id'          => $at['id'] ?? null,
+            'nome'              => $at['nome'] ?? $hi['descr'],
+            'nome_prescricao'   => $hi['descr'],
+            'codigo_fc'         => $hi['codigo_fc'] ?? '',
+            'dose'              => $is_qsp ? null : $dose,
+            'dose_unit'         => $dose_unit,
+            'is_qsp'            => $is_qsp,
+            'multiplicador'     => $mult,
+            'qtde_potes'        => $potes,
+            'fp'                => $fp,
+            'diluicao'          => $diluicao,
+            'teor'              => $teor,
+            'qtd_total_g'       => $qtd_tot_g,
+            'volapa_ul'         => 0,
+            'custo_por_unidade' => (float) ( $at['custo_por_unidade'] ?? 0 ),
+            'preco_venda'       => $preco,
+            'unid_padrao'       => $unid_p,
+            'subtotal'          => $subtotal,
+        ];
+    }
+
+    $nome_pac = $form['nome_paciente'] ?: '';
+    $dt_fmt   = $form['dt_cadastro'] ? date( 'd/m/Y', strtotime( $form['dt_cadastro'] ) ) : '?';
+    $obs      = '[REPETIÇÃO FCerta] Req ' . $form['nrrqu'] . '/' . $form['serier'] . ' de ' . $dt_fmt .
+                ' — valor da época R$ ' . number_format( (float) $form['preco_cobrado'], 2, ',', '.' ) . '.';
+    if ( $form['posologia'] )    $obs .= ' Posologia: ' . $form['posologia'] . '.';
+    if ( $nao_encontrados )      $obs .= ' ⚠ Sem cadastro atual: ' . implode( ', ', $nao_encontrados ) . '.';
+    $obs .= ' Confira forma farmacêutica, doses e preços antes de aprovar.';
+
+    $univol   = strtoupper( trim( (string) ( $form['univol'] ?? '' ) ) );
+    $uni_map  = [ 'CAP' => 'caps', 'G' => 'g', 'ML' => 'ml', 'UN' => 'un', 'ENV' => 'env', 'L' => 'L' ];
+    $uni_form = $uni_map[ $univol ] ?? '';
+
+    $numero  = tao_formula_gerar_numero( $cliente_id );
+    $payload = [
+        'cliente_id'          => $cliente_id,
+        'card_id'             => null,
+        'numero_orcamento'    => $numero,
+        'status'              => 'pendente_revisao',
+        'tipo_entrada'        => 'texto',
+        'nome_paciente'       => $nome_pac,
+        'whatsapp'            => '',
+        'forma_id'            => null,
+        'forma_nome'          => $univol ? "Histórico FCerta ($univol)" : 'Histórico FCerta',
+        'forma_vol'           => $vol,
+        'forma_unidade'       => $uni_form,
+        'qtde_potes'          => $potes,
+        'itens'               => $itens,
+        'total_orcamento'     => array_sum( array_column( $itens, 'subtotal' ) ),
+        'total_insumos'       => array_sum( array_column( $itens, 'subtotal' ) ),
+        'custo_fixo_aplicado' => 0,
+        'margem_aplicada'     => 0,
+        'desconto_pct'        => 0,
+        'observacoes'         => $obs,
+        'atualizado_em'       => gmdate( 'c' ),
+    ];
+
+    $r = tao_formula_api( '/orcamentos', 'POST', $payload );
+    if ( ! $r['ok'] ) wp_send_json_error( [ 'message' => 'Erro ao criar orçamento: ' . mb_substr( (string) $r['raw'], 0, 300 ) ] );
+
+    wp_send_json_success( [
+        'orc_id'          => $r['data'][0]['id'] ?? null,
+        'numero'          => $numero,
+        'nao_encontrados' => $nao_encontrados,
+    ] );
+} );
