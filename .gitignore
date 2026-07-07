@@ -36,3 +36,5 @@ n8n-chatbot-v6.json
 n8n-chatbot-v6-current.json
 n8n-chatbot-v6-updated.json
 n8n-campanha-workflow.json
+*.bak
+__pycache__/
