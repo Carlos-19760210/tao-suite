@@ -39,6 +39,7 @@ if ( $has_formula ) {
     $secoes['tao-formula']           = [ 'fn' => 'tao_formula_page_dashboard',      'label' => 'Fórmulas' ];
     $secoes['tao-formula-orcamentos']= [ 'fn' => 'tao_formula_page_orcamentos',     'label' => 'Orçamentos' ];
     $secoes['tao-formula-orc-novo']  = [ 'fn' => 'tao_formula_page_orcamento_novo', 'label' => 'Novo Orçamento' ];
+    $secoes['tao-formula-historico'] = [ 'fn' => 'tao_formula_page_historico',      'label' => 'Histórico do Cliente' ];
     $secoes['tao-formula-formas']    = [ 'fn' => 'tao_formula_page_formas',         'label' => 'Formas Farmacêuticas' ];
     $secoes['tao-formula-ativos']    = [ 'fn' => 'tao_formula_page_ativos',         'label' => 'Ativos' ];
     $secoes['tao-formula-config']    = [ 'fn' => 'tao_formula_page_config',         'label' => 'Fórmulas — Configurações' ];
@@ -116,6 +117,7 @@ if ( $has_formula ) {
             [ 'slug' => 'tao-formula',            'label' => 'Painel',                 'url' => cbpm_url('formula-dashboard') ],
             [ 'slug' => 'tao-formula-orcamentos', 'label' => 'Or&ccedil;amentos',      'url' => cbpm_url('formula-orcamentos') ],
             [ 'slug' => 'tao-formula-orc-novo',   'label' => 'Novo Or&ccedil;amento',  'url' => cbpm_url('formula-novo-orc') ],
+            [ 'slug' => 'tao-formula-historico',  'label' => 'Hist&oacute;rico',       'url' => cbpm_url('formula-historico') ],
         ],
     ];
 }
