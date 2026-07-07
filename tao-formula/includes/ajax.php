@@ -296,12 +296,19 @@ function tao_formula_orc_payload( $itens ) {
     return $p;
 }
 
+// contato_id da pessoa (base única do CRM) a partir do card do Kanban.
+function tao_formula_contato_do_card( $card_id ) {
+    if ( ! $card_id ) return null;
+    $r = tao_formula_api( "/crm_cards?id=eq.$card_id&select=contato_id&limit=1" );
+    return ( $r['ok'] && ! empty( $r['data'] ) ) ? ( $r['data'][0]['contato_id'] ?? null ) : null;
+}
+
 // Grava orçamento tolerando migration_v2 pendente: se o Supabase recusar coluna
 // desconhecida, remove os campos novos e tenta de novo (não perde o orçamento).
 function tao_formula_orc_gravar( $path, $method, $data ) {
     $r = tao_formula_api( $path, $method, $data );
     if ( ! $r['ok'] && strpos( (string) ( $r['raw'] ?? '' ), 'column' ) !== false ) {
-        unset( $data['nome_cliente'], $data['prescritor'], $data['prescritor_id'], $data['posologia'], $data['forma_tipo'] );
+        unset( $data['nome_cliente'], $data['prescritor'], $data['prescritor_id'], $data['posologia'], $data['forma_tipo'], $data['contato_id'] );
         $r = tao_formula_api( $path, $method, $data );
     }
     return $r;
@@ -331,6 +338,9 @@ add_action( 'wp_ajax_tao_formula_save_orcamento', function() {
         'numero_orcamento' => $numero,
         'status'           => 'pendente_revisao',
     ] );
+    // Vincula à pessoa única do CRM (via card, quando houver)
+    $ct = tao_formula_contato_do_card( $card_id );
+    if ( $ct ) $data['contato_id'] = $ct;
 
     $r = tao_formula_orc_gravar( '/orcamentos', 'POST', $data );
     if ( $r['ok'] ) {
@@ -371,6 +381,9 @@ add_action( 'wp_ajax_tao_formula_update_orcamento', function() {
     if ( ! is_array( $itens ) ) $itens = [];
 
     $data = tao_formula_orc_payload( $itens );
+    // Mantém o vínculo com a pessoa única do CRM (via card do orçamento)
+    $ct = tao_formula_contato_do_card( $exist['card_id'] ?? null );
+    if ( $ct ) $data['contato_id'] = $ct;
 
     $r = tao_formula_orc_gravar( "/orcamentos?id=eq.$orc_id&cliente_id=eq.$cliente_id", 'PATCH', $data );
     if ( $r['ok'] ) {
@@ -2225,7 +2238,7 @@ add_action( 'wp_ajax_tao_formula_hist_busca', function () {
 
     $rc = tao_formula_api(
         "/hist_clientes?cliente_id=eq.$cliente_id&nome=ilike.*{$enc}*" .
-        "&select=id,cdcli,nome&order=nome.asc&limit=12"
+        "&select=id,cdcli,nome,contato_id&order=nome.asc&limit=12"
     );
     if ( ! $rc['ok'] ) {
         $msg = strpos( (string) $rc['raw'], 'does not exist' ) !== false
@@ -2252,6 +2265,7 @@ add_action( 'wp_ajax_tao_formula_hist_busca', function () {
         foreach ( $clientes as $c ) {
             $out[] = [
                 'hist_cliente_id' => $c['id'],
+                'contato_id'      => $c['contato_id'] ?? null,
                 'cdcli'           => $c['cdcli'],
                 'nome'            => $c['nome'],
                 'total_formulas'  => $agg[ $c['id'] ]['n']   ?? 0,
@@ -2723,44 +2737,47 @@ add_action( 'wp_ajax_tao_formula_empresa_save', function () {
 } );
 
 // ═══════════════════════════════════════════════════════════════════════════
-// CLIENTE/PACIENTE — dados básicos + características de saúde (hist_clientes)
-// Cadastro superficial (não é atenção farmacêutica).
+// CLIENTE/PACIENTE — cadastro ÚNICO na base do CRM (crm_contatos).
+// A pessoa vive em crm_contatos; hist_clientes só referencia via contato_id.
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Lê o contato do CRM (id = crm_contatos.id)
 add_action( 'wp_ajax_tao_formula_cliente_get', function () {
     while ( ob_get_level() > 0 ) ob_end_clean();
     check_ajax_referer( 'tao_formula_nonce', 'nonce' );
     if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
-    $cliente_id = tao_formula_cliente_id();
-    $id         = sanitize_text_field( $_GET['id'] ?? '' );
-    if ( ! $cliente_id || ! $id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+    $ws = tao_formula_workspace_id();
+    $id = sanitize_text_field( $_GET['id'] ?? '' );
+    if ( ! $ws || ! $id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
     $r = tao_formula_api(
-        "/hist_clientes?id=eq.$id&cliente_id=eq.$cliente_id" .
-        "&select=id,nome,cdcli,dt_nascimento,email,whatsapp,sexo,observacoes,alergias,saude_obesidade,saude_colesterol,saude_pressao,saude_diabetes&limit=1"
+        "/crm_contatos?id=eq.$id&workspace_id=eq.$ws" .
+        "&select=id,nome,whatsapp,email,data_nascimento,sexo,observacoes,alergias,saude_obesidade,saude_colesterol,saude_pressao,saude_diabetes,origem&limit=1"
     );
     $r['ok'] && ! empty( $r['data'] )
         ? wp_send_json_success( $r['data'][0] )
-        : wp_send_json_error( [ 'message' => 'Cliente não encontrado' ] );
+        : wp_send_json_error( [ 'message' => 'Contato não encontrado' ] );
 } );
 
+// Cria/edita o contato do CRM. Opcional: hist_id p/ vincular ao histórico (contato_id).
 add_action( 'wp_ajax_tao_formula_cliente_save', function () {
     while ( ob_get_level() > 0 ) ob_end_clean();
     check_ajax_referer( 'tao_formula_nonce', 'nonce' );
     if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $ws         = tao_formula_workspace_id();
     $cliente_id = tao_formula_cliente_id();
-    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+    if ( ! $ws ) wp_send_json_error( [ 'message' => 'Workspace do CRM não encontrado' ] );
 
-    $id   = sanitize_text_field( $_POST['id'] ?? '' );
-    $nome = strtoupper( trim( sanitize_text_field( $_POST['nome'] ?? '' ) ) );
+    $id      = sanitize_text_field( $_POST['id'] ?? '' );       // crm_contatos.id (edição)
+    $hist_id = sanitize_text_field( $_POST['hist_id'] ?? '' );  // hist_clientes.id (vincular ao criar)
+    $nome    = trim( sanitize_text_field( $_POST['nome'] ?? '' ) );
     if ( ! $nome ) wp_send_json_error( [ 'message' => 'Informe o nome' ] );
 
     $txt  = function( $k ) { $v = trim( sanitize_text_field( $_POST[ $k ] ?? '' ) ); return $v === '' ? null : $v; };
     $bool = function( $k ) { return ( $_POST[ $k ] ?? '' ) === '1'; };
     $payload = [
         'nome'             => $nome,
-        'dt_nascimento'    => $txt( 'dt_nascimento' ),
+        'data_nascimento'  => $txt( 'dt_nascimento' ),
         'email'            => $txt( 'email' ),
-        'whatsapp'         => preg_replace( '/\D/', '', $_POST['whatsapp'] ?? '' ) ?: null,
         'sexo'             => in_array( ( $_POST['sexo'] ?? '' ), [ 'M', 'F' ], true ) ? $_POST['sexo'] : null,
         'alergias'         => $txt( 'alergias' ),
         'observacoes'      => $txt( 'observacoes' ),
@@ -2769,21 +2786,32 @@ add_action( 'wp_ajax_tao_formula_cliente_save', function () {
         'saude_pressao'    => $bool( 'saude_pressao' ),
         'saude_diabetes'   => $bool( 'saude_diabetes' ),
     ];
+    $wpp = tao_formula_norm_whatsapp( $_POST['whatsapp'] ?? '' );
+    if ( $wpp ) $payload['whatsapp'] = $wpp;
 
-    $salvar = function( $body ) use ( $id, $cliente_id ) {
-        if ( $id ) return tao_formula_api( "/hist_clientes?id=eq.$id&cliente_id=eq.$cliente_id", 'PATCH', $body );
-        $body['cliente_id'] = $cliente_id;
-        $body['origem']     = 'tao';
-        return tao_formula_api( '/hist_clientes', 'POST', $body );
-    };
-    $r = $salvar( $payload );
-    // migration_v5 pendente → salva só o que existe (nome/dt/email/obs)
-    if ( ! $r['ok'] && strpos( (string) ( $r['raw'] ?? '' ), 'column' ) !== false ) {
-        $base = [ 'nome' => $nome, 'dt_nascimento' => $payload['dt_nascimento'],
-                  'email' => $payload['email'], 'observacoes' => $payload['observacoes'] ];
-        $r = $salvar( $base );
-        if ( $r['ok'] ) { wp_send_json_success( [ 'id' => $r['data'][0]['id'] ?? $id, 'aviso' => 'Características de saúde NÃO gravadas — rode migration_v5_cliente_basico.sql.' ] ); }
+    if ( $id ) {
+        // Edição de contato existente
+        $r = tao_formula_api( "/crm_contatos?id=eq.$id&workspace_id=eq.$ws", 'PATCH', $payload );
+        $contato_id = $id;
+    } else {
+        // Novo contato: exige whatsapp (chave do CRM). Se já existir o número, reaproveita.
+        if ( ! $wpp ) wp_send_json_error( [ 'message' => 'Informe o WhatsApp (chave única do cadastro).' ] );
+        $ex = tao_formula_api( "/crm_contatos?workspace_id=eq.$ws&whatsapp=eq.$wpp&select=id&limit=1" );
+        if ( $ex['ok'] && ! empty( $ex['data'] ) ) {
+            $contato_id = $ex['data'][0]['id'];
+            $r = tao_formula_api( "/crm_contatos?id=eq.$contato_id", 'PATCH', $payload );
+        } else {
+            $payload['workspace_id'] = $ws;
+            $payload['origem']       = 'tao';
+            $r = tao_formula_api( '/crm_contatos', 'POST', $payload );
+            $contato_id = ( $r['ok'] && ! empty( $r['data'] ) ) ? ( $r['data'][0]['id'] ?? null ) : null;
+        }
     }
-    $r['ok'] ? wp_send_json_success( [ 'id' => $r['data'][0]['id'] ?? $id ] )
-             : wp_send_json_error( [ 'message' => 'Erro ao salvar: ' . mb_substr( (string) $r['raw'], 0, 250 ) ] );
+    if ( ! $r['ok'] ) wp_send_json_error( [ 'message' => 'Erro ao salvar: ' . mb_substr( (string) $r['raw'], 0, 250 ) ] );
+
+    // Vincula o contato ao registro de histórico (quando veio de um paciente FCerta sem contato)
+    if ( $hist_id && $contato_id && $cliente_id ) {
+        tao_formula_api( "/hist_clientes?id=eq.$hist_id&cliente_id=eq.$cliente_id", 'PATCH', [ 'contato_id' => $contato_id ] );
+    }
+    wp_send_json_success( [ 'id' => $contato_id, 'contato_id' => $contato_id ] );
 } );

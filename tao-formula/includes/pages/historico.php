@@ -126,8 +126,8 @@ function tao_formula_page_historico() {
             $('#taof-hist-busca').val(c.nome);
             $('#taof-hist-cli-nome').text(c.nome);
             $('#taof-hist-cli-meta').text(' — ' + c.total_formulas + ' fórmula(s) no FCerta' + (c.cdcli ? ' · cód. ' + c.cdcli : ''));
-            // Botão editar só para clientes com cadastro (hist_cliente_id); avulsos por nome não têm registro
-            $('#taof-cli-editar').toggle(!!c.hist_cliente_id);
+            // Editar dados do contato: sempre que há registro de histórico (com contato → edita; sem → cria+vincula)
+            $('#taof-cli-editar').toggle(!!c.hist_cliente_id).text(c.contato_id ? '✏️ Editar dados' : '➕ Cadastrar contato');
             $('#taof-cli-saude').empty();
             $('#taof-hist-cliente').show();
             $('#taof-hist-lista').html('<p style="color:#94a3b8">Carregando fórmulas…</p>');
@@ -215,11 +215,13 @@ function tao_formula_page_historico() {
             return '<div><label style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:2px">'+lbl+'</label>' +
                    '<input type="'+(type||'text')+'" name="'+name+'" value="'+esc(val)+'" style="width:100%;padding:5px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px"></div>';
         }
-        function formCliente(c){
+        // c = contato do CRM (ou {nome} p/ novo). histId = hist_cliente a vincular ao criar.
+        function formCliente(c, histId){
             c = c || {};
-            var isNovo = !c.id;
+            var isNovo = !c.id;   // c.id = crm_contatos.id
             var sexo = c.sexo || '';
-            var html = '<h2 style="margin:0 0 12px;font-size:18px">'+(isNovo?'➕ Novo Cliente':'✏️ '+esc(c.nome))+'</h2>';
+            var html = '<h2 style="margin:0 0 4px;font-size:18px">'+(isNovo?'➕ Novo Cliente':'✏️ '+esc(c.nome))+'</h2>';
+            html += '<p style="margin:0 0 12px;font-size:11px;color:#94a3b8">Cadastro único — o mesmo contato do CRM/Agente/Campanha.</p>';
             html += '<form id="taof-cli-form">';
             html += '<div style="display:grid;grid-template-columns:2fr 1fr;gap:10px 14px;margin-bottom:10px">' +
                     cinp('Nome *','nome',c.nome) +
@@ -227,8 +229,8 @@ function tao_formula_page_historico() {
                     '<select name="sexo" style="width:100%;padding:5px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px">' +
                     '<option value="">—</option><option value="F"'+(sexo==='F'?' selected':'')+'>Feminino</option><option value="M"'+(sexo==='M'?' selected':'')+'>Masculino</option></select></div></div>';
             html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px 14px;margin-bottom:12px">' +
-                    cinp('Nascimento','dt_nascimento',(c.dt_nascimento||'').substring(0,10),'date') +
-                    cinp('WhatsApp','whatsapp',c.whatsapp) +
+                    cinp('Nascimento','dt_nascimento',(c.data_nascimento||'').substring(0,10),'date') +
+                    cinp('WhatsApp'+(isNovo?' *':''),'whatsapp',c.whatsapp) +
                     cinp('E-mail','email',c.email) + '</div>';
             html += '<div style="background:#f8fafc;border-radius:6px;padding:10px 12px;margin-bottom:10px">' +
                     '<div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Características de saúde (comuns)</div>' +
@@ -251,24 +253,24 @@ function tao_formula_page_historico() {
                 var data = {action:'tao_formula_cliente_save', nonce:nonce};
                 $(this).serializeArray().forEach(function(f){ data[f.name]=f.value; });
                 ['saude_obesidade','saude_colesterol','saude_pressao','saude_diabetes'].forEach(function(k){ if(!(k in data)) data[k]='0'; });
-                if (!isNovo) data.id = c.id;
+                if (!isNovo) data.id = c.id;               // edita o contato
+                if (histId) data.hist_id = histId;         // vincula o contato ao paciente do histórico
                 $msg.css('color','#64748b').text('Salvando…');
                 $.post(ajaxUrl, data, function(r){
                     if (r.success) {
                         $('#taof-cli-modal').hide();
-                        if (r.data && r.data.aviso) alert(r.data.aviso);
-                        if (isNovo) { taofReloadHint(); }
-                        else { carregarSaude(c.id); }
+                        var cid = r.data && (r.data.contato_id || r.data.id);
+                        if (_cliAtual) { _cliAtual.contato_id = cid; }   // passa a ter contato
+                        $('#taof-cli-editar').text('✏️ Editar dados');
+                        if (cid) carregarSaude(cid);
                     } else $msg.css('color','#dc2626').text((r.data && r.data.message) || 'Erro');
                 }).fail(function(){ $msg.css('color','#dc2626').text('Falha na requisição'); });
             });
         }
-        function taofReloadHint(){
-            $('#taof-hist-lista').html('<p style="color:#16a34a">✓ Cliente cadastrado. Busque pelo nome para abrir.</p>');
-        }
-        // Selo de características de saúde ao lado do nome
-        function carregarSaude(histId){
-            $.getJSON(ajaxUrl, {action:'tao_formula_cliente_get', nonce:nonce, id:histId}, function(r){
+        // Selo de características de saúde ao lado do nome (contato do CRM)
+        function carregarSaude(contatoId){
+            if (!contatoId) { $('#taof-cli-saude').empty(); return; }
+            $.getJSON(ajaxUrl, {action:'tao_formula_cliente_get', nonce:nonce, id:contatoId}, function(r){
                 if (!r.success || !r.data) return;
                 var d = r.data, tags = [];
                 if (d.saude_obesidade) tags.push('Obesidade');
@@ -280,17 +282,23 @@ function tao_formula_page_historico() {
             });
         }
         $('#taof-cli-editar').on('click', function(){
-            if (!_cliAtual || !_cliAtual.hist_cliente_id) return;
-            $.getJSON(ajaxUrl, {action:'tao_formula_cliente_get', nonce:nonce, id:_cliAtual.hist_cliente_id}, function(r){
-                formCliente(r.success && r.data ? r.data : {id:_cliAtual.hist_cliente_id, nome:_cliAtual.nome});
-            });
+            if (!_cliAtual) return;
+            if (_cliAtual.contato_id) {
+                // Edita o contato único existente
+                $.getJSON(ajaxUrl, {action:'tao_formula_cliente_get', nonce:nonce, id:_cliAtual.contato_id}, function(r){
+                    formCliente(r.success && r.data ? r.data : {id:_cliAtual.contato_id, nome:_cliAtual.nome});
+                });
+            } else {
+                // Paciente do histórico sem contato (sem celular) → cria e vincula
+                formCliente({nome:_cliAtual.nome}, _cliAtual.hist_cliente_id);
+            }
         });
         $('#taof-cli-novo').on('click', function(){ formCliente({}); });
         $('#taof-cli-modal').on('click','.taof-cli-overlay',function(){ $('#taof-cli-modal').hide(); });
 
-        // Ao abrir um cliente com cadastro, mostra o selo de saúde
+        // Ao abrir um cliente, mostra o selo de saúde (do contato vinculado)
         var _origAbrir = abrirCliente;
-        abrirCliente = function(c){ _origAbrir(c); if (c.hist_cliente_id) carregarSaude(c.hist_cliente_id); };
+        abrirCliente = function(c){ _origAbrir(c); carregarSaude(c.contato_id); };
     });
     </script>
     <?php

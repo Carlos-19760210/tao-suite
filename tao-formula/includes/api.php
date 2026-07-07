@@ -31,6 +31,33 @@ function tao_formula_cliente_id() {
 }
 
 /**
+ * Workspace do CRM p/ o tenant atual — base ÚNICA de contatos (crm_contatos).
+ * Cache estático por request.
+ */
+function tao_formula_workspace_id() {
+    static $cache = [];
+    $cid = tao_formula_cliente_id();
+    if ( ! $cid ) return null;
+    if ( array_key_exists( $cid, $cache ) ) return $cache[ $cid ];
+    $r = tao_formula_api( "/crm_workspaces?cliente_id=eq.$cid&ativo=eq.true&select=id&order=nome.asc&limit=1" );
+    return $cache[ $cid ] = ( $r['ok'] && ! empty( $r['data'] ) ) ? $r['data'][0]['id'] : null;
+}
+
+/**
+ * Normaliza telefone p/ o formato do CRM: 55 + DDD + 9 dígitos.
+ * Retorna null se não der p/ montar um número plausível.
+ */
+function tao_formula_norm_whatsapp( $raw ) {
+    $d = preg_replace( '/\D/', '', (string) $raw );
+    if ( $d === '' ) return null;
+    if ( strlen( $d ) === 13 && substr( $d, 0, 2 ) === '55' ) return $d;      // já completo
+    if ( strlen( $d ) === 11 ) return '55' . $d;                              // DDD + 9 dígitos
+    if ( strlen( $d ) === 10 ) return '55' . substr( $d, 0, 2 ) . '9' . substr( $d, 2 ); // DDD + 8 → insere 9
+    if ( strlen( $d ) === 12 && substr( $d, 0, 2 ) === '55' ) return '55' . substr( $d, 2, 2 ) . '9' . substr( $d, 4 );
+    return $d; // formato incomum — grava como veio (não perde o dado)
+}
+
+/**
  * URL de uma página do TAO Fórmulas — admin ou frontend conforme contexto.
  */
 function tao_formula_url( $section = 'formula-dashboard', $params = [] ) {
