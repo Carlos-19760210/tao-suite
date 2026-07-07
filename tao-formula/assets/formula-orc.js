@@ -8,6 +8,9 @@
     var formaAtual  = null;
     var ajaxUrl     = (typeof taoFormula !== 'undefined') ? taoFormula.ajaxUrl : '/wp-admin/admin-ajax.php';
     var nonce       = (typeof taoFormula !== 'undefined') ? taoFormula.nonce   : '';
+    // Motor farmacotécnico v2 (option tao_formula_motor_v2): equivalência do sinônimo,
+    // alerta de dose máxima, trava de restrição e teor real do lote. OFF = cálculo idêntico ao atual.
+    var MOTOR_ON    = !!((typeof taoFormula !== 'undefined') && taoFormula.motorOn);
 
     // Toast de feedback (ex.: sinônimo salvo) — visível para o usuário
     function taofToast(msg) {
@@ -94,6 +97,24 @@
         }
     }
 
+    // ── Alerta de dose máxima (motor v2) ──────────────────────────────
+    // Compara a dose prescrita com dose_max_dia (Zanini) ou dose_max do cadastro.
+    // Só unidades de massa; alerta visual, NÃO bloqueia (posologia pode dividir a dose).
+    var _massaMg = { mg: 1, g: 1000, mcg: 0.001 };
+    function alertaDoseMax($row, dose, doseUnit) {
+        if (!MOTOR_ON) return;
+        var $dose = $row.find('.taof-orc-dose');
+        var dmax  = parseFloat($row.data('dose-max'))  || 0;
+        var dmaxU = String($row.data('dose-max-un') || 'mg').toLowerCase();
+        if (dmax <= 0 || !(doseUnit in _massaMg) || !(dmaxU in _massaMg) ||
+            dose * _massaMg[doseUnit] <= dmax * _massaMg[dmaxU]) {
+            $dose.css({ 'border-color': '', 'background-color': '' }).removeAttr('title');
+            return;
+        }
+        $dose.css({ 'border-color': '#dc2626', 'background-color': '#fef2f2' })
+             .attr('title', '⚠ Acima da dose máxima cadastrada: ' + fmt(dmax, 2) + ' ' + dmaxU);
+    }
+
     // ── Calculo por linha ─────────────────────────────────────────────
     function calcularLinha($row) {
         if ($row.hasClass('taof-row-qsp')) { calcularTotais(); return; }
@@ -105,6 +126,8 @@
         var fp           = parseFloat($row.data('fp'))           || 1;
         var diluicao     = parseFloat($row.data('diluicao'))     || 1;
         var teor         = parseFloat($row.data('teor'))         || 100;
+        // Equivalência sal↔base do sinônimo (FC03200.EQUIV): multiplica a dose prescrita
+        var equiv        = MOTOR_ON ? (parseFloat($row.data('equiv')) || 1) : 1;
         var densidade    = parseFloat($row.data('densidade'))    || 1;
         var vendaUnit    = parseFloat($row.data('venda-unit'))   || 0;
         var concentracao = parseFloat($row.data('concentracao')) || 0;
@@ -123,7 +146,7 @@
                 ? getVol() * getPotes() * dens_pct
                 : getVol() * getPotes();
             var qty_g_nom  = (dose / 100) * totalG_pct;
-            var qty_g_real = qty_g_nom * diluicao / (teor / 100);
+            var qty_g_real = qty_g_nom * equiv * diluicao / (teor / 100);
             var qty_g_fp   = qty_g_real * fp;
             var qty_mg_fp  = qty_g_fp * 1000;
             var qtdEmUnid_pct = unidPadrao === 'g' ? qty_g_fp : qty_mg_fp;
@@ -133,6 +156,7 @@
             $row.data({ subtotal: subtotal_pct, 'qtd-total-g': qty_g_fp,
                 'qtd-em-padrao': qtdEmUnid_pct, 'qtd-unit': unidPadrao,
                 dose: dose, 'dose-unit': '%', 'volapa-ul': 0 });
+            alertaDoseMax($row, dose, '%');
             calcularTotais();
             return;
         }
@@ -189,8 +213,8 @@
         else if (doseUnit === 'ml')  dose_mg = dose * densidade * 1000;
         else                         dose_mg = dose;
 
-        // FC: QTREAL = dose_mg x DILUICAO / (TEOR/100)  — FP nao entra no VOLAPA
-        var dose_mg_dil  = dose_mg * diluicao;
+        // FC: QTREAL = dose_mg x EQUIV x DILUICAO / (TEOR/100)  — FP nao entra no VOLAPA
+        var dose_mg_dil  = dose_mg * equiv * diluicao;
         var dose_mg_real = dose_mg_dil / (teor / 100);
         var volapa_uL    = (isCap && densidade > 0) ? (dose_mg_real / densidade) : 0;
         var qtd_total_mg = dose_mg_real * fp * mult;
@@ -211,6 +235,7 @@
         $row.data({ subtotal: subtotal, 'qtd-total-g': qtd_total_g,
             'qtd-em-padrao': qtd_em_padrao, 'qtd-unit': unidPadrao,
             dose: dose, 'dose-unit': doseUnit, 'volapa-ul': volapa_uL });
+        alertaDoseMax($row, dose, doseUnit);
         calcularTotais();
     }
 
@@ -827,6 +852,20 @@
     // ── selecionarAtivo — partilhado por AC e auto-excipiente ────────
     // origName: texto original digitado (nome da prescrição) — preservado mesmo após troca de ativo
     function selecionarAtivo($row, a, origName) {
+        // Motor v2: trava de substância bloqueada/restrita (coluna restricao + regra GLP-1 IN 360/2025)
+        if (MOTOR_ON) {
+            var nomeUp = String(a.nome || '').toUpperCase();
+            var restr  = String(a.restricao || '').toLowerCase();
+            if (restr.indexOf('bloqueada') === 0 || nomeUp.indexOf('SEMAGLUTIDA') !== -1) {
+                alert('⛔ ' + a.nome + ' está BLOQUEADA para manipulação' +
+                      (nomeUp.indexOf('SEMAGLUTIDA') !== -1 ? ' (IN 360/2025 — GLP-1)' : '') +
+                      '.\nO ativo não foi adicionado ao orçamento.');
+                return;
+            }
+            if (restr || nomeUp.indexOf('TIRZEPATIDA') !== -1) {
+                taofToast('⚠ ' + a.nome + ': substância RESTRITA (' + (a.restricao || 'GLP-1 IN 360/2025') + ') — confira as exigências antes de aprovar');
+            }
+        }
         var $s = $row.find('.taof-orc-ativo-search');
         $s.val(a.nome).css({ 'border-color': '', 'background-color': '' });
         $s.removeAttr('placeholder');
@@ -853,6 +892,12 @@
             'densidade':        parseFloat(a.densidade)      || 1,
             'fp':               parseFloat(a.fator_perda)    || 1,
             'concentracao':     parseFloat(a.concentracao)   || 0,
+            // Motor v2 (neutros com a option OFF)
+            'equiv':            parseFloat(a.fator_equiv)    || 1,
+            'dose-max':         parseFloat(a.dose_max_dia || a.dose_max) || 0,
+            'dose-max-un':      a.dose_max_unidade || a.uni_dose_max || 'mg',
+            'restricao':        a.restricao || '',
+            'nr-lote':          '',
         });
         var vendaLabel = parseFloat(a.preco_venda) > 0
             ? 'R$ ' + fmt(a.preco_venda, 4) + '/' + (a.unidade_padrao || 'g')
@@ -865,6 +910,26 @@
         $row.find('.taof-orc-dose-unit').val(u);
         $row.find('.taof-ac-dropdown').hide().empty();
         calcularLinha($row);
+        // Motor v2: laudo REAL do lote FEFO prevalece sobre o nominal do ativo
+        if (MOTOR_ON && !_loadingEdit && !$row.hasClass('taof-row-qsp')) {
+            $.getJSON(ajaxUrl, { action: 'tao_formula_lote_fefo', nonce: nonce, ativo_id: a.id }, function (resp) {
+                var l = resp && resp.success ? resp.data : null;
+                if (!l || $row.data('ativo-id') !== a.id) return;   // sem lote ou a linha já trocou de ativo
+                var upd = { 'nr-lote': l.nr_lote || '' };
+                if (parseFloat(l.teor_pct)       > 0) upd.teor      = parseFloat(l.teor_pct);
+                if (parseFloat(l.densidade)      > 0) upd.densidade = parseFloat(l.densidade);
+                if (parseFloat(l.fator_diluicao) > 1) upd.diluicao  = parseFloat(l.fator_diluicao);
+                $row.data(upd);
+                if (l.nr_lote) {
+                    $row.find('.taof-orc-cod')
+                        .attr('title', 'Lote ' + l.nr_lote +
+                              (l.dt_validade ? ' · val. ' + l.dt_validade : '') +
+                              (parseFloat(l.teor_pct) > 0 ? ' · teor ' + fmt(l.teor_pct, 2) + '%' : ''))
+                        .css('border-bottom', '1px dotted #0369a1');
+                }
+                if (upd.teor !== undefined || upd.densidade !== undefined || upd.diluicao !== undefined) calcularLinha($row);
+            });
+        }
         // Envelope: ao associar um ativo (não-QSP), garante o excipiente base efervescente
         if (!$row.hasClass('taof-row-qsp') && formaAtual && formaAtual.tipo === 'envelope') {
             setTimeout(garantirExcipienteEnvelope, 120);
@@ -942,6 +1007,8 @@
                                     : 'sem preço venda';
                                 var info = (a.codigo_fc ? '[' + a.codigo_fc + '] ' : '') + venda;
                                 if (a.diluicao && a.diluicao != 1) info += ' · dil 1:' + a.diluicao;
+                                if (MOTOR_ON && a._sinonimo) info += ' · sin: ' + a._sinonimo;
+                                if (MOTOR_ON && parseFloat(a.fator_equiv || 1) !== 1) info += ' · equiv ×' + fmt(a.fator_equiv, 3);
                                 var $item = $('<div class="taof-ac-item" data-sel="1">').html(
                                     '<span>' + $('<span>').text(a.nome).html() + '</span>' +
                                     '<small>' + $('<span>').text(info).html() + '</small>'
@@ -953,6 +1020,8 @@
                                     // Salva o NOME ORIGINAL do ingrediente (como escrito na fórmula), não o texto buscado
                                     var sinNome  = ($row.data('nome-prescricao') || origName || '').toString().trim().toUpperCase();
                                     selecionarAtivo($row, a, origName);
+                                    // Só salva o sinônimo se a seleção foi aplicada (trava de restrição pode ter recusado)
+                                    if ($row.find('.taof-orc-ativo-id').val() != a.id) return;
                                     if (wasEmpty && sinNome && sinNome !== a.nome.toUpperCase()) {
                                         $.post(ajaxUrl, { action: 'tao_formula_salvar_sinonimo', nonce: nonce, ativo_id: a.id, sinonimo: sinNome }, function () {
                                             taofToast('✓ Sinônimo salvo: "' + sinNome + '" → ' + a.nome);
@@ -1010,6 +1079,8 @@
                     var wasEmpty2 = !$row.find('.taof-orc-ativo-id').val();
                     var sinNome2  = ($row.data('nome-prescricao') || origName2 || '').toString().trim().toUpperCase();
                     selecionarAtivo($row, aObj2, origName2);
+                    // Só salva o sinônimo se a seleção foi aplicada (trava de restrição pode ter recusado)
+                    if ($row.find('.taof-orc-ativo-id').val() != aObj2.id) return;
                     if (wasEmpty2 && sinNome2 && sinNome2 !== aObj2.nome.toUpperCase()) {
                         $.post(ajaxUrl, { action: 'tao_formula_salvar_sinonimo', nonce: nonce, ativo_id: aObj2.id, sinonimo: sinNome2 }, function () {
                             taofToast('✓ Sinônimo salvo: "' + sinNome2 + '" → ' + aObj2.nome);
@@ -1220,6 +1291,8 @@
                 capsula_numero:   cap ? cap.cap.numero : null,
                 diluicao:         $r.data('diluicao'),
                 teor:             $r.data('teor'),
+                equiv:            parseFloat($r.data('equiv')) || 1,
+                nr_lote:          $r.data('nr-lote') || null,
                 fp:               $r.data('fp'),
                 qtd_total_g:      $r.data('qtd-total-g'),
                 volapa_ul:        $r.data('volapa-ul'),
@@ -1566,6 +1639,8 @@
                 'teor':            parseFloat(item.teor || 100),
                 'densidade':       1,
                 'fp':              parseFloat(item.fp || 1),
+                'equiv':           parseFloat(item.equiv || 1),
+                'nr-lote':         item.nr_lote || '',
             });
             $row.find('.taof-orc-dose-unit').val(item.dose_unit || 'mg');
 

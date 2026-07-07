@@ -17,6 +17,21 @@ function tao_formula_page_config() {
                     <p class="description">Valor inicial ao cadastrar novas formas farmacêuticas.</p>
                 </td>
             </tr>
+            <tr>
+                <th><label for="taof-motor-v2">Motor farmacotécnico v2</label></th>
+                <td>
+                    <label>
+                        <input type="checkbox" id="taof-motor-v2" name="motor_v2" value="1"
+                               <?php checked( get_option( 'tao_formula_motor_v2' ), '1' ); ?>>
+                        Ativar no editor de orçamentos
+                    </label>
+                    <p class="description">
+                        Equivalência sal↔base do sinônimo · alerta de dose máxima ·
+                        trava de substância restrita/bloqueada (GLP-1) · teor real do lote (FEFO).
+                        Desligado, o cálculo permanece exatamente como hoje.
+                    </p>
+                </td>
+            </tr>
         </table>
 
         <p>

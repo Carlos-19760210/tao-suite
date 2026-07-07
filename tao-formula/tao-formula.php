@@ -52,6 +52,7 @@ add_action( 'admin_enqueue_scripts', function( $hook ) {
         'nonce'       => wp_create_nonce( 'tao_formula_nonce' ),
         'supabaseUrl' => tao_formula_supabase_url(),
         'supabaseKey' => tao_formula_supabase_key(),
+        'motorOn'     => get_option( 'tao_formula_motor_v2' ) === '1',
     ] );
     // JS extra somente na página de novo orçamento
     if ( strpos( $hook, 'tao-formula-orc-novo' ) !== false ) {

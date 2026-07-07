@@ -13,9 +13,12 @@ add_action( 'wp_ajax_tao_formula_search_ativos', function() {
     $cliente_id = tao_formula_cliente_id();
     if ( ! $cliente_id ) wp_send_json_error( 'Cliente não identificado', 400 );
 
-    $term  = urlencode( $q );
+    $term     = urlencode( $q );
+    $motor_on = get_option( 'tao_formula_motor_v2' ) === '1';
+    $sel_at   = 'id,codigo_fc,nome,unidade,unidade_padrao,preco_compra,custo_por_unidade,preco_venda,fator_correcao,fator_perda,densidade,diluicao,teor,grupo,concentracao'
+              . ( $motor_on ? ',dose_max,uni_dose_max,dose_max_dia,dose_max_unidade,restricao' : '' );
     $base  = "/ativos?cliente_id=eq.$cliente_id&ativo=eq.true" .
-             "&select=id,codigo_fc,nome,unidade,unidade_padrao,preco_compra,custo_por_unidade,preco_venda,fator_correcao,fator_perda,densidade,diluicao,teor,grupo,concentracao" .
+             "&select=$sel_at" .
              "&order=nome.asc&limit=25";
     // Busca por nome OU por codigo_fc (permite digitar "10569" ou "cafeina")
     $qs = $base . "&or=(nome.ilike.*{$term}*,codigo_fc.ilike.*{$term}*)";
@@ -27,6 +30,36 @@ add_action( 'wp_ajax_tao_formula_search_ativos', function() {
     if ( $r['ok'] && empty( $r['data'] ) && $grupo === 'E' ) {
         $qs_all = $base . "&or=(nome.ilike.*{$term}*,codigo_fc.ilike.*{$term}*)";
         $r = tao_formula_api( $qs_all );
+    }
+
+    // Motor v2: inclui matches por SINÔNIMO (equivalência sal↔base aplicada pelo nome prescrito)
+    if ( $motor_on && $r['ok'] && $grupo === 'M' ) {
+        $rs = tao_formula_api(
+            "/ativos_sinonimos?cliente_id=eq.$cliente_id&sinonimo=ilike.*{$term}*" .
+            "&ativo_id=not.is.null&select=sinonimo,fator_equiv,ativo_id&order=sinonimo.asc&limit=10"
+        );
+        if ( $rs['ok'] && ! empty( $rs['data'] ) ) {
+            $ids = array_values( array_unique( array_column( $rs['data'], 'ativo_id' ) ) );
+            $ra  = tao_formula_api(
+                "/ativos?cliente_id=eq.$cliente_id&ativo=eq.true&id=in.(" . implode( ',', $ids ) . ")" .
+                "&select=$sel_at&limit=" . count( $ids )
+            );
+            $por_id = [];
+            foreach ( ( $ra['ok'] ? $ra['data'] : [] ) as $at ) $por_id[ $at['id'] ] = $at;
+            $ja_tem = array_column( $r['data'], 'id' );
+            foreach ( $rs['data'] as $sin ) {
+                $at = $por_id[ $sin['ativo_id'] ] ?? null;
+                if ( ! $at ) continue;
+                $equiv = (float) ( $sin['fator_equiv'] ?? 1 ) ?: 1;
+                // Sem equivalência e o ativo já apareceu pelo nome → não duplica
+                if ( $equiv == 1 && in_array( $at['id'], $ja_tem, true ) ) continue;
+                $entry                = $at;
+                $entry['fator_equiv'] = $equiv;
+                $entry['_sinonimo']   = $sin['sinonimo'];
+                $r['data'][]          = $entry;
+                $ja_tem[]             = $at['id'];
+            }
+        }
     }
 
     if ( $r['ok'] ) {
@@ -60,6 +93,28 @@ add_action( 'wp_ajax_tao_formula_get_ativo', function() {
     } else {
         wp_send_json_error( $r['ok'] ? 'Não encontrado' : $r['raw'], 404 );
     }
+} );
+
+// ── Motor v2: lote FEFO do ativo (laudo real prevalece sobre o nominal) ──────
+
+add_action( 'wp_ajax_tao_formula_lote_fefo', function() {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    if ( get_option( 'tao_formula_motor_v2' ) !== '1' ) wp_send_json_success( null );
+
+    $ativo_id   = sanitize_text_field( $_GET['ativo_id'] ?? '' );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $ativo_id || ! $cliente_id ) wp_send_json_error( 'Parâmetros inválidos', 400 );
+
+    $hoje = gmdate( 'Y-m-d' );
+    $r = tao_formula_api(
+        "/lab_lotes_mp?cliente_id=eq.$cliente_id&ativo_id=eq.$ativo_id" .
+        "&status=not.in.(reprovado,vencido,esgotado)&qtd_atual=gt.0&dt_validade=gte.$hoje" .
+        "&select=nr_lote,dt_validade,teor_pct,densidade,fator_diluicao,status" .
+        "&order=dt_validade.asc&limit=1"
+    );
+    wp_send_json_success( ( $r['ok'] && ! empty( $r['data'] ) ) ? $r['data'][0] : null );
 } );
 
 // ── Helper: gerar número de orçamento (YYYYMMSeq / YYYYMMSeq-XX) ─────────────
@@ -359,6 +414,8 @@ add_action( 'wp_ajax_tao_formula_save_config', function() {
     if ( ! tao_formula_is_master() ) wp_send_json_error( 'Acesso negado', 403 );
 
     update_option( 'tao_formula_margem_padrao', (float) ( $_POST['margem_padrao'] ?? 30 ) );
+    // Checkbox: ausente no POST quando desmarcado
+    update_option( 'tao_formula_motor_v2', ( $_POST['motor_v2'] ?? '' ) === '1' ? '1' : '0' );
 
     wp_send_json_success( 'Configurações salvas.' );
 } );
@@ -489,14 +546,15 @@ function tao_formula_criar_orc_ia_core( $args ) {
             '&or=(nome.ilike.*' . rawurlencode( $nome_a ) . '*,codigo_fc.ilike.*' . rawurlencode( $nome_a ) . '*)' .
             '&select=id,codigo_fc,nome,unidade_padrao,preco_venda,custo_por_unidade,diluicao,teor&limit=1'
         );
-        $at = ( $ra['ok'] && ! empty( $ra['data'] ) ) ? $ra['data'][0] : null;
+        $at    = ( $ra['ok'] && ! empty( $ra['data'] ) ) ? $ra['data'][0] : null;
+        $equiv = 1.0;   // equivalência sal↔base quando o match vem de sinônimo (motor v2)
 
         // Fallback 2: sinônimo exato (case-insensitive)
         if ( ! $at && $nome_a ) {
             $rs = tao_formula_api(
                 '/ativos_sinonimos?cliente_id=eq.' . $cliente_id .
                 '&sinonimo=ilike.' . rawurlencode( strtolower( $nome_a ) ) .
-                '&select=ativo_id&limit=1'
+                '&select=ativo_id,fator_equiv&limit=1'
             );
             if ( $rs['ok'] && ! empty( $rs['data'] ) ) {
                 $ra2 = tao_formula_api(
@@ -505,6 +563,7 @@ function tao_formula_criar_orc_ia_core( $args ) {
                     '&select=id,codigo_fc,nome,unidade_padrao,preco_venda,custo_por_unidade,diluicao,teor&limit=1'
                 );
                 $at = ( $ra2['ok'] && ! empty( $ra2['data'] ) ) ? $ra2['data'][0] : null;
+                if ( $at ) $equiv = (float) ( $rs['data'][0]['fator_equiv'] ?? 1 ) ?: 1.0;
             }
         }
 
@@ -513,7 +572,7 @@ function tao_formula_criar_orc_ia_core( $args ) {
             $rs = tao_formula_api(
                 '/ativos_sinonimos?cliente_id=eq.' . $cliente_id .
                 '&sinonimo=ilike.*' . rawurlencode( $nome_a ) . '*' .
-                '&select=ativo_id&limit=1'
+                '&select=ativo_id,fator_equiv&limit=1'
             );
             if ( $rs['ok'] && ! empty( $rs['data'] ) ) {
                 $ra2 = tao_formula_api(
@@ -522,6 +581,7 @@ function tao_formula_criar_orc_ia_core( $args ) {
                     '&select=id,codigo_fc,nome,unidade_padrao,preco_venda,custo_por_unidade,diluicao,teor&limit=1'
                 );
                 $at = ( $ra2['ok'] && ! empty( $ra2['data'] ) ) ? $ra2['data'][0] : null;
+                if ( $at ) $equiv = (float) ( $rs['data'][0]['fator_equiv'] ?? 1 ) ?: 1.0;
             }
         }
 
@@ -552,6 +612,7 @@ function tao_formula_criar_orc_ia_core( $args ) {
             'fp'                => 1,
             'diluicao'          => (float) ( $at['diluicao'] ?? 1 ),
             'teor'              => (float) ( $at['teor']     ?? 100 ),
+            'equiv'             => $equiv,   // aplicado no recálculo do editor (motor v2)
             'volapa_ul'         => 0,
         ];
     }
@@ -852,6 +913,7 @@ add_action( 'wp_ajax_tao_formula_reprocessar_orc', function () {
     }
 
     $sel_at    = 'id,codigo_fc,nome,unidade_padrao,preco_venda,custo_por_unidade,fator_perda,diluicao,teor';
+    $motor_on  = get_option( 'tao_formula_motor_v2' ) === '1';
     $total_upd = 0;
 
     foreach ( $ro['data'] as $orc ) {
@@ -871,6 +933,7 @@ add_action( 'wp_ajax_tao_formula_reprocessar_orc', function () {
             $nome_busca = $item['nome_prescricao'] ?? $item['nome'];
             $nome_enc   = rawurlencode( $nome_busca );
             $at         = null;
+            $equiv      = 1.0;   // equivalência sal↔base via sinônimo (motor v2)
 
             // 1) ILIKE direto no nome/codigo_fc
             $ra = tao_formula_api(
@@ -885,11 +948,14 @@ add_action( 'wp_ajax_tao_formula_reprocessar_orc', function () {
                 $rs = tao_formula_api(
                     '/ativos_sinonimos?cliente_id=eq.' . $cliente_id .
                     '&sinonimo=ilike.' . rawurlencode( $nome_busca ) .
-                    '&select=ativo_id&limit=1'
+                    '&select=ativo_id,fator_equiv&limit=1'
                 );
                 if ( $rs['ok'] && ! empty( $rs['data'] ) ) {
                     $ra2 = tao_formula_api( '/ativos?id=eq.' . $rs['data'][0]['ativo_id'] . '&cliente_id=eq.' . $cliente_id . '&select=' . $sel_at . '&limit=1' );
-                    if ( $ra2['ok'] && ! empty( $ra2['data'] ) ) $at = $ra2['data'][0];
+                    if ( $ra2['ok'] && ! empty( $ra2['data'] ) ) {
+                        $at    = $ra2['data'][0];
+                        $equiv = (float) ( $rs['data'][0]['fator_equiv'] ?? 1 ) ?: 1.0;
+                    }
                 }
             }
 
@@ -898,11 +964,14 @@ add_action( 'wp_ajax_tao_formula_reprocessar_orc', function () {
                 $rs = tao_formula_api(
                     '/ativos_sinonimos?cliente_id=eq.' . $cliente_id .
                     '&sinonimo=ilike.*' . $nome_enc . '*' .
-                    '&select=ativo_id&limit=1'
+                    '&select=ativo_id,fator_equiv&limit=1'
                 );
                 if ( $rs['ok'] && ! empty( $rs['data'] ) ) {
                     $ra2 = tao_formula_api( '/ativos?id=eq.' . $rs['data'][0]['ativo_id'] . '&cliente_id=eq.' . $cliente_id . '&select=' . $sel_at . '&limit=1' );
-                    if ( $ra2['ok'] && ! empty( $ra2['data'] ) ) $at = $ra2['data'][0];
+                    if ( $ra2['ok'] && ! empty( $ra2['data'] ) ) {
+                        $at    = $ra2['data'][0];
+                        $equiv = (float) ( $rs['data'][0]['fator_equiv'] ?? 1 ) ?: 1.0;
+                    }
                 }
             }
 
@@ -926,7 +995,7 @@ add_action( 'wp_ajax_tao_formula_reprocessar_orc', function () {
                     case 'mcg': $dose_mg = $dose / 1000; break;
                     default:    $dose_mg = $dose; break;
                 }
-                $dose_mg_real  = $dose_mg * $diluicao / max( 0.001, $teor / 100 );
+                $dose_mg_real  = $dose_mg * ( $motor_on ? $equiv : 1 ) * $diluicao / max( 0.001, $teor / 100 );
                 $qtd_total_mg  = $dose_mg_real * $fp * $mult;
                 $qtd_tot_g     = $qtd_total_mg / 1000;
                 $qtd_em_padrao = strtolower( $unid_p ) === 'g' ? $qtd_tot_g : $qtd_total_mg;
@@ -946,6 +1015,7 @@ add_action( 'wp_ajax_tao_formula_reprocessar_orc', function () {
             $item['fp']                = $fp;
             $item['diluicao']          = $diluicao;
             $item['teor']              = $teor;
+            $item['equiv']             = $equiv;
             $item['qtd_total_g']       = $qtd_tot_g;
             $item['multiplicador']     = $mult;
             $item['subtotal']          = $subtotal;
@@ -1894,6 +1964,7 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
         // ── 3. Calcula subtotal de cada MP (replica JS calcularLinha, caso mg/g/mcg) ─
         $custo_capsula  = $custo_capsula  ?? 0.0;
         $excip_subtotal = $excip_subtotal ?? 0.0;
+        $motor_on_calc  = get_option( 'tao_formula_motor_v2' ) === '1';
         $total_insumos = 0.0;
         foreach ( $itens_mp as &$item ) {
             if ( $item['tipo'] !== 'mp' || $item['is_qsp'] ) continue;
@@ -1903,6 +1974,7 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
             $fp        = (float)( $item['fp']       ?? 1 );
             $diluicao  = (float)( $item['diluicao'] ?? 1 );
             $teor      = (float)( $item['teor']     ?? 100 );
+            $equiv     = $motor_on_calc ? ( (float)( $item['equiv'] ?? 1 ) ?: 1.0 ) : 1.0;
             $preco     = (float)( $item['preco_venda'] ?? 0 );
 
             if ( $dose > 0 && $preco > 0 ) {
@@ -1911,7 +1983,7 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
                     case 'mcg': $dose_mg = $dose / 1000; break;
                     default:    $dose_mg = $dose; break; // mg (e outros)
                 }
-                $dose_mg_real  = $dose_mg * $diluicao / max( 0.001, $teor / 100 );
+                $dose_mg_real  = $dose_mg * $equiv * $diluicao / max( 0.001, $teor / 100 );
                 $qtd_total_mg  = $dose_mg_real * $fp * $mult;
                 $qtd_total_g   = $qtd_total_mg / 1000;
                 $qtd_em_padrao = $unid_pad === 'g' ? $qtd_total_g : $qtd_total_mg;
