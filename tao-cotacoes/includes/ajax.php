@@ -32,17 +32,47 @@ add_action( 'wp_ajax_tao_cot_save_fornecedor', function() {
         'obs'      => sanitize_textarea_field( $_POST['obs'] ?? '' ),
         'ativo'    => ( ( $_POST['ativo'] ?? '1' ) === '1' ),
     ];
+    // Dados fiscais/contato (migration_v2) — texto vazio vira null
+    $txt = function( $k, $upper = false ) {
+        $v = trim( sanitize_text_field( $_POST[ $k ] ?? '' ) );
+        if ( $upper ) $v = strtoupper( $v );
+        return $v === '' ? null : $v;
+    };
+    $cnpj   = preg_replace( '/\D/', '', $_POST['cnpj'] ?? '' );
+    $extras = [
+        'cnpj'            => $cnpj ?: null,
+        'razao_social'    => $txt( 'razao_social', true ),
+        'nome_fantasia'   => $txt( 'nome_fantasia' ),
+        'inscr_estadual'  => $txt( 'inscr_estadual' ),
+        'endereco'        => $txt( 'endereco' ),
+        'cidade'          => $txt( 'cidade' ),
+        'uf'              => $txt( 'uf', true ),
+        'cep'             => $txt( 'cep' ),
+        'telefone'        => $txt( 'telefone' ),
+        'email'           => $txt( 'email' ),
+        'prazo_pagamento' => $txt( 'prazo_pagamento' ),
+    ];
 
-    if ( $id ) {
-        $r = tao_cot_api( "/fornecedores?id=eq.$id&cliente_id=eq.$cid", 'PATCH', $payload );
-    } else {
-        $payload['cliente_id'] = $cid;
-        $r = tao_cot_api( '/fornecedores', 'POST', $payload );
+    $salvar = function( $body ) use ( $id, $cid ) {
+        if ( $id ) return tao_cot_api( "/fornecedores?id=eq.$id&cliente_id=eq.$cid", 'PATCH', $body );
+        $body['cliente_id'] = $cid;
+        return tao_cot_api( '/fornecedores', 'POST', $body );
+    };
+    $aviso = '';
+    $r = $salvar( array_merge( $payload, $extras ) );
+    // Migration v2 ainda não rodada → grava os campos base (não perde o cadastro)
+    if ( ! $r['ok'] && strpos( (string) ( $r['raw'] ?? '' ), 'column' ) !== false ) {
+        $r = $salvar( $payload );
+        if ( $r['ok'] && array_filter( $extras ) ) {
+            $aviso = 'Campos fiscais NÃO gravados — rode a migration_v2_orc_fornec_hist.sql no Supabase.';
+        }
     }
     if ( ! $r['ok'] ) wp_send_json_error( 'Falha ao salvar: ' . ( $r['raw'] ?? '' ) );
 
     tao_cotacoes_limpar_cache_fornecedores( $cid );
-    wp_send_json_success( $r['data'][0] ?? [] );
+    $out = $r['data'][0] ?? [];
+    if ( $aviso ) $out['aviso'] = $aviso;
+    wp_send_json_success( $out );
 } );
 
 add_action( 'wp_ajax_tao_cot_delete_fornecedor', function() {

@@ -35,24 +35,37 @@ function tao_cotacoes_page_fornecedores() {
         <div class="taocot-tscroll">
         <table class="taocot-table">
             <thead>
-                <tr><th>Fornecedor</th><th>WhatsApp</th><th>Contato</th><th style="text-align:center">Status</th><th style="text-align:center;width:160px">Ações</th></tr>
+                <tr><th>Fornecedor</th><th>CNPJ</th><th>WhatsApp</th><th>Contato</th><th style="text-align:center">Status</th><th style="text-align:center;width:160px">Ações</th></tr>
             </thead>
             <tbody>
             <?php foreach ( $rows as $f ) :
                 $json = wp_json_encode( [
-                    'id'       => $f['id'],
-                    'nome'     => $f['nome'] ?? '',
-                    'whatsapp' => $f['whatsapp'] ?? '',
-                    'contato'  => $f['contato'] ?? '',
-                    'obs'      => $f['obs'] ?? '',
-                    'ativo'    => ! empty( $f['ativo'] ) ? '1' : '0',
+                    'id'              => $f['id'],
+                    'nome'            => $f['nome'] ?? '',
+                    'whatsapp'        => $f['whatsapp'] ?? '',
+                    'contato'         => $f['contato'] ?? '',
+                    'obs'             => $f['obs'] ?? '',
+                    'cnpj'            => $f['cnpj'] ?? '',
+                    'razao_social'    => $f['razao_social'] ?? '',
+                    'nome_fantasia'   => $f['nome_fantasia'] ?? '',
+                    'inscr_estadual'  => $f['inscr_estadual'] ?? '',
+                    'endereco'        => $f['endereco'] ?? '',
+                    'cidade'          => $f['cidade'] ?? '',
+                    'uf'              => $f['uf'] ?? '',
+                    'cep'             => $f['cep'] ?? '',
+                    'telefone'        => $f['telefone'] ?? '',
+                    'email'           => $f['email'] ?? '',
+                    'prazo_pagamento' => $f['prazo_pagamento'] ?? '',
+                    'ativo'           => ! empty( $f['ativo'] ) ? '1' : '0',
                 ] );
                 $ativo = ! empty( $f['ativo'] );
             ?>
                 <tr data-row data-id="<?php echo esc_attr( $f['id'] ); ?>" data-json='<?php echo esc_attr( $json ); ?>'>
                     <td><strong><?php echo esc_html( $f['nome'] ?? '' ); ?></strong>
+                        <?php if ( ! empty( $f['razao_social'] ) ) : ?><div class="taocot-muted"><?php echo esc_html( $f['razao_social'] ); ?></div><?php endif; ?>
                         <?php if ( ! empty( $f['obs'] ) ) : ?><div class="taocot-muted"><?php echo esc_html( $f['obs'] ); ?></div><?php endif; ?>
                     </td>
+                    <td style="font-family:monospace;font-size:12px"><?php echo esc_html( $f['cnpj'] ?? '—' ); ?></td>
                     <td><?php echo esc_html( $f['whatsapp'] ?? '' ); ?></td>
                     <td><?php echo esc_html( $f['contato'] ?? '' ); ?></td>
                     <td style="text-align:center"><span class="taocot-pill <?php echo $ativo ? 'on' : 'off'; ?>"><?php echo $ativo ? 'Ativo' : 'Inativo'; ?></span></td>
@@ -92,6 +105,54 @@ function tao_cotacoes_page_fornecedores() {
                 <div class="taocot-field">
                     <label>Pessoa de contato</label>
                     <input type="text" name="contato" placeholder="Ex: Maria (vendas)">
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
+                    <div class="taocot-field">
+                        <label>CNPJ (só números) — casa com o XML da NF</label>
+                        <input type="text" name="cnpj" placeholder="Ex: 44015477001600">
+                    </div>
+                    <div class="taocot-field">
+                        <label>Inscrição Estadual</label>
+                        <input type="text" name="inscr_estadual">
+                    </div>
+                    <div class="taocot-field">
+                        <label>Razão social</label>
+                        <input type="text" name="razao_social">
+                    </div>
+                    <div class="taocot-field">
+                        <label>Nome fantasia</label>
+                        <input type="text" name="nome_fantasia">
+                    </div>
+                    <div class="taocot-field">
+                        <label>Telefone fixo</label>
+                        <input type="text" name="telefone">
+                    </div>
+                    <div class="taocot-field">
+                        <label>E-mail (pedidos/NF)</label>
+                        <input type="text" name="email">
+                    </div>
+                </div>
+                <div class="taocot-field">
+                    <label>Endereço</label>
+                    <input type="text" name="endereco" placeholder="Rua, nº, bairro">
+                </div>
+                <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:0 12px">
+                    <div class="taocot-field">
+                        <label>Cidade</label>
+                        <input type="text" name="cidade">
+                    </div>
+                    <div class="taocot-field">
+                        <label>UF</label>
+                        <input type="text" name="uf" maxlength="2" placeholder="SP">
+                    </div>
+                    <div class="taocot-field">
+                        <label>CEP</label>
+                        <input type="text" name="cep">
+                    </div>
+                </div>
+                <div class="taocot-field">
+                    <label>Prazo de pagamento</label>
+                    <input type="text" name="prazo_pagamento" placeholder="Ex: 28/35/42 dias, boleto">
                 </div>
                 <div class="taocot-field">
                     <label>Observações</label>

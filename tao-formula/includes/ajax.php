@@ -84,7 +84,8 @@ add_action( 'wp_ajax_tao_formula_get_ativo', function() {
         "/ativos?id=eq.$id&cliente_id=eq.$cliente_id" .
         "&select=id,codigo_fc,nome,grupo,unidade,unidade_padrao,estoque_atual,preco_compra,preco_custo," .
         "custo_por_unidade,preco_venda,fator_correcao,fator_perda,densidade,dcb,dose_min,uni_dose_min," .
-        "dose_max,uni_dose_max,categoria,classe_terapeutica,principio_ativo,observacoes,sincronizado_em" .
+        "dose_max,uni_dose_max,categoria,classe_terapeutica,principio_ativo,observacoes,sincronizado_em," .
+        "diluicao,teor,concentracao,markup_preco,restricao,ativo" .
         "&limit=1"
     );
 
@@ -115,6 +116,81 @@ add_action( 'wp_ajax_tao_formula_lote_fefo', function() {
         "&order=dt_validade.asc&limit=1"
     );
     wp_send_json_success( ( $r['ok'] && ! empty( $r['data'] ) ) ? $r['data'][0] : null );
+} );
+
+// ── Criar / editar ativo (cadastro de produtos) ──────────────────────────────
+
+add_action( 'wp_ajax_tao_formula_salvar_ativo', function() {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+
+    $id   = sanitize_text_field( $_POST['id'] ?? '' );
+    $nome = strtoupper( trim( sanitize_text_field( $_POST['nome'] ?? '' ) ) );
+    if ( ! $nome ) wp_send_json_error( [ 'message' => 'Informe o nome do produto' ] );
+
+    // Número BR: vírgula decimal → ponto; vazio → null
+    $num = function( $k ) {
+        $v = trim( (string) ( $_POST[ $k ] ?? '' ) );
+        return $v === '' ? null : (float) str_replace( ',', '.', $v );
+    };
+    $txt = function( $k, $upper = false ) {
+        $v = trim( sanitize_text_field( $_POST[ $k ] ?? '' ) );
+        if ( $upper ) $v = strtoupper( $v );
+        return $v === '' ? null : $v;
+    };
+
+    $grupo = strtoupper( sanitize_text_field( $_POST['grupo'] ?? 'M' ) );
+    if ( ! in_array( $grupo, [ 'M', 'E' ], true ) ) $grupo = 'M';
+
+    $payload = [
+        'nome'              => $nome,
+        'grupo'             => $grupo,
+        'codigo_fc'         => $txt( 'codigo_fc' ),
+        'unidade'           => $txt( 'unidade', true ),
+        'unidade_padrao'    => $txt( 'unidade_padrao' ),
+        'preco_compra'      => $num( 'preco_compra' ),
+        'custo_por_unidade' => $num( 'custo_por_unidade' ),
+        'preco_venda'       => $num( 'preco_venda' ),
+        'markup_preco'      => $num( 'markup_preco' ),
+        'dcb'               => $txt( 'dcb', true ),
+        'fator_correcao'    => $num( 'fator_correcao' ),
+        'fator_perda'       => $num( 'fator_perda' ),
+        'densidade'         => $num( 'densidade' ),
+        'diluicao'          => $num( 'diluicao' ),
+        'teor'              => $num( 'teor' ),
+        'concentracao'      => $num( 'concentracao' ),
+        'dose_max'          => $num( 'dose_max' ),
+        'uni_dose_max'      => $txt( 'uni_dose_max' ),
+        'restricao'         => $txt( 'restricao' ),
+        'categoria'         => $txt( 'categoria' ),
+        'observacoes'       => $txt( 'observacoes' ),
+    ];
+
+    // Código FC não pode colidir com outro produto do mesmo tenant
+    if ( $payload['codigo_fc'] ) {
+        $chk = tao_formula_api(
+            '/ativos?cliente_id=eq.' . $cliente_id .
+            '&codigo_fc=eq.' . rawurlencode( $payload['codigo_fc'] ) .
+            ( $id ? '&id=neq.' . $id : '' ) . '&select=id,nome&limit=1'
+        );
+        if ( $chk['ok'] && ! empty( $chk['data'] ) ) {
+            wp_send_json_error( [ 'message' => 'Código ' . $payload['codigo_fc'] . ' já usado por: ' . $chk['data'][0]['nome'] ] );
+        }
+    }
+
+    if ( $id ) {
+        $r = tao_formula_api( "/ativos?id=eq.$id&cliente_id=eq.$cliente_id", 'PATCH', $payload );
+    } else {
+        $payload['cliente_id'] = $cliente_id;
+        $payload['ativo']      = true;
+        $r = tao_formula_api( '/ativos', 'POST', $payload );
+    }
+
+    if ( ! $r['ok'] ) wp_send_json_error( [ 'message' => 'Erro ao salvar: ' . mb_substr( (string) $r['raw'], 0, 300 ) ] );
+    wp_send_json_success( [ 'id' => $r['data'][0]['id'] ?? $id, 'novo' => ! $id ] );
 } );
 
 // ── Helper: gerar número de orçamento (YYYYMMSeq / YYYYMMSeq-XX) ─────────────

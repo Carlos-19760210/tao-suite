@@ -28,6 +28,7 @@ function tao_formula_page_historico() {
     <style>
     .taof-hist-item{cursor:pointer;padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:13px}
     .taof-hist-item:hover{background:#f0f9ff}
+    .taof-hist-item.taof-hist-hl{background:#eff6ff}
     .taof-hist-card{background:#fff;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:10px;overflow:hidden}
     .taof-hist-head{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;padding:10px 14px;cursor:pointer}
     .taof-hist-head:hover{background:#f8fafc}
@@ -60,8 +61,9 @@ function tao_formula_page_historico() {
                     if (!lista.length) { dd.append('<div class="taof-hist-item" style="color:#94a3b8">Nenhum cliente encontrado.</div>').show(); return; }
                     lista.forEach(function(c){
                         var meta = c.total_formulas + ' fórmula(s)' + (c.ultima ? ' · última ' + fmtData(c.ultima) : '');
-                        $('<div class="taof-hist-item">')
+                        $('<div class="taof-hist-item" data-sel="1">')
                             .html('<strong>'+esc(c.nome)+'</strong> <span style="color:#94a3b8;font-size:11px">'+esc(meta)+'</span>')
+                            .data('cli', c)
                             .on('mousedown', function(e){ e.preventDefault(); abrirCliente(c); })
                             .appendTo(dd);
                     });
@@ -70,6 +72,37 @@ function tao_formula_page_historico() {
             }, 300);
         });
         $('#taof-hist-busca').on('blur', function(){ setTimeout(function(){ $('#taof-hist-dd').hide(); }, 180); });
+
+        // Navegação por teclado no dropdown de clientes (setas + Enter + Esc)
+        $('#taof-hist-busca').on('keydown', function(e){
+            var $dd = $('#taof-hist-dd');
+            if (!$dd.is(':visible')) {
+                if (e.key === 'ArrowDown' && $(this).val().trim().length >= 3) { e.preventDefault(); $(this).trigger('input'); }
+                return;
+            }
+            var $items = $dd.find('.taof-hist-item[data-sel]');
+            if (!$items.length) return;
+            var $cur = $items.filter('.taof-hist-hl');
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                $items.removeClass('taof-hist-hl');
+                var $nxt;
+                if (e.key === 'ArrowDown') $nxt = $cur.length ? $cur.nextAll('[data-sel]').first() : $();
+                else                       $nxt = $cur.length ? $cur.prevAll('[data-sel]').first() : $();
+                if (!$nxt || !$nxt.length) $nxt = (e.key === 'ArrowDown') ? $items.first() : $items.last();
+                $nxt.addClass('taof-hist-hl');
+                // mantém o item visível dentro do dropdown rolável
+                var el = $nxt[0], box = $dd[0];
+                if (el.offsetTop < box.scrollTop) box.scrollTop = el.offsetTop;
+                else if (el.offsetTop + el.offsetHeight > box.scrollTop + box.clientHeight)
+                    box.scrollTop = el.offsetTop + el.offsetHeight - box.clientHeight;
+            } else if (e.key === 'Enter') {
+                var $sel = $items.filter('.taof-hist-hl');
+                if ($sel.length) { e.preventDefault(); abrirCliente($sel.data('cli')); }
+            } else if (e.key === 'Escape') {
+                $dd.hide().empty();
+            }
+        });
 
         // ── Fórmulas do cliente ──────────────────────────────────────
         function abrirCliente(c){

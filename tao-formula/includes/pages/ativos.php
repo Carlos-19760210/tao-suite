@@ -77,6 +77,7 @@ function tao_formula_page_ativos() {
         </div>
         <button type="submit" class="button">Buscar</button>
         <?php if ($busca || $filtro_gr) : ?><a href="<?php echo esc_url($base_url); ?>" class="button">✕ Limpar</a><?php endif; ?>
+        <button type="button" class="button button-primary" id="taof-ativo-novo-btn">+ Novo Ativo</button>
         <span id="taof-s-count" style="font-size:12px;color:#64748b;display:none"></span>
     </form>
 
@@ -265,6 +266,7 @@ function tao_formula_page_ativos() {
                 html+=grid(2,[campo('Categoria',a.categoria||'—'),campo('Classe Terapêutica',a.classe_terapeutica||'—')]);
                 if(a.observacoes)html+='<div style="background:#f8fafc;border-radius:6px;padding:10px 14px;margin-top:4px"><span style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.4px">Observações</span><p style="margin:4px 0 0;font-size:13px">'+escH(a.observacoes)+'</p></div>';
                 if(a.sincronizado_em){var d=new Date(a.sincronizado_em);html+='<p style="color:#94a3b8;font-size:11px;margin-top:8px">Sincronizado em '+d.toLocaleString('pt-BR')+'</p>';}
+                html+='<p style="margin:10px 0 0"><button type="button" class="button" id="taof-ativo-editar-btn">&#x270F; Editar produto</button></p>';
                 html += '<div style="border-top:1px solid #e2e8f0;margin-top:16px;padding-top:14px">';
                 html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
                 html += '<strong style="font-size:13px">&#x1F3F7; Sin&ocirc;nimos <span id="taof-sin-ativo-count" style="font-size:11px;color:#94a3b8;font-weight:400"></span></strong>';
@@ -280,16 +282,109 @@ function tao_formula_page_ativos() {
                 reloadSinonimos(a.id);
             }
 
+            var _ativoAtual = null;
+
             function abrirModalAtivo(id) {
                 $('#taof-ativo-modal-body').html('<p style="text-align:center;padding:40px 0;color:#94a3b8">Carregando...</p>');
                 $('#taof-ativo-modal').show();
                 $.getJSON(_ajaxUrl,{action:'tao_formula_get_ativo',nonce:_nonce,id:id},function(r){
                     if(!r.success){$('#taof-ativo-modal-body').html('<p style="color:#dc2626">Erro ao carregar: '+(r.data||'desconhecido')+'</p>');return;}
+                    _ativoAtual = r.data;
                     renderModalAtivo(r.data);
                 }).fail(function(){
                     $('#taof-ativo-modal-body').html('<p style="color:#dc2626">Falha na comunicação com o servidor.</p>');
                 });
             }
+
+            // ── Formulário de cadastro/edição ─────────────────────────────
+            function inp(lbl,name,val,opts){
+                opts = opts || {};
+                var w = opts.w || '100%';
+                return '<div><label style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:2px">'+lbl+'</label>' +
+                    '<input type="text" name="'+name+'" value="'+escH(val===null||val===undefined?'':val)+'" ' +
+                    (opts.ph?'placeholder="'+escH(opts.ph)+'" ':'') +
+                    'style="width:'+w+';padding:5px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px"></div>';
+            }
+            function fgrid(n,items){return '<div style="display:grid;grid-template-columns:repeat('+n+',1fr);gap:10px 14px;margin-bottom:12px">'+items.join('')+'</div>';}
+
+            function renderFormAtivo(a){
+                a = a || {};
+                var isNovo = !a.id;
+                var selG = function(v){return (a.grupo||'M')===v?' selected':'';};
+                var html = '<h2 style="margin:0 0 12px;font-size:19px">'+(isNovo?'&#x2795; Novo Produto':'&#x270F; Editar: '+escH(a.nome))+'</h2>';
+                html += '<form id="taof-ativo-form">';
+                html += fgrid(3,[
+                    inp('Nome *','nome',a.nome),
+                    '<div><label style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:2px">Grupo</label>' +
+                    '<select name="grupo" style="width:100%;padding:5px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px">' +
+                    '<option value="M"'+selG('M')+'>Mat&eacute;ria-Prima</option><option value="E"'+selG('E')+'>Embalagem</option></select></div>',
+                    inp('C&oacute;digo','codigo_fc',a.codigo_fc,{ph:'ex: 10569'})
+                ]);
+                html += fgrid(3,[
+                    inp('Unidade (compra)','unidade',a.unidade,{ph:'G / ML / UN'}),
+                    inp('Unidade padr&atilde;o (venda)','unidade_padrao',a.unidade_padrao,{ph:'g / mg / ml / un'}),
+                    inp('Categoria','categoria',a.categoria)
+                ]);
+                html += fgrid(4,[
+                    inp('Pre&ccedil;o compra (R$)','preco_compra',a.preco_compra),
+                    inp('Custo/unid (R$)','custo_por_unidade',a.custo_por_unidade),
+                    inp('Pre&ccedil;o venda (R$)','preco_venda',a.preco_venda),
+                    inp('Markup (venda=custo&times;)','markup_preco',a.markup_preco)
+                ]);
+                html += '<p style="font-size:11px;color:#94a3b8;margin:2px 0 8px">Dados farmacot&eacute;cnicos (matéria-prima):</p>';
+                html += fgrid(4,[
+                    inp('DCB','dcb',a.dcb),
+                    inp('Dilui&ccedil;&atilde;o (1:N)','diluicao',a.diluicao,{ph:'1'}),
+                    inp('Teor (%)','teor',a.teor,{ph:'100'}),
+                    inp('Densidade (g/mL)','densidade',a.densidade,{ph:'1'})
+                ]);
+                html += fgrid(4,[
+                    inp('Fator perda','fator_perda',a.fator_perda,{ph:'1'}),
+                    inp('Fator corre&ccedil;&atilde;o','fator_correcao',a.fator_correcao,{ph:'1'}),
+                    inp('Concentra&ccedil;&atilde;o (UI\\UFC/g)','concentracao',a.concentracao),
+                    inp('Restri&ccedil;&atilde;o','restricao',a.restricao,{ph:'bloqueada / restrita'})
+                ]);
+                html += fgrid(4,[
+                    inp('Dose m&aacute;xima','dose_max',a.dose_max),
+                    inp('Unid. dose m&aacute;x','uni_dose_max',a.uni_dose_max,{ph:'mg'}),
+                    '<div style="grid-column:span 2">'+inp('Observa&ccedil;&otilde;es','observacoes',a.observacoes)+'</div>'
+                ]);
+                html += '<p style="margin:6px 0 0">' +
+                        '<button type="submit" class="button button-primary">&#x1F4BE; Salvar</button> ' +
+                        '<button type="button" class="button" id="taof-ativo-form-cancel">Cancelar</button> ' +
+                        '<span id="taof-ativo-form-msg" style="font-size:12px;margin-left:8px"></span></p>';
+                html += '</form>';
+                $('#taof-ativo-modal-body').html(html);
+                $('#taof-ativo-modal').show();
+                $('#taof-ativo-form input[name=nome]').focus();
+
+                $('#taof-ativo-form-cancel').on('click', function(){
+                    if (isNovo) { $('#taof-ativo-modal').hide(); } else { renderModalAtivo(_ativoAtual); }
+                });
+                $('#taof-ativo-form').on('submit', function(e){
+                    e.preventDefault();
+                    var $msg = $('#taof-ativo-form-msg');
+                    var data = $(this).serializeArray().reduce(function(o,f){o[f.name]=f.value;return o;},{});
+                    data.action = 'tao_formula_salvar_ativo';
+                    data.nonce  = _nonce;
+                    if (!isNovo) data.id = a.id;
+                    $msg.css('color','#64748b').text('Salvando…');
+                    $.post(_ajaxUrl, data, function(r){
+                        if (r.success) {
+                            $msg.css('color','#16a34a').text('✓ Salvo!');
+                            if (r.data && r.data.novo) { setTimeout(function(){ location.reload(); }, 600); }
+                            else { abrirModalAtivo(a.id); }
+                        } else {
+                            $msg.css('color','#dc2626').text((r.data && r.data.message) || 'Erro ao salvar');
+                        }
+                    }).fail(function(xhr){
+                        $msg.css('color','#dc2626').text('Falha na requisição ('+(xhr.status||'?')+')');
+                    });
+                });
+            }
+
+            $(document).on('click','#taof-ativo-editar-btn',function(){ renderFormAtivo(_ativoAtual); });
+            $(document).on('click','#taof-ativo-novo-btn',function(){ _ativoAtual = null; renderFormAtivo({}); });
 
             $(document).on('click','.taof-ativo-link',function(e){
                 e.preventDefault();
