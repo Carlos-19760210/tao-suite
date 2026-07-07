@@ -2721,3 +2721,69 @@ add_action( 'wp_ajax_tao_formula_empresa_save', function () {
     }
     $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => 'Erro ao salvar: ' . mb_substr( (string) $r['raw'], 0, 250 ) ] );
 } );
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CLIENTE/PACIENTE — dados básicos + características de saúde (hist_clientes)
+// Cadastro superficial (não é atenção farmacêutica).
+// ═══════════════════════════════════════════════════════════════════════════
+
+add_action( 'wp_ajax_tao_formula_cliente_get', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $id         = sanitize_text_field( $_GET['id'] ?? '' );
+    if ( ! $cliente_id || ! $id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+    $r = tao_formula_api(
+        "/hist_clientes?id=eq.$id&cliente_id=eq.$cliente_id" .
+        "&select=id,nome,cdcli,dt_nascimento,email,whatsapp,sexo,observacoes,alergias,saude_obesidade,saude_colesterol,saude_pressao,saude_diabetes&limit=1"
+    );
+    $r['ok'] && ! empty( $r['data'] )
+        ? wp_send_json_success( $r['data'][0] )
+        : wp_send_json_error( [ 'message' => 'Cliente não encontrado' ] );
+} );
+
+add_action( 'wp_ajax_tao_formula_cliente_save', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+
+    $id   = sanitize_text_field( $_POST['id'] ?? '' );
+    $nome = strtoupper( trim( sanitize_text_field( $_POST['nome'] ?? '' ) ) );
+    if ( ! $nome ) wp_send_json_error( [ 'message' => 'Informe o nome' ] );
+
+    $txt  = function( $k ) { $v = trim( sanitize_text_field( $_POST[ $k ] ?? '' ) ); return $v === '' ? null : $v; };
+    $bool = function( $k ) { return ( $_POST[ $k ] ?? '' ) === '1'; };
+    $payload = [
+        'nome'             => $nome,
+        'dt_nascimento'    => $txt( 'dt_nascimento' ),
+        'email'            => $txt( 'email' ),
+        'whatsapp'         => preg_replace( '/\D/', '', $_POST['whatsapp'] ?? '' ) ?: null,
+        'sexo'             => in_array( ( $_POST['sexo'] ?? '' ), [ 'M', 'F' ], true ) ? $_POST['sexo'] : null,
+        'alergias'         => $txt( 'alergias' ),
+        'observacoes'      => $txt( 'observacoes' ),
+        'saude_obesidade'  => $bool( 'saude_obesidade' ),
+        'saude_colesterol' => $bool( 'saude_colesterol' ),
+        'saude_pressao'    => $bool( 'saude_pressao' ),
+        'saude_diabetes'   => $bool( 'saude_diabetes' ),
+    ];
+
+    $salvar = function( $body ) use ( $id, $cliente_id ) {
+        if ( $id ) return tao_formula_api( "/hist_clientes?id=eq.$id&cliente_id=eq.$cliente_id", 'PATCH', $body );
+        $body['cliente_id'] = $cliente_id;
+        $body['origem']     = 'tao';
+        return tao_formula_api( '/hist_clientes', 'POST', $body );
+    };
+    $r = $salvar( $payload );
+    // migration_v5 pendente → salva só o que existe (nome/dt/email/obs)
+    if ( ! $r['ok'] && strpos( (string) ( $r['raw'] ?? '' ), 'column' ) !== false ) {
+        $base = [ 'nome' => $nome, 'dt_nascimento' => $payload['dt_nascimento'],
+                  'email' => $payload['email'], 'observacoes' => $payload['observacoes'] ];
+        $r = $salvar( $base );
+        if ( $r['ok'] ) { wp_send_json_success( [ 'id' => $r['data'][0]['id'] ?? $id, 'aviso' => 'Características de saúde NÃO gravadas — rode migration_v5_cliente_basico.sql.' ] ); }
+    }
+    $r['ok'] ? wp_send_json_success( [ 'id' => $r['data'][0]['id'] ?? $id ] )
+             : wp_send_json_error( [ 'message' => 'Erro ao salvar: ' . mb_substr( (string) $r['raw'], 0, 250 ) ] );
+} );

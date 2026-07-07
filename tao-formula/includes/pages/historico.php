@@ -11,18 +11,29 @@ function tao_formula_page_historico() {
     <div class="wrap taof-wrap">
     <h1>🕘 Histórico do Cliente <small style="font-size:12px;color:#94a3b8;font-weight:400">(fórmulas FCerta 2018→2026 — consulta e repetição)</small></h1>
 
-    <div style="margin:14px 0;max-width:520px;position:relative">
-        <input type="text" id="taof-hist-busca" class="regular-text" style="width:100%"
-               placeholder="Buscar cliente pelo nome (mín. 3 letras)..." autocomplete="off">
-        <div id="taof-hist-dd" style="display:none;position:absolute;z-index:99;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.12);max-height:320px;overflow-y:auto;width:100%"></div>
+    <div style="margin:14px 0;display:flex;gap:8px;align-items:flex-start">
+        <div style="position:relative;flex:1;max-width:520px">
+            <input type="text" id="taof-hist-busca" class="regular-text" style="width:100%"
+                   placeholder="Buscar cliente pelo nome (mín. 3 letras)..." autocomplete="off">
+            <div id="taof-hist-dd" style="display:none;position:absolute;z-index:99;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.12);max-height:320px;overflow-y:auto;width:100%"></div>
+        </div>
+        <button type="button" class="button button-primary" id="taof-cli-novo">+ Novo Cliente</button>
     </div>
 
     <div id="taof-hist-cliente" style="display:none;margin-bottom:8px">
         <span style="font-size:15px;font-weight:700" id="taof-hist-cli-nome"></span>
         <span style="color:#94a3b8;font-size:12px" id="taof-hist-cli-meta"></span>
+        <button type="button" class="button button-small" id="taof-cli-editar" style="margin-left:8px;display:none">✏️ Editar dados</button>
+        <span id="taof-cli-saude" style="margin-left:8px"></span>
     </div>
 
     <div id="taof-hist-lista"></div>
+
+    <!-- Modal cliente -->
+    <div id="taof-cli-modal" style="display:none">
+        <div class="taof-cli-overlay"></div>
+        <div class="taof-cli-box"><div id="taof-cli-body"></div></div>
+    </div>
     </div>
 
     <style>
@@ -37,6 +48,9 @@ function tao_formula_page_historico() {
     .taof-hist-itens table{width:100%;border-collapse:collapse;font-size:12px}
     .taof-hist-itens td,.taof-hist-itens th{padding:4px 8px;border-bottom:1px solid #f1f5f9;text-align:left}
     .taof-hist-twrap{overflow-x:auto;min-width:0}
+    .taof-cli-saude-tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:10px;background:#fef3c7;color:#92400e;margin-left:4px}
+    #taof-cli-modal .taof-cli-overlay{position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:9998}
+    #taof-cli-modal .taof-cli-box{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border-radius:10px;padding:20px 22px;z-index:9999;width:560px;max-width:96vw;max-height:92vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,.25)}
     </style>
 
     <script>
@@ -105,11 +119,16 @@ function tao_formula_page_historico() {
         });
 
         // ── Fórmulas do cliente ──────────────────────────────────────
+        var _cliAtual = null;
         function abrirCliente(c){
+            _cliAtual = c;
             $('#taof-hist-dd').hide().empty();
             $('#taof-hist-busca').val(c.nome);
             $('#taof-hist-cli-nome').text(c.nome);
             $('#taof-hist-cli-meta').text(' — ' + c.total_formulas + ' fórmula(s) no FCerta' + (c.cdcli ? ' · cód. ' + c.cdcli : ''));
+            // Botão editar só para clientes com cadastro (hist_cliente_id); avulsos por nome não têm registro
+            $('#taof-cli-editar').toggle(!!c.hist_cliente_id);
+            $('#taof-cli-saude').empty();
             $('#taof-hist-cliente').show();
             $('#taof-hist-lista').html('<p style="color:#94a3b8">Carregando fórmulas…</p>');
             var params = {action:'tao_formula_hist_formulas', nonce:nonce};
@@ -186,6 +205,92 @@ function tao_formula_page_historico() {
                 $btn.prop('disabled', false).text('↻ Repetir');
             });
         }
+
+        // ── Cadastro de cliente (dados básicos + características de saúde) ──
+        function chk(name,lbl,on){
+            return '<label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;margin-right:16px">' +
+                   '<input type="checkbox" name="'+name+'" value="1"'+(on?' checked':'')+'> '+lbl+'</label>';
+        }
+        function cinp(lbl,name,val,type){
+            return '<div><label style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:2px">'+lbl+'</label>' +
+                   '<input type="'+(type||'text')+'" name="'+name+'" value="'+esc(val)+'" style="width:100%;padding:5px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px"></div>';
+        }
+        function formCliente(c){
+            c = c || {};
+            var isNovo = !c.id;
+            var sexo = c.sexo || '';
+            var html = '<h2 style="margin:0 0 12px;font-size:18px">'+(isNovo?'➕ Novo Cliente':'✏️ '+esc(c.nome))+'</h2>';
+            html += '<form id="taof-cli-form">';
+            html += '<div style="display:grid;grid-template-columns:2fr 1fr;gap:10px 14px;margin-bottom:10px">' +
+                    cinp('Nome *','nome',c.nome) +
+                    '<div><label style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:2px">Sexo</label>' +
+                    '<select name="sexo" style="width:100%;padding:5px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px">' +
+                    '<option value="">—</option><option value="F"'+(sexo==='F'?' selected':'')+'>Feminino</option><option value="M"'+(sexo==='M'?' selected':'')+'>Masculino</option></select></div></div>';
+            html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px 14px;margin-bottom:12px">' +
+                    cinp('Nascimento','dt_nascimento',(c.dt_nascimento||'').substring(0,10),'date') +
+                    cinp('WhatsApp','whatsapp',c.whatsapp) +
+                    cinp('E-mail','email',c.email) + '</div>';
+            html += '<div style="background:#f8fafc;border-radius:6px;padding:10px 12px;margin-bottom:10px">' +
+                    '<div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Características de saúde (comuns)</div>' +
+                    chk('saude_obesidade','Obesidade',c.saude_obesidade) +
+                    chk('saude_colesterol','Colesterol',c.saude_colesterol) +
+                    chk('saude_pressao','Pressão',c.saude_pressao) +
+                    chk('saude_diabetes','Diabetes',c.saude_diabetes) + '</div>';
+            html += '<div style="margin-bottom:10px">'+cinp('Alergias','alergias',c.alergias)+'</div>';
+            html += '<div style="margin-bottom:10px">'+cinp('Observações','observacoes',c.observacoes)+'</div>';
+            html += '<p style="margin:6px 0 0"><button type="submit" class="button button-primary">💾 Salvar</button> ' +
+                    '<button type="button" class="button" id="taof-cli-cancel">Cancelar</button> ' +
+                    '<span id="taof-cli-msg" style="font-size:12px;margin-left:8px"></span></p></form>';
+            $('#taof-cli-body').html(html);
+            $('#taof-cli-modal').show();
+            $('#taof-cli-form input[name=nome]').focus();
+            $('#taof-cli-cancel').on('click', function(){ $('#taof-cli-modal').hide(); });
+            $('#taof-cli-form').on('submit', function(e){
+                e.preventDefault();
+                var $msg = $('#taof-cli-msg');
+                var data = {action:'tao_formula_cliente_save', nonce:nonce};
+                $(this).serializeArray().forEach(function(f){ data[f.name]=f.value; });
+                ['saude_obesidade','saude_colesterol','saude_pressao','saude_diabetes'].forEach(function(k){ if(!(k in data)) data[k]='0'; });
+                if (!isNovo) data.id = c.id;
+                $msg.css('color','#64748b').text('Salvando…');
+                $.post(ajaxUrl, data, function(r){
+                    if (r.success) {
+                        $('#taof-cli-modal').hide();
+                        if (r.data && r.data.aviso) alert(r.data.aviso);
+                        if (isNovo) { taofReloadHint(); }
+                        else { carregarSaude(c.id); }
+                    } else $msg.css('color','#dc2626').text((r.data && r.data.message) || 'Erro');
+                }).fail(function(){ $msg.css('color','#dc2626').text('Falha na requisição'); });
+            });
+        }
+        function taofReloadHint(){
+            $('#taof-hist-lista').html('<p style="color:#16a34a">✓ Cliente cadastrado. Busque pelo nome para abrir.</p>');
+        }
+        // Selo de características de saúde ao lado do nome
+        function carregarSaude(histId){
+            $.getJSON(ajaxUrl, {action:'tao_formula_cliente_get', nonce:nonce, id:histId}, function(r){
+                if (!r.success || !r.data) return;
+                var d = r.data, tags = [];
+                if (d.saude_obesidade) tags.push('Obesidade');
+                if (d.saude_colesterol) tags.push('Colesterol');
+                if (d.saude_pressao) tags.push('Pressão');
+                if (d.saude_diabetes) tags.push('Diabetes');
+                if (d.alergias) tags.push('⚠ Alergias: '+d.alergias);
+                $('#taof-cli-saude').html(tags.map(function(t){ return '<span class="taof-cli-saude-tag">'+esc(t)+'</span>'; }).join(''));
+            });
+        }
+        $('#taof-cli-editar').on('click', function(){
+            if (!_cliAtual || !_cliAtual.hist_cliente_id) return;
+            $.getJSON(ajaxUrl, {action:'tao_formula_cliente_get', nonce:nonce, id:_cliAtual.hist_cliente_id}, function(r){
+                formCliente(r.success && r.data ? r.data : {id:_cliAtual.hist_cliente_id, nome:_cliAtual.nome});
+            });
+        });
+        $('#taof-cli-novo').on('click', function(){ formCliente({}); });
+        $('#taof-cli-modal').on('click','.taof-cli-overlay',function(){ $('#taof-cli-modal').hide(); });
+
+        // Ao abrir um cliente com cadastro, mostra o selo de saúde
+        var _origAbrir = abrirCliente;
+        abrirCliente = function(c){ _origAbrir(c); if (c.hist_cliente_id) carregarSaude(c.hist_cliente_id); };
     });
     </script>
     <?php
