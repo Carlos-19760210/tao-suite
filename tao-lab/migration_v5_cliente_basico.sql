@@ -1,8 +1,12 @@
 -- ============================================================
+-- ⛔ CANCELADA — NÃO RODAR. Substituída por migration_v6_contato_unico.sql.
+-- Motivo: punha os dados de saúde no hist_clientes, criando cadastro de pessoa
+-- PARALELO. Correção (Carlos): a pessoa é ÚNICA em crm_contatos (base do CRM).
+-- Os campos de saúde foram para crm_contatos na v6.
+-- ============================================================
+-- (conteúdo original mantido só como referência histórica — não executar)
+-- ============================================================
 -- TAO — MIGRATION v5: DADOS BÁSICOS DO CLIENTE/PACIENTE (07/07/2026)
--- Cadastro SUPERFICIAL (não é atenção farmacêutica): características de saúde
--- comuns p/ contexto do atendimento. Estende hist_clientes (já tem os 7.918).
--- Rodar no SQL Editor. Aditiva.
 -- ============================================================
 
 ALTER TABLE hist_clientes ADD COLUMN IF NOT EXISTS whatsapp        text;
