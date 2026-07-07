@@ -936,6 +936,103 @@
         }
     }
 
+    // ── Fórmula padrão: busca + aplica no editor ──────────────────────
+    var _fpadUnit = { 'G': 'g', 'MG': 'mg', 'MCG': 'mcg', 'ML': 'ml', '%': '%', 'UI': 'UI', 'UFC': 'UFC', 'BLH': 'BLH', 'UN': 'un' };
+    function fpadDoseUnit(u) {
+        u = String(u || '').trim().toUpperCase();
+        return _fpadUnit[u] || 'mg';
+    }
+
+    function aplicarFormulaPadrao(det) {
+        if (!det || !det.formula) return;
+        var f = det.formula;
+
+        // Forma: cápsula pelo tipo; demais ficam p/ a atendente confirmar (dado do FCerta é ambíguo)
+        var alvoTipo = f.tipo_capsula ? 'cap' : null;
+        if (alvoTipo) {
+            var fid = null;
+            Object.keys(formasMap).forEach(function (k) {
+                if (!fid && formasMap[k] && formasMap[k].tipo === alvoTipo) fid = k;
+            });
+            if (fid) $('#taof-forma-sel').val(fid).trigger('change');
+        }
+        if (f.volume) setTimeout(function () { $('#taof-forma-vol').val(f.volume).trigger('input'); }, 60);
+
+        // Substitui as linhas atuais pelas da fórmula padrão
+        $('#taof-itens-body').empty();
+        (det.itens || []).forEach(function (it) {
+            var $row = adicionarLinha();
+            if (it.ativo && it.ativo.id) {
+                selecionarAtivo($row, it.ativo, it.descricao);
+            } else {
+                // Ativo não cadastrado: deixa o nome da prescrição p/ a atendente associar
+                $row.find('.taof-orc-ativo-search')
+                    .val(it.descricao || '')
+                    .css({ 'border-color': '#f97316', 'background-color': '#fff7ed' });
+                $row.data('nome-prescricao', (it.descricao || '').toUpperCase());
+            }
+            if (it.eh_qsp) {
+                toggleQSP($row, true);
+            } else if (it.qtd != null) {
+                $row.find('.taof-orc-dose-unit').val(fpadDoseUnit(it.unidade));
+                $row.find('.taof-orc-dose').val(it.qtd);
+                calcularLinha($row);
+            }
+        });
+        calcularTotais();
+        taofToast('✓ Fórmula padrão aplicada: ' + f.nome + (alvoTipo ? '' : ' — confira a forma farmacêutica'));
+    }
+
+    (function initFpad() {
+        var $btn = $('#taof-btn-fpad'), $dd = $('#taof-fpad-dd');
+        if (!$btn.length) return;
+        var timer = null;
+
+        function abrir() {
+            $dd.html('<div style="padding:8px"><input type="text" id="taof-fpad-inp" placeholder="Buscar fórmula padrão..." ' +
+                     'style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:4px" autocomplete="off"></div>' +
+                     '<div id="taof-fpad-res"></div>');
+            var r = $btn[0].getBoundingClientRect();
+            $dd.css({ position: 'fixed', top: r.bottom + 2, left: r.left, 'z-index': 2147483000 }).show();
+            $('#taof-fpad-inp').focus().on('input', function () {
+                clearTimeout(timer);
+                var q = $(this).val().trim();
+                if (q.length < 2) { $('#taof-fpad-res').empty(); return; }
+                timer = setTimeout(function () {
+                    $.getJSON(ajaxUrl, { action: 'tao_formula_fpad_busca', nonce: nonce, q: q }, function (resp) {
+                        var $res = $('#taof-fpad-res').empty();
+                        if (!resp.success) { $res.html('<div style="padding:8px;color:#dc2626;font-size:12px">' + (resp.data && resp.data.message || 'Erro') + '</div>'); return; }
+                        var lista = resp.data || [];
+                        if (!lista.length) { $res.html('<div style="padding:8px;color:#94a3b8;font-size:12px">Nada encontrado.</div>'); return; }
+                        lista.forEach(function (f) {
+                            var sub = [f.volume ? (parseFloat(f.volume) + ' ' + (f.unidade || '').trim()) : '', f.tipo_capsula || ''].filter(Boolean).join(' · ');
+                            $('<div class="taof-ac-item">')
+                                .html('<span>' + $('<span>').text(f.nome).html() + '</span>' + (sub ? '<small>' + $('<span>').text(sub).html() + '</small>' : ''))
+                                .on('mousedown', function (e) {
+                                    e.preventDefault();
+                                    $dd.hide().empty();
+                                    $.getJSON(ajaxUrl, { action: 'tao_formula_fpad_detalhe', nonce: nonce, id: f.id }, function (d) {
+                                        if (d.success) aplicarFormulaPadrao(d.data);
+                                        else alert('Erro ao carregar a fórmula: ' + (d.data && d.data.message || ''));
+                                    });
+                                })
+                                .appendTo($res);
+                        });
+                    });
+                }, 280);
+            });
+        }
+
+        $btn.on('click', function (e) {
+            e.stopPropagation();
+            if ($dd.is(':visible')) { $dd.hide().empty(); } else { abrir(); }
+        });
+        $(document).on('mousedown', function (e) {
+            if (!$dd.is(':visible')) return;
+            if (!$(e.target).closest('#taof-fpad-dd, #taof-btn-fpad').length) $dd.hide().empty();
+        });
+    })();
+
     // ── Autocomplete de PRESCRITOR (cadastro de prescritores) ─────────
     (function initPrescritorAC() {
         var $inp = $('#taof-prescritor'), $dd = $('#taof-prescritor-dd'), timer = null;

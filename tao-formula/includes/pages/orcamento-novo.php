@@ -327,6 +327,10 @@ function tao_formula_page_orcamento_novo() {
         </div>
         <div class="taof-table-footer">
             <button type="button" class="button" id="taof-btn-add-item">+ Adicionar Ativo</button>
+            <span style="position:relative;display:inline-block;margin-left:6px">
+                <button type="button" class="button" id="taof-btn-fpad">📋 Fórmula padrão</button>
+                <div id="taof-fpad-dd" class="taof-ac-dropdown" style="display:none;min-width:340px"></div>
+            </span>
         </div>
         <div id="taof-info-excipiente" style="display:none;margin:6px 0 0;padding:8px 14px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;font-size:13px"></div>
     </div>

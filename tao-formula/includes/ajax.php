@@ -2613,3 +2613,64 @@ add_action( 'wp_ajax_tao_formula_prescritores_busca', function () {
     );
     wp_send_json_success( $r['ok'] ? ( $r['data'] ?? [] ) : [] );
 } );
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FÓRMULAS PADRÃO — busca + detalhe p/ carregar no editor (lab_formulas_padrao)
+// ═══════════════════════════════════════════════════════════════════════════
+
+add_action( 'wp_ajax_tao_formula_fpad_busca', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $q          = sanitize_text_field( $_GET['q'] ?? '' );
+    if ( ! $cliente_id || mb_strlen( $q ) < 2 ) { wp_send_json_success( [] ); return; }
+    $r = tao_formula_api(
+        "/lab_formulas_padrao?cliente_id=eq.$cliente_id&ativo=eq.true" .
+        "&nome=ilike.*" . rawurlencode( $q ) . "*" .
+        "&select=id,nome,forma_farmac,volume,unidade,tipo_capsula,tem_qsp&order=nome.asc&limit=15"
+    );
+    if ( ! $r['ok'] ) {
+        $msg = strpos( (string) $r['raw'], 'does not exist' ) !== false
+            ? 'Fórmulas padrão ainda não disponíveis (carga pendente).'
+            : mb_substr( (string) $r['raw'], 0, 160 );
+        wp_send_json_error( [ 'message' => $msg ] );
+    }
+    wp_send_json_success( $r['data'] ?? [] );
+} );
+
+add_action( 'wp_ajax_tao_formula_fpad_detalhe', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $fid        = sanitize_text_field( $_GET['id'] ?? '' );
+    if ( ! $cliente_id || ! $fid ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+
+    $rf = tao_formula_api( "/lab_formulas_padrao?id=eq.$fid&cliente_id=eq.$cliente_id&select=id,nome,forma_farmac,volume,unidade,tipo_capsula,posologia,tem_qsp&limit=1" );
+    if ( ! $rf['ok'] || empty( $rf['data'] ) ) wp_send_json_error( [ 'message' => 'Fórmula padrão não encontrada' ] );
+    $formula = $rf['data'][0];
+
+    $ri = tao_formula_api(
+        "/lab_formulas_padrao_itens?formula_id=eq.$fid" .
+        "&select=ativo_id,descricao,qtd,unidade,eh_qsp,ordem&order=ordem.asc&limit=80"
+    );
+    $itens = ( $ri['ok'] ? $ri['data'] : [] );
+
+    // Enriquece cada item com dados do ativo (preço/unidade/técnicos) p/ o editor calcular
+    $ids = array_values( array_unique( array_filter( array_column( $itens, 'ativo_id' ) ) ) );
+    $mapa = [];
+    if ( $ids ) {
+        $motor = get_option( 'tao_formula_motor_v2' ) === '1';
+        $sel   = 'id,codigo_fc,nome,unidade_padrao,preco_venda,custo_por_unidade,fator_perda,diluicao,teor,densidade,concentracao'
+               . ( $motor ? ',dose_max,uni_dose_max,dose_max_dia,dose_max_unidade,restricao' : '' );
+        $ra = tao_formula_api( "/ativos?cliente_id=eq.$cliente_id&id=in.(" . implode( ',', $ids ) . ")&select=$sel&limit=" . count( $ids ) );
+        foreach ( ( $ra['ok'] ? $ra['data'] : [] ) as $a ) $mapa[ $a['id'] ] = $a;
+    }
+    foreach ( $itens as &$it ) {
+        $it['ativo'] = $it['ativo_id'] ? ( $mapa[ $it['ativo_id'] ] ?? null ) : null;
+    }
+    unset( $it );
+
+    wp_send_json_success( [ 'formula' => $formula, 'itens' => $itens ] );
+} );
