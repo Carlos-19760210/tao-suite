@@ -288,10 +288,11 @@ function tao_formula_orc_payload( $itens ) {
         $p['valor_final_fc'] = (float) $_POST['valor_final_fc'];
     // Campos opcionais (migration_v2): cliente (contratante) ≠ paciente; prescritor livre; posologia;
     // forma_tipo (tipo cápsula) — o editor sempre enviou, faltava a coluna p/ persistir
-    $p['nome_cliente'] = sanitize_text_field( $_POST['nome_cliente'] ?? '' ) ?: null;
-    $p['prescritor']   = sanitize_text_field( $_POST['prescritor']   ?? '' ) ?: null;
-    $p['posologia']    = sanitize_textarea_field( $_POST['posologia'] ?? '' ) ?: null;
-    $p['forma_tipo']   = sanitize_text_field( $_POST['forma_tipo']   ?? '' ) ?: null;
+    $p['nome_cliente']  = sanitize_text_field( $_POST['nome_cliente'] ?? '' ) ?: null;
+    $p['prescritor']    = sanitize_text_field( $_POST['prescritor']   ?? '' ) ?: null;
+    $p['prescritor_id'] = sanitize_text_field( $_POST['prescritor_id'] ?? '' ) ?: null;
+    $p['posologia']     = sanitize_textarea_field( $_POST['posologia'] ?? '' ) ?: null;
+    $p['forma_tipo']    = sanitize_text_field( $_POST['forma_tipo']   ?? '' ) ?: null;
     return $p;
 }
 
@@ -300,7 +301,7 @@ function tao_formula_orc_payload( $itens ) {
 function tao_formula_orc_gravar( $path, $method, $data ) {
     $r = tao_formula_api( $path, $method, $data );
     if ( ! $r['ok'] && strpos( (string) ( $r['raw'] ?? '' ), 'column' ) !== false ) {
-        unset( $data['nome_cliente'], $data['prescritor'], $data['posologia'], $data['forma_tipo'] );
+        unset( $data['nome_cliente'], $data['prescritor'], $data['prescritor_id'], $data['posologia'], $data['forma_tipo'] );
         $r = tao_formula_api( $path, $method, $data );
     }
     return $r;
@@ -2523,4 +2524,92 @@ add_action( 'wp_ajax_tao_formula_hist_repetir', function () {
         'numero'          => $numero,
         'nao_encontrados' => $nao_encontrados,
     ] );
+} );
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PRESCRITORES — CRUD (espelho FC04000) + autocomplete p/ o editor
+// ═══════════════════════════════════════════════════════════════════════════
+
+add_action( 'wp_ajax_tao_formula_prescritores_lista', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+
+    $q      = sanitize_text_field( $_GET['q'] ?? '' );
+    $offset = max( 0, intval( $_GET['offset'] ?? 0 ) );
+    $filtro = $q ? '&or=(nome.ilike.*' . rawurlencode( $q ) . '*,nr_registro.ilike.*' . rawurlencode( $q ) . '*)' : '';
+    $r = tao_formula_api(
+        "/prescritores?cliente_id=eq.$cliente_id$filtro" .
+        "&select=id,tratamento,nome,tipo_registro,nr_registro,uf_registro,especialidade,celular,telefone,email,endereco,cidade,uf,cep,obs" .
+        "&order=nome.asc&limit=30&offset=$offset"
+    );
+    if ( ! $r['ok'] ) {
+        $msg = strpos( (string) $r['raw'], 'does not exist' ) !== false
+            ? 'Tabela prescritores ainda não criada (migration_v3_prescritores.sql pendente).'
+            : 'Erro: ' . mb_substr( (string) $r['raw'], 0, 200 );
+        wp_send_json_error( [ 'message' => $msg ] );
+    }
+    wp_send_json_success( $r['data'] ?? [] );
+} );
+
+add_action( 'wp_ajax_tao_formula_salvar_prescritor', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+
+    $id   = sanitize_text_field( $_POST['id'] ?? '' );
+    $nome = strtoupper( trim( sanitize_text_field( $_POST['nome'] ?? '' ) ) );
+    if ( ! $nome ) wp_send_json_error( [ 'message' => 'Informe o nome do prescritor' ] );
+
+    $txt = function( $k, $upper = false ) {
+        $v = trim( sanitize_text_field( $_POST[ $k ] ?? '' ) );
+        if ( $upper ) $v = strtoupper( $v );
+        return $v === '' ? null : $v;
+    };
+    $payload = [
+        'nome'          => $nome,
+        'tratamento'    => $txt( 'tratamento' ),
+        'tipo_registro' => $txt( 'tipo_registro', true ),
+        'nr_registro'   => $txt( 'nr_registro' ),
+        'uf_registro'   => $txt( 'uf_registro', true ),
+        'especialidade' => $txt( 'especialidade' ),
+        'celular'       => $txt( 'celular' ),
+        'telefone'      => $txt( 'telefone' ),
+        'email'         => $txt( 'email' ),
+        'endereco'      => $txt( 'endereco' ),
+        'cidade'        => $txt( 'cidade' ),
+        'uf'            => $txt( 'uf', true ),
+        'cep'           => $txt( 'cep' ),
+        'obs'           => $txt( 'obs' ),
+    ];
+    if ( $id ) {
+        $r = tao_formula_api( "/prescritores?id=eq.$id&cliente_id=eq.$cliente_id", 'PATCH', $payload );
+    } else {
+        $payload['cliente_id'] = $cliente_id;
+        $r = tao_formula_api( '/prescritores', 'POST', $payload );
+    }
+    $r['ok'] ? wp_send_json_success( [ 'id' => $r['data'][0]['id'] ?? $id ] )
+             : wp_send_json_error( [ 'message' => 'Erro ao salvar: ' . mb_substr( (string) $r['raw'], 0, 250 ) ] );
+} );
+
+// Autocomplete do editor: nome ou nº de registro → 10 primeiros
+add_action( 'wp_ajax_tao_formula_prescritores_busca', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $q          = sanitize_text_field( $_GET['q'] ?? '' );
+    if ( ! $cliente_id || mb_strlen( $q ) < 2 ) { wp_send_json_success( [] ); return; }
+    $enc = rawurlencode( $q );
+    $r = tao_formula_api(
+        "/prescritores?cliente_id=eq.$cliente_id&ativo=eq.true" .
+        "&or=(nome.ilike.*{$enc}*,nr_registro.ilike.*{$enc}*)" .
+        "&select=id,tratamento,nome,tipo_registro,nr_registro,uf_registro,especialidade" .
+        "&order=nome.asc&limit=10"
+    );
+    wp_send_json_success( $r['ok'] ? ( $r['data'] ?? [] ) : [] );
 } );

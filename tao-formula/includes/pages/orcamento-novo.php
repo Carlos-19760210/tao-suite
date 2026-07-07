@@ -228,9 +228,13 @@ function tao_formula_page_orcamento_novo() {
         <!-- Linha 1b: Prescritor (opcional em orçamento) + Posologia -->
         <div class="taof-row">
             <div class="taof-field" style="flex:2">
-                <label class="taof-label">Prescritor <small style="color:#94a3b8;font-weight:400">(opcional no orçamento)</small></label>
-                <input type="text" id="taof-prescritor" name="prescritor"
-                       class="taof-inp" placeholder="Ex: DR FULANO — CRM 12345/SP">
+                <label class="taof-label">Prescritor <small style="color:#94a3b8;font-weight:400">(opcional — busque no cadastro)</small></label>
+                <div class="taof-ac-wrap" style="position:relative">
+                    <input type="text" id="taof-prescritor" name="prescritor"
+                           class="taof-inp" placeholder="Nome ou nº do registro..." autocomplete="off">
+                    <input type="hidden" id="taof-prescritor-id" name="prescritor_id">
+                    <div id="taof-prescritor-dd" class="taof-ac-dropdown" style="display:none"></div>
+                </div>
             </div>
             <div class="taof-field" style="flex:3">
                 <label class="taof-label">Posologia</label>

@@ -936,6 +936,44 @@
         }
     }
 
+    // ── Autocomplete de PRESCRITOR (cadastro de prescritores) ─────────
+    (function initPrescritorAC() {
+        var $inp = $('#taof-prescritor'), $dd = $('#taof-prescritor-dd'), timer = null;
+        if (!$inp.length) return;
+        function label(p) {
+            var reg = [p.tipo_registro, p.nr_registro].filter(Boolean).join(' ') + (p.uf_registro ? '/' + p.uf_registro : '');
+            return ((p.tratamento ? p.tratamento + ' ' : '') + p.nome + (reg ? ' — ' + reg : '')).trim();
+        }
+        $inp.on('input', function () {
+            clearTimeout(timer);
+            $('#taof-prescritor-id').val('');   // digitação livre invalida o vínculo
+            var q = $(this).val().trim();
+            if (q.length < 2) { $dd.hide().empty(); return; }
+            timer = setTimeout(function () {
+                $.getJSON(ajaxUrl, { action: 'tao_formula_prescritores_busca', nonce: nonce, q: q }, function (resp) {
+                    var lista = (resp && resp.success && Array.isArray(resp.data)) ? resp.data : [];
+                    $dd.empty();
+                    if (!lista.length) { $dd.hide(); return; }
+                    lista.forEach(function (p) {
+                        $('<div class="taof-ac-item">')
+                            .html('<span>' + $('<span>').text(label(p)).html() + '</span>' +
+                                  (p.especialidade ? '<small>' + $('<span>').text(p.especialidade).html() + '</small>' : ''))
+                            .on('mousedown', function (e) {
+                                e.preventDefault();
+                                $inp.val(label(p));
+                                $('#taof-prescritor-id').val(p.id);
+                                $dd.hide().empty();
+                            })
+                            .appendTo($dd);
+                    });
+                    positionDropdown($inp, $dd);
+                    $dd.show();
+                });
+            }, 280);
+        });
+        $inp.on('blur', function () { setTimeout(function () { $dd.hide().empty(); }, 150); });
+    })();
+
     // ── Envelope: auto-associa EXCIPIENTE BASE (cód 10577) na linha QSP (1 g/env) ──
     var _excipienteEnv = null;
     function garantirExcipienteEnvelope() {
@@ -1341,6 +1379,7 @@
             nome_paciente:   $('#taof-nome-paciente').val(),
             nome_cliente:    $('#taof-nome-cliente').val() || '',
             prescritor:      $('#taof-prescritor').val()   || '',
+            prescritor_id:   $('#taof-prescritor-id').val() || '',
             posologia:       $('#taof-posologia').val()    || '',
             whatsapp:        $('#taof-whatsapp').val(),
             forma_id:        $('#taof-forma-sel').val() || '',
@@ -1584,6 +1623,7 @@
         $('#taof-nome-paciente').val(data.nome_paciente || '');
         $('#taof-nome-cliente').val(data.nome_cliente || '');
         $('#taof-prescritor').val(data.prescritor || '');
+        $('#taof-prescritor-id').val(data.prescritor_id || '');
         $('#taof-posologia').val(data.posologia || '');
         $('#taof-whatsapp').val(data.whatsapp || '');
 
