@@ -3159,3 +3159,104 @@ add_action( 'wp_ajax_tao_formula_estq_kardex', function () {
     );
     wp_send_json_success( $r['ok'] ? ( $r['data'] ?? [] ) : [] );
 } );
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ESTOQUE Fatia 3 — Mínimo/curva + alerta de reposição → Cotações
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Saldo por ativo = soma dos lotes vivos (não reprovado/vencido/esgotado).
+function tao_formula_saldo_por_ativo( $cliente_id, $ativo_ids ) {
+    $saldo = array_fill_keys( $ativo_ids, 0.0 );
+    if ( ! $ativo_ids ) return $saldo;
+    $in = implode( ',', $ativo_ids );
+    $r = tao_formula_api(
+        "/lab_lotes_mp?cliente_id=eq.$cliente_id&ativo_id=in.($in)" .
+        "&status=not.in.(reprovado,vencido,esgotado)&select=ativo_id,qtd_atual&limit=5000"
+    );
+    foreach ( ( $r['ok'] ? $r['data'] : [] ) as $l )
+        $saldo[ $l['ativo_id'] ] = ( $saldo[ $l['ativo_id'] ] ?? 0 ) + (float) $l['qtd_atual'];
+    return $saldo;
+}
+
+// Lista de reposição: ativos com est_min definido + saldo + flag abaixo do mínimo
+add_action( 'wp_ajax_tao_formula_estq_reposicao', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+    $so_abaixo = ( $_GET['so_abaixo'] ?? '' ) === '1';
+
+    $r = tao_formula_api(
+        "/ativos?cliente_id=eq.$cliente_id&est_min=not.is.null&ativo=eq.true" .
+        "&select=id,codigo_fc,nome,unidade_padrao,est_min,est_max,curva,preco_compra&order=nome.asc&limit=500"
+    );
+    $ativos = $r['ok'] ? ( $r['data'] ?? [] ) : [];
+    $saldos = tao_formula_saldo_por_ativo( $cliente_id, array_column( $ativos, 'id' ) );
+    $out = [];
+    foreach ( $ativos as $a ) {
+        $saldo  = $saldos[ $a['id'] ] ?? 0;
+        $abaixo = $saldo < (float) $a['est_min'];
+        if ( $so_abaixo && ! $abaixo ) continue;
+        $a['saldo']  = $saldo;
+        $a['abaixo'] = $abaixo;
+        $a['sugerido'] = $a['est_max'] ? max( 0, (float) $a['est_max'] - $saldo ) : max( 0, (float) $a['est_min'] - $saldo );
+        $out[] = $a;
+    }
+    wp_send_json_success( $out );
+} );
+
+// Define/edita mínimo, máximo e curva de um ativo
+add_action( 'wp_ajax_tao_formula_estq_def_min', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $ativo_id = sanitize_text_field( $_POST['ativo_id'] ?? '' );
+    if ( ! $cliente_id || ! $ativo_id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+    $num = function( $k ) { $v = trim( (string) ( $_POST[ $k ] ?? '' ) ); return $v === '' ? null : (float) str_replace( ',', '.', $v ); };
+    $curva = strtoupper( sanitize_text_field( $_POST['curva'] ?? '' ) );
+    $r = tao_formula_api( "/ativos?id=eq.$ativo_id&cliente_id=eq.$cliente_id", 'PATCH', [
+        'est_min' => $num( 'est_min' ), 'est_max' => $num( 'est_max' ),
+        'curva'   => in_array( $curva, [ 'A', 'B', 'C' ], true ) ? $curva : null,
+    ] );
+    $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => mb_substr( (string) $r['raw'], 0, 200 ) ] );
+} );
+
+// Gera uma cotação com os ativos selecionados (origem=reposicao)
+add_action( 'wp_ajax_tao_formula_estq_gerar_cotacao', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $itens = json_decode( stripslashes( $_POST['itens'] ?? '' ), true );
+    if ( ! $cliente_id || ! is_array( $itens ) || ! $itens )
+        wp_send_json_error( [ 'message' => 'Selecione ao menos um item' ] );
+
+    // cabeçalho da cotação
+    $rc = tao_formula_api( '/cotacoes', 'POST', [
+        'cliente_id' => $cliente_id,
+        'titulo'     => 'Reposição de estoque — ' . date_i18n( 'd/m/Y H:i' ),
+        'status'     => 'rascunho',
+        'criado_por' => get_current_user_id(),
+    ] );
+    if ( ! $rc['ok'] || empty( $rc['data'] ) )
+        wp_send_json_error( [ 'message' => 'Erro ao criar cotação: ' . mb_substr( (string) $rc['raw'], 0, 200 ) ] );
+    $cot_id = $rc['data'][0]['id'];
+
+    $linhas = [];
+    foreach ( $itens as $it ) {
+        $linhas[] = [
+            'cotacao_id'    => $cot_id,
+            'ativo_id'      => $it['ativo_id'] ?? null,
+            'codigo_fc'     => $it['codigo_fc'] ?? null,
+            'descricao'     => $it['nome'] ?? '',
+            'unidade'       => $it['unidade_padrao'] ?? null,
+            'qtd'           => (float) ( $it['sugerido'] ?? 0 ) ?: null,
+            'ult_preco_pago'=> isset( $it['preco_compra'] ) ? (float) $it['preco_compra'] : null,
+            'origem'        => 'reposicao',
+        ];
+    }
+    tao_formula_api( '/cotacao_itens', 'POST', $linhas );
+    wp_send_json_success( [ 'cotacao_id' => $cot_id, 'itens' => count( $linhas ) ] );
+} );

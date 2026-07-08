@@ -89,6 +89,7 @@ add_action( 'template_redirect', function() {
         'formula-prescritores' => 'tao-formula-prescritores',
         'formula-estoque-nf'   => 'tao-formula-estoque-nf',
         'formula-estoque-lotes'=> 'tao-formula-estoque-lotes',
+        'formula-estoque-repo' => 'tao-formula-estoque-repo',
         'formula-formas'     => 'tao-formula-formas',
         'formula-ativos'     => 'tao-formula-ativos',
         'formula-config'     => 'tao-formula-config',

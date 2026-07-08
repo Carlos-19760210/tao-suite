@@ -43,6 +43,7 @@ if ( $has_formula ) {
     $secoes['tao-formula-prescritores'] = [ 'fn' => 'tao_formula_page_prescritores', 'label' => 'Prescritores' ];
     $secoes['tao-formula-estoque-nf']   = [ 'fn' => 'tao_formula_page_estoque_nf',   'label' => 'Estoque — Entrada NF' ];
     $secoes['tao-formula-estoque-lotes']= [ 'fn' => 'tao_formula_page_estoque_lotes','label' => 'Estoque — Lotes' ];
+    $secoes['tao-formula-estoque-repo'] = [ 'fn' => 'tao_formula_page_estoque_reposicao','label' => 'Estoque — Reposição' ];
     $secoes['tao-formula-formas']    = [ 'fn' => 'tao_formula_page_formas',         'label' => 'Formas Farmacêuticas' ];
     $secoes['tao-formula-ativos']    = [ 'fn' => 'tao_formula_page_ativos',         'label' => 'Ativos' ];
     $secoes['tao-formula-config']    = [ 'fn' => 'tao_formula_page_config',         'label' => 'Fórmulas — Configurações' ];
@@ -124,6 +125,7 @@ if ( $has_formula ) {
             [ 'slug' => 'tao-formula-prescritores', 'label' => 'Prescritores',         'url' => cbpm_url('formula-prescritores') ],
             [ 'slug' => 'tao-formula-estoque-nf', 'label' => 'Estoque &mdash; Entrada NF', 'url' => cbpm_url('formula-estoque-nf') ],
             [ 'slug' => 'tao-formula-estoque-lotes', 'label' => 'Estoque &mdash; Lotes', 'url' => cbpm_url('formula-estoque-lotes') ],
+            [ 'slug' => 'tao-formula-estoque-repo', 'label' => 'Estoque &mdash; Reposição', 'url' => cbpm_url('formula-estoque-repo') ],
         ],
     ];
 }
