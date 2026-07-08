@@ -74,6 +74,7 @@ function tao_formula_url( $section = 'formula-dashboard', $params = [] ) {
         'formula-estoque-nf'   => 'tao-formula-estoque-nf',
         'formula-estoque-lotes'=> 'tao-formula-estoque-lotes',
         'formula-estoque-repo' => 'tao-formula-estoque-repo',
+        'formula-producao'     => 'tao-formula-producao',
         'formula-formas'     => 'tao-formula-formas',
         'formula-ativos'     => 'tao-formula-ativos',
         'formula-config'     => 'tao-formula-config',

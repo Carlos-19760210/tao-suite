@@ -3260,3 +3260,216 @@ add_action( 'wp_ajax_tao_formula_estq_gerar_cotacao', function () {
     tao_formula_api( '/cotacao_itens', 'POST', $linhas );
     wp_send_json_success( [ 'cotacao_id' => $cot_id, 'itens' => count( $linhas ) ] );
 } );
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PRODUÇÃO — Ordem de Manipulação (Pacote 3 / Fatia A)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// 1ª etapa (menor ordem) do kanban
+function tao_formula_etapa_inicial( $cliente_id ) {
+    $r = tao_formula_api( "/lab_etapas?cliente_id=eq.$cliente_id&ativo=eq.true&order=ordem.asc&select=id&limit=1" );
+    return ( $r['ok'] && ! empty( $r['data'] ) ) ? $r['data'][0]['id'] : null;
+}
+
+// Gera a OM a partir de um orçamento (copia paciente, prescritor, forma e itens)
+add_action( 'wp_ajax_tao_formula_prod_gerar_om', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $orc_id = sanitize_text_field( $_POST['orc_id'] ?? '' );
+    if ( ! $cliente_id || ! $orc_id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+
+    // já tem OM p/ este orçamento?
+    $jx = tao_formula_api( "/lab_ordens?cliente_id=eq.$cliente_id&orcamento_id=eq.$orc_id&select=id,numero&limit=1" );
+    if ( $jx['ok'] && ! empty( $jx['data'] ) )
+        wp_send_json_error( [ 'message' => 'Este orçamento já tem OM (nº ' . $jx['data'][0]['numero'] . ').' ] );
+
+    $ro = tao_formula_api( "/orcamentos?id=eq.$orc_id&cliente_id=eq.$cliente_id&limit=1" );
+    if ( ! $ro['ok'] || empty( $ro['data'] ) ) wp_send_json_error( [ 'message' => 'Orçamento não encontrado' ] );
+    $o = $ro['data'][0];
+
+    // validade da fórmula: floral 90d, demais 120d (regra Magis)
+    $tipo = strtolower( (string) ( $o['forma_tipo'] ?? '' ) . ' ' . ( $o['forma_nome'] ?? '' ) );
+    $dias = strpos( $tipo, 'floral' ) !== false ? 90 : 120;
+
+    $cab = tao_formula_api( '/lab_ordens', 'POST', [
+        'cliente_id'    => $cliente_id,
+        'orcamento_id'  => $orc_id,
+        'card_id'       => $o['card_id'] ?? null,
+        'contato_id'    => $o['contato_id'] ?? null,
+        'paciente_nome' => $o['nome_paciente'] ?: 'Paciente',
+        'paciente_whats'=> $o['whatsapp'] ?? null,
+        'prescritor_id' => $o['prescritor_id'] ?? null,
+        'posologia'     => $o['posologia'] ?? null,
+        'forma_farmac'  => $o['forma_nome'] ?? null,
+        'volume'        => $o['forma_vol'] ?? null,
+        'unidade_vol'   => $o['forma_unidade'] ?? null,
+        'qtd_unidades'  => $o['qtde_potes'] ?? 1,
+        'dt_validade'   => gmdate( 'Y-m-d', strtotime( "+$dias days" ) ),
+        'etapa_id'      => tao_formula_etapa_inicial( $cliente_id ),
+        'status'        => 'aberta',
+        'criado_por'    => get_current_user_id(),
+    ] );
+    if ( ! $cab['ok'] || empty( $cab['data'] ) )
+        wp_send_json_error( [ 'message' => 'Erro ao criar OM: ' . mb_substr( (string) $cab['raw'], 0, 200 ) ] );
+    $ordem_id = $cab['data'][0]['id'];
+
+    // itens (do jsonb do orçamento)
+    $itens = $o['itens'] ?? [];
+    if ( is_string( $itens ) ) $itens = json_decode( $itens, true ) ?: [];
+    $linhas = []; $i = 0; $controlado = false;
+    foreach ( (array) $itens as $it ) {
+        if ( ( $it['tipo'] ?? 'mp' ) !== 'mp' ) continue;
+        $linhas[] = [
+            'ordem_id'      => $ordem_id,
+            'ativo_id'      => $it['ativo_id'] ?? null,
+            'descricao'     => $it['nome_prescricao'] ?? $it['nome'] ?? '—',
+            'qtd_prescrita' => isset( $it['dose'] ) ? (float) $it['dose'] : null,
+            'unidade'       => $it['dose_unit'] ?? null,
+            'eh_qsp'        => ! empty( $it['is_qsp'] ),
+            'ordem'         => $i++,
+        ];
+    }
+    if ( $linhas ) tao_formula_api( '/lab_ordem_itens', 'POST', $linhas );
+
+    wp_send_json_success( [ 'ordem_id' => $ordem_id, 'itens' => count( $linhas ) ] );
+} );
+
+// Kanban: OMs abertas agrupadas por etapa
+add_action( 'wp_ajax_tao_formula_prod_kanban', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+
+    $re = tao_formula_api( "/lab_etapas?cliente_id=eq.$cliente_id&ativo=eq.true&order=ordem.asc&select=id,nome,ordem,tipo" );
+    $etapas = $re['ok'] ? ( $re['data'] ?? [] ) : [];
+    $ro = tao_formula_api(
+        "/lab_ordens?cliente_id=eq.$cliente_id&status=eq.aberta" .
+        "&select=id,numero,paciente_nome,forma_farmac,volume,unidade_vol,qtd_unidades,dt_validade,etapa_id,controlado&order=criado_em.asc&limit=300"
+    );
+    wp_send_json_success( [ 'etapas' => $etapas, 'ordens' => $ro['ok'] ? ( $ro['data'] ?? [] ) : [] ] );
+} );
+
+// Move a OM para outra etapa (auditoria). Etapa 'final' → conclui + baixa estoque.
+add_action( 'wp_ajax_tao_formula_prod_mover', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $ordem_id = sanitize_text_field( $_POST['ordem_id'] ?? '' );
+    $etapa_id = sanitize_text_field( $_POST['etapa_id'] ?? '' );
+    if ( ! $cliente_id || ! $ordem_id || ! $etapa_id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+
+    $ro = tao_formula_api( "/lab_ordens?id=eq.$ordem_id&cliente_id=eq.$cliente_id&select=etapa_id,baixou_estoque&limit=1" );
+    if ( ! $ro['ok'] || empty( $ro['data'] ) ) wp_send_json_error( [ 'message' => 'OM não encontrada' ] );
+    $de = $ro['data'][0]['etapa_id'];
+
+    $re = tao_formula_api( "/lab_etapas?id=eq.$etapa_id&cliente_id=eq.$cliente_id&select=tipo,nome&limit=1" );
+    $etapa = ( $re['ok'] && ! empty( $re['data'] ) ) ? $re['data'][0] : [];
+    $final = ( $etapa['tipo'] ?? '' ) === 'final';
+
+    $patch = [ 'etapa_id' => $etapa_id ];
+    if ( $final ) { $patch['status'] = 'concluida'; $patch['concluido_em'] = gmdate( 'c' ); $patch['conferente_id'] = get_current_user_id(); }
+    tao_formula_api( "/lab_ordens?id=eq.$ordem_id&cliente_id=eq.$cliente_id", 'PATCH', $patch );
+    tao_formula_api( '/lab_ordem_etapas', 'POST', [
+        'ordem_id' => $ordem_id, 'de_etapa' => $de, 'para_etapa' => $etapa_id, 'usuario_id' => get_current_user_id(),
+    ] );
+
+    // baixa de estoque na conclusão (idempotente)
+    $baixa = null;
+    if ( $final && empty( $ro['data'][0]['baixou_estoque'] ) ) $baixa = tao_formula_baixar_estoque_om( $cliente_id, $ordem_id );
+
+    wp_send_json_success( [ 'concluida' => $final, 'baixa' => $baixa ] );
+} );
+
+// Baixa de estoque da OM: por item com lote+pesagem, debita o lote e lança kardex
+function tao_formula_baixar_estoque_om( $cliente_id, $ordem_id ) {
+    $ri = tao_formula_api( "/lab_ordem_itens?ordem_id=eq.$ordem_id&select=ativo_id,lote_mp_id,qtd_pesada&limit=200" );
+    $itens = $ri['ok'] ? ( $ri['data'] ?? [] ) : [];
+    $baixados = 0;
+    foreach ( $itens as $it ) {
+        if ( empty( $it['lote_mp_id'] ) || ! ( (float) ( $it['qtd_pesada'] ?? 0 ) > 0 ) ) continue;
+        $qtd = (float) $it['qtd_pesada'];
+        // debita o lote
+        $rl = tao_formula_api( "/lab_lotes_mp?id=eq.{$it['lote_mp_id']}&select=qtd_atual&limit=1" );
+        if ( $rl['ok'] && ! empty( $rl['data'] ) ) {
+            $novo = max( 0, (float) $rl['data'][0]['qtd_atual'] - $qtd );
+            $upd = [ 'qtd_atual' => $novo ];
+            if ( $novo <= 0 ) $upd['status'] = 'esgotado';
+            tao_formula_api( "/lab_lotes_mp?id=eq.{$it['lote_mp_id']}", 'PATCH', $upd );
+        }
+        // kardex
+        tao_formula_api( '/estoque_movimentos', 'POST', [
+            'cliente_id' => $cliente_id, 'ativo_id' => $it['ativo_id'], 'lote_id' => $it['lote_mp_id'],
+            'tipo' => 'saida', 'quantidade' => -$qtd, 'origem' => 'om', 'ref_id' => $ordem_id,
+            'usuario_id' => get_current_user_id(),
+        ] );
+        $baixados++;
+    }
+    tao_formula_api( "/lab_ordens?id=eq.$ordem_id&cliente_id=eq.$cliente_id", 'PATCH', [ 'baixou_estoque' => true ] );
+    return $baixados;
+}
+
+// Detalhe da OM + itens (p/ pesagem) com lote FEFO sugerido por ativo
+add_action( 'wp_ajax_tao_formula_prod_om', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $ordem_id = sanitize_text_field( $_GET['ordem_id'] ?? '' );
+    if ( ! $cliente_id || ! $ordem_id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+
+    $ro = tao_formula_api( "/lab_ordens?id=eq.$ordem_id&cliente_id=eq.$cliente_id&select=id,numero,paciente_nome,forma_farmac,volume,unidade_vol,qtd_unidades,posologia,dt_validade,status&limit=1" );
+    if ( ! $ro['ok'] || empty( $ro['data'] ) ) wp_send_json_error( [ 'message' => 'OM não encontrada' ] );
+    $ri = tao_formula_api( "/lab_ordem_itens?ordem_id=eq.$ordem_id&select=id,ativo_id,descricao,qtd_prescrita,unidade,qtd_pesada,lote_mp_id,eh_qsp,ordem&order=ordem.asc&limit=200" );
+    $itens = $ri['ok'] ? ( $ri['data'] ?? [] ) : [];
+
+    // lotes aprovados FEFO por ativo dos itens
+    $ids = array_values( array_unique( array_filter( array_column( $itens, 'ativo_id' ) ) ) );
+    $lotes = [];
+    if ( $ids ) {
+        $hoje = gmdate( 'Y-m-d' );
+        $rl = tao_formula_api( "/lab_lotes_mp?cliente_id=eq.$cliente_id&ativo_id=in.(" . implode( ',', $ids ) . ")&status=eq.aprovado&qtd_atual=gt.0&dt_validade=gte.$hoje&select=id,ativo_id,nr_lote,dt_validade,qtd_atual&order=dt_validade.asc&limit=500" );
+        foreach ( ( $rl['ok'] ? $rl['data'] : [] ) as $l ) $lotes[ $l['ativo_id'] ][] = $l;
+    }
+    foreach ( $itens as &$it ) $it['lotes'] = $it['ativo_id'] ? ( $lotes[ $it['ativo_id'] ] ?? [] ) : [];
+    unset( $it );
+    wp_send_json_success( [ 'ordem' => $ro['data'][0], 'itens' => $itens ] );
+} );
+
+// Salva a pesagem (qtd_pesada + lote) de um item
+add_action( 'wp_ajax_tao_formula_prod_pesar', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $item_id = sanitize_text_field( $_POST['item_id'] ?? '' );
+    if ( ! $item_id ) wp_send_json_error( [ 'message' => 'Item inválido' ] );
+    $qtd  = $_POST['qtd_pesada'] ?? '';
+    $lote = sanitize_text_field( $_POST['lote_mp_id'] ?? '' ) ?: null;
+    $r = tao_formula_api( "/lab_ordem_itens?id=eq.$item_id", 'PATCH', [
+        'qtd_pesada' => $qtd === '' ? null : (float) str_replace( ',', '.', $qtd ),
+        'lote_mp_id' => $lote,
+        'pesado_por' => get_current_user_id(),
+        'pesado_em'  => gmdate( 'c' ),
+    ] );
+    $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => mb_substr( (string) $r['raw'], 0, 200 ) ] );
+} );
+
+// Busca de orçamentos p/ gerar OM (por número/paciente)
+add_action( 'wp_ajax_tao_formula_prod_busca_orc', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $q = sanitize_text_field( $_GET['q'] ?? '' );
+    if ( ! $cliente_id || mb_strlen( $q ) < 2 ) { wp_send_json_success( [] ); return; }
+    $enc = rawurlencode( $q );
+    $r = tao_formula_api(
+        "/orcamentos?cliente_id=eq.$cliente_id&or=(numero_orcamento.ilike.*{$enc}*,nome_paciente.ilike.*{$enc}*)" .
+        "&select=id,numero_orcamento,nome_paciente,forma_nome,forma_vol,forma_unidade&order=criado_em.desc&limit=10"
+    );
+    wp_send_json_success( $r['ok'] ? ( $r['data'] ?? [] ) : [] );
+} );
