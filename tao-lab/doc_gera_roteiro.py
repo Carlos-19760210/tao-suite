@@ -4,7 +4,7 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.worksheet.datavalidation import DataValidation
 
-OUT = r"C:\Users\carlo\Roteiro_Testes_TAO_Lab.xlsx"
+OUT = r"C:\Users\carlo\Roteiro_Testes_TAO_Lab_v2.xlsx"
 
 # (fase, modulo, cenario, precondicao, passos, esperado, prioridade)
 T = [
@@ -112,12 +112,12 @@ for k,fase in enumerate(fases):
     n = sum(1 for f,*_ in T if f == fase)
     rr = r0 + k
     ws2.append([fase, n,
-        f'=COUNTIFS(\'Roteiro de Testes\'.B:B,A{rr},\'Roteiro de Testes\'.I:I,"OK")',
-        f'=COUNTIFS(\'Roteiro de Testes\'.B:B,A{rr},\'Roteiro de Testes\'.I:I,"NOK")',
+        f'=COUNTIFS(\'Roteiro de Testes\'!B:B,A{rr},\'Roteiro de Testes\'!I:I,"OK")',
+        f'=COUNTIFS(\'Roteiro de Testes\'!B:B,A{rr},\'Roteiro de Testes\'!I:I,"NOK")',
         f'=B{rr}-C{rr}-D{rr}'])
 ws2.append(["TOTAL", len(T),
-    '=COUNTIF(\'Roteiro de Testes\'.I:I,"OK")',
-    '=COUNTIF(\'Roteiro de Testes\'.I:I,"NOK")',
+    '=COUNTIF(\'Roteiro de Testes\'!I:I,"OK")',
+    '=COUNTIF(\'Roteiro de Testes\'!I:I,"NOK")',
     f'=B{r0+len(fases)}-C{r0+len(fases)}-D{r0+len(fases)}'])
 for col,w in {"A":16,"B":14,"C":8,"D":8,"E":12}.items(): ws2.column_dimensions[col].width = w
 

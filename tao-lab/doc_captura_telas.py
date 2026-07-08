@@ -9,22 +9,22 @@ PWD  = "Linara.01"
 OUT  = r"C:\Users\carlo\AppData\Local\Temp\claude\C--Users-carlo\fc46e316-08dd-4693-9e35-805a6cb6dffe\scratchpad\prints"
 os.makedirs(OUT, exist_ok=True)
 
-# só o teste de login + 1 tela se argv[1]==test
+# Telas do PORTAL /robos (slugs do frontend.php)
 TELAS = [
-    ("config",       "tao-formula-config"),
-    ("ativos",       "tao-formula-ativos"),
-    ("prescritores", "tao-formula-prescritores"),
-    ("orc_novo",     "tao-formula-orc-novo"),
-    ("historico",    "tao-formula-historico"),
-    ("estoque_nf",   "tao-formula-estoque-nf"),
-    ("estoque_lotes","tao-formula-estoque-lotes"),
-    ("estoque_repo", "tao-formula-estoque-repo"),
-    ("producao",     "tao-formula-producao"),
-    ("livro",        "tao-formula-livro"),
-    ("contas_pagar", "tao-formula-contas-pagar"),
+    ("config",       "formula-config"),
+    ("ativos",       "formula-ativos"),
+    ("prescritores", "formula-prescritores"),
+    ("orc_novo",     "formula-novo-orc"),
+    ("historico",    "formula-historico"),
+    ("estoque_nf",   "formula-estoque-nf"),
+    ("estoque_lotes","formula-estoque-lotes"),
+    ("estoque_repo", "formula-estoque-repo"),
+    ("producao",     "formula-producao"),
+    ("livro",        "formula-livro"),
+    ("contas_pagar", "formula-contas-pagar"),
 ]
 if len(sys.argv) > 1 and sys.argv[1] == "test":
-    TELAS = [("config", "tao-formula-config")]
+    TELAS = [("config", "formula-config")]
 
 with sync_playwright() as p:
     br = p.chromium.launch(channel="chrome", headless=True)
@@ -40,7 +40,7 @@ with sync_playwright() as p:
     print("LOGIN OK ->", pg.url)
     for nome, slug in TELAS:
         try:
-            pg.goto(f"{BASE}/wp-admin/admin.php?page={slug}", wait_until="networkidle", timeout=60000)
+            pg.goto(f"{BASE}/robos/{slug}/", wait_until="networkidle", timeout=60000)
             time.sleep(2.5)  # espera AJAX das tabelas
             path = os.path.join(OUT, f"{nome}.png")
             pg.screenshot(path=path, full_page=True)
