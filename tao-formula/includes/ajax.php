@@ -3057,3 +3057,105 @@ add_action( 'wp_ajax_tao_formula_nf_lista', function () {
     );
     wp_send_json_success( $r['ok'] ? ( $r['data'] ?? [] ) : [] );
 } );
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ESTOQUE Fatia 2 — Lotes (CQ recebimento RDC 67) + saldo + kardex + inventário
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Lista de lotes com nome do ativo. Filtros: status, busca (nome/lote).
+add_action( 'wp_ajax_tao_formula_estq_lotes', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+
+    $status = sanitize_text_field( $_GET['status'] ?? '' );
+    $q      = sanitize_text_field( $_GET['q'] ?? '' );
+    $filtro = '';
+    if ( in_array( $status, [ 'quarentena', 'aprovado', 'reprovado', 'esgotado', 'vencido' ], true ) ) $filtro .= "&status=eq.$status";
+    if ( $q !== '' ) $filtro .= '&nr_lote=ilike.*' . rawurlencode( $q ) . '*';
+
+    $r = tao_formula_api(
+        "/lab_lotes_mp?cliente_id=eq.$cliente_id$filtro" .
+        "&select=id,ativo_id,nr_lote,origem,dt_validade,qtd_atual,unidade,teor_pct,status,nf_numero,qc_em" .
+        "&order=status.asc,dt_validade.asc&limit=200"
+    );
+    $lotes = $r['ok'] ? ( $r['data'] ?? [] ) : [];
+    // nomes dos ativos
+    $ids = array_values( array_unique( array_filter( array_column( $lotes, 'ativo_id' ) ) ) );
+    $nomes = [];
+    if ( $ids ) {
+        $ra = tao_formula_api( "/ativos?cliente_id=eq.$cliente_id&id=in.(" . implode( ',', $ids ) . ")&select=id,nome,codigo_fc&limit=" . count( $ids ) );
+        foreach ( ( $ra['ok'] ? $ra['data'] : [] ) as $a ) $nomes[ $a['id'] ] = $a;
+    }
+    foreach ( $lotes as &$l ) { $a = $nomes[ $l['ativo_id'] ] ?? null; $l['ativo_nome'] = $a['nome'] ?? '—'; $l['codigo_fc'] = $a['codigo_fc'] ?? ''; }
+    unset( $l );
+    // busca por nome do ativo (client não filtra no PostgREST embed): filtra aqui se q não casou lote
+    if ( $q !== '' ) {
+        $ql = mb_strtolower( $q );
+        $lotes = array_values( array_filter( $lotes, fn( $l ) => mb_stripos( $l['nr_lote'] . ' ' . $l['ativo_nome'], $q ) !== false ) );
+    }
+    wp_send_json_success( $lotes );
+} );
+
+// CQ de recebimento: aprovar/reprovar lote (RDC 67 — registra quem e quando)
+add_action( 'wp_ajax_tao_formula_estq_lote_cq', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $lote_id = sanitize_text_field( $_POST['lote_id'] ?? '' );
+    $acao    = sanitize_text_field( $_POST['acao'] ?? '' ); // aprovar|reprovar
+    $result  = sanitize_text_field( $_POST['resultado'] ?? '' );
+    if ( ! $cliente_id || ! $lote_id || ! in_array( $acao, [ 'aprovar', 'reprovar' ], true ) )
+        wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+    $novo = $acao === 'aprovar' ? 'aprovado' : 'reprovado';
+    $r = tao_formula_api( "/lab_lotes_mp?id=eq.$lote_id&cliente_id=eq.$cliente_id", 'PATCH', [
+        'status'          => $novo,
+        'qc_resultado'    => $result ?: null,
+        'qc_aprovado_por' => get_current_user_id(),
+        'qc_em'           => gmdate( 'c' ),
+    ] );
+    $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => mb_substr( (string) $r['raw'], 0, 200 ) ] );
+} );
+
+// Inventário: acerta a qtd_atual de um lote e lança movimento de ajuste (com trilha)
+add_action( 'wp_ajax_tao_formula_estq_ajuste', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $lote_id = sanitize_text_field( $_POST['lote_id'] ?? '' );
+    $novo    = $_POST['qtd_nova'] ?? '';
+    if ( ! $cliente_id || ! $lote_id || $novo === '' ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+    $novo = (float) str_replace( ',', '.', $novo );
+
+    $rl = tao_formula_api( "/lab_lotes_mp?id=eq.$lote_id&cliente_id=eq.$cliente_id&select=ativo_id,qtd_atual&limit=1" );
+    if ( ! $rl['ok'] || empty( $rl['data'] ) ) wp_send_json_error( [ 'message' => 'Lote não encontrado' ] );
+    $lote = $rl['data'][0];
+    $delta = round( $novo - (float) $lote['qtd_atual'], 6 );
+
+    tao_formula_api( "/lab_lotes_mp?id=eq.$lote_id&cliente_id=eq.$cliente_id", 'PATCH', [ 'qtd_atual' => $novo ] );
+    tao_formula_api( '/estoque_movimentos', 'POST', [
+        'cliente_id' => $cliente_id, 'ativo_id' => $lote['ativo_id'], 'lote_id' => $lote_id,
+        'tipo' => 'ajuste', 'quantidade' => $delta, 'origem' => 'inventario', 'saldo_apos' => $novo,
+        'usuario_id' => get_current_user_id(),
+    ] );
+    wp_send_json_success( [ 'delta' => $delta ] );
+} );
+
+// Kardex: movimentos de um ativo (extrato)
+add_action( 'wp_ajax_tao_formula_estq_kardex', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $ativo_id = sanitize_text_field( $_GET['ativo_id'] ?? '' );
+    if ( ! $cliente_id || ! $ativo_id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+    $r = tao_formula_api(
+        "/estoque_movimentos?cliente_id=eq.$cliente_id&ativo_id=eq.$ativo_id" .
+        "&select=tipo,quantidade,origem,criado_em&order=criado_em.desc&limit=100"
+    );
+    wp_send_json_success( $r['ok'] ? ( $r['data'] ?? [] ) : [] );
+} );
