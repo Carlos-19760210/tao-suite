@@ -77,6 +77,7 @@ function tao_formula_url( $section = 'formula-dashboard', $params = [] ) {
         'formula-producao'     => 'tao-formula-producao',
         'formula-livro'        => 'tao-formula-livro',
         'formula-contas-pagar' => 'tao-formula-contas-pagar',
+        'formula-sngpc'        => 'tao-formula-sngpc',
         'formula-formas'     => 'tao-formula-formas',
         'formula-ativos'     => 'tao-formula-ativos',
         'formula-config'     => 'tao-formula-config',

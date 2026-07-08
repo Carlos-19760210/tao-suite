@@ -349,6 +349,11 @@ function tao_formula_page_ativos() {
                     inp('Unid. dose m&aacute;x','uni_dose_max',a.uni_dose_max,{ph:'mg'}),
                     '<div style="grid-column:span 2">'+inp('Observa&ccedil;&otilde;es','observacoes',a.observacoes)+'</div>'
                 ]);
+                html += '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:8px 12px;margin-bottom:12px">'+
+                    '<label style="font-size:13px;display:inline-flex;align-items:center;gap:6px"><input type="checkbox" name="controlado" value="1"'+(a.controlado?' checked':'')+'> <strong>Substância controlada</strong> (Portaria 344/98 — escritura no SNGPC)</label>'+
+                    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">'+
+                    inp('Classe SNGPC','classe_sngpc',a.classe_sngpc,{ph:'A1, A2, B1, C1, ANTIMICROBIANO...'})+
+                    inp('Registro MS','registro_ms',a.registro_ms)+'</div></div>';
                 html += '<p style="margin:6px 0 0">' +
                         '<button type="submit" class="button button-primary">&#x1F4BE; Salvar</button> ' +
                         '<button type="button" class="button" id="taof-ativo-form-cancel">Cancelar</button> ' +

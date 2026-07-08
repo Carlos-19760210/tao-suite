@@ -85,7 +85,7 @@ add_action( 'wp_ajax_tao_formula_get_ativo', function() {
         "&select=id,codigo_fc,nome,grupo,unidade,unidade_padrao,estoque_atual,preco_compra,preco_custo," .
         "custo_por_unidade,preco_venda,fator_correcao,fator_perda,densidade,dcb,dose_min,uni_dose_min," .
         "dose_max,uni_dose_max,categoria,classe_terapeutica,principio_ativo,observacoes,sincronizado_em," .
-        "diluicao,teor,concentracao,markup_preco,restricao,ativo" .
+        "diluicao,teor,concentracao,markup_preco,restricao,ativo,controlado,classe_sngpc,registro_ms" .
         "&limit=1"
     );
 
@@ -149,6 +149,9 @@ add_action( 'wp_ajax_tao_formula_salvar_ativo', function() {
         'nome'              => $nome,
         'grupo'             => $grupo,
         'codigo_fc'         => $txt( 'codigo_fc' ),
+        'controlado'        => ( $_POST['controlado'] ?? '' ) === '1',
+        'classe_sngpc'      => $txt( 'classe_sngpc', true ),
+        'registro_ms'       => $txt( 'registro_ms' ),
         'unidade'           => $txt( 'unidade', true ),
         'unidade_padrao'    => $txt( 'unidade_padrao' ),
         'preco_compra'      => $num( 'preco_compra' ),
@@ -181,14 +184,17 @@ add_action( 'wp_ajax_tao_formula_salvar_ativo', function() {
         }
     }
 
-    if ( $id ) {
-        $r = tao_formula_api( "/ativos?id=eq.$id&cliente_id=eq.$cliente_id", 'PATCH', $payload );
-    } else {
-        $payload['cliente_id'] = $cliente_id;
-        $payload['ativo']      = true;
-        $r = tao_formula_api( '/ativos', 'POST', $payload );
+    $gravar = function( $body ) use ( $id, $cliente_id ) {
+        if ( $id ) return tao_formula_api( "/ativos?id=eq.$id&cliente_id=eq.$cliente_id", 'PATCH', $body );
+        $body['cliente_id'] = $cliente_id; $body['ativo'] = true;
+        return tao_formula_api( '/ativos', 'POST', $body );
+    };
+    $r = $gravar( $payload );
+    // migration_sngpc pendente → grava sem os campos de controlado
+    if ( ! $r['ok'] && strpos( (string) ( $r['raw'] ?? '' ), 'column' ) !== false ) {
+        unset( $payload['controlado'], $payload['classe_sngpc'], $payload['registro_ms'] );
+        $r = $gravar( $payload );
     }
-
     if ( ! $r['ok'] ) wp_send_json_error( [ 'message' => 'Erro ao salvar: ' . mb_substr( (string) $r['raw'], 0, 300 ) ] );
     wp_send_json_success( [ 'id' => $r['data'][0]['id'] ?? $id, 'novo' => ! $id ] );
 } );
@@ -3410,7 +3416,57 @@ function tao_formula_baixar_estoque_om( $cliente_id, $ordem_id ) {
         $baixados++;
     }
     tao_formula_api( "/lab_ordens?id=eq.$ordem_id&cliente_id=eq.$cliente_id", 'PATCH', [ 'baixou_estoque' => true ] );
+    // Escrituração SNGPC: se a OM é controlada, lança saída dos componentes controlados
+    tao_formula_escriturar_om_controlada( $cliente_id, $ordem_id );
     return $baixados;
+}
+
+// Gera saída SNGPC dos itens controlados de uma OM controlada (idempotente por ref_id)
+function tao_formula_escriturar_om_controlada( $cliente_id, $ordem_id ) {
+    $ro = tao_formula_api( "/lab_ordens?id=eq.$ordem_id&cliente_id=eq.$cliente_id&select=controlado,tp_receita,nr_notificacao,comprador_nome,comprador_doc_tp,comprador_doc_nr,prescritor_id,dt_manipulacao&limit=1" );
+    if ( ! $ro['ok'] || empty( $ro['data'] ) || empty( $ro['data'][0]['controlado'] ) ) return 0;
+    $o = $ro['data'][0];
+    // já escriturada?
+    $jx = tao_formula_api( "/sngpc_movimentos?cliente_id=eq.$cliente_id&ref_id=eq.$ordem_id&origem=eq.om&select=id&limit=1" );
+    if ( $jx['ok'] && ! empty( $jx['data'] ) ) return 0;
+
+    // prescritor (nome/conselho)
+    $pn = $pc = $pnr = $puf = null;
+    if ( ! empty( $o['prescritor_id'] ) ) {
+        $rp = tao_formula_api( "/prescritores?id=eq.{$o['prescritor_id']}&select=nome,tipo_registro,nr_registro,uf_registro&limit=1" );
+        if ( $rp['ok'] && ! empty( $rp['data'] ) ) { $p = $rp['data'][0]; $pn = $p['nome']; $pc = $p['tipo_registro']; $pnr = $p['nr_registro']; $puf = $p['uf_registro']; }
+    }
+    // itens controlados da OM (com lote pesado)
+    $ri = tao_formula_api( "/lab_ordem_itens?ordem_id=eq.$ordem_id&select=ativo_id,qtd_pesada,lote_mp_id&limit=200" );
+    $ids = array_values( array_unique( array_filter( array_column( $ri['ok'] ? $ri['data'] : [], 'ativo_id' ) ) ) );
+    if ( ! $ids ) return 0;
+    $ra = tao_formula_api( "/ativos?id=in.(" . implode( ',', $ids ) . ")&controlado=eq.true&select=id,dcb,classe_sngpc,registro_ms,unidade_padrao&limit=" . count( $ids ) );
+    $ctrl = [];
+    foreach ( ( $ra['ok'] ? $ra['data'] : [] ) as $a ) $ctrl[ $a['id'] ] = $a;
+
+    $lotes_nr = [];
+    $n = 0;
+    foreach ( ( $ri['ok'] ? $ri['data'] : [] ) as $it ) {
+        $a = $ctrl[ $it['ativo_id'] ] ?? null;
+        if ( ! $a || ! ( (float) ( $it['qtd_pesada'] ?? 0 ) > 0 ) ) continue;
+        $nrlote = null;
+        if ( ! empty( $it['lote_mp_id'] ) ) {
+            $rl = tao_formula_api( "/lab_lotes_mp?id=eq.{$it['lote_mp_id']}&select=nr_lote&limit=1" );
+            $nrlote = ( $rl['ok'] && ! empty( $rl['data'] ) ) ? $rl['data'][0]['nr_lote'] : null;
+        }
+        tao_formula_api( '/sngpc_movimentos', 'POST', [
+            'cliente_id' => $cliente_id, 'tipo' => 'saida', 'ativo_id' => $it['ativo_id'],
+            'dcb' => $a['dcb'], 'classe_sngpc' => $a['classe_sngpc'], 'registro_ms' => $a['registro_ms'],
+            'nr_lote' => $nrlote, 'quantidade' => (float) $it['qtd_pesada'], 'unidade' => $a['unidade_padrao'] ?? 'g',
+            'dt_movimento' => $o['dt_manipulacao'] ?: gmdate( 'Y-m-d' ),
+            'prescritor_nome' => $pn, 'prescritor_conselho' => $pc, 'prescritor_nr' => $pnr, 'prescritor_uf' => $puf,
+            'tp_receita' => $o['tp_receita'], 'nr_notificacao' => $o['nr_notificacao'],
+            'comprador_nome' => $o['comprador_nome'], 'comprador_doc_tp' => $o['comprador_doc_tp'], 'comprador_doc_nr' => $o['comprador_doc_nr'],
+            'origem' => 'om', 'ref_id' => $ordem_id, 'criado_por' => get_current_user_id(),
+        ] );
+        $n++;
+    }
+    return $n;
 }
 
 // Detalhe da OM + itens (p/ pesagem) com lote FEFO sugerido por ativo
@@ -3629,4 +3685,176 @@ add_action( 'wp_ajax_tao_formula_cp_pagar', function () {
         : [ 'status' => 'pago', 'dt_pagamento' => gmdate( 'Y-m-d' ) ];
     $r = tao_formula_api( "/contas_pagar?id=eq.$id&cliente_id=eq.$cliente_id", 'PATCH', $patch );
     $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => mb_substr( (string) $r['raw'], 0, 200 ) ] );
+} );
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CONTROLADOS / SNGPC (Pacote 4) — livro, lançamento, balanço, XML
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Livro de movimentos de controlados (filtro período/tipo)
+add_action( 'wp_ajax_tao_formula_sngpc_lista', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+    $de   = sanitize_text_field( $_GET['de']   ?? gmdate( 'Y-m-01' ) );
+    $ate  = sanitize_text_field( $_GET['ate']  ?? gmdate( 'Y-m-d' ) );
+    $tipo = sanitize_text_field( $_GET['tipo'] ?? '' );
+    $f = "&dt_movimento=gte.$de&dt_movimento=lte.$ate";
+    if ( in_array( $tipo, [ 'entrada', 'saida', 'perda', 'transferencia', 'inventario' ], true ) ) $f .= "&tipo=eq.$tipo";
+    $r = tao_formula_api(
+        "/sngpc_movimentos?cliente_id=eq.$cliente_id$f" .
+        "&select=id,tipo,dcb,classe_sngpc,nr_lote,quantidade,unidade,dt_movimento,prescritor_nome,comprador_nome,nr_notificacao,tp_perda,transmitido,ativo_id" .
+        "&order=dt_movimento.desc,criado_em.desc&limit=1000"
+    );
+    if ( ! $r['ok'] ) {
+        $msg = strpos( (string) $r['raw'], 'does not exist' ) !== false
+            ? 'Tabela SNGPC ainda não criada (migration_sngpc_v1.sql pendente).' : mb_substr( (string) $r['raw'], 0, 200 );
+        wp_send_json_error( [ 'message' => $msg ] );
+    }
+    $movs = $r['data'] ?? [];
+    // nome dos ativos
+    $ids = array_values( array_unique( array_filter( array_column( $movs, 'ativo_id' ) ) ) );
+    $nomes = [];
+    if ( $ids ) {
+        $ra = tao_formula_api( "/ativos?id=in.(" . implode( ',', $ids ) . ")&select=id,nome&limit=" . count( $ids ) );
+        foreach ( ( $ra['ok'] ? $ra['data'] : [] ) as $a ) $nomes[ $a['id'] ] = $a['nome'];
+    }
+    foreach ( $movs as &$m ) $m['ativo_nome'] = $m['ativo_id'] ? ( $nomes[ $m['ativo_id'] ] ?? '' ) : '';
+    unset( $m );
+    wp_send_json_success( $movs );
+} );
+
+// Lançamento manual de movimento (entrada/saída/perda/transferência)
+add_action( 'wp_ajax_tao_formula_sngpc_lancar', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $ativo_id = sanitize_text_field( $_POST['ativo_id'] ?? '' );
+    $tipo     = sanitize_text_field( $_POST['tipo'] ?? '' );
+    $qtd      = $_POST['quantidade'] ?? '';
+    if ( ! $cliente_id || ! $ativo_id || ! in_array( $tipo, [ 'entrada', 'saida', 'perda', 'transferencia', 'inventario' ], true ) || $qtd === '' )
+        wp_send_json_error( [ 'message' => 'Preencha ativo, tipo e quantidade' ] );
+
+    // puxa dcb/classe/registro do ativo
+    $ra = tao_formula_api( "/ativos?id=eq.$ativo_id&cliente_id=eq.$cliente_id&select=dcb,classe_sngpc,registro_ms,unidade_padrao,controlado&limit=1" );
+    $a = ( $ra['ok'] && ! empty( $ra['data'] ) ) ? $ra['data'][0] : [];
+    if ( empty( $a['controlado'] ) ) wp_send_json_error( [ 'message' => 'Este ativo não está marcado como controlado.' ] );
+
+    $txt = function( $k ) { $v = trim( sanitize_text_field( $_POST[ $k ] ?? '' ) ); return $v === '' ? null : $v; };
+    $mov = [
+        'cliente_id'   => $cliente_id, 'tipo' => $tipo, 'ativo_id' => $ativo_id,
+        'dcb' => $a['dcb'] ?? null, 'classe_sngpc' => $a['classe_sngpc'] ?? null, 'registro_ms' => $a['registro_ms'] ?? null,
+        'nr_lote' => $txt( 'nr_lote' ), 'quantidade' => (float) str_replace( ',', '.', $qtd ),
+        'unidade' => $a['unidade_padrao'] ?? 'g', 'dt_movimento' => $txt( 'dt_movimento' ) ?: gmdate( 'Y-m-d' ),
+        'origem' => 'manual', 'criado_por' => get_current_user_id(),
+    ];
+    if ( $tipo === 'entrada' ) { $mov['fornecedor_cnpj'] = $txt( 'fornecedor_cnpj' ); $mov['nf_numero'] = $txt( 'nf_numero' ); }
+    if ( $tipo === 'saida' ) {
+        $mov['prescritor_nome'] = $txt( 'prescritor_nome' ); $mov['prescritor_conselho'] = $txt( 'prescritor_conselho' );
+        $mov['prescritor_nr'] = $txt( 'prescritor_nr' ); $mov['prescritor_uf'] = $txt( 'prescritor_uf' );
+        $mov['tp_receita'] = $txt( 'tp_receita' ); $mov['nr_notificacao'] = $txt( 'nr_notificacao' );
+        $mov['comprador_nome'] = $txt( 'comprador_nome' ); $mov['comprador_doc_tp'] = $txt( 'comprador_doc_tp' );
+        $mov['comprador_doc_nr'] = $txt( 'comprador_doc_nr' );
+    }
+    if ( $tipo === 'perda' ) $mov['tp_perda'] = $txt( 'tp_perda' );
+    if ( $tipo === 'transferencia' ) $mov['cnpj_destino'] = $txt( 'cnpj_destino' );
+
+    $r = tao_formula_api( '/sngpc_movimentos', 'POST', $mov );
+    $r['ok'] ? wp_send_json_success( [ 'id' => $r['data'][0]['id'] ?? null ] )
+             : wp_send_json_error( [ 'message' => mb_substr( (string) $r['raw'], 0, 250 ) ] );
+} );
+
+// Balanço BMPO — saldo por substância (entradas − saídas − perdas) no período
+add_action( 'wp_ajax_tao_formula_sngpc_balanco', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $de  = sanitize_text_field( $_GET['de']  ?? gmdate( 'Y-m-01' ) );
+    $ate = sanitize_text_field( $_GET['ate'] ?? gmdate( 'Y-m-d' ) );
+    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+    $r = tao_formula_api(
+        "/sngpc_movimentos?cliente_id=eq.$cliente_id&dt_movimento=gte.$de&dt_movimento=lte.$ate" .
+        "&select=ativo_id,dcb,classe_sngpc,tipo,quantidade,unidade&limit=5000"
+    );
+    $ag = [];
+    foreach ( ( $r['ok'] ? $r['data'] : [] ) as $m ) {
+        $k = $m['ativo_id'] ?: $m['dcb'];
+        if ( ! isset( $ag[ $k ] ) ) $ag[ $k ] = [ 'dcb' => $m['dcb'], 'classe' => $m['classe_sngpc'], 'unidade' => $m['unidade'], 'entrada' => 0, 'saida' => 0, 'perda' => 0 ];
+        $q = (float) $m['quantidade'];
+        if ( $m['tipo'] === 'entrada' ) $ag[ $k ]['entrada'] += $q;
+        elseif ( $m['tipo'] === 'saida' ) $ag[ $k ]['saida'] += $q;
+        elseif ( $m['tipo'] === 'perda' ) $ag[ $k ]['perda'] += $q;
+    }
+    foreach ( $ag as &$x ) $x['saldo'] = $x['entrada'] - $x['saida'] - $x['perda'];
+    unset( $x );
+    wp_send_json_success( [ 'de' => $de, 'ate' => $ate, 'itens' => array_values( $ag ) ] );
+} );
+
+// Gera o XML de transmissão (movimentos não transmitidos do período) e marca como transmitido
+add_action( 'wp_ajax_tao_formula_sngpc_xml', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_is_master() ) wp_send_json_error( [ 'message' => 'Só o administrador gera o XML' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+    $marcar = ( $_POST['marcar'] ?? '' ) === '1';
+
+    // dados da farmácia (emitente)
+    $rc = tao_formula_api( "/empresa_config?cliente_id=eq.$cliente_id&limit=1" );
+    $emp = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? $rc['data'][0] : [];
+    $cnpj = preg_replace( '/\D/', '', (string) ( $emp['cnpj'] ?? '' ) );
+
+    $rm = tao_formula_api( "/sngpc_movimentos?cliente_id=eq.$cliente_id&transmitido=eq.false&order=dt_movimento.asc&limit=2000" );
+    $movs = $rm['ok'] ? ( $rm['data'] ?? [] ) : [];
+    if ( ! $movs ) wp_send_json_error( [ 'message' => 'Nenhum movimento pendente de transmissão.' ] );
+
+    // XML no formato do wrapper SNGPC (arquivo_sngpc) — estrutura espelhando o FCerta
+    $x  = '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
+    $x .= '<mensagemSNGPC>' . "\n";
+    $x .= "  <cnpj>" . htmlspecialchars( $cnpj ) . "</cnpj>\n";
+    $x .= "  <razaoSocial>" . htmlspecialchars( (string) ( $emp['razao_social'] ?? '' ) ) . "</razaoSocial>\n";
+    $x .= "  <periodo><inicio>" . $movs[0]['dt_movimento'] . "</inicio><fim>" . end( $movs )['dt_movimento'] . "</fim></periodo>\n";
+    $x .= "  <movimentacoes>\n";
+    foreach ( $movs as $m ) {
+        $x .= "    <mov tipo=\"{$m['tipo']}\">\n";
+        $x .= "      <dcb>" . htmlspecialchars( (string) $m['dcb'] ) . "</dcb>\n";
+        $x .= "      <registroMS>" . htmlspecialchars( (string) $m['registro_ms'] ) . "</registroMS>\n";
+        $x .= "      <lote>" . htmlspecialchars( (string) $m['nr_lote'] ) . "</lote>\n";
+        $x .= "      <quantidade>" . $m['quantidade'] . "</quantidade>\n";
+        $x .= "      <data>" . $m['dt_movimento'] . "</data>\n";
+        if ( $m['tipo'] === 'saida' ) {
+            $x .= "      <prescritor nome=\"" . htmlspecialchars( (string) $m['prescritor_nome'] ) . "\" conselho=\"" . htmlspecialchars( (string) $m['prescritor_conselho'] ) . "\" nr=\"" . htmlspecialchars( (string) $m['prescritor_nr'] ) . "\" uf=\"" . htmlspecialchars( (string) $m['prescritor_uf'] ) . "\"/>\n";
+            $x .= "      <comprador nome=\"" . htmlspecialchars( (string) $m['comprador_nome'] ) . "\" doc=\"" . htmlspecialchars( (string) $m['comprador_doc_nr'] ) . "\"/>\n";
+            $x .= "      <notificacao>" . htmlspecialchars( (string) $m['nr_notificacao'] ) . "</notificacao>\n";
+        }
+        if ( $m['tipo'] === 'entrada' ) $x .= "      <fornecedor cnpj=\"" . htmlspecialchars( (string) $m['fornecedor_cnpj'] ) . "\" nf=\"" . htmlspecialchars( (string) $m['nf_numero'] ) . "\"/>\n";
+        if ( $m['tipo'] === 'perda' ) $x .= "      <tipoPerda>" . htmlspecialchars( (string) $m['tp_perda'] ) . "</tipoPerda>\n";
+        $x .= "    </mov>\n";
+    }
+    $x .= "  </movimentacoes>\n</mensagemSNGPC>\n";
+
+    if ( $marcar ) {
+        $ids = array_column( $movs, 'id' );
+        tao_formula_api( "/sngpc_movimentos?id=in.(" . implode( ',', $ids ) . ")", 'PATCH', [ 'transmitido' => true, 'dt_transmissao' => gmdate( 'c' ) ] );
+    }
+    wp_send_json_success( [ 'xml' => $x, 'movimentos' => count( $movs ), 'marcado' => $marcar ] );
+} );
+
+// Busca de ativos controlados (para o lançamento)
+add_action( 'wp_ajax_tao_formula_sngpc_busca_ativo', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $q = sanitize_text_field( $_GET['q'] ?? '' );
+    if ( ! $cliente_id || mb_strlen( $q ) < 2 ) { wp_send_json_success( [] ); return; }
+    $enc = rawurlencode( $q );
+    $r = tao_formula_api(
+        "/ativos?cliente_id=eq.$cliente_id&controlado=eq.true&nome=ilike.*{$enc}*&select=id,nome,dcb,classe_sngpc,unidade_padrao&order=nome.asc&limit=10"
+    );
+    wp_send_json_success( $r['ok'] ? ( $r['data'] ?? [] ) : [] );
 } );
