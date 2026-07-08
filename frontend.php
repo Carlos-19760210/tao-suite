@@ -91,6 +91,7 @@ add_action( 'template_redirect', function() {
         'formula-estoque-lotes'=> 'tao-formula-estoque-lotes',
         'formula-estoque-repo' => 'tao-formula-estoque-repo',
         'formula-producao'     => 'tao-formula-producao',
+        'formula-livro'        => 'tao-formula-livro',
         'formula-formas'     => 'tao-formula-formas',
         'formula-ativos'     => 'tao-formula-ativos',
         'formula-config'     => 'tao-formula-config',

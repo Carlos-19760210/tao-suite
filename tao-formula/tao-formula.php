@@ -29,6 +29,7 @@ require_once TAOF_PLUGIN_DIR . 'includes/pages/estoque-nf.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/estoque-lotes.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/estoque-reposicao.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/producao.php';
+require_once TAOF_PLUGIN_DIR . 'includes/pages/livro-receituario.php';
 
 // ── Admin menu ────────────────────────────────────────────────────────────────
 add_action( 'admin_menu', function() {
@@ -48,6 +49,7 @@ add_action( 'admin_menu', function() {
     add_submenu_page( 'tao-formula', 'Estoque — Lotes',      'Estoque — Lotes',      'read', 'tao-formula-estoque-lotes', 'tao_formula_page_estoque_lotes' );
     add_submenu_page( 'tao-formula', 'Estoque — Reposição',  'Estoque — Reposição',  'read', 'tao-formula-estoque-repo', 'tao_formula_page_estoque_reposicao' );
     add_submenu_page( 'tao-formula', 'Produção',             'Produção',             'read', 'tao-formula-producao',    'tao_formula_page_producao' );
+    add_submenu_page( 'tao-formula', 'Livro de Receituário', 'Livro de Receituário', 'read', 'tao-formula-livro',       'tao_formula_page_livro_receituario' );
     add_submenu_page( 'tao-formula', 'Formas Farmacêuticas', 'Formas Farmacêuticas', 'read', 'tao-formula-formas',    'tao_formula_page_formas' );
     add_submenu_page( 'tao-formula', 'Ativos',               'Ativos',               'read', 'tao-formula-ativos',    'tao_formula_page_ativos' );
     add_submenu_page( 'tao-formula', 'Sinônimos',            'Sinônimos',            'read', 'tao-formula-sinonimos', 'tao_formula_page_sinonimos' );

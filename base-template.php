@@ -45,6 +45,7 @@ if ( $has_formula ) {
     $secoes['tao-formula-estoque-lotes']= [ 'fn' => 'tao_formula_page_estoque_lotes','label' => 'Estoque — Lotes' ];
     $secoes['tao-formula-estoque-repo'] = [ 'fn' => 'tao_formula_page_estoque_reposicao','label' => 'Estoque — Reposição' ];
     $secoes['tao-formula-producao']     = [ 'fn' => 'tao_formula_page_producao',        'label' => 'Produção' ];
+    $secoes['tao-formula-livro']        = [ 'fn' => 'tao_formula_page_livro_receituario','label' => 'Livro de Receituário' ];
     $secoes['tao-formula-formas']    = [ 'fn' => 'tao_formula_page_formas',         'label' => 'Formas Farmacêuticas' ];
     $secoes['tao-formula-ativos']    = [ 'fn' => 'tao_formula_page_ativos',         'label' => 'Ativos' ];
     $secoes['tao-formula-config']    = [ 'fn' => 'tao_formula_page_config',         'label' => 'Fórmulas — Configurações' ];
@@ -128,6 +129,7 @@ if ( $has_formula ) {
             [ 'slug' => 'tao-formula-estoque-lotes', 'label' => 'Estoque &mdash; Lotes', 'url' => cbpm_url('formula-estoque-lotes') ],
             [ 'slug' => 'tao-formula-estoque-repo', 'label' => 'Estoque &mdash; Reposição', 'url' => cbpm_url('formula-estoque-repo') ],
             [ 'slug' => 'tao-formula-producao', 'label' => 'Produ&ccedil;&atilde;o', 'url' => cbpm_url('formula-producao') ],
+            [ 'slug' => 'tao-formula-livro', 'label' => 'Livro de Receitu&aacute;rio', 'url' => cbpm_url('formula-livro') ],
         ],
     ];
 }

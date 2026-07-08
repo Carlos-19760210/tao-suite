@@ -111,7 +111,7 @@ function tao_formula_page_producao() {
                     '<h3 style="font-size:13px;margin:8px 0 4px">Pesagem &amp; lote <small style="color:#94a3b8;font-weight:400">(rastreabilidade — lote FEFO sugerido)</small></h3>'+
                     '<table class="taof-pd-it"><tr><th>Componente</th><th>Prescrito</th><th>Pesado</th><th>Lote usado</th></tr>'+rows+'</table>'+
                     '<h3 style="font-size:13px;margin:14px 0 4px">Mover para etapa</h3><div style="display:flex;gap:5px;flex-wrap:wrap">'+etapaBtns+'</div>'+
-                    '<p style="margin:14px 0 0"><button class="button" id="taof-pd-fechar">Fechar</button> <span id="taof-pd-msg" style="font-size:12px;margin-left:8px"></span></p>'
+                    '<p style="margin:14px 0 0"><button class="button button-primary taof-pd-rotulo" data-om="'+o.id+'">🏷 Rótulo (RDC 67)</button> <button class="button" id="taof-pd-fechar">Fechar</button> <span id="taof-pd-msg" style="font-size:12px;margin-left:8px"></span></p>'
                 );
             });
         }
@@ -139,6 +139,31 @@ function tao_formula_page_producao() {
         });
         $(document).on('click','#taof-pd-fechar',function(){$('#taof-pd-modal').hide();});
         $('#taof-pd-modal').on('click','.taof-pd-ov',function(){$('#taof-pd-modal').hide();});
+
+        // ── Rótulo RDC 67 (janela imprimível) ──
+        $(document).on('click','.taof-pd-rotulo',function(){
+            $.getJSON(ajaxUrl,{action:'tao_formula_prod_rotulo',nonce:nonce,ordem_id:$(this).data('om')},function(r){
+                if(!r.success){alert((r.data&&r.data.message)||'Erro');return;}
+                var d=r.data;
+                var comp=(d.composicao||[]).map(function(c){return '<div>'+esc(c)+'</div>';}).join('');
+                var html='<div style="font-family:Arial,sans-serif;font-size:12px;width:320px;border:1px solid #000;padding:10px;line-height:1.35">'+
+                    '<div style="font-weight:bold;font-size:13px">'+esc(d.farmacia)+'</div>'+
+                    '<div style="font-size:10px">CNPJ '+esc(d.cnpj)+' · '+esc(d.farm_end)+'</div>'+
+                    '<div style="font-size:10px;border-bottom:1px solid #000;padding-bottom:4px;margin-bottom:4px">RT: '+esc(d.rt||'—')+'</div>'+
+                    '<div><b>OM '+esc(d.om)+'</b> — <b>'+esc(d.advertencia)+'</b></div>'+
+                    '<div>Paciente: <b>'+esc(d.paciente)+'</b></div>'+
+                    (d.prescritor?'<div>Prescritor: '+esc(d.prescritor)+'</div>':'')+
+                    '<div>Fórmula: '+esc(d.formula)+(d.qtd?' — '+esc(d.qtd)+' un':'')+'</div>'+
+                    '<div style="margin:4px 0"><b>Composição:</b>'+comp+'</div>'+
+                    (d.posologia?'<div><b>Posologia:</b> '+esc(d.posologia)+'</div>':'')+
+                    '<div>Manipulado: '+fdata(d.dt_manip)+' · <b>Validade: '+fdata(d.validade)+'</b></div>'+
+                    '<div style="font-size:10px;margin-top:3px">'+esc(d.conservacao)+'</div></div>';
+                if(d.aviso) html='<p style="color:#d97706;font-size:12px">⚠ '+esc(d.aviso)+'</p>'+html;
+                var w=window.open('','rotulo','width=420,height=560');
+                w.document.write('<html><head><title>Rótulo OM '+esc(d.om)+'</title></head><body onload="window.print()" style="margin:12px">'+html+'</body></html>');
+                w.document.close();
+            });
+        });
 
         carregar();
     });

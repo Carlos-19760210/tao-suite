@@ -3473,3 +3473,105 @@ add_action( 'wp_ajax_tao_formula_prod_busca_orc', function () {
     );
     wp_send_json_success( $r['ok'] ? ( $r['data'] ?? [] ) : [] );
 } );
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PRODUÇÃO Fatia B (Rótulo RDC 67) + Fatia C (Livro de Receituário)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Gera/retorna o rótulo de uma OM com os dizeres obrigatórios (RDC 67 Anexo I).
+add_action( 'wp_ajax_tao_formula_prod_rotulo', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $ordem_id = sanitize_text_field( $_GET['ordem_id'] ?? '' );
+    if ( ! $cliente_id || ! $ordem_id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+
+    $ro = tao_formula_api( "/lab_ordens?id=eq.$ordem_id&cliente_id=eq.$cliente_id&limit=1" );
+    if ( ! $ro['ok'] || empty( $ro['data'] ) ) wp_send_json_error( [ 'message' => 'OM não encontrada' ] );
+    $o = $ro['data'][0];
+
+    // composição (itens C não-QSP) + lotes usados
+    $ri = tao_formula_api( "/lab_ordem_itens?ordem_id=eq.$ordem_id&select=descricao,qtd_prescrita,unidade,eh_qsp,ordem&order=ordem.asc&limit=200" );
+    $comp = [];
+    foreach ( ( $ri['ok'] ? $ri['data'] : [] ) as $it ) {
+        if ( ! empty( $it['eh_qsp'] ) ) continue;
+        $comp[] = $it['descricao'] . ( $it['qtd_prescrita'] !== null ? ' ' . rtrim( rtrim( number_format( (float) $it['qtd_prescrita'], 3, ',', '' ), '0' ), ',' ) . ' ' . $it['unidade'] : '' );
+    }
+
+    // prescritor
+    $presc = '';
+    if ( ! empty( $o['prescritor_id'] ) ) {
+        $rp = tao_formula_api( "/prescritores?id=eq.{$o['prescritor_id']}&select=tratamento,nome,tipo_registro,nr_registro,uf_registro&limit=1" );
+        if ( $rp['ok'] && ! empty( $rp['data'] ) ) {
+            $p = $rp['data'][0];
+            $reg = trim( ( $p['tipo_registro'] ?? '' ) . ' ' . ( $p['nr_registro'] ?? '' ) . ( $p['uf_registro'] ? '/' . $p['uf_registro'] : '' ) );
+            $presc = trim( ( $p['tratamento'] ? $p['tratamento'] . ' ' : '' ) . $p['nome'] . ( $reg ? ' — ' . $reg : '' ) );
+        }
+    }
+
+    // empresa + RT (empresa_config)
+    $emp = [];
+    $rc = tao_formula_api( "/empresa_config?cliente_id=eq.$cliente_id&limit=1" );
+    if ( $rc['ok'] && ! empty( $rc['data'] ) ) $emp = $rc['data'][0];
+    $farm_end = trim( ( $emp['endereco'] ?? '' ) . ' ' . ( $emp['bairro'] ?? '' ) . ' ' . ( $emp['cidade'] ?? '' ) . ( ! empty( $emp['uf'] ) ? '/' . $emp['uf'] : '' ) );
+    $rt = trim( ( $emp['rt_nome'] ?? '' ) . ( ! empty( $emp['rt_crf'] ) ? ' — CRF ' . $emp['rt_crf'] . ( $emp['rt_uf'] ? '/' . $emp['rt_uf'] : '' ) : '' ) );
+
+    // via de uso / advertência
+    $uso = strtolower( (string) ( $o['tp_uso'] ?? '' ) );
+    $advert = $uso === 'externo' ? 'USO EXTERNO' : ( $uso === 'veterinario' ? 'USO VETERINÁRIO' : 'USO INTERNO/ORAL' );
+
+    $r = [
+        'farmacia'    => trim( ( $emp['nome_fantasia'] ?? $emp['razao_social'] ?? 'Farmácia' ) ),
+        'cnpj'        => $emp['cnpj'] ?? '',
+        'farm_end'    => $farm_end,
+        'rt'          => $rt,
+        'om'          => $o['numero'],
+        'paciente'    => $o['paciente_nome'],
+        'prescritor'  => $presc,
+        'formula'     => trim( ( $o['forma_farmac'] ?? '' ) . ' ' . ( $o['volume'] ? rtrim( rtrim( number_format( (float) $o['volume'], 2, ',', '' ), '0' ), ',' ) . ' ' . ( $o['unidade_vol'] ?? '' ) : '' ) ),
+        'qtd'         => $o['qtd_unidades'],
+        'composicao'  => $comp,
+        'posologia'   => $o['posologia'] ?: '',
+        'advertencia' => $advert,
+        'dt_manip'    => $o['dt_manipulacao'] ?: gmdate( 'Y-m-d' ),
+        'validade'    => $o['dt_validade'],
+        'conservacao' => 'Conservar em temperatura ambiente, ao abrigo de luz e umidade.',
+    ];
+
+    // registra o rótulo emitido (auditável)
+    $texto = "$r[farmacia] | OM $r[om] | Paciente: $r[paciente] | Validade: $r[validade]";
+    tao_formula_api( '/lab_rotulos', 'POST', [
+        'ordem_id' => $ordem_id, 'texto' => $texto, 'impresso_em' => gmdate( 'c' ), 'impresso_por' => get_current_user_id(),
+    ] );
+
+    if ( empty( $emp ) ) $r['aviso'] = 'Dados da farmácia/RT vazios — preencha em Configurações → Dados da Farmácia (obrigatório no rótulo).';
+    wp_send_json_success( $r );
+} );
+
+// Livro de Receituário — OMs sequenciais por período (RDC 67 + Lei 5.991 art.42)
+add_action( 'wp_ajax_tao_formula_prod_livro', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+    $de  = sanitize_text_field( $_GET['de']  ?? gmdate( 'Y-m-01' ) );
+    $ate = sanitize_text_field( $_GET['ate'] ?? gmdate( 'Y-m-d' ) );
+
+    $r = tao_formula_api(
+        "/lab_ordens?cliente_id=eq.$cliente_id&criado_em=gte.{$de}T00:00:00&criado_em=lte.{$ate}T23:59:59" .
+        "&select=numero,criado_em,paciente_nome,forma_farmac,volume,unidade_vol,dt_validade,status,controlado,prescritor_id&order=numero.asc&limit=2000"
+    );
+    $ordens = $r['ok'] ? ( $r['data'] ?? [] ) : [];
+    // nomes dos prescritores
+    $pids = array_values( array_unique( array_filter( array_column( $ordens, 'prescritor_id' ) ) ) );
+    $presc = [];
+    if ( $pids ) {
+        $rp = tao_formula_api( "/prescritores?id=in.(" . implode( ',', $pids ) . ")&select=id,nome,tipo_registro,nr_registro&limit=" . count( $pids ) );
+        foreach ( ( $rp['ok'] ? $rp['data'] : [] ) as $p ) $presc[ $p['id'] ] = trim( $p['nome'] . ' (' . ( $p['tipo_registro'] ?? '' ) . ' ' . ( $p['nr_registro'] ?? '' ) . ')' );
+    }
+    foreach ( $ordens as &$o ) $o['prescritor'] = $o['prescritor_id'] ? ( $presc[ $o['prescritor_id'] ] ?? '' ) : '';
+    unset( $o );
+    wp_send_json_success( [ 'de' => $de, 'ate' => $ate, 'ordens' => $ordens ] );
+} );
