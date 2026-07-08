@@ -74,5 +74,6 @@ Cada fatia atrás de option OFF; roda em paralelo ao FCerta até validação.
 3. **Contas a pagar fica no TAO** + relatório exportável ao contador.
 4. **Destino do valor: default Compra**, com variação por item (custo/compra/ambos) na conferência.
 
-### Ainda a confirmar
-- Transferência entre filiais (CDFIL 1 loja / 2 estoque): a Magis usa?
+5. **Filiais**: a Magis-TAO **não tem** filiais hoje, mas o Carlos pediu o sistema **preparado** para isso.
+   → todas as tabelas de estoque levam **`cd_filial`** (default 1, nullable), lote/saldo/movimento por filial,
+   e a transferência entre filiais fica prevista no modelo (implementação só quando houver 2ª filial).
