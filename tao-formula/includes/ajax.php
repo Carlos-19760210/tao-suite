@@ -3575,3 +3575,58 @@ add_action( 'wp_ajax_tao_formula_prod_livro', function () {
     unset( $o );
     wp_send_json_success( [ 'de' => $de, 'ate' => $ate, 'ordens' => $ordens ] );
 } );
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FINANCEIRO — Contas a Pagar (duplicatas das NFs) + relatório ao contador
+// ═══════════════════════════════════════════════════════════════════════════
+
+add_action( 'wp_ajax_tao_formula_cp_lista', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+    $status = sanitize_text_field( $_GET['status'] ?? '' );
+    $de  = sanitize_text_field( $_GET['de']  ?? '' );
+    $ate = sanitize_text_field( $_GET['ate'] ?? '' );
+    $f = '';
+    if ( in_array( $status, [ 'aberto', 'pago', 'cancelado' ], true ) ) $f .= "&status=eq.$status";
+    if ( $de )  $f .= "&vencimento=gte.$de";
+    if ( $ate ) $f .= "&vencimento=lte.$ate";
+
+    $r = tao_formula_api(
+        "/contas_pagar?cliente_id=eq.$cliente_id$f" .
+        "&select=id,fornecedor_id,numero_dup,vencimento,valor,status,dt_pagamento&order=vencimento.asc&limit=500"
+    );
+    $cp = $r['ok'] ? ( $r['data'] ?? [] ) : [];
+    // nomes dos fornecedores
+    $fids = array_values( array_unique( array_filter( array_column( $cp, 'fornecedor_id' ) ) ) );
+    $nomes = [];
+    if ( $fids ) {
+        $rf = tao_formula_api( "/fornecedores?id=in.(" . implode( ',', $fids ) . ")&select=id,nome&limit=" . count( $fids ) );
+        foreach ( ( $rf['ok'] ? $rf['data'] : [] ) as $x ) $nomes[ $x['id'] ] = $x['nome'];
+    }
+    $tot_aberto = 0; $tot_pago = 0;
+    foreach ( $cp as &$c ) {
+        $c['fornecedor'] = $c['fornecedor_id'] ? ( $nomes[ $c['fornecedor_id'] ] ?? '—' ) : '—';
+        if ( $c['status'] === 'aberto' ) $tot_aberto += (float) $c['valor'];
+        if ( $c['status'] === 'pago' )   $tot_pago   += (float) $c['valor'];
+    }
+    unset( $c );
+    wp_send_json_success( [ 'contas' => $cp, 'total_aberto' => $tot_aberto, 'total_pago' => $tot_pago ] );
+} );
+
+add_action( 'wp_ajax_tao_formula_cp_pagar', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $id = sanitize_text_field( $_POST['id'] ?? '' );
+    $acao = sanitize_text_field( $_POST['acao'] ?? 'pagar' ); // pagar|reabrir
+    if ( ! $cliente_id || ! $id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+    $patch = $acao === 'reabrir'
+        ? [ 'status' => 'aberto', 'dt_pagamento' => null ]
+        : [ 'status' => 'pago', 'dt_pagamento' => gmdate( 'Y-m-d' ) ];
+    $r = tao_formula_api( "/contas_pagar?id=eq.$id&cliente_id=eq.$cliente_id", 'PATCH', $patch );
+    $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => mb_substr( (string) $r['raw'], 0, 200 ) ] );
+} );
