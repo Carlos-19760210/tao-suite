@@ -41,6 +41,7 @@ if ( $has_formula ) {
     $secoes['tao-formula-orc-novo']  = [ 'fn' => 'tao_formula_page_orcamento_novo', 'label' => 'Novo Orçamento' ];
     $secoes['tao-formula-historico'] = [ 'fn' => 'tao_formula_page_historico',      'label' => 'Histórico do Cliente' ];
     $secoes['tao-formula-prescritores'] = [ 'fn' => 'tao_formula_page_prescritores', 'label' => 'Prescritores' ];
+    $secoes['tao-formula-estoque-nf']   = [ 'fn' => 'tao_formula_page_estoque_nf',   'label' => 'Estoque — Entrada NF' ];
     $secoes['tao-formula-formas']    = [ 'fn' => 'tao_formula_page_formas',         'label' => 'Formas Farmacêuticas' ];
     $secoes['tao-formula-ativos']    = [ 'fn' => 'tao_formula_page_ativos',         'label' => 'Ativos' ];
     $secoes['tao-formula-config']    = [ 'fn' => 'tao_formula_page_config',         'label' => 'Fórmulas — Configurações' ];
@@ -120,6 +121,7 @@ if ( $has_formula ) {
             [ 'slug' => 'tao-formula-orc-novo',   'label' => 'Novo Or&ccedil;amento',  'url' => cbpm_url('formula-novo-orc') ],
             [ 'slug' => 'tao-formula-historico',  'label' => 'Hist&oacute;rico',       'url' => cbpm_url('formula-historico') ],
             [ 'slug' => 'tao-formula-prescritores', 'label' => 'Prescritores',         'url' => cbpm_url('formula-prescritores') ],
+            [ 'slug' => 'tao-formula-estoque-nf', 'label' => 'Estoque &mdash; Entrada NF', 'url' => cbpm_url('formula-estoque-nf') ],
         ],
     ];
 }

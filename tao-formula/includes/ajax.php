@@ -2815,3 +2815,245 @@ add_action( 'wp_ajax_tao_formula_cliente_save', function () {
     }
     wp_send_json_success( [ 'id' => $contato_id, 'contato_id' => $contato_id ] );
 } );
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ESTOQUE — Entrada de NF (Pacote 2 / Fatia 1)
+// Upload XML NFe → parse → conferência assistida (de-para) → efetivar.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Parse do XML da NFe: emitente + itens (com grupo K rastreab.) + duplicatas.
+function tao_formula_parse_nfe( $xml_raw ) {
+    $xml_raw = preg_replace( '/xmlns(:\w+)?="[^"]*"/', '', $xml_raw, 1 ); // solta o namespace raiz
+    $x = @simplexml_load_string( $xml_raw );
+    if ( ! $x ) return null;
+    // localiza infNFe em qualquer envelope (nfeProc/NFe)
+    $inf = $x->xpath( '//infNFe' );
+    if ( ! $inf ) return null;
+    $inf = $inf[0];
+
+    $emit = $inf->emit;
+    $out = [
+        'cnpj_emitente' => preg_replace( '/\D/', '', (string) $emit->CNPJ ),
+        'razao'         => (string) $emit->xNome,
+        'chave_nfe'     => preg_replace( '/\D/', '', (string) ( $inf['Id'] ?? '' ) ),
+        'numero'        => (string) $inf->ide->nNF,
+        'serie'         => (string) $inf->ide->serie,
+        'dt_emissao'    => substr( (string) $inf->ide->dhEmi, 0, 10 ),
+        'valor_total'   => (float) $inf->total->ICMSTot->vNF,
+        'itens'         => [],
+        'duplicatas'    => [],
+    ];
+    foreach ( $inf->det as $det ) {
+        $p = $det->prod;
+        $item = [
+            'cod_fornecedor' => (string) $p->cProd,
+            'descr_xml'      => (string) $p->xProd,
+            'quantidade'     => (float) $p->qCom,
+            'unidade'        => (string) $p->uCom,
+            'preco_unit'     => (float) $p->vUnCom,
+            'desconto'       => (float) ( $p->vDesc ?? 0 ),
+            'lote'           => '', 'dt_fab' => '', 'dt_val' => '',
+        ];
+        // grupo K (rastreabilidade de medicamento): lote/fab/validade
+        if ( isset( $p->rastro ) ) {
+            $r = $p->rastro;
+            $item['lote']   = (string) $r->nLote;
+            $item['dt_fab'] = substr( (string) $r->dFab, 0, 10 );
+            $item['dt_val'] = substr( (string) $r->dVal, 0, 10 );
+        }
+        $out['itens'][] = $item;
+    }
+    if ( isset( $inf->cobr->dup ) ) {
+        foreach ( $inf->cobr->dup as $d ) {
+            $out['duplicatas'][] = [
+                'numero_dup' => (string) $d->nDup,
+                'vencimento' => substr( (string) $d->dVenc, 0, 10 ),
+                'valor'      => (float) $d->vDup,
+            ];
+        }
+    }
+    return $out;
+}
+
+// Upload do XML + pré-conferência (associação por de-para já aprendido)
+add_action( 'wp_ajax_tao_formula_nf_upload', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+
+    if ( empty( $_FILES['xml'] ) || $_FILES['xml']['error'] !== UPLOAD_ERR_OK )
+        wp_send_json_error( [ 'message' => 'Envie o arquivo XML da NF-e' ] );
+    $raw = file_get_contents( $_FILES['xml']['tmp_name'] );
+    $nfe = tao_formula_parse_nfe( $raw );
+    if ( ! $nfe ) wp_send_json_error( [ 'message' => 'XML inválido ou não é uma NF-e' ] );
+
+    // NF já importada?
+    if ( $nfe['chave_nfe'] ) {
+        $dup = tao_formula_api( "/estoque_entradas_nf?cliente_id=eq.$cliente_id&chave_nfe=eq.{$nfe['chave_nfe']}&select=id,status&limit=1" );
+        if ( $dup['ok'] && ! empty( $dup['data'] ) )
+            wp_send_json_error( [ 'message' => 'Esta NF-e já foi importada (' . $dup['data'][0]['status'] . ').' ] );
+    }
+
+    // fornecedor pelo CNPJ do emitente
+    $forn = null;
+    if ( $nfe['cnpj_emitente'] ) {
+        $rf = tao_formula_api( "/fornecedores?cliente_id=eq.$cliente_id&cnpj=eq.{$nfe['cnpj_emitente']}&select=id,nome&limit=1" );
+        if ( $rf['ok'] && ! empty( $rf['data'] ) ) $forn = $rf['data'][0];
+    }
+
+    // de-para aprendido p/ este fornecedor
+    $depara = [];
+    if ( $forn ) {
+        $rd = tao_formula_api( "/estoque_forn_depara?cliente_id=eq.$cliente_id&fornecedor_id=eq.{$forn['id']}&select=cod_fornecedor,ativo_id&limit=2000" );
+        foreach ( ( $rd['ok'] ? $rd['data'] : [] ) as $d ) $depara[ (string) $d['cod_fornecedor'] ] = $d['ativo_id'];
+    }
+    // dados dos ativos já mapeados (nome/código p/ exibir)
+    $ativo_ids = array_values( array_unique( array_filter( array_values( $depara ) ) ) );
+    $ativos = [];
+    if ( $ativo_ids ) {
+        $ra = tao_formula_api( "/ativos?cliente_id=eq.$cliente_id&id=in.(" . implode( ',', $ativo_ids ) . ")&select=id,codigo_fc,nome,unidade_padrao,preco_compra,custo_por_unidade&limit=" . count( $ativo_ids ) );
+        foreach ( ( $ra['ok'] ? $ra['data'] : [] ) as $a ) $ativos[ $a['id'] ] = $a;
+    }
+    foreach ( $nfe['itens'] as &$it ) {
+        $aid = $depara[ $it['cod_fornecedor'] ] ?? null;
+        $it['ativo_id'] = $aid;
+        $it['ativo']    = $aid ? ( $ativos[ $aid ] ?? null ) : null;
+        $it['destino_valor'] = 'compra';  // default (Carlos)
+    }
+    unset( $it );
+
+    $nfe['fornecedor'] = $forn;
+    wp_send_json_success( $nfe );
+} );
+
+// Efetiva a entrada: grava NF+itens, aprende de-para, cria lotes+movimentos,
+// atualiza preço/estoque do ativo e gera contas a pagar.
+add_action( 'wp_ajax_tao_formula_nf_efetivar', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+
+    $payload = json_decode( stripslashes( $_POST['payload'] ?? '' ), true );
+    if ( ! is_array( $payload ) || empty( $payload['itens'] ) )
+        wp_send_json_error( [ 'message' => 'Dados da NF ausentes' ] );
+
+    $itens = $payload['itens'];
+    // todos os itens precisam de ativo associado
+    foreach ( $itens as $it ) {
+        if ( empty( $it['ativo_id'] ) )
+            wp_send_json_error( [ 'message' => 'Associe todos os itens a um ativo antes de efetivar.' ] );
+    }
+
+    $forn_id = $payload['fornecedor_id'] ?? null;
+
+    // 1. cabeçalho
+    $cab = tao_formula_api( '/estoque_entradas_nf', 'POST', [
+        'cliente_id'    => $cliente_id,
+        'fornecedor_id' => $forn_id,
+        'cnpj_emitente' => $payload['cnpj_emitente'] ?? null,
+        'chave_nfe'     => $payload['chave_nfe'] ?? null,
+        'numero'        => $payload['numero'] ?? null,
+        'serie'         => $payload['serie'] ?? null,
+        'dt_emissao'    => $payload['dt_emissao'] ?: null,
+        'valor_total'   => $payload['valor_total'] ?? null,
+        'status'        => 'efetivada',
+        'efetivada_em'  => gmdate( 'c' ),
+        'criado_por'    => get_current_user_id(),
+    ] );
+    if ( ! $cab['ok'] || empty( $cab['data'] ) )
+        wp_send_json_error( [ 'message' => 'Erro ao gravar a NF: ' . mb_substr( (string) $cab['raw'], 0, 200 ) ] );
+    $entrada_id = $cab['data'][0]['id'];
+
+    $lotes_criados = 0; $mov = 0; $depara_novos = 0;
+    foreach ( $itens as $it ) {
+        $aid = $it['ativo_id'];
+        $qtd = (float) ( $it['quantidade'] ?? 0 );
+
+        // item da NF
+        tao_formula_api( '/estoque_entradas_nf_itens', 'POST', [
+            'entrada_id'     => $entrada_id, 'ativo_id' => $aid,
+            'cod_fornecedor' => $it['cod_fornecedor'] ?? null, 'descr_xml' => $it['descr_xml'] ?? null,
+            'quantidade'     => $qtd, 'unidade' => $it['unidade'] ?? null,
+            'preco_unit'     => (float) ( $it['preco_unit'] ?? 0 ), 'desconto' => (float) ( $it['desconto'] ?? 0 ),
+            'lote'           => $it['lote'] ?: null, 'dt_fab' => $it['dt_fab'] ?: null, 'dt_val' => $it['dt_val'] ?: null,
+            'teor'           => $it['teor'] ?? null, 'densidade' => $it['densidade'] ?? null, 'diluicao' => $it['diluicao'] ?? null,
+            'destino_valor'  => in_array( $it['destino_valor'] ?? 'compra', [ 'custo', 'compra', 'ambos' ], true ) ? $it['destino_valor'] : 'compra',
+        ] );
+
+        // aprende o de-para (1x por fornecedor+código)
+        if ( $forn_id && ! empty( $it['cod_fornecedor'] ) && empty( $it['ja_depara'] ) ) {
+            $rd = tao_formula_api( '/estoque_forn_depara', 'POST', [
+                'cliente_id' => $cliente_id, 'fornecedor_id' => $forn_id,
+                'cod_fornecedor' => (string) $it['cod_fornecedor'], 'descr_fornecedor' => $it['descr_xml'] ?? null,
+                'ativo_id' => $aid,
+            ] );
+            if ( $rd['ok'] ) $depara_novos++;
+        }
+
+        // lote (se a NF trouxe rastreabilidade)
+        $lote_id = null;
+        if ( ! empty( $it['lote'] ) ) {
+            $rl = tao_formula_api( '/lab_lotes_mp', 'POST', [
+                'cliente_id' => $cliente_id, 'ativo_id' => $aid, 'nr_lote' => (string) $it['lote'],
+                'origem' => 'fornecedor', 'fornecedor_id' => $forn_id,
+                'nf_numero' => $payload['numero'] ?? null, 'nf_chave' => $payload['chave_nfe'] ?? null,
+                'dt_fabricacao' => $it['dt_fab'] ?: null, 'dt_validade' => $it['dt_val'] ?: gmdate( 'Y-m-d', strtotime( '+2 years' ) ),
+                'qtd_inicial' => $qtd, 'qtd_atual' => $qtd, 'unidade' => $it['unidade'] ?? 'g',
+                'teor_pct' => $it['teor'] ?? null, 'densidade' => $it['densidade'] ?? null, 'fator_diluicao' => $it['diluicao'] ?? null,
+                'status' => 'quarentena',
+            ] );
+            if ( $rl['ok'] && ! empty( $rl['data'] ) ) { $lote_id = $rl['data'][0]['id'] ?? null; $lotes_criados++; }
+        }
+
+        // movimento de entrada (kardex)
+        tao_formula_api( '/estoque_movimentos', 'POST', [
+            'cliente_id' => $cliente_id, 'ativo_id' => $aid, 'lote_id' => $lote_id,
+            'tipo' => 'entrada', 'quantidade' => $qtd, 'origem' => 'nf', 'ref_id' => $entrada_id,
+            'usuario_id' => get_current_user_id(),
+        ] );
+        $mov++;
+
+        // atualiza preço do ativo conforme destino do valor
+        $preco = (float) ( $it['preco_unit'] ?? 0 );
+        if ( $preco > 0 ) {
+            $dv = $it['destino_valor'] ?? 'compra';
+            $upd = [];
+            if ( $dv === 'compra' || $dv === 'ambos' ) $upd['preco_compra'] = $preco;
+            if ( $dv === 'custo'  || $dv === 'ambos' ) $upd['custo_por_unidade'] = $preco;
+            if ( $upd ) tao_formula_api( "/ativos?id=eq.$aid&cliente_id=eq.$cliente_id", 'PATCH', $upd );
+        }
+    }
+
+    // contas a pagar (duplicatas)
+    $cp = 0;
+    foreach ( ( $payload['duplicatas'] ?? [] ) as $d ) {
+        $rc = tao_formula_api( '/contas_pagar', 'POST', [
+            'cliente_id' => $cliente_id, 'fornecedor_id' => $forn_id, 'entrada_nf_id' => $entrada_id,
+            'numero_dup' => $d['numero_dup'] ?? null, 'vencimento' => $d['vencimento'] ?: null,
+            'valor' => (float) ( $d['valor'] ?? 0 ), 'status' => 'aberto',
+        ] );
+        if ( $rc['ok'] ) $cp++;
+    }
+
+    wp_send_json_success( [
+        'entrada_id' => $entrada_id, 'itens' => count( $itens ),
+        'lotes' => $lotes_criados, 'movimentos' => $mov, 'depara_aprendidos' => $depara_novos, 'contas_pagar' => $cp,
+    ] );
+} );
+
+// Lista de entradas de NF
+add_action( 'wp_ajax_tao_formula_nf_lista', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+    $r = tao_formula_api(
+        "/estoque_entradas_nf?cliente_id=eq.$cliente_id&select=id,numero,serie,cnpj_emitente,dt_entrada,valor_total,status,fornecedor_id&order=dt_entrada.desc,criado_em.desc&limit=50"
+    );
+    wp_send_json_success( $r['ok'] ? ( $r['data'] ?? [] ) : [] );
+} );
