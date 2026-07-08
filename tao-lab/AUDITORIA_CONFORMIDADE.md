@@ -75,10 +75,34 @@ Emissão NFC-e/NF-e com grupo de rastreabilidade (lote/validade) + relatório de
 
 ---
 
+## 8. Paridade com o FCerta (módulo a módulo)
+| Módulo FCerta | Equivalente TAO | Status |
+|---|---|---|
+| Cadastros (produtos FC03000, prescritores FC04000, clientes FC07000, fornecedores FC02000) | Ativos, Prescritores, Cliente único (CRM), Fornecedores | ✅ + cargas |
+| Preço/markup (FPreco) | markup_preco no ativo + análise de preços | ✅ |
+| Laboratório — orçamento (FC15xxx) | Editor de Orçamento + motor v2 | ✅ |
+| Laboratório — OM/receitas (FC12xxx) | Produção (OM, kanban, pesagem c/ lote) | ✅ |
+| Laboratório — etapas (FC12500) | lab_etapas / kanban | ✅ |
+| Laboratório — rótulo (FC12300) | Rótulo RDC 67 | ✅ |
+| Fórmulas padrão (FC05000/05100) | 734 carregadas + botão no editor | ✅ |
+| Lotes/diluições (FC03140/03200) | lab_lotes_mp + motor (diluição/teor/equivalência) | ✅ |
+| Estoque/Compras (FC11xxx entrada NF, FC03100 saldo, FC03110 kardex) | Entrada NF, Lotes, Reposição, Kardex | ✅ |
+| Cotação/Pedidos (FCCotacao) | Módulo Cotações (+ gerado pela reposição) | ✅ |
+| Financeiro compras (FC11200 duplicatas) | Contas a Pagar | ✅ |
+| **Controlados/SNGPC (FC99S21-24, FCSngpc)** | **Controlados/SNGPC (livro, balanço, XML)** | 🔶 construído; falta carga dos controlados + transmissão webservice |
+| Livro receituário (FC7LivroReceituario) | Livro de Receituário | ✅ |
+| Fiscal (FCNFE/NFCE/SAT/SPED) | — | 🔴 middleware externo |
+| Vendas/PDV (FCCaixa/FCVarejo) | TAO Caixa + CRM (fora do TAO Lab) | ✅ (outro módulo) |
+| Balança/peso médio/PCP (FCBalanca/FCPesoMedio/FCPcp) | — | ⚪ fora do escopo (decisão Carlos) |
+| Farmácia Popular | — | ⚪ fora (Magis não usa) |
+
+**Conclusão da paridade:** o TAO cobre todos os módulos operacionais do FCerta que a Magis usa. Restam apenas o **Fiscal** (depende de middleware) e a **transmissão automática do SNGPC** ao webservice (hoje gera o XML para envio); balança/peso médio/PCP/Farmácia Popular estão fora por decisão sua.
+
 ## SÍNTESE — o que falta para não ter nada em aberto
-**Bloco grande faltando (o que o Carlos apontou):**
-1. **Pacote 4 — Controlados + SNGPC + Antimicrobianos**: escrituração dos controlados, campos de Notificação de Receita e comprador na OM, balanços BSPO/BMPO e **transmissão do XML à ANVISA**. É o único bloco regulatório inteiro ainda não construído. Depende de: schemas XSD públicos da ANVISA + credenciais de transmissão (que a Magis já tem).
-2. **Fiscal (NFC-e/NF-e)**: depende de contratar middleware.
+**Pacote 4 — Controlados/SNGPC: CONSTRUÍDO 08/07** (tela Controlados/SNGPC: livro, lançamento, balanço BMPO, geração de XML; escrituração automática da OM controlada). Falta apenas: (a) rodar migration_sngpc_v1; (b) carregar quais ativos são controlados (do FCerta) e marcar a classe; (c) **transmissão automática ao webservice da ANVISA** — hoje o sistema gera o XML para envio manual; (d) balanço BSPO trimestral formal.
+
+**Único bloco de sistema ainda não construído:**
+1. **Fiscal (NFC-e/NF-e)**: depende de contratar middleware externo (PlugNotas/Focus/TecnoSpeed).
 
 **Refinamentos menores (RDC 67 já está completa, mas polir):**
 - Upload do PDF do laudo por lote.
