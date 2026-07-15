@@ -215,31 +215,21 @@ function tao_formula_page_producao() {
         $(document).on('click','#taof-pd-fechar',function(){$('#taof-pd-modal').hide();});
         $('#taof-pd-modal').on('click','.taof-pd-ov',function(){$('#taof-pd-modal').hide();});
 
-        // ── Ficha de Pesagem imprimível (busca dados via prod_om) ──
+        // ── Ficha de Manipulação — abre em MODAL (render server-side), imprime/exporta PDF ──
         function imprimirFicha(id){
-            $.getJSON(ajaxUrl,{action:'tao_formula_prod_om',nonce:nonce,ordem_id:id},function(r){
-                if(!r.success){alert('Erro ao abrir a ficha');return;}
-                var o=r.data.ordem, its=r.data.itens||[];
-                var linhas=its.map(function(it){
-                    var pesar=it.eh_qsp?'QSP':(it.qtd_pesar!=null?parseFloat(it.qtd_pesar)+' '+esc(it.unid_pesar||'g'):'—');
-                    var corr=[]; if(it.teor_aplic&&it.teor_aplic!=100)corr.push('teor '+parseFloat(it.teor_aplic)+'%'); if(it.equiv_aplic&&it.equiv_aplic!=1)corr.push('equiv x'+parseFloat(it.equiv_aplic)); if(it.diluicao_aplic&&it.diluicao_aplic!=1)corr.push('dil x'+parseFloat(it.diluicao_aplic));
-                    var lote='—'; if(it.lote_mp_id&&it.lotes){var l=it.lotes.filter(function(x){return x.id===it.lote_mp_id;})[0]; if(l)lote=esc(l.nr_lote)+' (val '+fdata(l.dt_validade)+')';}
-                    return '<tr><td>'+esc(it.nome_ativo||it.descricao)+(it.descricao&&it.descricao!==it.nome_ativo?'<br><small>prescr.: '+esc(it.descricao)+'</small>':'')+'</td>'+
-                        '<td>'+(it.qtd_prescrita!=null?parseFloat(it.qtd_prescrita)+' '+esc(it.unidade||''):'—')+'</td>'+
-                        '<td><b>'+pesar+'</b>'+(corr.length?'<br><small>'+corr.join(' · ')+'</small>':'')+'</td>'+
-                        '<td>'+lote+'</td><td style="min-width:70px"></td><td style="min-width:40px"></td></tr>';
-                }).join('');
-                var html='<h2 style="margin:0 0 2px">Ficha de Pesagem — OM '+esc(o.numero)+'</h2>'+
-                    '<div style="font-size:12px;margin:0 0 10px">Paciente: <b>'+esc(o.paciente_nome)+'</b> &middot; '+esc(o.forma_farmac||'')+' '+(o.volume?parseFloat(o.volume)+esc(o.unidade_vol||''):'')+' &middot; Validade: '+fdata(o.dt_validade)+(o.controlado?' &middot; <b style="color:#b91c1c">CONTROLADO (344/98)</b>':'')+'</div>'+
-                    '<table style="width:100%;border-collapse:collapse;font-size:12px" border="1" cellpadding="4"><tr style="background:#eee"><th>Ativo (produto a pesar)</th><th>Dose prescrita</th><th>Qtd a PESAR</th><th>Lote / validade</th><th>Pesado</th><th>Visto</th></tr>'+linhas+'</table>'+
-                    (o.modo_preparo?'<div style="margin-top:10px;font-size:12px"><b>Modo de preparo / precauções:</b><br>'+esc(o.modo_preparo).replace(/\n/g,'<br>')+'</div>':'')+
-                    '<div style="margin-top:26px;font-size:12px;display:flex;justify-content:space-between"><div>Manipulado por: ____________________</div><div>Conferido por: ____________________</div></div>';
-                var _css='<style>@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{margin:0;font-family:Arial,Helvetica,sans-serif;color:#000;font-size:12px;line-height:1.35}h2{font-size:16px;margin:0 0 4px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #000;padding:4px 6px;vertical-align:top}th{background:#eee!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}tr,td,th{page-break-inside:avoid}small{font-size:10px;color:#333}@media print{body{margin:0}}</style>';
-                var w=window.open('','_blank');
-                w.document.write('<html><head><meta charset="utf-8"><title>Ficha de Pesagem OM '+esc(o.numero)+'</title>'+_css+'</head><body onload="window.print()">'+html+'</body></html>');
-                w.document.close();
+            $('.taof-pd-box').css('max-width','900px');
+            $('#taof-pd-body').html('<p style="color:#94a3b8;padding:30px;text-align:center">Carregando ficha…</p>');
+            $('#taof-pd-modal').show();
+            $.getJSON(ajaxUrl,{action:'tao_formula_prod_ficha',nonce:nonce,ordem_id:id},function(r){
+                if(!r.success){ $('#taof-pd-body').html('<p style="color:#dc2626;padding:20px">'+((r.data&&r.data.message)||'Erro ao abrir a ficha')+'</p>'); return; }
+                $('#taof-pd-body').html(
+                    '<div class="taof-ficha-bar" style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px">'+
+                    '<button class="button button-primary" id="taof-ficha-print">🖨 Imprimir / Salvar PDF</button>'+
+                    '<button class="button" id="taof-ficha-close">Fechar</button></div>'+ r.data.html );
             });
         }
+        $(document).on('click','#taof-ficha-print',function(){ window.print(); });
+        $(document).on('click','#taof-ficha-close',function(){ $('#taof-pd-modal').hide(); $('.taof-pd-box').css('max-width',''); });
         // ── Rótulo RDC 67 imprimível ──
         function imprimirRotulo(id){
             $.getJSON(ajaxUrl,{action:'tao_formula_prod_rotulo',nonce:nonce,ordem_id:id},function(r){

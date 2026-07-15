@@ -322,39 +322,43 @@ add_action( 'wp_ajax_tao_formula_ativo_estoque', function () {
 // FCerta/formato antigo ("2026070009") ficam como estão e não interferem na contagem.
 
 function tao_formula_gerar_numero( $cliente_id, $card_id = null ) {
-    $prefix = date( 'Ym' ); // ex: "202607"
+    $prefix = date( 'Ym' ); // mês atual, só p/ compor uma requisição NOVA
+    // A requisição (NNNNN) é ÚNICA e CONTÍNUA — NÃO reinicia no mês (é a chave de busca da
+    // farmácia). Própria do TAO, começando do 00001 (não ancorada no FCerta, p/ diferenciar).
+    // Considera todo o novo formato YYYYMM-NNNNN-SS (2 hífens), os mais recentes primeiro.
     $r      = tao_formula_api(
         "/orcamentos?cliente_id=eq.$cliente_id" .
-        "&numero_orcamento=like.{$prefix}-*" .
-        "&select=numero_orcamento,card_id&limit=3000"
+        "&numero_orcamento=like.*-*-*" .
+        "&select=numero_orcamento,card_id&order=numero_orcamento.desc&limit=5000"
     );
     $todos = ( $r['ok'] && is_array( $r['data'] ) ) ? $r['data'] : [];
 
-    $max_req  = 0;      // maior nº de requisição do mês (2º segmento)
-    $req_card = null;   // requisição já atribuída a este card (p/ agrupar fórmulas)
+    $max_req  = 0;      // maior nº de requisição já emitido (contínuo, todos os meses)
+    $req_base = null;   // "YYYYMM-NNNNN" da requisição já aberta p/ este card
 
     foreach ( $todos as $row ) {
         $parts = explode( '-', (string) ( $row['numero_orcamento'] ?? '' ) );
-        if ( count( $parts ) < 2 || $parts[0] !== $prefix ) continue;   // só o novo formato deste mês
+        if ( count( $parts ) !== 3 ) continue;                                   // só o formato YYYYMM-NNNNN-SS
+        if ( strlen( $parts[0] ) !== 6 || ! ctype_digit( $parts[0] ) || ! ctype_digit( $parts[1] ) ) continue;
         $req = (int) $parts[1];
         if ( $req > $max_req ) $max_req = $req;
-        if ( $card_id && ( $row['card_id'] ?? '' ) === $card_id ) $req_card = $parts[1];
+        if ( $card_id && ( $row['card_id'] ?? '' ) === $card_id ) $req_base = $parts[0] . '-' . $parts[1];
     }
 
-    // fórmula adicional do MESMO card → mantém a requisição, avança a sequência SS
-    if ( $card_id && $req_card !== null ) {
+    // fórmula adicional do MESMO card → mantém a requisição original, avança a sequência SS
+    if ( $card_id && $req_base !== null ) {
         $max_suf = 0;
         foreach ( $todos as $row ) {
             $parts = explode( '-', (string) ( $row['numero_orcamento'] ?? '' ) );
-            if ( count( $parts ) >= 2 && $parts[0] === $prefix && $parts[1] === $req_card ) {
-                $s = isset( $parts[2] ) ? (int) $parts[2] : 0;
+            if ( count( $parts ) === 3 && ( $parts[0] . '-' . $parts[1] ) === $req_base ) {
+                $s = (int) $parts[2];
                 if ( $s > $max_suf ) $max_suf = $s;
             }
         }
-        return $prefix . '-' . $req_card . '-' . str_pad( $max_suf + 1, 2, '0', STR_PAD_LEFT );
+        return $req_base . '-' . str_pad( $max_suf + 1, 2, '0', STR_PAD_LEFT );
     }
 
-    // nova requisição → NNNNN (5 dígitos) com a 1ª fórmula (-01)
+    // nova requisição → NNNNN contínuo (5 dígitos, cresce além se passar de 99999) com a 1ª fórmula
     return $prefix . '-' . str_pad( $max_req + 1, 5, '0', STR_PAD_LEFT ) . '-01';
 }
 
@@ -423,6 +427,9 @@ function tao_formula_orc_payload( $itens ) {
     $p['forma_tipo']    = sanitize_text_field( $_POST['forma_tipo']   ?? '' ) ?: null;
     $p['cid_codigo']    = sanitize_text_field( $_POST['cid_codigo']    ?? '' ) ?: null;
     $p['cid_descricao'] = sanitize_text_field( $_POST['cid_descricao'] ?? '' ) ?: null;
+    // Ficha de manipulação: data da prescrição + previsão de retirada (migration_ficha_om_v1)
+    $p['dt_prescricao']     = sanitize_text_field( $_POST['dt_prescricao']     ?? '' ) ?: null;
+    $p['previsao_retirada'] = sanitize_text_field( $_POST['previsao_retirada'] ?? '' ) ?: null;
     return $p;
 }
 
@@ -438,7 +445,7 @@ function tao_formula_contato_do_card( $card_id ) {
 function tao_formula_orc_gravar( $path, $method, $data ) {
     $r = tao_formula_api( $path, $method, $data );
     if ( ! $r['ok'] && strpos( (string) ( $r['raw'] ?? '' ), 'column' ) !== false ) {
-        unset( $data['nome_cliente'], $data['prescritor'], $data['prescritor_id'], $data['posologia'], $data['forma_tipo'], $data['contato_id'], $data['cid_codigo'], $data['cid_descricao'] );
+        unset( $data['nome_cliente'], $data['prescritor'], $data['prescritor_id'], $data['posologia'], $data['forma_tipo'], $data['contato_id'], $data['cid_codigo'], $data['cid_descricao'], $data['dt_prescricao'], $data['previsao_retirada'] );
         $r = tao_formula_api( $path, $method, $data );
     }
     return $r;
@@ -3893,13 +3900,20 @@ function tao_formula_criar_om( $cliente_id, $orc_id ) {
         'volume'        => $o['forma_vol'] ?? null,
         'unidade_vol'   => $o['forma_unidade'] ?? null,
         'qtd_unidades'  => $o['qtde_potes'] ?? 1,
-        'modo_preparo'  => $modo_preparo,
+        'modo_preparo'      => $modo_preparo,
+        'dt_prescricao'     => $o['dt_prescricao'] ?? null,       // herdado do orçamento (ficha)
+        'previsao_retirada' => $o['previsao_retirada'] ?? null,   // herdado do orçamento (ficha)
         'dt_validade'   => gmdate( 'Y-m-d', strtotime( "+$dias days" ) ),
         'etapa_id'      => tao_formula_etapa_inicial( $cliente_id ),
         'status'        => 'aberta',
         'criado_por'    => get_current_user_id(),
     ];
     $cab = tao_formula_api( '/lab_ordens', 'POST', $payload );
+    // migration_ficha_om_v1 pendente? o banco recusa a coluna → remove e recria (não bloqueia a produção).
+    if ( ! $cab['ok'] && strpos( (string) ( $cab['raw'] ?? '' ), 'column' ) !== false ) {
+        unset( $payload['dt_prescricao'], $payload['previsao_retirada'] );
+        $cab = tao_formula_api( '/lab_ordens', 'POST', $payload );
+    }
     if ( ! $cab['ok'] && ! empty( $payload['numero'] ) ) {
         // o banco recusou o número informado (trava/trigger na coluna) → cria com o número padrão;
         // NUNCA bloqueia a produção por causa do número.

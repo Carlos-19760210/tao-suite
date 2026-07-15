@@ -108,28 +108,25 @@ add_action( 'tao_crm_card_paineis', function ( $card ) {
 				'@media print{body{margin:0}}'+
 			'</style>';
 		}
-		// Ficha de Pesagem (janela imprimível) — reusa o handler prod_om (ativo origem + qtd a pesar + lote FEFO)
+		// Ficha de Manipulação — abre em MODAL (render server-side), imprime/exporta PDF
 		function abrirFicha(ordem_id){
-			jQuery.getJSON(ajax,{action:'tao_formula_prod_om',nonce:nonce,ordem_id:ordem_id},function(r){
-				if(!r||!r.success){ msg('✘ erro ao abrir ficha','#dc2626'); return; }
-				var o=r.data.ordem, its=r.data.itens||[];
-				var linhas=its.map(function(it){
-					var pesar=it.eh_qsp?'QSP':(it.qtd_pesar!=null?parseFloat(it.qtd_pesar)+' '+esc(it.unid_pesar||'g'):'—');
-					var corr=[]; if(it.teor_aplic&&it.teor_aplic!=100)corr.push('teor '+parseFloat(it.teor_aplic)+'%'); if(it.equiv_aplic&&it.equiv_aplic!=1)corr.push('equiv x'+parseFloat(it.equiv_aplic)); if(it.diluicao_aplic&&it.diluicao_aplic!=1)corr.push('dil x'+parseFloat(it.diluicao_aplic));
-					var lote='—'; if(it.lote_mp_id&&it.lotes){var l=it.lotes.filter(function(x){return x.id===it.lote_mp_id;})[0]; if(l)lote=esc(l.nr_lote)+' (val '+fdata(l.dt_validade)+')';}
-					return '<tr><td>'+esc(it.nome_ativo||it.descricao)+(it.descricao&&it.descricao!==it.nome_ativo?'<br><small>prescr.: '+esc(it.descricao)+'</small>':'')+'</td>'+
-						'<td>'+(it.qtd_prescrita!=null?parseFloat(it.qtd_prescrita)+' '+esc(it.unidade||''):'—')+'</td>'+
-						'<td><b>'+pesar+'</b>'+(corr.length?'<br><small>'+corr.join(' · ')+'</small>':'')+'</td>'+
-						'<td>'+lote+'</td><td style="min-width:70px"></td><td style="min-width:40px"></td></tr>';
-				}).join('');
-				var html='<h2 style="margin:0 0 2px">Ficha de Pesagem — OM '+esc(o.numero)+'</h2>'+
-					'<div style="font-size:12px;margin:0 0 10px">Paciente: <b>'+esc(o.paciente_nome)+'</b> &middot; '+esc(o.forma_farmac||'')+' '+(o.volume?parseFloat(o.volume)+esc(o.unidade_vol||''):'')+' &middot; Validade: '+fdata(o.dt_validade)+(o.controlado?' &middot; <b style="color:#b91c1c">CONTROLADO (344/98)</b>':'')+'</div>'+
-					'<table style="width:100%;border-collapse:collapse;font-size:12px" border="1" cellpadding="4"><tr style="background:#eee"><th>Ativo (produto a pesar)</th><th>Dose prescrita</th><th>Qtd a PESAR</th><th>Lote / validade</th><th>Pesado</th><th>Visto</th></tr>'+linhas+'</table>'+
-					(o.modo_preparo?'<div style="margin-top:10px;font-size:12px"><b>Modo de preparo / precauções:</b><br>'+esc(o.modo_preparo).replace(/\n/g,'<br>')+'</div>':'')+
-					'<div style="margin-top:26px;font-size:12px;display:flex;justify-content:space-between"><div>Manipulado por: ____________________</div><div>Conferido por: ____________________</div></div>';
-				var w=window.open('','_blank');
-				w.document.write('<html><head><meta charset="utf-8"><title>Ficha de Pesagem OM '+esc(o.numero)+'</title>'+taofFichaCSS()+'</head><body onload="window.print()">'+html+'</body></html>');
-				w.document.close();
+			var $m = jQuery('#taof-ficha-modal');
+			if(!$m.length){
+				$m = jQuery('<div id="taof-ficha-modal" style="display:none;position:fixed;inset:0;z-index:100050">'+
+					'<div class="tfm-ov" style="position:fixed;inset:0;background:rgba(15,23,42,.55)"></div>'+
+					'<div class="tfm-box" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border-radius:10px;width:920px;max-width:96vw;max-height:92vh;overflow:auto;padding:18px 20px;box-shadow:0 10px 40px rgba(0,0,0,.3)">'+
+					'<div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px">'+
+					'<button type="button" class="button button-primary tfm-print">🖨 Imprimir / Salvar PDF</button>'+
+					'<button type="button" class="button tfm-close">Fechar</button></div>'+
+					'<div class="tfm-body"></div></div></div>').appendTo('body');
+				$m.on('click','.tfm-ov,.tfm-close',function(){ $m.hide(); });
+				$m.on('click','.tfm-print',function(){ window.print(); });
+			}
+			$m.find('.tfm-body').html('<p style="color:#94a3b8;padding:30px;text-align:center">Carregando ficha…</p>');
+			$m.show();
+			jQuery.getJSON(ajax,{action:'tao_formula_prod_ficha',nonce:nonce,ordem_id:ordem_id},function(r){
+				if(!r||!r.success){ $m.find('.tfm-body').html('<p style="color:#dc2626;padding:20px">'+((r&&r.data&&r.data.message)||'Erro ao abrir a ficha')+'</p>'); return; }
+				$m.find('.tfm-body').html(r.data.html);
 			});
 		}
 		// Rótulo RDC 67 (janela imprimível) — reusa o handler prod_rotulo
