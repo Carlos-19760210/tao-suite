@@ -63,14 +63,14 @@ function tao_formula_page_orcamento_novo() {
         // 2ª tentativa (fallback): produtos com "INCOLOR" no nome (padrão de busca do cliente)
         $incolor_ativos = [];
         if ( ! empty( $capsulas_raw ) ) {
-            $ri = tao_formula_api( "/ativos?cliente_id=eq.$cliente_id&nome=ilike.*INCOLOR*&select=codigo,nome,preco_venda" );
+            $ri = tao_formula_api( "/ativos?cliente_id=eq.$cliente_id&nome=ilike.*INCOLOR*&select=nome,preco_venda" );
             $incolor_ativos = $ri['ok'] ? ( $ri['data'] ?? [] ) : [];
         }
 
         // 3ª tentativa (fallback geral): qualquer ativo com "CAP" no nome (para busca por número)
         $cap_ativos = [];
         if ( ! empty( $capsulas_raw ) ) {
-            $rg = tao_formula_api( "/ativos?cliente_id=eq.$cliente_id&nome=ilike.*CAP*&select=codigo,nome,preco_venda&limit=200" );
+            $rg = tao_formula_api( "/ativos?cliente_id=eq.$cliente_id&nome=ilike.*CAP*&select=nome,preco_venda&limit=200" );
             $cap_ativos = $rg['ok'] ? ( $rg['data'] ?? [] ) : [];
         }
 
