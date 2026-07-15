@@ -71,10 +71,13 @@ function tao_formula_url( $section = 'formula-dashboard', $params = [] ) {
         'formula-novo-orc'   => 'tao-formula-orc-novo',
         'formula-historico'  => 'tao-formula-historico',
         'formula-prescritores' => 'tao-formula-prescritores',
+        'formula-fornecedores' => 'tao-formula-fornecedores',
         'formula-estoque-nf'   => 'tao-formula-estoque-nf',
         'formula-estoque-lotes'=> 'tao-formula-estoque-lotes',
+        'formula-estoque-inventario'=> 'tao-formula-estoque-inventario',
         'formula-estoque-repo' => 'tao-formula-estoque-repo',
         'formula-producao'     => 'tao-formula-producao',
+        'formula-producao-interna' => 'tao-formula-producao-interna',
         'formula-livro'        => 'tao-formula-livro',
         'formula-contas-pagar' => 'tao-formula-contas-pagar',
         'formula-sngpc'        => 'tao-formula-sngpc',
@@ -90,10 +93,11 @@ function tao_formula_url( $section = 'formula-dashboard', $params = [] ) {
 /**
  * Realiza chamada REST para o Supabase.
  */
-function tao_formula_api( $path, $method = 'GET', $body = null ) {
+function tao_formula_api( $path, $method = 'GET', $body = null, $want_count = false ) {
     $url = rtrim( tao_formula_supabase_url(), '/' ) . '/rest/v1' . $path;
     $key = tao_formula_supabase_key();
 
+    $prefer = 'return=representation' . ( $want_count ? ',count=exact' : '' );
     $args = [
         'method'  => $method,
         'timeout' => 15,
@@ -101,7 +105,7 @@ function tao_formula_api( $path, $method = 'GET', $body = null ) {
             'apikey'        => $key,
             'Authorization' => 'Bearer ' . $key,
             'Content-Type'  => 'application/json',
-            'Prefer'        => 'return=representation',
+            'Prefer'        => $prefer,
         ],
     ];
     if ( $body !== null ) {
@@ -116,10 +120,21 @@ function tao_formula_api( $path, $method = 'GET', $body = null ) {
     $raw  = wp_remote_retrieve_body( $resp );
     $data = json_decode( $raw, true );
 
+    // total de registros (Content-Range: "0-19/1449") quando count solicitado
+    $total = null;
+    if ( $want_count ) {
+        $cr = wp_remote_retrieve_header( $resp, 'content-range' );
+        if ( $cr && strpos( $cr, '/' ) !== false ) {
+            $t = substr( $cr, strpos( $cr, '/' ) + 1 );
+            if ( is_numeric( $t ) ) $total = (int) $t;
+        }
+    }
+
     return [
-        'ok'   => $code >= 200 && $code < 300,
-        'code' => $code,
-        'data' => is_array( $data ) ? $data : [],
-        'raw'  => $raw,
+        'ok'    => $code >= 200 && $code < 300,
+        'code'  => $code,
+        'data'  => is_array( $data ) ? $data : [],
+        'total' => $total,
+        'raw'   => $raw,
     ];
 }

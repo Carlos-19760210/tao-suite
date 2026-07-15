@@ -108,6 +108,52 @@ function tao_formula_page_config() {
 
     <hr>
 
+    <!-- Fluxo novo de OM (em testes) — interruptor mestre -->
+    <h2>🧪 Fluxo novo de OM <span style="font-size:12px;color:#b45309;font-weight:400">(em testes)</span></h2>
+    <table class="form-table taof-form-table">
+        <tr>
+            <th><label for="taof-om-ganho">Ativar fluxo novo</label></th>
+            <td>
+                <label>
+                    <input type="checkbox" id="taof-om-ganho" value="1"
+                           <?php checked( get_option( 'tao_formula_om_ganho_ativo' ), '1' ); ?>>
+                    Ligar OM no ganho, trava de ativos, aprovação/estorno no card e conclusão em "Pronto para Entrega"
+                </label>
+                <span id="taof-om-ganho-msg" style="margin-left:8px;display:none"></span>
+                <p class="description">
+                    ⚠️ <strong>Em testes.</strong> Desligado (padrão), <strong>NADA muda</strong> na operação: o ganho fecha como hoje,
+                    a OM é gerada manualmente na Produção e nada trava. <strong>Ligue</strong> para exercitar o fluxo completo
+                    (a OM nasce no ganho, o card aprova/estorna a formulação, e mover para "Pronto para Entrega" baixa o estoque);
+                    <strong>desligue</strong> para voltar tudo ao normal na hora.
+                </p>
+            </td>
+        </tr>
+    </table>
+    <script>
+    (function(){
+        var chk = document.getElementById('taof-om-ganho');
+        var msg = document.getElementById('taof-om-ganho-msg');
+        if (!chk || !msg) return;
+        function pinta(cor, txt){ msg.style.display='inline'; msg.style.fontWeight='bold'; msg.style.color=cor; msg.textContent=txt; }
+        // estado atual ao abrir a tela (não precisa de botão — salva sozinho ao marcar)
+        pinta(chk.checked ? '#0a0' : '#64748b', chk.checked ? '● LIGADO' : '○ desligado');
+        chk.addEventListener('change', function(){
+            var on = this.checked;
+            pinta('#64748b', 'salvando…');
+            fetch('<?php echo esc_url( admin_url( "admin-ajax.php" ) ); ?>', {
+                method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                body: new URLSearchParams({ action:'tao_formula_toggle_om_ganho', on: on?'1':'0',
+                    _wpnonce:'<?php echo esc_js( wp_create_nonce('tao_formula_nonce') ); ?>' })
+            }).then(function(r){ return r.json(); }).then(function(d){
+                if (d && d.success) pinta(on ? '#0a0' : '#64748b', on ? '✔ LIGADO (salvo)' : '✔ desligado (salvo)');
+                else { pinta('#c00', (d && d.data && d.data.message) || 'Erro ao salvar'); chk.checked = !on; }
+            }).catch(function(){ pinta('#c00', 'Falha de conexão — não salvou'); chk.checked = !on; });
+        });
+    })();
+    </script>
+
+    <hr>
+
     <!-- Chave OpenAI API -->
     <h2>🤖 IA — Análise de Receitas</h2>
     <table class="form-table taof-form-table">
@@ -128,7 +174,7 @@ function tao_formula_page_config() {
         var key = document.getElementById('taof-openai-key').value.trim();
         var msg = document.getElementById('taof-openai-msg');
         if (!key) { msg.style.display='inline'; msg.style.color='#c00'; msg.textContent='Informe a chave.'; return; }
-        fetch(ajaxurl, {
+        fetch('<?php echo esc_url( admin_url( "admin-ajax.php" ) ); ?>', {
             method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
             body: new URLSearchParams({ action:'tao_formula_save_openai_key', key: key,
                 _wpnonce:'<?php echo esc_js( wp_create_nonce('tao_formula_nonce') ); ?>' })
@@ -177,7 +223,7 @@ function tao_formula_page_config() {
     <script>
     document.getElementById('taof-regen-key').addEventListener('click', function(){
         if (!confirm('Gerar nova chave? O fluxo N8N precisará ser atualizado.')) return;
-        fetch(ajaxurl, {
+        fetch('<?php echo esc_url( admin_url( "admin-ajax.php" ) ); ?>', {
             method: 'POST',
             headers: {'Content-Type':'application/x-www-form-urlencoded'},
             body: new URLSearchParams({ action: 'tao_formula_regen_ia_key', _wpnonce: '<?php echo esc_js( wp_create_nonce('tao_formula_nonce') ); ?>' })

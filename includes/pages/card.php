@@ -474,6 +474,12 @@ function tao_crm_page_card() {
                                         title="Importar orçamentos via texto (formato ORC:…)">
                                     &#x1F4CB; Importar
                                 </button>
+                                <button type="button" id="crm-formula-repetir-btn"
+                                        class="button button-small"
+                                        style="font-size:11px"
+                                        title="Repetir uma fórmula anterior do cliente (Histórico)">
+                                    &#x21BB; Repetir
+                                </button>
                                 <button type="button" id="crm-analise-btn"
                                         class="button button-small"
                                         style="font-size:11px;color:#1d4ed8;border-color:#93c5fd"
@@ -525,6 +531,14 @@ function tao_crm_page_card() {
                         <?php endif; ?>
                     </div>
                     <?php endif; ?>
+
+                    <?php
+                    /**
+                     * Ponto de extensão de painéis do card — módulos à parte (ex.: tao-entregas)
+                     * plugam sua própria seção aqui, só se estiverem ativos. O CRM não os conhece.
+                     */
+                    do_action( 'tao_crm_card_paineis', $card );
+                    ?>
 
                     <!-- Etiquetas (Tags) -->
                     <?php if ( ! empty( $all_tags ) ) : ?>
@@ -792,10 +806,12 @@ function tao_crm_page_card() {
             </div>
             <?php
                 $taof_novo_url = admin_url( 'admin.php?page=tao-formula-orc-novo' );
+                $taof_hist_url = admin_url( 'admin.php?page=tao-formula-historico' );
                 $taof_nonce    = wp_create_nonce( 'tao_formula_nonce' );
             ?>
             <script>
             window.taofNovoUrl  = <?php echo wp_json_encode( $taof_novo_url ); ?>;
+            window.taofHistUrl  = <?php echo wp_json_encode( $taof_hist_url ); ?>;
             window.taofNonce    = <?php echo wp_json_encode( $taof_nonce ); ?>;
             window.taofAjaxUrl  = <?php echo wp_json_encode( admin_url('admin-ajax.php') ); ?>;
             window.taofCrmCardId   = <?php echo wp_json_encode( $card_id ); ?>;
@@ -1793,6 +1809,18 @@ function tao_crm_page_card() {
             });
         }
 
+        // Botão Repetir — abre o Histórico do cliente no modal; repetir cria o orçamento NESTE card
+        var repetirBtn = document.getElementById('crm-formula-repetir-btn');
+        if (repetirBtn && window.taofHistUrl) {
+            repetirBtn.addEventListener('click', function () {
+                var src = window.taofHistUrl
+                    + '&modal=1'
+                    + '&card_id=' + encodeURIComponent(cardId)
+                    + '&q='       + encodeURIComponent(window.taofCrmNome || '');
+                abrirModal(src);
+            });
+        }
+
         // Clique fora do iframe fecha modal
         modal.addEventListener('click', function (e) {
             if (e.target === modal) fecharModal();
@@ -1920,6 +1948,13 @@ function tao_crm_page_card() {
             return m[st] || [st, '#f1f5f9', '#475569'];
         }
 
+        // Botões de aprovação do orçamento (só o APROVADO vira OM). Aprovado/rejeitado → botão reabrir.
+        function aprovBtns(o){
+            if (o.status==='aprovado_farma' || o.status==='aceito_paciente' || o.status==='rejeitado')
+                return '<button class="button button-small taof-orc-reabrir" data-id="'+o.id+'" style="font-size:10px;padding:2px 6px" title="Voltar para pendente">↩</button> ';
+            return '<button class="button button-small taof-orc-aprovar" data-id="'+o.id+'" style="font-size:10px;padding:2px 6px;color:#16a34a;border-color:#86efac" title="Aprovar — vira OM">✅</button> '
+                 + '<button class="button button-small taof-orc-rejeitar" data-id="'+o.id+'" style="font-size:10px;padding:2px 6px;color:#dc2626;border-color:#fca5a5" title="Rejeitar — não vira OM">✕</button> ';
+        }
         function carregarFormulas() {
             if (!listDiv) return;
             listDiv.innerHTML = '<span style="color:#94a3b8">Carregando...</span>';
@@ -1984,6 +2019,7 @@ function tao_crm_page_card() {
                             + '</td>'
                             + '<td style="padding:5px 2px;color:#94a3b8">' + dt + '</td>'
                             + '<td style="padding:5px 2px;white-space:nowrap">'
+                            + (!window.taofCrmFechado ? aprovBtns(o) : '')
                             + (!window.taofCrmFechado ? '<button class="button button-small taof-orc-editar" data-url="' + editUrl + '" style="font-size:10px;padding:2px 6px">✏</button> ' : '')
                             + (!window.taofCrmFechado ? '<button class="button button-small taof-orc-excluir" data-id="' + o.id + '" data-num="' + (o.numero_orcamento||'') + '" style="font-size:10px;padding:2px 6px;color:#dc2626;border-color:#fca5a5">🗑</button>' : '')
                             + '</td>'
@@ -2031,6 +2067,29 @@ function tao_crm_page_card() {
                             fetch(ajaxUrl, { method:'POST', body:fd })
                                 .then(function(r){ return r.json(); })
                                 .then(function(r){ if (r.success) carregarFormulas(); });
+                        });
+                    });
+
+                    // Botões aprovar / rejeitar / reabrir o ORÇAMENTO (só o aprovado vira OM)
+                    function orcAcao(action, id, extra){
+                        var fd=new FormData(); fd.append('action',action); fd.append('nonce',taofNonce); fd.append('orc_id',id);
+                        if(extra) Object.keys(extra).forEach(function(k){ fd.append(k, extra[k]); });
+                        return fetch(ajaxUrl,{method:'POST',body:fd}).then(function(r){return r.json();});
+                    }
+                    listDiv.querySelectorAll('.taof-orc-aprovar').forEach(function(b){
+                        b.addEventListener('click', function(){
+                            orcAcao('tao_formula_orc_aprovar', this.dataset.id).then(function(r){ if(r.success) carregarFormulas(); else alert((r.data&&r.data.message)||'Erro ao aprovar'); });
+                        });
+                    });
+                    listDiv.querySelectorAll('.taof-orc-rejeitar').forEach(function(b){
+                        b.addEventListener('click', function(){
+                            var m = prompt('Motivo da rejeição (opcional):','') || '';
+                            orcAcao('tao_formula_orc_rejeitar', this.dataset.id, {motivo:m}).then(function(r){ if(r.success) carregarFormulas(); else alert('Erro ao rejeitar'); });
+                        });
+                    });
+                    listDiv.querySelectorAll('.taof-orc-reabrir').forEach(function(b){
+                        b.addEventListener('click', function(){
+                            orcAcao('tao_formula_orc_reabrir', this.dataset.id).then(function(r){ if(r.success) carregarFormulas(); else alert('Erro'); });
                         });
                     });
                 })

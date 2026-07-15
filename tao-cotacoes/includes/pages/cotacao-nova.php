@@ -29,8 +29,8 @@ function tao_cotacoes_page_nova() {
             <h2>1. Itens para cotação</h2>
             <label class="taocot-upload" id="taocot-upload">
                 <input type="file" id="taocot-file" accept=".xls,.xlsx">
-                <div><strong>&#x1F4C4; Subir planilha "Estoque mínimo" do Formula Certa</strong></div>
-                <div class="taocot-muted">.xls — os itens entram já vinculados pelo código FC. Você também pode montar a lista manualmente abaixo.</div>
+                <div><strong>&#x1F4C4; Subir planilha de "Estoque mínimo"</strong></div>
+                <div class="taocot-muted">.xls — os itens entram já vinculados pelo código. Você também pode montar a lista manualmente abaixo.</div>
             </label>
             <div class="taocot-status-msg" id="taocot-parse-msg"></div>
 
@@ -67,13 +67,19 @@ function tao_cotacoes_page_nova() {
             <?php if ( empty( $fornecedores ) ) : ?>
                 <p class="taocot-muted">Nenhum fornecedor ativo. <a href="<?php echo esc_url( tao_cot_url( 'cotacoes-fornecedores' ) ); ?>">Cadastre os fornecedores</a> antes de criar a cotação.</p>
             <?php else : ?>
-                <div style="display:flex;flex-wrap:wrap;gap:8px 22px">
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+                    <input type="text" id="taocot-forn-busca" placeholder="filtrar fornecedor…" autocomplete="off"
+                           style="padding:5px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;width:200px">
+                    <button type="button" class="taocot-btn" id="taocot-forn-all" style="padding:4px 10px;font-size:12px">Marcar todos</button>
+                    <button type="button" class="taocot-btn" id="taocot-forn-none" style="padding:4px 10px;font-size:12px">Limpar</button>
+                    <span class="taocot-muted" id="taocot-forn-count">0 selecionado(s)</span>
+                </div>
+                <div id="taocot-forn-chips" style="display:flex;flex-wrap:wrap;gap:6px">
                 <?php foreach ( $fornecedores as $f ) : ?>
-                    <label style="display:flex;align-items:center;gap:6px;font-size:13px">
-                        <input type="checkbox" class="taocot-forn-chk" value="<?php echo esc_attr( $f['id'] ); ?>">
-                        <strong><?php echo esc_html( $f['nome'] ); ?></strong>
-                        <span class="taocot-muted"><?php echo esc_html( $f['whatsapp'] ); ?></span>
-                    </label>
+                    <span class="taocot-chip" data-nome="<?php echo esc_attr( strtolower( $f['nome'] ) ); ?>"<?php echo empty( $f['whatsapp'] ) ? ' data-semwa="1" title="fornecedor sem WhatsApp — não recebe o envio"' : ''; ?>>
+                        <input type="checkbox" class="taocot-forn-chk" value="<?php echo esc_attr( $f['id'] ); ?>" style="display:none">
+                        <?php echo esc_html( $f['nome'] ); ?><?php echo empty( $f['whatsapp'] ) ? ' ⚠' : ''; ?>
+                    </span>
                 <?php endforeach; ?>
                 </div>
             <?php endif; ?>
@@ -98,9 +104,25 @@ function tao_cotacoes_page_nova() {
                 </div>
             </div>
             <div class="taocot-actions">
-                <button class="taocot-btn taocot-btn-primary" id="taocot-btn-criar-enviar">&#x1F4E4; Criar e enviar aos fornecedores</button>
+                <button class="taocot-btn taocot-btn-primary" id="taocot-btn-criar-enviar">&#x1F4E4; Revisar mensagem e enviar</button>
                 <button class="taocot-btn" id="taocot-btn-rascunho">Salvar como rascunho</button>
                 <span class="taocot-status-msg" id="taocot-criar-msg" style="margin:0"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: revisão da mensagem pelo farmacêutico antes do envio -->
+    <div id="taocot-rev-modal" style="display:none;position:fixed;inset:0;z-index:100000">
+        <div id="taocot-rev-overlay" style="position:absolute;inset:0;background:rgba(15,23,42,.55)"></div>
+        <div style="position:relative;max-width:640px;margin:5vh auto;background:#fff;border-radius:12px;box-shadow:0 20px 50px rgba(0,0,0,.3);padding:20px 22px;max-height:88vh;overflow-y:auto">
+            <h2 style="margin:0 0 4px;font-size:17px">&#x1F4E4; Revisar mensagem antes de enviar</h2>
+            <p class="taocot-muted" style="margin:0 0 12px">Este texto será enviado a cada fornecedor. <code>{fornecedor}</code> é trocado pelo nome de cada um. Revise/edite e confirme.</p>
+            <textarea id="taocot-rev-msg" style="width:100%;height:260px;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;font-family:inherit;line-height:1.5;box-sizing:border-box"></textarea>
+            <div id="taocot-rev-dest" style="margin:12px 0;font-size:12px;color:#475569"></div>
+            <div style="display:flex;gap:10px;align-items:center;margin-top:8px;flex-wrap:wrap">
+                <button class="taocot-btn taocot-btn-primary" id="taocot-rev-enviar">&#x1F4E4; Confirmar e enviar</button>
+                <button class="taocot-btn" id="taocot-rev-cancelar">Deixar como rascunho</button>
+                <span class="taocot-status-msg" id="taocot-rev-status" style="margin:0"></span>
             </div>
         </div>
     </div>
@@ -203,7 +225,33 @@ function tao_cotacoes_page_nova() {
             }
         });
 
-        // Criação
+        var COT_URL = <?php echo wp_json_encode( tao_cot_url( 'cotacoes' ) ); ?>;
+        var _cotId = null;
+        function irParaCotacao(id){ location.href = COT_URL + (COT_URL.indexOf('?')>=0?'&':'?') + 'cot=' + id; }
+
+        // Chips de fornecedores participantes (seleção discreta)
+        (function(){
+            var box = document.getElementById('taocot-forn-chips');
+            if(!box) return;
+            var cnt = document.getElementById('taocot-forn-count');
+            var chips = Array.prototype.slice.call(box.querySelectorAll('.taocot-chip'));
+            function upd(){ cnt.textContent = box.querySelectorAll('.taocot-forn-chk:checked').length + ' selecionado(s)'; }
+            chips.forEach(function(ch){
+                var chk = ch.querySelector('input');
+                ch.addEventListener('click', function(){ chk.checked = !chk.checked; ch.classList.toggle('on', chk.checked); upd(); });
+            });
+            var busca = document.getElementById('taocot-forn-busca');
+            if(busca) busca.addEventListener('input', function(){
+                var q = this.value.trim().toLowerCase();
+                chips.forEach(function(ch){ ch.style.display = (!q || ch.getAttribute('data-nome').indexOf(q) >= 0) ? '' : 'none'; });
+            });
+            var all = document.getElementById('taocot-forn-all'), none = document.getElementById('taocot-forn-none');
+            if(all) all.addEventListener('click', function(){ chips.forEach(function(ch){ if(ch.style.display!=='none'){ ch.querySelector('input').checked=true; ch.classList.add('on'); } }); upd(); });
+            if(none) none.addEventListener('click', function(){ chips.forEach(function(ch){ ch.querySelector('input').checked=false; ch.classList.remove('on'); }); upd(); });
+            upd();
+        })();
+
+        // Criação — SEMPRE cria como rascunho; se "enviar", abre a revisão da mensagem antes
         function criar(enviar, btn){
             var msg = document.getElementById('taocot-criar-msg');
             if(!itens.length){ alert('Inclua ao menos 1 item (planilha ou manual).'); return; }
@@ -212,27 +260,52 @@ function tao_cotacoes_page_nova() {
             if(!forn.length){ alert('Selecione ao menos 1 fornecedor.'); return; }
             var inst = document.getElementById('taocot-instancia').value;
             if(!inst){ alert('Selecione a instância WhatsApp de envio.'); return; }
-            if(enviar && !confirm('Enviar a solicitação de proposta agora para '+forn.length+' fornecedor(es) pelo WhatsApp?')) return;
 
             btn.disabled = true;
-            msg.textContent = enviar ? 'Criando e enviando (há pausa entre envios)...' : 'Salvando...';
+            msg.textContent = enviar ? 'Criando cotação...' : 'Salvando...';
             C.post('tao_cot_criar_cotacao', {
                 titulo: document.getElementById('taocot-titulo').value,
                 instancia_id: inst,
                 itens: JSON.stringify(itens),
                 fornecedores: JSON.stringify(forn),
-                enviar: enviar ? '1' : '0'
+                enviar: '0'   // nunca dispara direto: envio só após a revisão
             }).then(function(r){
-                if(r.success){
-                    var u = <?php echo wp_json_encode( tao_cot_url( 'cotacoes' ) ); ?>;
-                    location.href = u + (u.indexOf('?')>=0?'&':'?') + 'cot=' + r.data.id;
-                } else { alert('Erro: '+(r.data||'falha')); btn.disabled=false; msg.textContent=''; }
+                if(!r.success){ alert('Erro: '+(r.data||'falha')); btn.disabled=false; msg.textContent=''; return; }
+                _cotId = r.data.id;
+                if(!enviar){ irParaCotacao(_cotId); return; }   // rascunho puro
+                // abre revisão da mensagem
+                msg.textContent = 'Gerando prévia da mensagem...';
+                C.post('tao_cot_preview_msg', { id: _cotId }).then(function(pr){
+                    btn.disabled=false; msg.textContent='';
+                    if(!pr.success){ alert('Cotação salva como rascunho, mas a prévia falhou: '+(pr.data||'')); irParaCotacao(_cotId); return; }
+                    document.getElementById('taocot-rev-msg').value = pr.data.msg || '';
+                    var dest = pr.data.fornecedores || [];
+                    var semWa = dest.filter(function(d){ return !d.tem_wa; }).map(function(d){ return d.nome; });
+                    var h = '<strong>'+dest.length+' fornecedor(es)</strong> receberão esta mensagem.';
+                    if(semWa.length) h += ' <span style="color:#b45309">⚠ sem WhatsApp (não recebem): '+semWa.join(', ')+'</span>';
+                    document.getElementById('taocot-rev-dest').innerHTML = h;
+                    document.getElementById('taocot-rev-modal').style.display = 'block';
+                }).catch(function(){ btn.disabled=false; msg.textContent=''; alert('Falha de rede na prévia.'); irParaCotacao(_cotId); });
             }).catch(function(){ alert('Falha de rede'); btn.disabled=false; msg.textContent=''; });
         }
         var be = document.getElementById('taocot-btn-criar-enviar');
         var br = document.getElementById('taocot-btn-rascunho');
         be.addEventListener('click', function(){ criar(true, be); });
         br.addEventListener('click', function(){ criar(false, br); });
+
+        // Modal de revisão: confirmar envio com o texto revisado
+        document.getElementById('taocot-rev-enviar').addEventListener('click', function(){
+            var b = this, st = document.getElementById('taocot-rev-status');
+            var txt = document.getElementById('taocot-rev-msg').value.trim();
+            if(!txt){ alert('A mensagem não pode ficar vazia.'); return; }
+            b.disabled = true; st.textContent = 'Enviando (há pausa entre envios)...';
+            C.post('tao_cot_enviar_cotacao', { id: _cotId, msg_custom: txt }).then(function(r){
+                irParaCotacao(_cotId);   // a tela da cotação mostra o resultado do envio
+            }).catch(function(){ b.disabled=false; st.textContent=''; alert('Falha de rede no envio.'); });
+        });
+        function fecharRevisao(){ document.getElementById('taocot-rev-modal').style.display='none'; if(_cotId) irParaCotacao(_cotId); }
+        document.getElementById('taocot-rev-cancelar').addEventListener('click', fecharRevisao);
+        document.getElementById('taocot-rev-overlay').addEventListener('click', fecharRevisao);
     })();
     </script>
     <?php

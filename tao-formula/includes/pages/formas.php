@@ -157,6 +157,20 @@ function tao_formula_page_formas() {
                             <p class="description">Margem aplicada sobre (insumos + custo fixo)</p>
                         </td>
                     </tr>
+                    <tr>
+                        <th><label for="taof-validade-dias">Validade padrão (dias)</label></th>
+                        <td>
+                            <input type="number" id="taof-validade-dias" name="validade_dias" class="small-text" step="1" min="1" max="1095" placeholder="120">
+                            <p class="description">Prazo de validade da fórmula manipulada nesta forma (RDC 67). Na produção, a validade final é a MENOR entre este prazo e a validade do lote usado.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th><label for="taof-modo-preparo">Modo de preparo / precauções</label></th>
+                        <td>
+                            <textarea id="taof-modo-preparo" name="modo_preparo" rows="3" class="large-text" placeholder="Procedimento padrão de manipulação e precauções desta forma (RDC 67/BPF). É herdado pela OM e pode ser ajustado por receita."></textarea>
+                            <p class="description">Texto padrão impresso/consultado na Ordem de Manipulação. O farmacêutico pode ajustar por preparação.</p>
+                        </td>
+                    </tr>
                 </table>
 
                 <div class="taof-modal-actions">
@@ -216,6 +230,8 @@ function tao_formula_page_formas() {
             data-custo-fixo-tipo="<?php echo esc_attr($f['custo_fixo_tipo'] ?? ''); ?>"
             data-valor-minimo="<?php echo esc_attr($f['valor_minimo'] ?? ''); ?>"
             data-margem-pct="<?php echo esc_attr($f['margem_pct'] ?? 30); ?>"
+            data-validade-dias="<?php echo esc_attr($f['validade_dias'] ?? ''); ?>"
+            data-modo-preparo="<?php echo esc_attr($f['modo_preparo'] ?? ''); ?>"
             data-tipo-capsula="<?php echo esc_attr($f['tipo_capsula'] ?? ''); ?>"
             data-numero-capsula="<?php echo esc_attr($f['numero_capsula'] ?? ''); ?>"
             data-vol-cap-ul="<?php echo esc_attr($f['vol_cap_ul'] ?? ''); ?>"

@@ -114,7 +114,7 @@ add_action( 'wp_ajax_tao_cot_parse_planilha', function() {
 
     if ( empty( $_FILES['file']['tmp_name'] ) ) wp_send_json_error( 'Nenhum arquivo recebido' );
     $fname = $_FILES['file']['name'] ?? 'planilha.xls';
-    if ( ! preg_match( '/\.xlsx?$/i', $fname ) ) wp_send_json_error( 'Envie a planilha .xls exportada do Formula Certa' );
+    if ( ! preg_match( '/\.xlsx?$/i', $fname ) ) wp_send_json_error( 'Envie a planilha de estoque mínimo no formato .xls/.xlsx' );
     if ( $_FILES['file']['size'] > 5 * 1024 * 1024 ) wp_send_json_error( 'Arquivo acima de 5 MB' );
 
     $webhook = get_option( 'tao_cotacoes_n8n_parse_url', '' );
@@ -254,15 +254,38 @@ add_action( 'wp_ajax_tao_cot_enviar_cotacao', function() {
     $cid = tao_cot_ajax_guard();
     $id  = sanitize_text_field( $_POST['id'] ?? '' );
     if ( ! $id ) wp_send_json_error( 'ID inválido' );
-    $envio = tao_cot_do_envio( $id, $cid );
+    $msg_custom = isset( $_POST['msg_custom'] ) ? trim( (string) wp_unslash( $_POST['msg_custom'] ) ) : null;
+    $envio = tao_cot_do_envio( $id, $cid, $msg_custom );
     if ( isset( $envio['erro_fatal'] ) ) wp_send_json_error( $envio['erro_fatal'] );
     wp_send_json_success( $envio );
+} );
+
+// Prévia da mensagem que será enviada (para revisão do farmacêutico antes do envio)
+add_action( 'wp_ajax_tao_cot_preview_msg', function() {
+    $cid = tao_cot_ajax_guard();
+    $id  = sanitize_text_field( $_POST['id'] ?? '' );
+    if ( ! $id ) wp_send_json_error( 'ID inválido' );
+    $rc = tao_cot_api( "/cotacoes?id=eq.$id&cliente_id=eq.$cid" );
+    if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( 'Cotação não encontrada' );
+    $cot = $rc['data'][0];
+    $rit = tao_cot_api( "/cotacao_itens?cotacao_id=eq.$id&order=criado_em.asc&limit=500" );
+    $itens = $rit['ok'] ? $rit['data'] : [];
+    $rn = tao_cot_api( "/clientes?id=eq.$cid&select=nome_negocio" );
+    $nome_negocio = ( $rn['ok'] && ! empty( $rn['data'] ) ) ? ( $rn['data'][0]['nome_negocio'] ?? 'nossa farmácia' ) : 'nossa farmácia';
+    $msg = tao_cot_montar_msg( $cot, $itens, $nome_negocio, '{fornecedor}' );
+    $rf  = tao_cot_api( "/cotacao_fornecedores?cotacao_id=eq.$id&select=fornecedores(nome,whatsapp)" );
+    $dest = [];
+    foreach ( ( $rf['ok'] ? $rf['data'] : [] ) as $p ) {
+        $fn = $p['fornecedores']['nome'] ?? '';
+        if ( $fn ) $dest[] = [ 'nome' => $fn, 'tem_wa' => ! empty( $p['fornecedores']['whatsapp'] ) ];
+    }
+    wp_send_json_success( [ 'msg' => $msg, 'fornecedores' => $dest ] );
 } );
 
 /**
  * Dispara a solicitação WhatsApp para os fornecedores pendentes/erro da cotação.
  */
-function tao_cot_do_envio( $cotacao_id, $cid ) {
+function tao_cot_do_envio( $cotacao_id, $cid, $msg_custom = null ) {
     $rc = tao_cot_api( "/cotacoes?id=eq.$cotacao_id&cliente_id=eq.$cid" );
     if ( ! $rc['ok'] || empty( $rc['data'] ) ) return [ 'erro_fatal' => 'Cotação não encontrada' ];
     $cot = $rc['data'][0];
@@ -291,7 +314,10 @@ function tao_cot_do_envio( $cotacao_id, $cid ) {
             $erros++;
             continue;
         }
-        $msg = tao_cot_montar_msg( $cot, $itens, $nome_negocio, $f['contato'] ?: $f['nome'] );
+        $nomef = $f['contato'] ?: $f['nome'];
+        $msg = ( $msg_custom !== null && trim( $msg_custom ) !== '' )
+            ? str_replace( [ '{fornecedor}', '{contato}' ], $nomef, $msg_custom )   // texto revisado pelo farmacêutico
+            : tao_cot_montar_msg( $cot, $itens, $nome_negocio, $nomef );
         $rs  = tao_cot_evolution_send( $instancia, $f['whatsapp'], $msg );
         if ( $rs['ok'] ) {
             tao_cot_api( "/cotacao_fornecedores?id=eq.{$p['id']}", 'PATCH', [

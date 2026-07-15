@@ -41,10 +41,13 @@ if ( $has_formula ) {
     $secoes['tao-formula-orc-novo']  = [ 'fn' => 'tao_formula_page_orcamento_novo', 'label' => 'Novo Orçamento' ];
     $secoes['tao-formula-historico'] = [ 'fn' => 'tao_formula_page_historico',      'label' => 'Histórico do Cliente' ];
     $secoes['tao-formula-prescritores'] = [ 'fn' => 'tao_formula_page_prescritores', 'label' => 'Prescritores' ];
+    $secoes['tao-formula-fornecedores'] = [ 'fn' => 'tao_formula_page_fornecedores', 'label' => 'Fornecedores' ];
     $secoes['tao-formula-estoque-nf']   = [ 'fn' => 'tao_formula_page_estoque_nf',   'label' => 'Estoque — Entrada NF' ];
     $secoes['tao-formula-estoque-lotes']= [ 'fn' => 'tao_formula_page_estoque_lotes','label' => 'Estoque — Lotes' ];
+    $secoes['tao-formula-estoque-inventario']= [ 'fn' => 'tao_formula_page_estoque_inventario','label' => 'Estoque — Inventário' ];
     $secoes['tao-formula-estoque-repo'] = [ 'fn' => 'tao_formula_page_estoque_reposicao','label' => 'Estoque — Reposição' ];
     $secoes['tao-formula-producao']     = [ 'fn' => 'tao_formula_page_producao',        'label' => 'Produção' ];
+    $secoes['tao-formula-producao-interna'] = [ 'fn' => 'tao_formula_page_producao_interna', 'label' => 'Produção Interna' ];
     $secoes['tao-formula-livro']        = [ 'fn' => 'tao_formula_page_livro_receituario','label' => 'Livro de Receituário' ];
     $secoes['tao-formula-contas-pagar'] = [ 'fn' => 'tao_formula_page_contas_pagar',     'label' => 'Contas a Pagar' ];
     $secoes['tao-formula-sngpc']        = [ 'fn' => 'tao_formula_page_sngpc',            'label' => 'Controlados / SNGPC' ];
@@ -62,6 +65,11 @@ if ( $has_caixa ) {
     $secoes['tao-caixa-adquirentes'] = [ 'fn' => 'tao_caixa_page_adquirentes',  'label' => 'Caixa — Operadoras de Cartão' ];
     $secoes['tao-caixa-taxas']       = [ 'fn' => 'tao_caixa_page_taxas',        'label' => 'Caixa — Taxas (MDR)' ];
     $secoes['tao-caixa-formas']      = [ 'fn' => 'tao_caixa_page_formas_pgto',  'label' => 'Caixa — Formas de Pagamento' ];
+}
+
+$has_entregas = function_exists( 'tao_entregas_page_painel' );
+if ( $has_entregas ) {
+    $secoes['tao-entregas-painel'] = [ 'fn' => 'tao_entregas_page_painel', 'label' => 'Entregas' ];
 }
 
 $has_cotacoes = function_exists( 'tao_cotacoes_page_lista' );
@@ -103,7 +111,38 @@ if ( $has_crm ) {
         'items' => [
             [ 'slug' => 'tao-crm-dashboard', 'label' => 'Painel',   'url' => cbpm_url('crm-dashboard') ],
             [ 'slug' => 'tao-crm-kanban',    'label' => 'Kanban',   'url' => cbpm_url('crm-kanban') ],
-            [ 'slug' => 'tao-crm-contatos',  'label' => 'Contatos', 'url' => cbpm_url('crm-contatos') ],
+        ],
+    ];
+}
+
+// 📇 Cadastros (transversal) — cliente único, prescritores, fornecedores, ativos, formas
+$cad_items = [];
+if ( $has_crm )     $cad_items[] = [ 'slug' => 'tao-crm-contatos', 'label' => 'Clientes / Contatos', 'url' => cbpm_url('crm-contatos') ];
+if ( $has_formula ) {
+    $cad_items[] = [ 'slug' => 'tao-formula-prescritores', 'label' => 'Prescritores',           'url' => cbpm_url('formula-prescritores') ];
+    // Fornecedor é CADASTRO ÚNICO: Fórmula e Cotações usam a MESMA tabela `fornecedores`.
+    // A tela do Fórmula é a completa (fiscal + licenças AFE/AE/VISA + qualificação RDC 67), então é a única exibida quando há Fórmula.
+    $cad_items[] = [ 'slug' => 'tao-formula-fornecedores', 'label' => 'Fornecedores',           'url' => cbpm_url('formula-fornecedores') ];
+    $cad_items[] = [ 'slug' => 'tao-formula-ativos',       'label' => 'Ativos',                 'url' => cbpm_url('formula-ativos') ];
+    $cad_items[] = [ 'slug' => 'tao-formula-formas',       'label' => 'Formas Farmac&ecirc;uticas', 'url' => cbpm_url('formula-formas') ];
+} elseif ( $has_cotacoes ) {
+    // Sem Fórmula: a tela de Fornecedores das Cotações atende (mesma tabela `fornecedores`).
+    $cad_items[] = [ 'slug' => 'tao-cotacoes-fornecedores', 'label' => 'Fornecedores', 'url' => cbpm_url('cotacoes-fornecedores') ];
+}
+if ( $cad_items ) {
+    $nav['cadastros'] = [ 'label' => 'Cadastros', 'icon' => '&#x1F4C7;', 'items' => $cad_items ];
+}
+
+// 📦 Estoque (transversal — mesmo nível de Cadastros)
+if ( $has_formula ) {
+    $nav['estoque'] = [
+        'label' => 'Estoque',
+        'icon'  => '&#x1F4E6;',
+        'items' => [
+            [ 'slug' => 'tao-formula-estoque-nf',         'label' => 'Entrada NF',      'url' => cbpm_url('formula-estoque-nf') ],
+            [ 'slug' => 'tao-formula-estoque-lotes',      'label' => 'Lotes',           'url' => cbpm_url('formula-estoque-lotes') ],
+            [ 'slug' => 'tao-formula-estoque-inventario', 'label' => 'Invent&aacute;rio', 'url' => cbpm_url('formula-estoque-inventario') ],
+            [ 'slug' => 'tao-formula-estoque-repo',       'label' => 'Reposi&ccedil;&atilde;o', 'url' => cbpm_url('formula-estoque-repo') ],
         ],
     ];
 }
@@ -126,28 +165,48 @@ if ( $has_formula ) {
             [ 'slug' => 'tao-formula-orcamentos', 'label' => 'Or&ccedil;amentos',      'url' => cbpm_url('formula-orcamentos') ],
             [ 'slug' => 'tao-formula-orc-novo',   'label' => 'Novo Or&ccedil;amento',  'url' => cbpm_url('formula-novo-orc') ],
             [ 'slug' => 'tao-formula-historico',  'label' => 'Hist&oacute;rico',       'url' => cbpm_url('formula-historico') ],
-            [ 'slug' => 'tao-formula-prescritores', 'label' => 'Prescritores',         'url' => cbpm_url('formula-prescritores') ],
-            [ 'slug' => 'tao-formula-estoque-nf', 'label' => 'Estoque &mdash; Entrada NF', 'url' => cbpm_url('formula-estoque-nf') ],
-            [ 'slug' => 'tao-formula-estoque-lotes', 'label' => 'Estoque &mdash; Lotes', 'url' => cbpm_url('formula-estoque-lotes') ],
-            [ 'slug' => 'tao-formula-estoque-repo', 'label' => 'Estoque &mdash; Reposição', 'url' => cbpm_url('formula-estoque-repo') ],
             [ 'slug' => 'tao-formula-producao', 'label' => 'Produ&ccedil;&atilde;o', 'url' => cbpm_url('formula-producao') ],
+            [ 'slug' => 'tao-formula-producao-interna', 'label' => 'Produ&ccedil;&atilde;o Interna', 'url' => cbpm_url('formula-producao-interna') ],
             [ 'slug' => 'tao-formula-livro', 'label' => 'Livro de Receitu&aacute;rio', 'url' => cbpm_url('formula-livro') ],
-            [ 'slug' => 'tao-formula-contas-pagar', 'label' => 'Contas a Pagar', 'url' => cbpm_url('formula-contas-pagar') ],
             [ 'slug' => 'tao-formula-sngpc', 'label' => 'Controlados / SNGPC', 'url' => cbpm_url('formula-sngpc') ],
         ],
     ];
 }
 
-// 💰 Caixa
+// 💰 Financeiro — Caixa (sub-menu) + Contas a Pagar (sub-menu)
+$fin_subs = [];
 if ( $has_caixa && function_exists( 'tao_caixa_pode_operar' ) && tao_caixa_pode_operar() ) {
-    $nav['caixa'] = [
+    $fin_subs['fin-caixa'] = [
         'label' => 'Caixa',
-        'icon'  => '&#x1F4B0;',
+        'icon'  => '&#x1F4B5;',
         'items' => [
             [ 'slug' => 'tao-caixa-dashboard',   'label' => 'Painel',                      'url' => cbpm_url('caixa') ],
             [ 'slug' => 'tao-caixa-vendas',      'label' => 'Vendas',                      'url' => cbpm_url('caixa-vendas') ],
             [ 'slug' => 'tao-caixa-sessao',      'label' => 'Sess&atilde;o / Fechamento',  'url' => cbpm_url('caixa-sessao') ],
             [ 'slug' => 'tao-caixa-conciliacao', 'label' => 'Concilia&ccedil;&atilde;o',   'url' => cbpm_url('caixa-conciliacao') ],
+        ],
+    ];
+}
+if ( $has_formula ) {
+    $fin_subs['fin-pagar'] = [
+        'label' => 'Contas a Pagar',
+        'icon'  => '&#x1F4C4;',
+        'items' => [
+            [ 'slug' => 'tao-formula-contas-pagar', 'label' => 'Contas a Pagar', 'url' => cbpm_url('formula-contas-pagar') ],
+        ],
+    ];
+}
+if ( $fin_subs ) {
+    $nav['financeiro'] = [ 'label' => 'Financeiro', 'icon' => '&#x1F4B0;', 'subs' => $fin_subs ];
+}
+
+// 🚚 Entregas
+if ( $has_entregas ) {
+    $nav['entregas'] = [
+        'label' => 'Entregas',
+        'icon'  => '&#x1F69A;',
+        'items' => [
+            [ 'slug' => 'tao-entregas-painel', 'label' => 'Painel', 'url' => cbpm_url('entregas') ],
         ],
     ];
 }
@@ -192,8 +251,6 @@ if ( $has_formula ) {
         'label' => 'F&oacute;rmulas',
         'icon'  => '&#x1F9EA;',
         'items' => [
-            [ 'slug' => 'tao-formula-formas', 'label' => 'Formas Farmac&ecirc;uticas',  'url' => cbpm_url('formula-formas') ],
-            [ 'slug' => 'tao-formula-ativos', 'label' => 'Ativos',                      'url' => cbpm_url('formula-ativos') ],
             [ 'slug' => 'tao-formula-config', 'label' => 'Configura&ccedil;&otilde;es', 'url' => cbpm_url('formula-config') ],
         ],
     ];
@@ -209,15 +266,7 @@ if ( $has_caixa && function_exists( 'tao_caixa_pode_operar' ) && tao_caixa_pode_
         ],
     ];
 }
-if ( $has_cotacoes && function_exists( 'tao_cot_pode' ) && tao_cot_pode() ) {
-    $cfg_subs['cfg-cotacoes'] = [
-        'label' => 'Cota&ccedil;&otilde;es',
-        'icon'  => '&#x1F4CB;',
-        'items' => [
-            [ 'slug' => 'tao-cotacoes-fornecedores', 'label' => 'Fornecedores', 'url' => cbpm_url('cotacoes-fornecedores') ],
-        ],
-    ];
-}
+// Config→Cotações removido: o cadastro de Fornecedores (compras) foi para o grupo Cadastros.
 if ( $has_crm ) {
     $cfg_subs['cfg-crm'] = [
         'label' => 'CRM',
@@ -274,6 +323,12 @@ foreach ( $nav as $gid => $entry ) {
             border-bottom: 1px solid #2c3338; display: flex; align-items: center; gap: 8px; flex-shrink: 0;
         }
         .cbpm-sidebar-logo .icon { font-size: 22px; }
+        #cbpm-sb-collapse { margin-left:auto; background:none; border:none; color:#a7aaad; cursor:pointer; font-size:15px; padding:2px 7px; border-radius:4px; line-height:1; }
+        #cbpm-sb-collapse:hover { color:#fff; background:rgba(255,255,255,.08); }
+        .cbpm-sidebar { transition: margin-left .2s ease; }
+        #cbpm-sb-open { position:fixed; top:12px; left:12px; z-index:200; background:#1d2327; color:#fff; border:none; border-radius:6px; width:36px; height:36px; cursor:pointer; font-size:17px; display:none; box-shadow:0 2px 8px rgba(0,0,0,.2); }
+        body.cbpm-sb-off .cbpm-sidebar { margin-left:-240px; }
+        body.cbpm-sb-off #cbpm-sb-open { display:block; }
         .cbpm-sidebar nav { padding: 6px 0; flex: 1; }
         .cbpm-sidebar-footer {
             padding: 12px 18px; border-top: 1px solid #2c3338; font-size: 11px; color: #72777c; flex-shrink: 0;
@@ -495,10 +550,12 @@ $_mobile_label = $secoes[$page_atual]['label'] ?? 'Portal';
 <div class="cbpm-backdrop" id="cbpmBackdrop"></div>
 <div class="cbpm-layout">
 
+    <button type="button" id="cbpm-sb-open" title="Abrir menu" aria-label="Abrir menu">&#x2630;</button>
     <aside class="cbpm-sidebar">
         <div class="cbpm-sidebar-logo">
             <span class="icon">&#x1F916;</span>
             <span class="cbpm-logo-text">TAO Neo</span>
+            <button type="button" id="cbpm-sb-collapse" title="Recolher menu" aria-label="Recolher menu">&#x276E;</button>
         </div>
         <nav>
         <?php
@@ -623,6 +680,15 @@ window.cbpm = {
     burger.addEventListener('click', function(){ sidebar.classList.contains('open') ? close() : open(); });
     backdrop.addEventListener('click', close);
     sidebar.querySelectorAll('.cbpm-nav-link, .cbpm-nav-direct').forEach(function(l){ l.addEventListener('click', close); });
+})();
+// ── Recolher / expandir a sidebar (desktop, com memória) ──
+(function(){
+    var collapse = document.getElementById('cbpm-sb-collapse');
+    var openBtn  = document.getElementById('cbpm-sb-open');
+    if (localStorage.getItem('cbpm:sb') === 'off') document.body.classList.add('cbpm-sb-off');
+    function set(off){ document.body.classList.toggle('cbpm-sb-off', off); localStorage.setItem('cbpm:sb', off ? 'off' : 'on'); }
+    if (collapse) collapse.addEventListener('click', function(){ set(true);  });
+    if (openBtn)  openBtn.addEventListener('click',  function(){ set(false); });
 })();
 </script>
 <script>

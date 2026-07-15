@@ -949,6 +949,9 @@
                             setTimeout(function(){ _av.style.boxShadow = ''; }, 2500);
                         }
                         alert(resp.data.msg || 'Preencha os campos obrigatórios desta fase para concluir.');
+                    } else if (resp.data && resp.data.msg) {
+                        // Trava plugável (ex.: Fórmula — sinônimo sem ativo correspondente) e demais msgs
+                        alert(resp.data.msg);
                     } else {
                         alert('Erro: ' + (resp.data || 'Configure os estágios terminais em Configurações → Pipelines e Estágios.'));
                     }

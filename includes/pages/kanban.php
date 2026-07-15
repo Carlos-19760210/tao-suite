@@ -453,7 +453,10 @@ function tao_crm_page_kanban() {
                              $_req_num = $req_num_campo_id ? ( $_card_campos_vals[ $req_num_campo_id ] ?? '' ) : '';
                              if ( $_req_num === '' || $_req_num === null ) $_req_num = $req_orc_map[ $card['id'] ] ?? '';
                              $_campos_txt = implode( ' ', $_card_campos_vals );
-                             $_search_str = mb_strtolower( ( $card['titulo'] ?: $card['contato_nome'] ) . ' ' . $card['contato_whatsapp'] . ' ' . $card['contato_nome'] . ' ' . $_campos_txt );
+                             // Inclui o Nº da Requisição na busca — inclusive o DERIVADO do orçamento
+                             // (quando o campo não foi digitado à mão). Sem isso, o card mostra o
+                             // #número mas não é encontrado ao buscar por ele (Vendas e Pós-vendas).
+                             $_search_str = mb_strtolower( ( $card['titulo'] ?: $card['contato_nome'] ) . ' ' . $card['contato_whatsapp'] . ' ' . $card['contato_nome'] . ' ' . $_campos_txt . ' ' . $_req_num );
                          ?>
                          data-search="<?php echo esc_attr( $_search_str ); ?>"
                          onclick="window.location='<?php echo esc_url( $card_url ); ?>'">

@@ -15,7 +15,7 @@ add_action( 'wp_ajax_tao_formula_search_ativos', function() {
 
     $term     = urlencode( $q );
     $motor_on = get_option( 'tao_formula_motor_v2' ) === '1';
-    $sel_at   = 'id,codigo_fc,nome,unidade,unidade_padrao,preco_compra,custo_por_unidade,preco_venda,fator_correcao,fator_perda,densidade,diluicao,teor,grupo,concentracao'
+    $sel_at   = 'id,codigo_fc,nome,unidade,unidade_padrao,preco_compra,custo_por_unidade,preco_venda,fator_correcao,fator_perda,densidade,diluicao,teor,grupo,concentracao,bloqueado'
               . ( $motor_on ? ',dose_max,uni_dose_max,dose_max_dia,dose_max_unidade,restricao' : '' );
     $base  = "/ativos?cliente_id=eq.$cliente_id&ativo=eq.true" .
              "&select=$sel_at" .
@@ -85,12 +85,21 @@ add_action( 'wp_ajax_tao_formula_get_ativo', function() {
         "&select=id,codigo_fc,nome,grupo,unidade,unidade_padrao,estoque_atual,preco_compra,preco_custo," .
         "custo_por_unidade,preco_venda,fator_correcao,fator_perda,densidade,dcb,dose_min,uni_dose_min," .
         "dose_max,uni_dose_max,categoria,classe_terapeutica,principio_ativo,observacoes,sincronizado_em," .
-        "diluicao,teor,concentracao,markup_preco,restricao,ativo,controlado,classe_sngpc,registro_ms" .
+        "diluicao,teor,concentracao,markup_preco,restricao,ativo,controlado,classe_sngpc,registro_ms," .
+        "ft_nome_quimico,ft_formula_molecular,ft_peso_molecular,ft_caracteres,ft_ponto_fusao,ft_solubilidade," .
+        "ft_ph,ft_grau_pureza,ft_conservacao,ft_referencias,ft_revisao," .
+        "excipiente_id,bloqueado,bloqueado_motivo" .
         "&limit=1"
     );
 
     if ( $r['ok'] && ! empty( $r['data'] ) ) {
-        wp_send_json_success( $r['data'][0] );
+        $ativo = $r['data'][0];
+        // nome do excipiente associado (p/ exibir no cadastro)
+        if ( ! empty( $ativo['excipiente_id'] ) ) {
+            $re = tao_formula_api( "/ativos?id=eq.{$ativo['excipiente_id']}&select=nome&limit=1" );
+            $ativo['excipiente_nome'] = ( $re['ok'] && ! empty( $re['data'] ) ) ? $re['data'][0]['nome'] : '';
+        }
+        wp_send_json_success( $ativo );
     } else {
         wp_send_json_error( $r['ok'] ? 'Não encontrado' : $r['raw'], 404 );
     }
@@ -170,6 +179,21 @@ add_action( 'wp_ajax_tao_formula_salvar_ativo', function() {
         'restricao'         => $txt( 'restricao' ),
         'categoria'         => $txt( 'categoria' ),
         'observacoes'       => $txt( 'observacoes' ),
+        // Ficha técnica (RDC 67) — especificação da MP
+        'ft_nome_quimico'      => $txt( 'ft_nome_quimico' ),
+        'ft_formula_molecular' => $txt( 'ft_formula_molecular' ),
+        'ft_peso_molecular'    => $txt( 'ft_peso_molecular' ),
+        'ft_caracteres'        => $txt( 'ft_caracteres' ),
+        'ft_ponto_fusao'       => $txt( 'ft_ponto_fusao' ),
+        'ft_solubilidade'      => $txt( 'ft_solubilidade' ),
+        'ft_ph'                => $txt( 'ft_ph' ),
+        'ft_grau_pureza'       => $txt( 'ft_grau_pureza' ),
+        'ft_conservacao'       => $txt( 'ft_conservacao' ),
+        'ft_referencias'       => $txt( 'ft_referencias' ),
+        'ft_revisao'           => $txt( 'ft_revisao' ),
+        'excipiente_id'        => $txt( 'excipiente_id' ),
+        'bloqueado'            => ( $_POST['bloqueado'] ?? '' ) === '1',
+        'bloqueado_motivo'     => $txt( 'bloqueado_motivo' ),
     ];
 
     // Código FC não pode colidir com outro produto do mesmo tenant
@@ -190,13 +214,103 @@ add_action( 'wp_ajax_tao_formula_salvar_ativo', function() {
         return tao_formula_api( '/ativos', 'POST', $body );
     };
     $r = $gravar( $payload );
-    // migration_sngpc pendente → grava sem os campos de controlado
+    // migração pendente → grava sem os campos das colunas ainda inexistentes
     if ( ! $r['ok'] && strpos( (string) ( $r['raw'] ?? '' ), 'column' ) !== false ) {
         unset( $payload['controlado'], $payload['classe_sngpc'], $payload['registro_ms'] );
+        foreach ( array_keys( $payload ) as $k ) if ( strpos( $k, 'ft_' ) === 0 ) unset( $payload[ $k ] );
+        unset( $payload['excipiente_id'], $payload['bloqueado'], $payload['bloqueado_motivo'] );
         $r = $gravar( $payload );
     }
     if ( ! $r['ok'] ) wp_send_json_error( [ 'message' => 'Erro ao salvar: ' . mb_substr( (string) $r['raw'], 0, 300 ) ] );
-    wp_send_json_success( [ 'id' => $r['data'][0]['id'] ?? $id, 'novo' => ! $id ] );
+    $ativo_id = $r['data'][0]['id'] ?? $id;
+    // histórico de preços (se algum preço foi informado)
+    if ( $ativo_id && ( $payload['preco_compra'] !== null || $payload['custo_por_unidade'] !== null || $payload['preco_venda'] !== null ) ) {
+        tao_formula_registrar_preco_hist( $cliente_id, $ativo_id, [
+            'preco_compra'  => $payload['preco_compra'],
+            'custo_unidade' => $payload['custo_por_unidade'],
+            'preco_venda'   => $payload['preco_venda'],
+        ], 'manual', [] );
+    }
+    wp_send_json_success( [ 'id' => $ativo_id, 'novo' => ! $id ] );
+} );
+
+// Helper: registra um ponto no histórico de preços do ativo (silencioso se a tabela não existir)
+function tao_formula_registrar_preco_hist( $cliente_id, $ativo_id, $precos, $origem, $extra = [] ) {
+    tao_formula_api( '/ativo_precos_hist', 'POST', [
+        'cliente_id'    => $cliente_id,
+        'ativo_id'      => $ativo_id,
+        'dt'            => gmdate( 'Y-m-d' ),
+        'preco_compra'  => $precos['preco_compra']  ?? null,
+        'custo_unidade' => $precos['custo_unidade'] ?? null,
+        'preco_venda'   => $precos['preco_venda']   ?? null,
+        'origem'        => $origem,
+        'fornecedor_id' => $extra['fornecedor_id'] ?? null,
+        'nf_numero'     => $extra['nf_numero'] ?? null,
+        'usuario_id'    => get_current_user_id(),
+    ] );
+}
+
+// Leitura do histórico de preços de um ativo (linha do tempo)
+add_action( 'wp_ajax_tao_formula_ativo_precos_hist', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $ativo_id = sanitize_text_field( $_GET['ativo_id'] ?? '' );
+    if ( ! $cliente_id || ! $ativo_id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+    $r = tao_formula_api( "/ativo_precos_hist?cliente_id=eq.$cliente_id&ativo_id=eq.$ativo_id&select=dt,preco_compra,custo_unidade,preco_venda,origem,nf_numero&order=dt.desc,criado_em.desc&limit=60" );
+    wp_send_json_success( $r['ok'] ? ( $r['data'] ?? [] ) : [] );
+} );
+
+// Hub do produto — aba Estoque & Consumo: lotes, saldo, última compra, consumo mensal (12m).
+add_action( 'wp_ajax_tao_formula_ativo_estoque', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $ativo_id = sanitize_text_field( $_GET['ativo_id'] ?? '' );
+    if ( ! $cliente_id || ! $ativo_id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+
+    // 1) lotes do ativo
+    $rl = tao_formula_api( "/lab_lotes_mp?cliente_id=eq.$cliente_id&ativo_id=eq.$ativo_id" .
+        "&select=id,nr_lote,dt_validade,qtd_atual,unidade,status,origem,nf_numero,fabricante,teor_pct&order=dt_validade.asc&limit=300" );
+    $lotes = $rl['ok'] ? ( $rl['data'] ?? [] ) : [];
+    $saldo = 0.0;
+    foreach ( $lotes as $l ) {
+        if ( ! in_array( $l['status'], [ 'reprovado', 'vencido', 'esgotado' ], true ) ) $saldo += (float) $l['qtd_atual'];
+    }
+
+    // 2) consumo mensal (saídas dos últimos 12 meses, agrupado por AAAA-MM)
+    $desde = gmdate( 'Y-m-d', strtotime( '-12 months' ) );
+    $rm = tao_formula_api( "/estoque_movimentos?cliente_id=eq.$cliente_id&ativo_id=eq.$ativo_id&tipo=eq.saida&criado_em=gte.$desde&select=quantidade,criado_em&limit=5000" );
+    $meses = [];
+    foreach ( ( $rm['ok'] ? $rm['data'] : [] ) as $m ) {
+        $ym = substr( (string) $m['criado_em'], 0, 7 );
+        if ( ! $ym ) continue;
+        $meses[ $ym ] = ( $meses[ $ym ] ?? 0 ) + abs( (float) $m['quantidade'] );
+    }
+    // grade completa dos últimos 12 meses (do atual para trás), preenchendo zeros
+    $consumo = []; $soma = 0.0; $ncom = 0;
+    for ( $i = 0; $i < 12; $i++ ) {
+        $ym = gmdate( 'Y-m', strtotime( "-$i months" ) );
+        $q  = round( (float) ( $meses[ $ym ] ?? 0 ), 4 );
+        $consumo[] = [ 'mes' => $ym, 'qtd' => $q ];
+        $soma += $q; if ( $q > 0 ) $ncom++;
+    }
+    $media = $ncom ? round( $soma / $ncom, 4 ) : 0;
+
+    // 3) última compra
+    $rc = tao_formula_api( "/ativo_precos_hist?cliente_id=eq.$cliente_id&ativo_id=eq.$ativo_id&origem=eq.nf&select=dt,preco_compra,custo_unidade,nf_numero,fornecedor_id&order=dt.desc,criado_em.desc&limit=1" );
+    $ult = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? $rc['data'][0] : null;
+    if ( $ult && ! empty( $ult['fornecedor_id'] ) ) {
+        $rf = tao_formula_api( "/fornecedores?id=eq.{$ult['fornecedor_id']}&select=nome&limit=1" );
+        $ult['fornecedor'] = ( $rf['ok'] && ! empty( $rf['data'] ) ) ? $rf['data'][0]['nome'] : null;
+    }
+
+    wp_send_json_success( [
+        'saldo' => round( $saldo, 4 ), 'lotes' => $lotes,
+        'consumo_mensal' => $consumo, 'media_mensal' => $media, 'ultima_compra' => $ult,
+    ] );
 } );
 
 // ── Helper: gerar número de orçamento (YYYYMMSeq / YYYYMMSeq-XX) ─────────────
@@ -250,7 +364,11 @@ function tao_formula_build_descricao( $forma_nome, $forma_vol, $forma_unidade, $
     $parts = [];
     foreach ( (array) $itens as $item ) {
         if ( ( $item['tipo'] ?? 'mp' ) !== 'mp' ) continue;
-        $nome = strtoupper( $item['nome_prescricao'] ?? $item['nome'] ?? '' );
+        // Orçamento e RÓTULO mostram a DESCRIÇÃO DA PRESCRIÇÃO (o sinônimo prescrito) — regra do Carlos.
+        // Fallback ao nome do produto só quando a prescrição está vazia ou é apenas um código (ex.: excipiente "10577").
+        $presc = trim( (string) ( $item['nome_prescricao'] ?? '' ) );
+        $usa_presc = ( $presc !== '' && ! ctype_digit( $presc ) );
+        $nome = strtoupper( $usa_presc ? $presc : ( $item['nome'] ?? $presc ) );
         if ( ! $nome ) continue;
         if ( ! empty( $item['is_qsp'] ) ) {
             $parts[] = $nome . '@';
@@ -299,6 +417,8 @@ function tao_formula_orc_payload( $itens ) {
     $p['prescritor_id'] = sanitize_text_field( $_POST['prescritor_id'] ?? '' ) ?: null;
     $p['posologia']     = sanitize_textarea_field( $_POST['posologia'] ?? '' ) ?: null;
     $p['forma_tipo']    = sanitize_text_field( $_POST['forma_tipo']   ?? '' ) ?: null;
+    $p['cid_codigo']    = sanitize_text_field( $_POST['cid_codigo']    ?? '' ) ?: null;
+    $p['cid_descricao'] = sanitize_text_field( $_POST['cid_descricao'] ?? '' ) ?: null;
     return $p;
 }
 
@@ -314,7 +434,7 @@ function tao_formula_contato_do_card( $card_id ) {
 function tao_formula_orc_gravar( $path, $method, $data ) {
     $r = tao_formula_api( $path, $method, $data );
     if ( ! $r['ok'] && strpos( (string) ( $r['raw'] ?? '' ), 'column' ) !== false ) {
-        unset( $data['nome_cliente'], $data['prescritor'], $data['prescritor_id'], $data['posologia'], $data['forma_tipo'], $data['contato_id'] );
+        unset( $data['nome_cliente'], $data['prescritor'], $data['prescritor_id'], $data['posologia'], $data['forma_tipo'], $data['contato_id'], $data['cid_codigo'], $data['cid_descricao'] );
         $r = tao_formula_api( $path, $method, $data );
     }
     return $r;
@@ -344,8 +464,9 @@ add_action( 'wp_ajax_tao_formula_save_orcamento', function() {
         'numero_orcamento' => $numero,
         'status'           => 'pendente_revisao',
     ] );
-    // Vincula à pessoa única do CRM (via card, quando houver)
+    // Vincula à pessoa única do CRM (via card, quando houver; senão pelo autocomplete de paciente)
     $ct = tao_formula_contato_do_card( $card_id );
+    if ( ! $ct ) $ct = sanitize_text_field( $_POST['contato_id'] ?? '' ) ?: null;
     if ( $ct ) $data['contato_id'] = $ct;
 
     $r = tao_formula_orc_gravar( '/orcamentos', 'POST', $data );
@@ -387,8 +508,9 @@ add_action( 'wp_ajax_tao_formula_update_orcamento', function() {
     if ( ! is_array( $itens ) ) $itens = [];
 
     $data = tao_formula_orc_payload( $itens );
-    // Mantém o vínculo com a pessoa única do CRM (via card do orçamento)
+    // Mantém o vínculo com a pessoa única do CRM (via card; senão pelo autocomplete de paciente)
     $ct = tao_formula_contato_do_card( $exist['card_id'] ?? null );
+    if ( ! $ct ) $ct = sanitize_text_field( $_POST['contato_id'] ?? '' ) ?: null;
     if ( $ct ) $data['contato_id'] = $ct;
 
     $r = tao_formula_orc_gravar( "/orcamentos?id=eq.$orc_id&cliente_id=eq.$cliente_id", 'PATCH', $data );
@@ -484,6 +606,8 @@ add_action( 'wp_ajax_tao_formula_save_forma', function() {
         'custo_fixo_tipo' => in_array( $_POST['custo_fixo_tipo'] ?? '', [ 'R', 'pct' ] ) ? $_POST['custo_fixo_tipo'] : null,
         'valor_minimo'    => isset( $_POST['valor_minimo'] ) && $_POST['valor_minimo'] !== '' ? (float) $_POST['valor_minimo'] : null,
         'margem_pct'      => (float) ( $_POST['margem_pct'] ?? 30 ),
+        'validade_dias'   => isset( $_POST['validade_dias'] ) && $_POST['validade_dias'] !== '' ? (int) $_POST['validade_dias'] : null,
+        'modo_preparo'    => trim( (string) wp_unslash( $_POST['modo_preparo'] ?? '' ) ) ?: null,
         'ativo'           => true,
     ];
 
@@ -1242,14 +1366,14 @@ add_action( 'wp_ajax_tao_formula_listar_ativos_pag', function () {
     if ( ! $cliente_id ) wp_send_json_error( 'Cliente não identificado', 400 );
 
     $q      = sanitize_text_field( $_POST['q']      ?? '' );
+    $size   = in_array( intval( $_POST['size'] ?? 30 ), [ 20, 30, 50 ], true ) ? intval( $_POST['size'] ) : 30;
     $offset = max( 0, intval( $_POST['offset']      ?? 0 ) );
-    $limit  = 30;
 
     $url = '/ativos?cliente_id=eq.' . $cliente_id
         . ( $q ? '&or=(nome.ilike.*' . rawurlencode( $q ) . '*,codigo_fc.ilike.*' . rawurlencode( $q ) . '*)' : '' )
-        . '&select=id,nome,codigo_fc&order=nome.asc&limit=' . $limit . '&offset=' . $offset;
+        . '&select=id,nome,codigo_fc&order=nome.asc&limit=' . $size . '&offset=' . $offset;
 
-    $r = tao_formula_api( $url );
+    $r = tao_formula_api( $url, 'GET', null, true );
     if ( ! $r['ok'] ) { wp_send_json_error( 'Erro ao buscar ativos' ); return; }
 
     $ativos = $r['data'] ?? [];
@@ -1270,9 +1394,8 @@ add_action( 'wp_ajax_tao_formula_listar_ativos_pag', function () {
     }
 
     wp_send_json_success( [
-        'ativos'   => $ativos,
-        'has_more' => count( $ativos ) === $limit,
-        'offset'   => $offset,
+        'items' => $ativos,
+        'total' => (int) $r['total'],
     ] );
 } );
 
@@ -2381,6 +2504,7 @@ add_action( 'wp_ajax_tao_formula_hist_repetir', function () {
     if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
     $cliente_id = tao_formula_cliente_id();
     $fid        = sanitize_text_field( $_POST['formula_id'] ?? '' );
+    $card_id    = sanitize_text_field( $_POST['card_id'] ?? '' ) ?: null;   // repetir DENTRO de um card
     if ( ! $cliente_id || ! $fid ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
 
     $rf = tao_formula_api( "/hist_formulas?id=eq.$fid&cliente_id=eq.$cliente_id&limit=1" );
@@ -2508,10 +2632,11 @@ add_action( 'wp_ajax_tao_formula_hist_repetir', function () {
     if ( ! $forma_id )           $obs .= ' Confira a forma farmacêutica.';
     $obs .= ' Preços recalculados pela tabela atual.';
 
-    $numero  = tao_formula_gerar_numero( $cliente_id );
+    $numero  = tao_formula_gerar_numero( $cliente_id, $card_id );
     $payload = [
         'cliente_id'          => $cliente_id,
-        'card_id'             => null,
+        'card_id'             => $card_id,
+        'contato_id'          => $card_id ? tao_formula_contato_do_card( $card_id ) : null,
         'numero_orcamento'    => $numero,
         'status'              => 'pendente_revisao',
         'tipo_entrada'        => 'texto',
@@ -2539,6 +2664,8 @@ add_action( 'wp_ajax_tao_formula_hist_repetir', function () {
     $r = tao_formula_orc_gravar( '/orcamentos', 'POST', $payload );
     if ( ! $r['ok'] ) wp_send_json_error( [ 'message' => 'Erro ao criar orçamento: ' . mb_substr( (string) $r['raw'], 0, 300 ) ] );
 
+    if ( $card_id && function_exists( 'tao_crm_sync_valor_oportunidade' ) ) tao_crm_sync_valor_oportunidade( $card_id );
+
     wp_send_json_success( [
         'orc_id'          => $r['data'][0]['id'] ?? null,
         'numero'          => $numero,
@@ -2558,12 +2685,13 @@ add_action( 'wp_ajax_tao_formula_prescritores_lista', function () {
     if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
 
     $q      = sanitize_text_field( $_GET['q'] ?? '' );
+    $size   = in_array( intval( $_GET['size'] ?? 30 ), [ 20, 30, 50 ], true ) ? intval( $_GET['size'] ) : 30;
     $offset = max( 0, intval( $_GET['offset'] ?? 0 ) );
     $filtro = $q ? '&or=(nome.ilike.*' . rawurlencode( $q ) . '*,nr_registro.ilike.*' . rawurlencode( $q ) . '*)' : '';
     $r = tao_formula_api(
         "/prescritores?cliente_id=eq.$cliente_id$filtro" .
         "&select=id,tratamento,nome,tipo_registro,nr_registro,uf_registro,especialidade,celular,telefone,email,endereco,cidade,uf,cep,obs" .
-        "&order=nome.asc&limit=30&offset=$offset"
+        "&order=nome.asc&limit=$size&offset=$offset", 'GET', null, true
     );
     if ( ! $r['ok'] ) {
         $msg = strpos( (string) $r['raw'], 'does not exist' ) !== false
@@ -2571,7 +2699,7 @@ add_action( 'wp_ajax_tao_formula_prescritores_lista', function () {
             : 'Erro: ' . mb_substr( (string) $r['raw'], 0, 200 );
         wp_send_json_error( [ 'message' => $msg ] );
     }
-    wp_send_json_success( $r['data'] ?? [] );
+    wp_send_json_success( [ 'items' => $r['data'] ?? [], 'total' => $r['total'] ] );
 } );
 
 add_action( 'wp_ajax_tao_formula_salvar_prescritor', function () {
@@ -2614,6 +2742,109 @@ add_action( 'wp_ajax_tao_formula_salvar_prescritor', function () {
     }
     $r['ok'] ? wp_send_json_success( [ 'id' => $r['data'][0]['id'] ?? $id ] )
              : wp_send_json_error( [ 'message' => 'Erro ao salvar: ' . mb_substr( (string) $r['raw'], 0, 250 ) ] );
+} );
+
+// ── FORNECEDORES — CRUD (dados fiscais + qualificação RDC 67; espelho FC02000) ──
+add_action( 'wp_ajax_tao_formula_fornecedores_lista', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+
+    $q      = sanitize_text_field( $_GET['q'] ?? '' );
+    $size   = in_array( intval( $_GET['size'] ?? 30 ), [ 20, 30, 50 ], true ) ? intval( $_GET['size'] ) : 30;
+    $offset = max( 0, intval( $_GET['offset'] ?? 0 ) );
+    $filtro = $q ? '&or=(nome.ilike.*' . rawurlencode( $q ) . '*,razao_social.ilike.*' . rawurlencode( $q )
+                 . '*,cnpj.ilike.*' . rawurlencode( $q ) . '*)' : '';
+    $r = tao_formula_api(
+        "/fornecedores?cliente_id=eq.$cliente_id$filtro" .
+        "&select=*&order=nome.asc&limit=$size&offset=$offset", 'GET', null, true
+    );
+    if ( ! $r['ok'] ) wp_send_json_error( [ 'message' => 'Erro: ' . mb_substr( (string) $r['raw'], 0, 200 ) ] );
+    wp_send_json_success( [ 'items' => $r['data'] ?? [], 'total' => (int) $r['total'] ] );
+} );
+
+add_action( 'wp_ajax_tao_formula_salvar_fornecedor', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+
+    $id   = sanitize_text_field( $_POST['id'] ?? '' );
+    $nome = trim( sanitize_text_field( $_POST['nome'] ?? '' ) );
+    if ( ! $nome ) wp_send_json_error( [ 'message' => 'Informe o nome / razão social do fornecedor' ] );
+
+    $txt = function( $k, $upper = false ) {
+        $v = trim( sanitize_text_field( $_POST[ $k ] ?? '' ) );
+        if ( $upper ) $v = strtoupper( $v );
+        return $v === '' ? null : $v;
+    };
+    $num  = function( $k ) { $v = str_replace( ',', '.', trim( (string) ( $_POST[ $k ] ?? '' ) ) ); return $v === '' ? null : floatval( $v ); };
+    $date = function( $k ) { $v = trim( sanitize_text_field( $_POST[ $k ] ?? '' ) ); return preg_match( '/^\d{4}-\d{2}-\d{2}$/', $v ) ? $v : null; };
+    $cnpj = preg_replace( '/\D+/', '', (string) ( $_POST['cnpj'] ?? '' ) );
+
+    $payload = [
+        'nome'             => $nome,
+        'razao_social'     => $txt( 'razao_social' ),
+        'nome_fantasia'    => $txt( 'nome_fantasia' ),
+        'cnpj'             => $cnpj ?: null,
+        'tipo_pessoa'      => $txt( 'tipo_pessoa', true ) ?: 'PJ',
+        'tipo'             => $txt( 'tipo' ),
+        'inscr_estadual'   => $txt( 'inscr_estadual' ),
+        'inscr_municipal'  => $txt( 'inscr_municipal' ),
+        'crt'              => $txt( 'crt' ),
+        'suframa'          => $txt( 'suframa' ),
+        'reg_mapa'         => $txt( 'reg_mapa' ),
+        'endereco'         => $txt( 'endereco' ),
+        'endereco_nr'      => $txt( 'endereco_nr' ),
+        'complemento'      => $txt( 'complemento' ),
+        'bairro'           => $txt( 'bairro' ),
+        'cidade'           => $txt( 'cidade' ),
+        'uf'               => $txt( 'uf', true ),
+        'cep'              => $txt( 'cep' ),
+        'contato'          => $txt( 'contato' ),
+        'telefone'         => $txt( 'telefone' ),
+        'telefone2'        => $txt( 'telefone2' ),
+        'whatsapp'         => $txt( 'whatsapp' ),
+        'email'            => $txt( 'email' ),
+        'site'             => $txt( 'site' ),
+        'prazo_pagamento'  => $txt( 'prazo_pagamento' ),
+        'valor_min_pedido' => $num( 'valor_min_pedido' ),
+        'afe'              => $txt( 'afe' ),
+        'afe_validade'     => $date( 'afe_validade' ),
+        'autoriz_especial' => $txt( 'autoriz_especial' ),
+        'ae_validade'      => $date( 'ae_validade' ),
+        'licenca_sanitaria'=> $txt( 'licenca_sanitaria' ),
+        'licenca_validade' => $date( 'licenca_validade' ),
+        'qualificado'      => ! empty( $_POST['qualificado'] ) && $_POST['qualificado'] !== '0',
+        'qualif_data'      => $date( 'qualif_data' ),
+        'qualif_por'       => $txt( 'qualif_por' ),
+        'qualif_obs'       => $txt( 'qualif_obs' ),
+        'obs'              => $txt( 'obs' ),
+        'ativo'            => ! isset( $_POST['ativo'] ) || $_POST['ativo'] !== '0',
+    ];
+    if ( $id ) {
+        $r = tao_formula_api( "/fornecedores?id=eq.$id&cliente_id=eq.$cliente_id", 'PATCH', $payload );
+    } else {
+        $payload['cliente_id'] = $cliente_id;
+        $r = tao_formula_api( '/fornecedores', 'POST', $payload );
+    }
+    $r['ok'] ? wp_send_json_success( [ 'id' => $r['data'][0]['id'] ?? $id ] )
+             : wp_send_json_error( [ 'message' => 'Erro ao salvar: ' . mb_substr( (string) $r['raw'], 0, 250 ) ] );
+} );
+
+// Autocomplete de CID-10 (diagnóstico opcional no orçamento) — por código ou descrição
+add_action( 'wp_ajax_tao_formula_cid_busca', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $q = trim( sanitize_text_field( $_GET['q'] ?? '' ) );
+    if ( mb_strlen( $q ) < 2 ) { wp_send_json_success( [] ); return; }
+    $enc = rawurlencode( '*' . $q . '*' );
+    $r = tao_formula_api( "/cid10?or=(codigo.ilike.$enc,busca.ilike.$enc)&select=codigo,descricao&order=codigo.asc&limit=12" );
+    wp_send_json_success( $r['ok'] ? ( $r['data'] ?? [] ) : [] );
 } );
 
 // Autocomplete do editor: nome ou nº de registro → 10 primeiros
@@ -2757,12 +2988,45 @@ add_action( 'wp_ajax_tao_formula_cliente_get', function () {
     if ( ! $ws || ! $id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
     $r = tao_formula_api(
         "/crm_contatos?id=eq.$id&workspace_id=eq.$ws" .
-        "&select=id,nome,whatsapp,email,data_nascimento,sexo,observacoes,alergias,saude_obesidade,saude_colesterol,saude_pressao,saude_diabetes,origem&limit=1"
+        "&select=id,nome,whatsapp,email,data_nascimento,sexo,observacoes,alergias,saude_obesidade,saude_colesterol,saude_pressao,saude_diabetes,consentimento,consent_data,consent_canal,anonimizado,origem&limit=1"
     );
-    $r['ok'] && ! empty( $r['data'] )
-        ? wp_send_json_success( $r['data'][0] )
-        : wp_send_json_error( [ 'message' => 'Contato não encontrado' ] );
+    if ( ! $r['ok'] ) {
+        // migration_lgpd pendente → tenta sem os campos novos
+        $r = tao_formula_api( "/crm_contatos?id=eq.$id&workspace_id=eq.$ws&select=id,nome,whatsapp,email,data_nascimento,sexo,observacoes,alergias,saude_obesidade,saude_colesterol,saude_pressao,saude_diabetes,origem&limit=1" );
+    }
+    if ( ! $r['ok'] || empty( $r['data'] ) ) wp_send_json_error( [ 'message' => 'Contato não encontrado' ] );
+    // LGPD: registra o acesso a dado sensível de paciente (trilha)
+    tao_formula_lgpd_log( tao_formula_cliente_id(), $id, 'visualizou' );
+    wp_send_json_success( $r['data'][0] );
 } );
+
+// Busca contatos do CRM por nome ou WhatsApp — autocomplete de paciente no orçamento
+add_action( 'wp_ajax_tao_formula_cliente_busca', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $ws = tao_formula_workspace_id();
+    $q  = sanitize_text_field( $_GET['q'] ?? '' );
+    if ( ! $ws || mb_strlen( $q ) < 2 ) { wp_send_json_success( [] ); return; }
+    $enc = rawurlencode( $q );
+    // exclui anonimizados (LGPD); se a coluna não existir, refaz sem o filtro
+    $base = "/crm_contatos?workspace_id=eq.$ws&or=(nome.ilike.*{$enc}*,whatsapp.ilike.*{$enc}*)"
+          . "&select=id,nome,whatsapp&order=nome.asc&limit=10";
+    $r = tao_formula_api( $base . '&anonimizado=eq.false' );
+    if ( ! $r['ok'] ) $r = tao_formula_api( $base );
+    wp_send_json_success( $r['ok'] ? ( $r['data'] ?? [] ) : [] );
+} );
+
+// Helper: registra acesso a dado sensível (silencioso se a tabela não existir)
+function tao_formula_lgpd_log( $cliente_id, $contato_id, $acao ) {
+    if ( ! $cliente_id || ! $contato_id ) return;
+    $u = wp_get_current_user();
+    tao_formula_api( '/lgpd_acessos', 'POST', [
+        'cliente_id' => $cliente_id, 'contato_id' => $contato_id,
+        'usuario_id' => get_current_user_id(), 'usuario_nome' => $u ? $u->display_name : null,
+        'acao' => $acao,
+    ] );
+}
 
 // Cria/edita o contato do CRM. Opcional: hist_id p/ vincular ao histórico (contato_id).
 add_action( 'wp_ajax_tao_formula_cliente_save', function () {
@@ -2791,6 +3055,9 @@ add_action( 'wp_ajax_tao_formula_cliente_save', function () {
         'saude_colesterol' => $bool( 'saude_colesterol' ),
         'saude_pressao'    => $bool( 'saude_pressao' ),
         'saude_diabetes'   => $bool( 'saude_diabetes' ),
+        'consentimento'    => $bool( 'consentimento' ),
+        'consent_data'     => $txt( 'consent_data' ),
+        'consent_canal'    => $txt( 'consent_canal' ),
     ];
     $wpp = tao_formula_norm_whatsapp( $_POST['whatsapp'] ?? '' );
     if ( $wpp ) $payload['whatsapp'] = $wpp;
@@ -2819,7 +3086,28 @@ add_action( 'wp_ajax_tao_formula_cliente_save', function () {
     if ( $hist_id && $contato_id && $cliente_id ) {
         tao_formula_api( "/hist_clientes?id=eq.$hist_id&cliente_id=eq.$cliente_id", 'PATCH', [ 'contato_id' => $contato_id ] );
     }
+    tao_formula_lgpd_log( $cliente_id, $contato_id, 'editou' );
     wp_send_json_success( [ 'id' => $contato_id, 'contato_id' => $contato_id ] );
+} );
+
+// LGPD — anonimização do paciente (direito ao esquecimento): apaga dados pessoais,
+// preserva o registro para integridade das OMs/histórico (rastreabilidade legal).
+add_action( 'wp_ajax_tao_formula_contato_anonimizar', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    if ( ! tao_formula_is_master() ) wp_send_json_error( [ 'message' => 'Apenas gestor/master pode anonimizar.' ], 403 );
+    $ws         = tao_formula_workspace_id();
+    $cliente_id = tao_formula_cliente_id();
+    $id = sanitize_text_field( $_POST['id'] ?? '' );
+    if ( ! $ws || ! $id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+    $r = tao_formula_api( "/crm_contatos?id=eq.$id&workspace_id=eq.$ws", 'PATCH', [
+        'nome' => '[ANONIMIZADO]', 'email' => null, 'data_nascimento' => null, 'sexo' => null,
+        'alergias' => null, 'observacoes' => null, 'anonimizado' => true, 'anonimizado_em' => gmdate( 'c' ),
+    ] );
+    if ( ! $r['ok'] ) wp_send_json_error( [ 'message' => 'Erro: ' . mb_substr( (string) $r['raw'], 0, 200 ) ] );
+    tao_formula_lgpd_log( $cliente_id, $id, 'anonimizou' );
+    wp_send_json_success();
 } );
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2838,6 +3126,7 @@ function tao_formula_parse_nfe( $xml_raw ) {
     $inf = $inf[0];
 
     $emit = $inf->emit;
+    $en   = $emit->enderEmit;
     $out = [
         'cnpj_emitente' => preg_replace( '/\D/', '', (string) $emit->CNPJ ),
         'razao'         => (string) $emit->xNome,
@@ -2846,6 +3135,22 @@ function tao_formula_parse_nfe( $xml_raw ) {
         'serie'         => (string) $inf->ide->serie,
         'dt_emissao'    => substr( (string) $inf->ide->dhEmi, 0, 10 ),
         'valor_total'   => (float) $inf->total->ICMSTot->vNF,
+        // dados do emitente p/ pré-preencher o cadastro de fornecedor (RDC 67 / casamento da NF)
+        'emitente'      => [
+            'cnpj'           => preg_replace( '/\D/', '', (string) $emit->CNPJ ),
+            'razao_social'   => (string) $emit->xNome,
+            'nome_fantasia'  => (string) $emit->xFant,
+            'inscr_estadual' => (string) $emit->IE,
+            'crt'            => (string) $emit->CRT,
+            'endereco'       => (string) $en->xLgr,
+            'endereco_nr'    => (string) $en->nro,
+            'complemento'    => (string) $en->xCpl,
+            'bairro'         => (string) $en->xBairro,
+            'cidade'         => (string) $en->xMun,
+            'uf'             => (string) $en->UF,
+            'cep'            => preg_replace( '/\D/', '', (string) $en->CEP ),
+            'telefone'       => (string) $en->fone,
+        ],
         'itens'         => [],
         'duplicatas'    => [],
     ];
@@ -2905,8 +3210,25 @@ add_action( 'wp_ajax_tao_formula_nf_upload', function () {
     // fornecedor pelo CNPJ do emitente
     $forn = null;
     if ( $nfe['cnpj_emitente'] ) {
-        $rf = tao_formula_api( "/fornecedores?cliente_id=eq.$cliente_id&cnpj=eq.{$nfe['cnpj_emitente']}&select=id,nome&limit=1" );
+        $rf = tao_formula_api( "/fornecedores?cliente_id=eq.$cliente_id&cnpj=eq.{$nfe['cnpj_emitente']}" .
+            "&select=id,nome,qualificado,afe,afe_validade,autoriz_especial,ae_validade,licenca_sanitaria,licenca_validade&limit=1" );
         if ( $rf['ok'] && ! empty( $rf['data'] ) ) $forn = $rf['data'][0];
+    }
+
+    // alertas de conformidade do fornecedor no recebimento (RDC 67)
+    $nfe['forn_alertas'] = [];
+    if ( $forn ) {
+        $hoje = gmdate( 'Y-m-d' );
+        if ( ! empty( $forn['afe_validade'] ) && $forn['afe_validade'] < $hoje )
+            $nfe['forn_alertas'][] = [ 'nivel' => 'erro', 'msg' => 'AFE (Autorização de Funcionamento) vencida em ' . $forn['afe_validade'] ];
+        if ( ! empty( $forn['ae_validade'] ) && $forn['ae_validade'] < $hoje )
+            $nfe['forn_alertas'][] = [ 'nivel' => 'erro', 'msg' => 'Autorização Especial (controlados) vencida em ' . $forn['ae_validade'] ];
+        if ( ! empty( $forn['licenca_validade'] ) && $forn['licenca_validade'] < $hoje )
+            $nfe['forn_alertas'][] = [ 'nivel' => 'erro', 'msg' => 'Licença/Alvará Sanitário vencido em ' . $forn['licenca_validade'] ];
+        if ( empty( $forn['qualificado'] ) )
+            $nfe['forn_alertas'][] = [ 'nivel' => 'aviso', 'msg' => 'Fornecedor ainda não qualificado (RDC 67).' ];
+        if ( empty( $forn['afe'] ) )
+            $nfe['forn_alertas'][] = [ 'nivel' => 'aviso', 'msg' => 'Fornecedor sem número de AFE cadastrado.' ];
     }
 
     // de-para aprendido p/ este fornecedor
@@ -2932,6 +3254,49 @@ add_action( 'wp_ajax_tao_formula_nf_upload', function () {
 
     $nfe['fornecedor'] = $forn;
     wp_send_json_success( $nfe );
+} );
+
+// Cadastro rápido de fornecedor a partir dos dados do emitente do XML (fluxo da NF).
+// Idempotente: se o CNPJ já existir, retorna o existente em vez de duplicar.
+add_action( 'wp_ajax_tao_formula_nf_forn_cadastrar', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+
+    $e    = json_decode( stripslashes( $_POST['emitente'] ?? '' ), true );
+    $cnpj = preg_replace( '/\D/', '', (string) ( $e['cnpj'] ?? '' ) );
+    if ( ! is_array( $e ) || ! $cnpj ) wp_send_json_error( [ 'message' => 'Dados do emitente ausentes' ] );
+
+    // já existe? devolve
+    $rf = tao_formula_api( "/fornecedores?cliente_id=eq.$cliente_id&cnpj=eq.$cnpj&select=id,nome&limit=1" );
+    if ( $rf['ok'] && ! empty( $rf['data'] ) ) { wp_send_json_success( $rf['data'][0] ); return; }
+
+    $clean = function( $k ) use ( $e ) { $v = trim( (string) ( $e[ $k ] ?? '' ) ); return $v === '' ? null : $v; };
+    $payload = [
+        'cliente_id'     => $cliente_id,
+        'nome'           => $clean( 'nome_fantasia' ) ?: ( $clean( 'razao_social' ) ?: $cnpj ),
+        'razao_social'   => $clean( 'razao_social' ),
+        'nome_fantasia'  => $clean( 'nome_fantasia' ),
+        'cnpj'           => $cnpj,
+        'tipo_pessoa'    => 'PJ',
+        'inscr_estadual' => $clean( 'inscr_estadual' ),
+        'crt'            => $clean( 'crt' ),
+        'endereco'       => $clean( 'endereco' ),
+        'endereco_nr'    => $clean( 'endereco_nr' ),
+        'complemento'    => $clean( 'complemento' ),
+        'bairro'         => $clean( 'bairro' ),
+        'cidade'         => $clean( 'cidade' ),
+        'uf'             => $clean( 'uf' ),
+        'cep'            => $clean( 'cep' ),
+        'telefone'       => $clean( 'telefone' ),
+        'ativo'          => true,
+    ];
+    $r = tao_formula_api( '/fornecedores', 'POST', $payload );
+    ( $r['ok'] && ! empty( $r['data'] ) )
+        ? wp_send_json_success( [ 'id' => $r['data'][0]['id'], 'nome' => $payload['nome'] ] )
+        : wp_send_json_error( [ 'message' => 'Erro ao cadastrar: ' . mb_substr( (string) $r['raw'], 0, 200 ) ] );
 } );
 
 // Efetiva a entrada: grava NF+itens, aprende de-para, cria lotes+movimentos,
@@ -3030,7 +3395,13 @@ add_action( 'wp_ajax_tao_formula_nf_efetivar', function () {
             $upd = [];
             if ( $dv === 'compra' || $dv === 'ambos' ) $upd['preco_compra'] = $preco;
             if ( $dv === 'custo'  || $dv === 'ambos' ) $upd['custo_por_unidade'] = $preco;
-            if ( $upd ) tao_formula_api( "/ativos?id=eq.$aid&cliente_id=eq.$cliente_id", 'PATCH', $upd );
+            if ( $upd ) {
+                tao_formula_api( "/ativos?id=eq.$aid&cliente_id=eq.$cliente_id", 'PATCH', $upd );
+                tao_formula_registrar_preco_hist( $cliente_id, $aid, [
+                    'preco_compra'  => $upd['preco_compra'] ?? null,
+                    'custo_unidade' => $upd['custo_por_unidade'] ?? null,
+                ], 'nf', [ 'fornecedor_id' => $forn_id, 'nf_numero' => $payload['numero'] ?? null ] );
+            }
         }
     }
 
@@ -3058,10 +3429,12 @@ add_action( 'wp_ajax_tao_formula_nf_lista', function () {
     if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
     $cliente_id = tao_formula_cliente_id();
     if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+    $size   = in_array( intval( $_GET['size'] ?? 30 ), [ 20, 30, 50 ], true ) ? intval( $_GET['size'] ) : 30;
+    $offset = max( 0, intval( $_GET['offset'] ?? 0 ) );
     $r = tao_formula_api(
-        "/estoque_entradas_nf?cliente_id=eq.$cliente_id&select=id,numero,serie,cnpj_emitente,dt_entrada,valor_total,status,fornecedor_id&order=dt_entrada.desc,criado_em.desc&limit=50"
+        "/estoque_entradas_nf?cliente_id=eq.$cliente_id&select=id,numero,serie,cnpj_emitente,dt_entrada,valor_total,status,fornecedor_id&order=dt_entrada.desc,criado_em.desc&limit=$size&offset=$offset", 'GET', null, true
     );
-    wp_send_json_success( $r['ok'] ? ( $r['data'] ?? [] ) : [] );
+    wp_send_json_success( [ 'items' => $r['ok'] ? ( $r['data'] ?? [] ) : [], 'total' => $r['ok'] ? (int) $r['total'] : 0 ] );
 } );
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3078,13 +3451,15 @@ add_action( 'wp_ajax_tao_formula_estq_lotes', function () {
 
     $status = sanitize_text_field( $_GET['status'] ?? '' );
     $q      = sanitize_text_field( $_GET['q'] ?? '' );
+    $size   = in_array( intval( $_GET['size'] ?? 30 ), [ 20, 30, 50 ], true ) ? intval( $_GET['size'] ) : 30;
+    $offset = max( 0, intval( $_GET['offset'] ?? 0 ) );
     $filtro = '';
     if ( in_array( $status, [ 'quarentena', 'aprovado', 'reprovado', 'esgotado', 'vencido' ], true ) ) $filtro .= "&status=eq.$status";
     if ( $q !== '' ) $filtro .= '&nr_lote=ilike.*' . rawurlencode( $q ) . '*';
 
     $r = tao_formula_api(
         "/lab_lotes_mp?cliente_id=eq.$cliente_id$filtro" .
-        "&select=id,ativo_id,nr_lote,origem,dt_validade,qtd_atual,unidade,teor_pct,status,nf_numero,qc_em" .
+        "&select=id,ativo_id,nr_lote,origem,dt_validade,qtd_atual,unidade,teor_pct,status,nf_numero,qc_em,laudo_url,nr_laudo,fabricante" .
         "&order=status.asc,dt_validade.asc&limit=200"
     );
     $lotes = $r['ok'] ? ( $r['data'] ?? [] ) : [];
@@ -3102,7 +3477,9 @@ add_action( 'wp_ajax_tao_formula_estq_lotes', function () {
         $ql = mb_strtolower( $q );
         $lotes = array_values( array_filter( $lotes, fn( $l ) => mb_stripos( $l['nr_lote'] . ' ' . $l['ativo_nome'], $q ) !== false ) );
     }
-    wp_send_json_success( $lotes );
+    $total = count( $lotes );
+    $lotes = array_slice( $lotes, $offset, $size );
+    wp_send_json_success( [ 'items' => $lotes, 'total' => $total ] );
 } );
 
 // CQ de recebimento: aprovar/reprovar lote (RDC 67 — registra quem e quando)
@@ -3125,6 +3502,42 @@ add_action( 'wp_ajax_tao_formula_estq_lote_cq', function () {
     ] );
     $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => mb_substr( (string) $r['raw'], 0, 200 ) ] );
 } );
+
+// Laudo/certificado de análise por lote (RDC 67): upload do PDF + nº do laudo.
+add_action( 'wp_ajax_tao_formula_lote_laudo_upload', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $lote_id = sanitize_text_field( $_POST['lote_id'] ?? '' );
+    if ( ! $cliente_id || ! $lote_id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+
+    $patch = [ 'nr_laudo' => trim( sanitize_text_field( $_POST['nr_laudo'] ?? '' ) ) ?: null ];
+
+    // upload opcional do PDF
+    if ( ! empty( $_FILES['laudo'] ) && $_FILES['laudo']['error'] === UPLOAD_ERR_OK ) {
+        $tipo = mime_content_type( $_FILES['laudo']['tmp_name'] );
+        if ( ! in_array( $tipo, [ 'application/pdf', 'image/jpeg', 'image/png' ], true ) )
+            wp_send_json_error( [ 'message' => 'Envie o laudo em PDF, JPG ou PNG.' ] );
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        add_filter( 'upload_dir', 'tao_formula_laudo_dir' );
+        $up = wp_handle_upload( $_FILES['laudo'], [ 'test_form' => false ] );
+        remove_filter( 'upload_dir', 'tao_formula_laudo_dir' );
+        if ( isset( $up['error'] ) ) wp_send_json_error( [ 'message' => 'Falha no upload: ' . $up['error'] ] );
+        $patch['laudo_url'] = $up['url'];
+    }
+
+    $r = tao_formula_api( "/lab_lotes_mp?id=eq.$lote_id&cliente_id=eq.$cliente_id", 'PATCH', $patch );
+    $r['ok'] ? wp_send_json_success( [ 'laudo_url' => $patch['laudo_url'] ?? null, 'nr_laudo' => $patch['nr_laudo'] ] )
+             : wp_send_json_error( [ 'message' => mb_substr( (string) $r['raw'], 0, 200 ) ] );
+} );
+// subdiretório dedicado p/ laudos (organiza os uploads)
+function tao_formula_laudo_dir( $dirs ) {
+    $dirs['subdir'] = '/laudos-mp' . $dirs['subdir'];
+    $dirs['path']   = $dirs['basedir'] . $dirs['subdir'];
+    $dirs['url']    = $dirs['baseurl'] . $dirs['subdir'];
+    return $dirs;
+}
 
 // Inventário: acerta a qtd_atual de um lote e lança movimento de ajuste (com trilha)
 add_action( 'wp_ajax_tao_formula_estq_ajuste', function () {
@@ -3164,6 +3577,151 @@ add_action( 'wp_ajax_tao_formula_estq_kardex', function () {
         "&select=tipo,quantidade,origem,criado_em&order=criado_em.desc&limit=100"
     );
     wp_send_json_success( $r['ok'] ? ( $r['data'] ?? [] ) : [] );
+} );
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INVENTÁRIO EM MASSA — contagem geral congelada → ajustes em lote (FC1D000)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Abre uma sessão: congela o saldo de todos os lotes vivos como snapshot.
+add_action( 'wp_ajax_tao_formula_inv_abrir', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+    $descricao = trim( sanitize_text_field( $_POST['descricao'] ?? '' ) ) ?: ( 'Inventário ' . gmdate( 'd/m/Y' ) );
+    $status_f  = sanitize_text_field( $_POST['status_lote'] ?? 'aprovado' ); // escopo: aprovado (padrão) ou todos
+
+    // lotes vivos (com saldo) — escopo do inventário
+    $filtro = "&qtd_atual=gte.0";
+    if ( $status_f === 'aprovado' ) $filtro .= "&status=eq.aprovado";
+    else $filtro .= "&status=not.in.(esgotado,reprovado,vencido)";
+    $rl = tao_formula_api( "/lab_lotes_mp?cliente_id=eq.$cliente_id$filtro&select=id,ativo_id,nr_lote,qtd_atual,unidade&order=id.asc&limit=5000" );
+    $lotes = $rl['ok'] ? ( $rl['data'] ?? [] ) : [];
+    if ( ! $lotes ) wp_send_json_error( [ 'message' => 'Nenhum lote no escopo selecionado.' ] );
+
+    // nomes dos ativos
+    $ids = array_values( array_unique( array_filter( array_column( $lotes, 'ativo_id' ) ) ) );
+    $nomes = [];
+    foreach ( array_chunk( $ids, 300 ) as $ch ) {
+        $ra = tao_formula_api( "/ativos?id=in.(" . implode( ',', $ch ) . ")&select=id,nome&limit=" . count( $ch ) );
+        foreach ( ( $ra['ok'] ? $ra['data'] : [] ) as $a ) $nomes[ $a['id'] ] = $a['nome'];
+    }
+
+    $cab = tao_formula_api( '/lab_inventario', 'POST', [
+        'cliente_id' => $cliente_id, 'descricao' => $descricao, 'status' => 'aberta',
+        'filtro' => $status_f, 'total_itens' => count( $lotes ), 'criado_por' => get_current_user_id(),
+    ] );
+    if ( ! $cab['ok'] || empty( $cab['data'] ) ) wp_send_json_error( [ 'message' => 'Erro ao abrir: ' . mb_substr( (string) $cab['raw'], 0, 200 ) ] );
+    $inv_id = $cab['data'][0]['id'];
+
+    // snapshot dos itens (em lotes de 200 no POST)
+    $itens = [];
+    foreach ( $lotes as $l ) {
+        $itens[] = [
+            'inventario_id' => $inv_id, 'lote_id' => $l['id'], 'ativo_id' => $l['ativo_id'],
+            'ativo_nome' => $nomes[ $l['ativo_id'] ] ?? '—', 'nr_lote' => $l['nr_lote'],
+            'unidade' => $l['unidade'], 'qtd_sistema' => (float) $l['qtd_atual'], 'contado' => false,
+        ];
+    }
+    foreach ( array_chunk( $itens, 200 ) as $ch ) tao_formula_api( '/lab_inventario_itens', 'POST', $ch );
+    wp_send_json_success( [ 'id' => $inv_id, 'total' => count( $itens ) ] );
+} );
+
+// Lista de sessões de inventário
+add_action( 'wp_ajax_tao_formula_inv_lista', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+    $size   = in_array( intval( $_GET['size'] ?? 30 ), [ 20, 30, 50 ], true ) ? intval( $_GET['size'] ) : 30;
+    $offset = max( 0, intval( $_GET['offset'] ?? 0 ) );
+    $r = tao_formula_api( "/lab_inventario?cliente_id=eq.$cliente_id&select=id,descricao,status,total_itens,total_diverg,dt_abertura,dt_fechamento,responsavel&order=dt_abertura.desc&limit=$size&offset=$offset", 'GET', null, true );
+    wp_send_json_success( [ 'items' => $r['ok'] ? ( $r['data'] ?? [] ) : [], 'total' => $r['ok'] ? (int) $r['total'] : 0 ] );
+} );
+
+// Detalhe da sessão + itens (para a planilha de contagem)
+add_action( 'wp_ajax_tao_formula_inv_get', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $inv_id = sanitize_text_field( $_GET['id'] ?? '' );
+    if ( ! $cliente_id || ! $inv_id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+    $rc = tao_formula_api( "/lab_inventario?id=eq.$inv_id&cliente_id=eq.$cliente_id&limit=1" );
+    if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( [ 'message' => 'Inventário não encontrado' ] );
+    $ri = tao_formula_api( "/lab_inventario_itens?inventario_id=eq.$inv_id&select=id,ativo_nome,nr_lote,unidade,qtd_sistema,qtd_contada,diferenca,contado&order=ativo_nome.asc&limit=5000" );
+    wp_send_json_success( [ 'inv' => $rc['data'][0], 'itens' => $ri['ok'] ? ( $ri['data'] ?? [] ) : [] ] );
+} );
+
+// Grava a contagem de um item (qtd real contada)
+add_action( 'wp_ajax_tao_formula_inv_contar', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $item_id = sanitize_text_field( $_POST['item_id'] ?? '' );
+    $qtd     = $_POST['qtd_contada'] ?? '';
+    if ( ! $item_id ) wp_send_json_error( [ 'message' => 'Item inválido' ] );
+    $rl = tao_formula_api( "/lab_inventario_itens?id=eq.$item_id&select=qtd_sistema&limit=1" );
+    if ( ! $rl['ok'] || empty( $rl['data'] ) ) wp_send_json_error( [ 'message' => 'Item não encontrado' ] );
+    if ( $qtd === '' ) {
+        $r = tao_formula_api( "/lab_inventario_itens?id=eq.$item_id", 'PATCH', [ 'qtd_contada' => null, 'diferenca' => null, 'contado' => false ] );
+    } else {
+        $c = (float) str_replace( ',', '.', $qtd );
+        $dif = round( $c - (float) $rl['data'][0]['qtd_sistema'], 6 );
+        $r = tao_formula_api( "/lab_inventario_itens?id=eq.$item_id", 'PATCH', [ 'qtd_contada' => $c, 'diferenca' => $dif, 'contado' => true ] );
+    }
+    $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => mb_substr( (string) $r['raw'], 0, 200 ) ] );
+} );
+
+// Fecha o inventário: aplica os ajustes (qtd_atual = contada) e lança movimentos.
+// Só itens CONTADOS com diferença != 0 geram ajuste. Não contados ficam como estão.
+add_action( 'wp_ajax_tao_formula_inv_fechar', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $inv_id = sanitize_text_field( $_POST['id'] ?? '' );
+    if ( ! $cliente_id || ! $inv_id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+    $rc = tao_formula_api( "/lab_inventario?id=eq.$inv_id&cliente_id=eq.$cliente_id&select=status&limit=1" );
+    if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( [ 'message' => 'Inventário não encontrado' ] );
+    if ( $rc['data'][0]['status'] !== 'aberta' ) wp_send_json_error( [ 'message' => 'Inventário já encerrado.' ] );
+
+    $ri = tao_formula_api( "/lab_inventario_itens?inventario_id=eq.$inv_id&contado=eq.true&select=lote_id,ativo_id,qtd_contada,diferenca&limit=5000" );
+    $itens = $ri['ok'] ? ( $ri['data'] ?? [] ) : [];
+    $ajustes = 0;
+    foreach ( $itens as $it ) {
+        $dif = (float) ( $it['diferenca'] ?? 0 );
+        if ( ! $it['lote_id'] || abs( $dif ) < 1e-9 ) continue;
+        $novo = (float) $it['qtd_contada'];
+        $upd = [ 'qtd_atual' => $novo ]; if ( $novo <= 0 ) $upd['status'] = 'esgotado';
+        tao_formula_api( "/lab_lotes_mp?id=eq.{$it['lote_id']}&cliente_id=eq.$cliente_id", 'PATCH', $upd );
+        tao_formula_api( '/estoque_movimentos', 'POST', [
+            'cliente_id' => $cliente_id, 'ativo_id' => $it['ativo_id'], 'lote_id' => $it['lote_id'],
+            'tipo' => 'ajuste', 'quantidade' => $dif, 'origem' => 'inventario', 'ref_id' => $inv_id,
+            'saldo_apos' => $novo, 'usuario_id' => get_current_user_id(),
+        ] );
+        $ajustes++;
+    }
+    tao_formula_api( "/lab_inventario?id=eq.$inv_id&cliente_id=eq.$cliente_id", 'PATCH', [
+        'status' => 'fechada', 'total_diverg' => $ajustes, 'dt_fechamento' => gmdate( 'c' ),
+        'responsavel' => wp_get_current_user()->display_name ?: null,
+    ] );
+    wp_send_json_success( [ 'ajustes' => $ajustes ] );
+} );
+
+// Cancela um inventário aberto (não aplica nada)
+add_action( 'wp_ajax_tao_formula_inv_cancelar', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $inv_id = sanitize_text_field( $_POST['id'] ?? '' );
+    if ( ! $cliente_id || ! $inv_id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+    $r = tao_formula_api( "/lab_inventario?id=eq.$inv_id&cliente_id=eq.$cliente_id&status=eq.aberta", 'PATCH', [ 'status' => 'cancelada', 'dt_fechamento' => gmdate( 'c' ) ] );
+    $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => mb_substr( (string) $r['raw'], 0, 200 ) ] );
 } );
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3286,22 +3844,41 @@ add_action( 'wp_ajax_tao_formula_prod_gerar_om', function () {
     $orc_id = sanitize_text_field( $_POST['orc_id'] ?? '' );
     if ( ! $cliente_id || ! $orc_id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
 
+    $res = tao_formula_criar_om( $cliente_id, $orc_id );
+    if ( empty( $res['ok'] ) ) wp_send_json_error( [ 'message' => $res['erro'] ?? 'Erro ao gerar OM' ] );
+    wp_send_json_success( [ 'ordem_id' => $res['ordem_id'], 'itens' => $res['itens'] ] );
+} );
+
+/**
+ * Cria a OM a partir de um orçamento. REUSÁVEL: tela Produção (handler acima) e gatilho do
+ * ganho (card-ganho.php). Idempotente por orçamento (não cria 2 OMs).
+ * Retorna: ['ok'=>bool, 'ordem_id'=>uuid|null, 'itens'=>int, 'ja_existia'=>bool, 'erro'=>string|null].
+ */
+function tao_formula_criar_om( $cliente_id, $orc_id ) {
     // já tem OM p/ este orçamento?
     $jx = tao_formula_api( "/lab_ordens?cliente_id=eq.$cliente_id&orcamento_id=eq.$orc_id&select=id,numero&limit=1" );
     if ( $jx['ok'] && ! empty( $jx['data'] ) )
-        wp_send_json_error( [ 'message' => 'Este orçamento já tem OM (nº ' . $jx['data'][0]['numero'] . ').' ] );
+        return [ 'ok' => false, 'ja_existia' => true, 'ordem_id' => $jx['data'][0]['id'], 'itens' => 0, 'erro' => 'Este orçamento já tem OM (nº ' . $jx['data'][0]['numero'] . ').' ];
 
     $ro = tao_formula_api( "/orcamentos?id=eq.$orc_id&cliente_id=eq.$cliente_id&limit=1" );
-    if ( ! $ro['ok'] || empty( $ro['data'] ) ) wp_send_json_error( [ 'message' => 'Orçamento não encontrado' ] );
+    if ( ! $ro['ok'] || empty( $ro['data'] ) ) return [ 'ok' => false, 'ordem_id' => null, 'itens' => 0, 'ja_existia' => false, 'erro' => 'Orçamento não encontrado' ];
     $o = $ro['data'][0];
 
-    // validade da fórmula: floral 90d, demais 120d (regra Magis)
-    $tipo = strtolower( (string) ( $o['forma_tipo'] ?? '' ) . ' ' . ( $o['forma_nome'] ?? '' ) );
-    $dias = strpos( $tipo, 'floral' ) !== false ? 90 : 120;
+    // validade padrão por forma farmacêutica — PARÂMETRO CADASTRÁVEL (equivalente ao PRAZOVALxx do FCerta),
+    // lido de formas_farmaceuticas.validade_dias. Fallback 120 se a forma ainda não tiver o parâmetro.
+    $dias = 120; $modo_preparo = null;
+    if ( ! empty( $o['forma_id'] ) ) {
+        $rf = tao_formula_api( "/formas_farmaceuticas?id=eq.{$o['forma_id']}&cliente_id=eq.$cliente_id&select=validade_dias,modo_preparo&limit=1" );
+        if ( $rf['ok'] && ! empty( $rf['data'] ) ) {
+            if ( ! empty( $rf['data'][0]['validade_dias'] ) ) $dias = (int) $rf['data'][0]['validade_dias'];
+            $modo_preparo = $rf['data'][0]['modo_preparo'] ?? null;   // herda o modo de preparo padrão da forma
+        }
+    }
 
-    $cab = tao_formula_api( '/lab_ordens', 'POST', [
+    $payload = [
         'cliente_id'    => $cliente_id,
         'orcamento_id'  => $orc_id,
+        'numero'        => $o['numero_orcamento'] ?? null,   // OM = orçamento aprovado → mesmo número (único, ligado ao card)
         'card_id'       => $o['card_id'] ?? null,
         'contato_id'    => $o['contato_id'] ?? null,
         'paciente_nome' => $o['nome_paciente'] ?: 'Paciente',
@@ -3312,35 +3889,51 @@ add_action( 'wp_ajax_tao_formula_prod_gerar_om', function () {
         'volume'        => $o['forma_vol'] ?? null,
         'unidade_vol'   => $o['forma_unidade'] ?? null,
         'qtd_unidades'  => $o['qtde_potes'] ?? 1,
+        'modo_preparo'  => $modo_preparo,
         'dt_validade'   => gmdate( 'Y-m-d', strtotime( "+$dias days" ) ),
         'etapa_id'      => tao_formula_etapa_inicial( $cliente_id ),
         'status'        => 'aberta',
         'criado_por'    => get_current_user_id(),
-    ] );
+    ];
+    $cab = tao_formula_api( '/lab_ordens', 'POST', $payload );
+    if ( ! $cab['ok'] && ! empty( $payload['numero'] ) ) {
+        // o banco recusou o número informado (trava/trigger na coluna) → cria com o número padrão;
+        // NUNCA bloqueia a produção por causa do número.
+        unset( $payload['numero'] );
+        $cab = tao_formula_api( '/lab_ordens', 'POST', $payload );
+    }
     if ( ! $cab['ok'] || empty( $cab['data'] ) )
-        wp_send_json_error( [ 'message' => 'Erro ao criar OM: ' . mb_substr( (string) $cab['raw'], 0, 200 ) ] );
+        return [ 'ok' => false, 'ordem_id' => null, 'itens' => 0, 'ja_existia' => false, 'erro' => 'Erro ao criar OM: ' . mb_substr( (string) $cab['raw'], 0, 200 ) ];
     $ordem_id = $cab['data'][0]['id'];
 
     // itens (do jsonb do orçamento)
     $itens = $o['itens'] ?? [];
     if ( is_string( $itens ) ) $itens = json_decode( $itens, true ) ?: [];
-    $linhas = []; $i = 0; $controlado = false;
+    $linhas = []; $i = 0;
     foreach ( (array) $itens as $it ) {
         if ( ( $it['tipo'] ?? 'mp' ) !== 'mp' ) continue;
         $linhas[] = [
             'ordem_id'      => $ordem_id,
             'ativo_id'      => $it['ativo_id'] ?? null,
+            // descricao = a PRESCRIÇÃO (sinônimo) — usada no rótulo e no livro (o cliente reconhece).
+            // A ficha de pesagem usa o ativo origem (nome do produto), resolvido pelo ativo_id.
             'descricao'     => $it['nome_prescricao'] ?? $it['nome'] ?? '—',
             'qtd_prescrita' => isset( $it['dose'] ) ? (float) $it['dose'] : null,
             'unidade'       => $it['dose_unit'] ?? null,
+            // Quantidade a PESAR calculada no orçamento (o que o manipulador coloca na balança) + correções aplicadas.
+            'qtd_pesar'     => isset( $it['qtd_total_g'] ) ? round( (float) $it['qtd_total_g'], 4 ) : null,
+            'unid_pesar'    => 'g',
+            'teor_aplic'    => isset( $it['teor'] ) ? (float) $it['teor'] : null,
+            'equiv_aplic'   => isset( $it['equiv'] ) ? (float) $it['equiv'] : null,
+            'diluicao_aplic'=> isset( $it['diluicao'] ) ? (float) $it['diluicao'] : null,
             'eh_qsp'        => ! empty( $it['is_qsp'] ),
             'ordem'         => $i++,
         ];
     }
     if ( $linhas ) tao_formula_api( '/lab_ordem_itens', 'POST', $linhas );
 
-    wp_send_json_success( [ 'ordem_id' => $ordem_id, 'itens' => count( $linhas ) ] );
-} );
+    return [ 'ok' => true, 'ordem_id' => $ordem_id, 'itens' => count( $linhas ), 'ja_existia' => false, 'erro' => null ];
+}
 
 // Kanban: OMs abertas agrupadas por etapa
 add_action( 'wp_ajax_tao_formula_prod_kanban', function () {
@@ -3369,13 +3962,26 @@ add_action( 'wp_ajax_tao_formula_prod_mover', function () {
     $etapa_id = sanitize_text_field( $_POST['etapa_id'] ?? '' );
     if ( ! $cliente_id || ! $ordem_id || ! $etapa_id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
 
-    $ro = tao_formula_api( "/lab_ordens?id=eq.$ordem_id&cliente_id=eq.$cliente_id&select=etapa_id,baixou_estoque&limit=1" );
+    $ro = tao_formula_api( "/lab_ordens?id=eq.$ordem_id&cliente_id=eq.$cliente_id&select=etapa_id,baixou_estoque,controlado,tp_receita,nr_notificacao,comprador_nome,prescritor_id&limit=1" );
     if ( ! $ro['ok'] || empty( $ro['data'] ) ) wp_send_json_error( [ 'message' => 'OM não encontrada' ] );
     $de = $ro['data'][0]['etapa_id'];
 
     $re = tao_formula_api( "/lab_etapas?id=eq.$etapa_id&cliente_id=eq.$cliente_id&select=tipo,nome&limit=1" );
     $etapa = ( $re['ok'] && ! empty( $re['data'] ) ) ? $re['data'][0] : [];
     $final = ( $etapa['tipo'] ?? '' ) === 'final';
+
+    // TRAVA Portaria 344/98: não conclui OM de CONTROLADO sem os dados da receita.
+    if ( $final && ! empty( $ro['data'][0]['controlado'] ) ) {
+        $d = $ro['data'][0]; $faltam = [];
+        if ( empty( $d['tp_receita'] ) )     $faltam[] = 'tipo de receita';
+        if ( empty( $d['nr_notificacao'] ) ) $faltam[] = 'nº da notificação/receita';
+        if ( empty( $d['comprador_nome'] ) ) $faltam[] = 'comprador';
+        if ( empty( $d['prescritor_id'] ) )  $faltam[] = 'prescritor';
+        if ( $faltam ) wp_send_json_error( [
+            'code'    => 'controlado_incompleto',
+            'message' => 'Medicamento sujeito a controle especial (Portaria 344/98): informe ' . implode( ', ', $faltam ) . ' na aba "Receita controlada" antes de concluir a OM.',
+        ] );
+    }
 
     $patch = [ 'etapa_id' => $etapa_id ];
     if ( $final ) { $patch['status'] = 'concluida'; $patch['concluido_em'] = gmdate( 'c' ); $patch['conferente_id'] = get_current_user_id(); }
@@ -3385,11 +3991,76 @@ add_action( 'wp_ajax_tao_formula_prod_mover', function () {
     ] );
 
     // baixa de estoque na conclusão (idempotente)
-    $baixa = null;
-    if ( $final && empty( $ro['data'][0]['baixou_estoque'] ) ) $baixa = tao_formula_baixar_estoque_om( $cliente_id, $ordem_id );
+    $baixa = null; $validade = null;
+    if ( $final ) {
+        // Validade pela regra do FCerta (VALIDADELOTE): menor entre a validade por forma e a
+        // menor validade dos lotes de MP efetivamente pesados. Alerta se o lote reduziu a validade.
+        $validade = tao_formula_recalc_validade_om( $cliente_id, $ordem_id );
+        if ( empty( $ro['data'][0]['baixou_estoque'] ) ) $baixa = tao_formula_baixar_estoque_om( $cliente_id, $ordem_id );
+    }
 
-    wp_send_json_success( [ 'concluida' => $final, 'baixa' => $baixa ] );
+    wp_send_json_success( [ 'concluida' => $final, 'baixa' => $baixa, 'validade' => $validade ] );
 } );
+
+// Salva os dados da receita controlada na OM (Portaria 344/98) — usados na escrituração SNGPC e na trava.
+add_action( 'wp_ajax_tao_formula_prod_receita_ctrl', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $ordem_id = sanitize_text_field( $_POST['ordem_id'] ?? '' );
+    if ( ! $cliente_id || ! $ordem_id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+    $txt = function ( $k ) { $v = trim( sanitize_text_field( $_POST[ $k ] ?? '' ) ); return $v === '' ? null : $v; };
+    $r = tao_formula_api( "/lab_ordens?id=eq.$ordem_id&cliente_id=eq.$cliente_id", 'PATCH', [
+        'tp_receita'       => $txt( 'tp_receita' ),
+        'nr_notificacao'   => $txt( 'nr_notificacao' ),
+        'comprador_nome'   => $txt( 'comprador_nome' ),
+        'comprador_doc_tp' => $txt( 'comprador_doc_tp' ),
+        'comprador_doc_nr' => $txt( 'comprador_doc_nr' ),
+    ] );
+    $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => 'Erro ao salvar: ' . mb_substr( (string) $r['raw'], 0, 160 ) ] );
+} );
+
+// Salva o modo de preparo / precauções da OM (RDC 67/BPF) — herdado da forma, ajustável na manipulação.
+add_action( 'wp_ajax_tao_formula_prod_modo_preparo', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $ordem_id = sanitize_text_field( $_POST['ordem_id'] ?? '' );
+    if ( ! $cliente_id || ! $ordem_id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+    $mp = trim( (string) wp_unslash( $_POST['modo_preparo'] ?? '' ) ) ?: null;
+    $r = tao_formula_api( "/lab_ordens?id=eq.$ordem_id&cliente_id=eq.$cliente_id", 'PATCH', [ 'modo_preparo' => $mp ] );
+    $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => 'Erro ao salvar' ] );
+} );
+
+// Recalcula a validade da OM considerando os LOTES usados (regra FCerta "VALIDADELOTE"):
+// validade final = MENOR entre a validade por forma farmacêutica (já gravada) e a menor
+// validade dos lotes de MP pesados. Atualiza dt_validade e sinaliza se o lote a reduziu.
+function tao_formula_recalc_validade_om( $cliente_id, $ordem_id ) {
+    $ro = tao_formula_api( "/lab_ordens?id=eq.$ordem_id&cliente_id=eq.$cliente_id&select=dt_validade&limit=1" );
+    if ( ! $ro['ok'] || empty( $ro['data'] ) ) return null;
+    $base = $ro['data'][0]['dt_validade'] ?? null;   // validade por forma (Y-m-d)
+
+    $ri = tao_formula_api( "/lab_ordem_itens?ordem_id=eq.$ordem_id&lote_mp_id=not.is.null&select=lote_mp_id&limit=200" );
+    $lote_ids = array_values( array_unique( array_filter( array_column( $ri['ok'] ? ( $ri['data'] ?? [] ) : [], 'lote_mp_id' ) ) ) );
+    if ( ! $lote_ids ) return [ 'validade' => $base, 'reduzida_por_lote' => false ];
+
+    $rl = tao_formula_api( "/lab_lotes_mp?id=in.(" . implode( ',', $lote_ids ) . ")&select=dt_validade" );
+    $menor_lote = null;
+    foreach ( ( $rl['ok'] ? ( $rl['data'] ?? [] ) : [] ) as $l ) {
+        $dv = $l['dt_validade'] ?? null;
+        if ( $dv && ( $menor_lote === null || $dv < $menor_lote ) ) $menor_lote = $dv;
+    }
+    if ( ! $menor_lote ) return [ 'validade' => $base, 'reduzida_por_lote' => false ];
+
+    $final    = ( $base && $base <= $menor_lote ) ? $base : $menor_lote;
+    $reduzida = ( $base && $final < $base );
+    if ( $reduzida ) {
+        tao_formula_api( "/lab_ordens?id=eq.$ordem_id&cliente_id=eq.$cliente_id", 'PATCH', [ 'dt_validade' => $final ] );
+    }
+    return [ 'validade' => $final, 'reduzida_por_lote' => $reduzida, 'validade_forma' => $base, 'menor_validade_lote' => $menor_lote ];
+}
 
 // Baixa de estoque da OM: por item com lote+pesagem, debita o lote e lança kardex
 function tao_formula_baixar_estoque_om( $cliente_id, $ordem_id ) {
@@ -3478,20 +4149,26 @@ add_action( 'wp_ajax_tao_formula_prod_om', function () {
     $ordem_id = sanitize_text_field( $_GET['ordem_id'] ?? '' );
     if ( ! $cliente_id || ! $ordem_id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
 
-    $ro = tao_formula_api( "/lab_ordens?id=eq.$ordem_id&cliente_id=eq.$cliente_id&select=id,numero,paciente_nome,forma_farmac,volume,unidade_vol,qtd_unidades,posologia,dt_validade,status&limit=1" );
+    $ro = tao_formula_api( "/lab_ordens?id=eq.$ordem_id&cliente_id=eq.$cliente_id&select=id,numero,paciente_nome,forma_farmac,volume,unidade_vol,qtd_unidades,posologia,dt_validade,status,controlado,tp_receita,nr_notificacao,comprador_nome,comprador_doc_tp,comprador_doc_nr,modo_preparo&limit=1" );
     if ( ! $ro['ok'] || empty( $ro['data'] ) ) wp_send_json_error( [ 'message' => 'OM não encontrada' ] );
-    $ri = tao_formula_api( "/lab_ordem_itens?ordem_id=eq.$ordem_id&select=id,ativo_id,descricao,qtd_prescrita,unidade,qtd_pesada,lote_mp_id,eh_qsp,ordem&order=ordem.asc&limit=200" );
+    $ri = tao_formula_api( "/lab_ordem_itens?ordem_id=eq.$ordem_id&select=id,ativo_id,descricao,qtd_prescrita,unidade,qtd_pesada,qtd_pesar,unid_pesar,teor_aplic,equiv_aplic,diluicao_aplic,lote_mp_id,eh_qsp,ordem&order=ordem.asc&limit=200" );
     $itens = $ri['ok'] ? ( $ri['data'] ?? [] ) : [];
 
-    // lotes aprovados FEFO por ativo dos itens
+    // lotes aprovados FEFO + NOME DO ATIVO ORIGEM (produto real, usado na ficha de pesagem) por ativo
     $ids = array_values( array_unique( array_filter( array_column( $itens, 'ativo_id' ) ) ) );
-    $lotes = [];
+    $lotes = []; $nome_ativo = [];
     if ( $ids ) {
         $hoje = gmdate( 'Y-m-d' );
-        $rl = tao_formula_api( "/lab_lotes_mp?cliente_id=eq.$cliente_id&ativo_id=in.(" . implode( ',', $ids ) . ")&status=eq.aprovado&qtd_atual=gt.0&dt_validade=gte.$hoje&select=id,ativo_id,nr_lote,dt_validade,qtd_atual&order=dt_validade.asc&limit=500" );
+        $rl = tao_formula_api( "/lab_lotes_mp?cliente_id=eq.$cliente_id&ativo_id=in.(" . implode( ',', $ids ) . ")&status=eq.aprovado&qtd_atual=gt.0&dt_validade=gte.$hoje&select=id,ativo_id,nr_lote,dt_validade,qtd_atual,fabricante&order=dt_validade.asc&limit=500" );
         foreach ( ( $rl['ok'] ? $rl['data'] : [] ) as $l ) $lotes[ $l['ativo_id'] ][] = $l;
+        $ra = tao_formula_api( "/ativos?id=in.(" . implode( ',', $ids ) . ")&select=id,nome" );
+        foreach ( ( $ra['ok'] ? $ra['data'] : [] ) as $a ) $nome_ativo[ $a['id'] ] = $a['nome'];
     }
-    foreach ( $itens as &$it ) $it['lotes'] = $it['ativo_id'] ? ( $lotes[ $it['ativo_id'] ] ?? [] ) : [];
+    foreach ( $itens as &$it ) {
+        $it['lotes']      = $it['ativo_id'] ? ( $lotes[ $it['ativo_id'] ] ?? [] ) : [];
+        // Ficha de pesagem usa o ATIVO ORIGEM (produto); fallback para a descrição prescrita se for item livre
+        $it['nome_ativo'] = ( $it['ativo_id'] && isset( $nome_ativo[ $it['ativo_id'] ] ) ) ? $nome_ativo[ $it['ativo_id'] ] : $it['descricao'];
+    }
     unset( $it );
     wp_send_json_success( [ 'ordem' => $ro['data'][0], 'itens' => $itens ] );
 } );
@@ -3528,6 +4205,277 @@ add_action( 'wp_ajax_tao_formula_prod_busca_orc', function () {
         "&select=id,numero_orcamento,nome_paciente,forma_nome,forma_vol,forma_unidade&order=criado_em.desc&limit=10"
     );
     wp_send_json_success( $r['ok'] ? ( $r['data'] ?? [] ) : [] );
+} );
+
+// Lista de OMs abertas AGRUPADAS pela fase do card no funil Pós-Vendas (não pelo kanban interno).
+// Fonte da verdade da produção = o funil Pós-Vendas (Aguardando Produção → Em Produção → Pronto p/ Entrega).
+add_action( 'wp_ajax_tao_formula_prod_lista', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+
+    $ro  = tao_formula_api( "/lab_ordens?cliente_id=eq.$cliente_id&status=neq.concluida&select=id,numero,card_id,paciente_nome,forma_farmac,volume,unidade_vol,dt_validade,controlado,status&order=criado_em.desc&limit=300" );
+    $oms = $ro['ok'] ? ( $ro['data'] ?? [] ) : [];
+
+    // fase de cada card + telefone
+    $card_ids = array_values( array_unique( array_filter( array_column( $oms, 'card_id' ) ) ) );
+    $cards = []; $ws = '';
+    if ( $card_ids ) {
+        $rc = tao_formula_api( "/crm_cards?id=in.(" . implode( ',', $card_ids ) . ")&select=id,estagio_id,workspace_id,contato_whatsapp" );
+        foreach ( ( $rc['ok'] ? ( $rc['data'] ?? [] ) : [] ) as $c ) { $cards[ $c['id'] ] = $c; if ( ! $ws ) $ws = $c['workspace_id'] ?? ''; }
+    }
+    if ( ! $ws && function_exists( 'tao_formula_workspace_id' ) ) $ws = tao_formula_workspace_id();
+    $est = function_exists( 'tao_formula_estagios_producao' ) ? tao_formula_estagios_producao( $ws ) : [ 'aguardando' => null, 'em_producao' => null ];
+
+    $grupos = [ 'aguardando' => [], 'em_producao' => [], 'outros' => [] ];
+    foreach ( $oms as $o ) {
+        $c = $cards[ $o['card_id'] ?? '' ] ?? null;
+        $o['whatsapp'] = $c['contato_whatsapp'] ?? '';
+        $eid = $c['estagio_id'] ?? '';
+        if ( $eid && $eid === $est['aguardando'] )       $grupos['aguardando'][]  = $o;
+        elseif ( $eid && $eid === $est['em_producao'] )  $grupos['em_producao'][] = $o;
+        else                                             $grupos['outros'][]     = $o;
+    }
+    wp_send_json_success( [ 'grupos' => $grupos, 'tem_fase' => (bool) ( $est['aguardando'] && $est['em_producao'] ) ] );
+} );
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PRODUÇÃO INTERNA — diluições e bases manipuladas (espelho FC18000/FC18100).
+// Receita = lab_formulas_padrao; o produzido nasce como lote em lab_lotes_mp.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Lista de ordens de produção interna (com nome do ativo)
+add_action( 'wp_ajax_tao_formula_prodint_lista', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+    $st = sanitize_text_field( $_GET['status'] ?? '' );
+    $f  = $st ? '&status=eq.' . rawurlencode( $st ) : '';
+    $size   = in_array( intval( $_GET['size'] ?? 30 ), [ 20, 30, 50 ], true ) ? intval( $_GET['size'] ) : 30;
+    $offset = max( 0, intval( $_GET['offset'] ?? 0 ) );
+    $r = tao_formula_api( "/lab_producao?cliente_id=eq.$cliente_id$f&select=id,ativo_id,quantidade,unidade,nr_lote,dt_producao,dt_validade,status,responsavel&order=criado_em.desc&limit=$size&offset=$offset", 'GET', null, true );
+    $ops = $r['ok'] ? ( $r['data'] ?? [] ) : [];
+    $ids = array_values( array_unique( array_filter( array_column( $ops, 'ativo_id' ) ) ) );
+    $nomes = [];
+    if ( $ids ) {
+        $ra = tao_formula_api( "/ativos?id=in.(" . implode( ',', $ids ) . ")&select=id,nome&limit=" . count( $ids ) );
+        foreach ( ( $ra['ok'] ? $ra['data'] : [] ) as $a ) $nomes[ $a['id'] ] = $a['nome'];
+    }
+    foreach ( $ops as &$o ) $o['ativo_nome'] = $nomes[ $o['ativo_id'] ] ?? '—';
+    unset( $o );
+    wp_send_json_success( [ 'items' => $ops, 'total' => $r['ok'] ? (int) $r['total'] : 0 ] );
+} );
+
+// Busca de ativos produzidos internamente (para escolher o que produzir).
+// Traz o vínculo de receita (formula_producao_id) quando houver.
+add_action( 'wp_ajax_tao_formula_prodint_ativos', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $q = sanitize_text_field( $_GET['q'] ?? '' );
+    if ( ! $cliente_id || mb_strlen( $q ) < 2 ) { wp_send_json_success( [] ); return; }
+    $enc = rawurlencode( $q );
+    $r = tao_formula_api(
+        "/ativos?cliente_id=eq.$cliente_id&nome=ilike.*$enc*&select=id,nome,codigo_fc,unidade_padrao,produzido_interno,formula_producao_id,validade_producao_dias&order=nome.asc&limit=12"
+    );
+    wp_send_json_success( $r['ok'] ? ( $r['data'] ?? [] ) : [] );
+} );
+
+// Busca fórmula padrão (receita) por nome — p/ vincular ao ativo
+add_action( 'wp_ajax_tao_formula_prodint_formula_busca', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $q = sanitize_text_field( $_GET['q'] ?? '' );
+    if ( ! $cliente_id || mb_strlen( $q ) < 2 ) { wp_send_json_success( [] ); return; }
+    $enc = rawurlencode( $q );
+    $r = tao_formula_api( "/lab_formulas_padrao?cliente_id=eq.$cliente_id&nome=ilike.*$enc*&select=id,nome&order=nome.asc&limit=12" );
+    wp_send_json_success( $r['ok'] ? ( $r['data'] ?? [] ) : [] );
+} );
+
+// Cria a ordem de produção: escala a receita p/ a quantidade e grava os insumos.
+add_action( 'wp_ajax_tao_formula_prodint_nova', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+
+    $ativo_id  = sanitize_text_field( $_POST['ativo_id'] ?? '' );
+    $formula_id= sanitize_text_field( $_POST['formula_id'] ?? '' );
+    $qtd       = (float) str_replace( ',', '.', (string) ( $_POST['quantidade'] ?? '' ) );
+    $vincular  = ! empty( $_POST['vincular_receita'] );  // grava formula_producao_id no ativo
+    if ( ! $ativo_id || ! $formula_id || ! ( $qtd > 0 ) )
+        wp_send_json_error( [ 'message' => 'Informe o ativo, a receita e a quantidade a produzir.' ] );
+
+    // ativo (unidade + validade)
+    $ra = tao_formula_api( "/ativos?id=eq.$ativo_id&cliente_id=eq.$cliente_id&select=id,nome,unidade_padrao,validade_producao_dias&limit=1" );
+    if ( ! $ra['ok'] || empty( $ra['data'] ) ) wp_send_json_error( [ 'message' => 'Ativo não encontrado' ] );
+    $ativo = $ra['data'][0];
+    $unid  = $ativo['unidade_padrao'] ?: 'g';
+    $valdias = (int) ( $ativo['validade_producao_dias'] ?: 90 );
+
+    // itens da receita
+    $rit = tao_formula_api( "/lab_formulas_padrao_itens?formula_id=eq.$formula_id&select=ativo_id,descricao,qtd,unidade,eh_qsp,ordem&order=ordem.asc&limit=100" );
+    $ritens = $rit['ok'] ? ( $rit['data'] ?? [] ) : [];
+    if ( ! $ritens ) wp_send_json_error( [ 'message' => 'A receita selecionada não tem itens cadastrados.' ] );
+    $soma = 0.0; foreach ( $ritens as $it ) $soma += (float) ( $it['qtd'] ?? 0 );
+    if ( ! ( $soma > 0 ) ) wp_send_json_error( [ 'message' => 'A receita tem quantidade total zero.' ] );
+    $fator = $qtd / $soma;
+    // teor/fator do principal (soma dos itens não-QSP)
+    $qtd_principal = 0.0; foreach ( $ritens as $it ) if ( empty( $it['eh_qsp'] ) ) $qtd_principal += (float) ( $it['qtd'] ?? 0 );
+    $teor_pct = $qtd_principal > 0 ? round( $qtd_principal / $soma * 100, 4 ) : null;
+    $fator_dil= $qtd_principal > 0 ? round( $soma / $qtd_principal, 4 ) : null;
+
+    // numeração do lote: PI-AAAAMM-NNN
+    $ym = gmdate( 'Ym' );
+    $rc = tao_formula_api( "/lab_producao?cliente_id=eq.$cliente_id&nr_lote=like.PI-$ym-*&select=nr_lote&order=nr_lote.desc&limit=1" );
+    $seq = 1;
+    if ( $rc['ok'] && ! empty( $rc['data'] ) && preg_match( '/-(\d+)$/', $rc['data'][0]['nr_lote'], $m ) ) $seq = (int) $m[1] + 1;
+    $nr_lote = sprintf( 'PI-%s-%03d', $ym, $seq );
+
+    // cabeçalho
+    $cab = tao_formula_api( '/lab_producao', 'POST', [
+        'cliente_id' => $cliente_id, 'ativo_id' => $ativo_id, 'formula_id' => $formula_id,
+        'quantidade' => $qtd, 'unidade' => $unid, 'nr_lote' => $nr_lote,
+        'teor_pct' => $teor_pct, 'fator_diluicao' => $fator_dil,
+        'dt_producao' => gmdate( 'Y-m-d' ), 'dt_validade' => gmdate( 'Y-m-d', time() + $valdias * 86400 ),
+        'status' => 'aberta', 'criado_por' => get_current_user_id(),
+    ] );
+    if ( ! $cab['ok'] || empty( $cab['data'] ) )
+        wp_send_json_error( [ 'message' => 'Erro ao criar ordem: ' . mb_substr( (string) $cab['raw'], 0, 200 ) ] );
+    $pid = $cab['data'][0]['id'];
+
+    // itens escalados
+    foreach ( $ritens as $it ) {
+        tao_formula_api( '/lab_producao_itens', 'POST', [
+            'producao_id' => $pid, 'ativo_id' => $it['ativo_id'] ?: null, 'descricao' => $it['descricao'],
+            'qtd_teorica' => round( (float) $it['qtd'] * $fator, 4 ), 'unidade' => $it['unidade'] ?: $unid,
+            'eh_qsp' => ! empty( $it['eh_qsp'] ), 'ordem' => (int) ( $it['ordem'] ?? 0 ),
+        ] );
+    }
+    if ( $vincular )
+        tao_formula_api( "/ativos?id=eq.$ativo_id&cliente_id=eq.$cliente_id", 'PATCH', [ 'produzido_interno' => true, 'formula_producao_id' => $formula_id ] );
+
+    wp_send_json_success( [ 'id' => $pid, 'nr_lote' => $nr_lote ] );
+} );
+
+// Detalhe da ordem + itens (p/ pesagem) com lotes FEFO sugeridos
+add_action( 'wp_ajax_tao_formula_prodint_get', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $pid = sanitize_text_field( $_GET['id'] ?? '' );
+    if ( ! $cliente_id || ! $pid ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+
+    $rp = tao_formula_api( "/lab_producao?id=eq.$pid&cliente_id=eq.$cliente_id&limit=1" );
+    if ( ! $rp['ok'] || empty( $rp['data'] ) ) wp_send_json_error( [ 'message' => 'Ordem não encontrada' ] );
+    $op = $rp['data'][0];
+    $ra = tao_formula_api( "/ativos?id=eq.{$op['ativo_id']}&select=nome,codigo_fc&limit=1" );
+    $op['ativo_nome'] = ( $ra['ok'] && ! empty( $ra['data'] ) ) ? $ra['data'][0]['nome'] : '—';
+
+    $ri = tao_formula_api( "/lab_producao_itens?producao_id=eq.$pid&select=id,ativo_id,descricao,qtd_teorica,qtd_pesada,unidade,lote_mp_id,eh_qsp,ordem&order=ordem.asc&limit=100" );
+    $itens = $ri['ok'] ? ( $ri['data'] ?? [] ) : [];
+    $ids = array_values( array_unique( array_filter( array_column( $itens, 'ativo_id' ) ) ) );
+    $lotes = [];
+    if ( $ids ) {
+        $hoje = gmdate( 'Y-m-d' );
+        $rl = tao_formula_api( "/lab_lotes_mp?cliente_id=eq.$cliente_id&ativo_id=in.(" . implode( ',', $ids ) . ")&status=eq.aprovado&qtd_atual=gt.0&dt_validade=gte.$hoje&select=id,ativo_id,nr_lote,dt_validade,qtd_atual&order=dt_validade.asc&limit=500" );
+        foreach ( ( $rl['ok'] ? $rl['data'] : [] ) as $l ) $lotes[ $l['ativo_id'] ][] = $l;
+    }
+    foreach ( $itens as &$it ) $it['lotes'] = $it['ativo_id'] ? ( $lotes[ $it['ativo_id'] ] ?? [] ) : [];
+    unset( $it );
+    wp_send_json_success( [ 'op' => $op, 'itens' => $itens ] );
+} );
+
+// Salva a pesagem de um insumo (qtd + lote)
+add_action( 'wp_ajax_tao_formula_prodint_pesar', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $item_id = sanitize_text_field( $_POST['item_id'] ?? '' );
+    if ( ! $item_id ) wp_send_json_error( [ 'message' => 'Item inválido' ] );
+    $qtd  = $_POST['qtd_pesada'] ?? '';
+    $lote = sanitize_text_field( $_POST['lote_mp_id'] ?? '' ) ?: null;
+    $r = tao_formula_api( "/lab_producao_itens?id=eq.$item_id", 'PATCH', [
+        'qtd_pesada' => $qtd === '' ? null : (float) str_replace( ',', '.', $qtd ),
+        'lote_mp_id' => $lote, 'pesado_por' => get_current_user_id(), 'pesado_em' => gmdate( 'c' ),
+    ] );
+    $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => mb_substr( (string) $r['raw'], 0, 200 ) ] );
+} );
+
+// Conclui: baixa os insumos (kardex) e gera o lote do produzido (lab_lotes_mp).
+add_action( 'wp_ajax_tao_formula_prodint_concluir', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $pid = sanitize_text_field( $_POST['id'] ?? '' );
+    if ( ! $cliente_id || ! $pid ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+
+    $rp = tao_formula_api( "/lab_producao?id=eq.$pid&cliente_id=eq.$cliente_id&limit=1" );
+    if ( ! $rp['ok'] || empty( $rp['data'] ) ) wp_send_json_error( [ 'message' => 'Ordem não encontrada' ] );
+    $op = $rp['data'][0];
+    if ( $op['status'] === 'concluida' ) wp_send_json_error( [ 'message' => 'Ordem já concluída.' ] );
+
+    $ri = tao_formula_api( "/lab_producao_itens?producao_id=eq.$pid&select=id,ativo_id,qtd_pesada,lote_mp_id,eh_qsp&limit=100" );
+    $itens = $ri['ok'] ? ( $ri['data'] ?? [] ) : [];
+    // todo insumo com ativo precisa de lote + qtd pesada
+    foreach ( $itens as $it ) {
+        if ( ! empty( $it['ativo_id'] ) && ( empty( $it['lote_mp_id'] ) || ! ( (float) ( $it['qtd_pesada'] ?? 0 ) > 0 ) ) )
+            wp_send_json_error( [ 'message' => 'Pese todos os insumos (com lote) antes de concluir.' ] );
+    }
+
+    // 1) baixa os insumos + kardex saída; captura o lote do principal p/ rastreio
+    $lote_puro_id = null;
+    foreach ( $itens as $it ) {
+        if ( empty( $it['lote_mp_id'] ) || ! ( (float) ( $it['qtd_pesada'] ?? 0 ) > 0 ) ) continue;
+        $q = (float) $it['qtd_pesada'];
+        $rl = tao_formula_api( "/lab_lotes_mp?id=eq.{$it['lote_mp_id']}&select=qtd_atual&limit=1" );
+        if ( $rl['ok'] && ! empty( $rl['data'] ) ) {
+            $novo = max( 0, (float) $rl['data'][0]['qtd_atual'] - $q );
+            $upd = [ 'qtd_atual' => $novo ]; if ( $novo <= 0 ) $upd['status'] = 'esgotado';
+            tao_formula_api( "/lab_lotes_mp?id=eq.{$it['lote_mp_id']}", 'PATCH', $upd );
+        }
+        tao_formula_api( '/estoque_movimentos', 'POST', [
+            'cliente_id' => $cliente_id, 'ativo_id' => $it['ativo_id'], 'lote_id' => $it['lote_mp_id'],
+            'tipo' => 'saida', 'quantidade' => -$q, 'origem' => 'producao_interna', 'ref_id' => $pid,
+            'usuario_id' => get_current_user_id(),
+        ] );
+        if ( empty( $it['eh_qsp'] ) && ! $lote_puro_id ) $lote_puro_id = $it['lote_mp_id'];
+    }
+
+    // 2) cria o lote do produzido (entra no estoque, aprovado — liberado pelo farmacêutico)
+    $rlote = tao_formula_api( '/lab_lotes_mp', 'POST', [
+        'cliente_id' => $cliente_id, 'ativo_id' => $op['ativo_id'], 'nr_lote' => $op['nr_lote'],
+        'origem' => 'producao_interna', 'lote_puro_id' => $lote_puro_id,
+        'dt_fabricacao' => $op['dt_producao'], 'dt_validade' => $op['dt_validade'],
+        'qtd_inicial' => (float) $op['quantidade'], 'qtd_atual' => (float) $op['quantidade'], 'unidade' => $op['unidade'],
+        'teor_pct' => $op['teor_pct'], 'fator_diluicao' => $op['fator_diluicao'],
+        'status' => 'aprovado', 'qc_resultado' => 'aprovado', 'qc_aprovado_por' => get_current_user_id(), 'qc_em' => gmdate( 'c' ),
+    ] );
+    $lote_gerado_id = ( $rlote['ok'] && ! empty( $rlote['data'] ) ) ? $rlote['data'][0]['id'] : null;
+    if ( $lote_gerado_id ) {
+        tao_formula_api( '/estoque_movimentos', 'POST', [
+            'cliente_id' => $cliente_id, 'ativo_id' => $op['ativo_id'], 'lote_id' => $lote_gerado_id,
+            'tipo' => 'entrada', 'quantidade' => (float) $op['quantidade'], 'origem' => 'producao_interna', 'ref_id' => $pid,
+            'usuario_id' => get_current_user_id(),
+        ] );
+    }
+
+    // 3) fecha a ordem
+    tao_formula_api( "/lab_producao?id=eq.$pid&cliente_id=eq.$cliente_id", 'PATCH', [
+        'status' => 'concluida', 'lote_gerado_id' => $lote_gerado_id, 'concluida_em' => gmdate( 'c' ),
+        'responsavel' => wp_get_current_user()->display_name ?: null,
+    ] );
+    wp_send_json_success( [ 'nr_lote' => $op['nr_lote'], 'lote_id' => $lote_gerado_id ] );
 } );
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3645,6 +4593,8 @@ add_action( 'wp_ajax_tao_formula_cp_lista', function () {
     $status = sanitize_text_field( $_GET['status'] ?? '' );
     $de  = sanitize_text_field( $_GET['de']  ?? '' );
     $ate = sanitize_text_field( $_GET['ate'] ?? '' );
+    $size   = in_array( intval( $_GET['size'] ?? 30 ), [ 20, 30, 50 ], true ) ? intval( $_GET['size'] ) : 30;
+    $offset = max( 0, intval( $_GET['offset'] ?? 0 ) );
     $f = '';
     if ( in_array( $status, [ 'aberto', 'pago', 'cancelado' ], true ) ) $f .= "&status=eq.$status";
     if ( $de )  $f .= "&vencimento=gte.$de";
@@ -3669,7 +4619,9 @@ add_action( 'wp_ajax_tao_formula_cp_lista', function () {
         if ( $c['status'] === 'pago' )   $tot_pago   += (float) $c['valor'];
     }
     unset( $c );
-    wp_send_json_success( [ 'contas' => $cp, 'total_aberto' => $tot_aberto, 'total_pago' => $tot_pago ] );
+    $total   = count( $cp );
+    $cp_page = array_slice( $cp, $offset, $size );
+    wp_send_json_success( [ 'items' => $cp_page, 'total' => $total, 'total_aberto' => $tot_aberto, 'total_pago' => $tot_pago ] );
 } );
 
 add_action( 'wp_ajax_tao_formula_cp_pagar', function () {
@@ -3701,12 +4653,14 @@ add_action( 'wp_ajax_tao_formula_sngpc_lista', function () {
     $de   = sanitize_text_field( $_GET['de']   ?? gmdate( 'Y-m-01' ) );
     $ate  = sanitize_text_field( $_GET['ate']  ?? gmdate( 'Y-m-d' ) );
     $tipo = sanitize_text_field( $_GET['tipo'] ?? '' );
+    $size   = in_array( intval( $_GET['size'] ?? 30 ), [ 20, 30, 50 ], true ) ? intval( $_GET['size'] ) : 30;
+    $offset = max( 0, intval( $_GET['offset'] ?? 0 ) );
     $f = "&dt_movimento=gte.$de&dt_movimento=lte.$ate";
     if ( in_array( $tipo, [ 'entrada', 'saida', 'perda', 'transferencia', 'inventario' ], true ) ) $f .= "&tipo=eq.$tipo";
     $r = tao_formula_api(
         "/sngpc_movimentos?cliente_id=eq.$cliente_id$f" .
         "&select=id,tipo,dcb,classe_sngpc,nr_lote,quantidade,unidade,dt_movimento,prescritor_nome,comprador_nome,nr_notificacao,tp_perda,transmitido,ativo_id" .
-        "&order=dt_movimento.desc,criado_em.desc&limit=1000"
+        "&order=dt_movimento.desc,criado_em.desc&limit=$size&offset=$offset", 'GET', null, true
     );
     if ( ! $r['ok'] ) {
         $msg = strpos( (string) $r['raw'], 'does not exist' ) !== false
@@ -3723,7 +4677,7 @@ add_action( 'wp_ajax_tao_formula_sngpc_lista', function () {
     }
     foreach ( $movs as &$m ) $m['ativo_nome'] = $m['ativo_id'] ? ( $nomes[ $m['ativo_id'] ] ?? '' ) : '';
     unset( $m );
-    wp_send_json_success( $movs );
+    wp_send_json_success( [ 'items' => $movs, 'total' => (int) $r['total'] ] );
 } );
 
 // Lançamento manual de movimento (entrada/saída/perda/transferência)

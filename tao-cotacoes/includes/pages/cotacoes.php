@@ -49,7 +49,7 @@ function tao_cotacoes_page_lista() {
         <div class="notice notice-warning"><p>Cliente não identificado.</p></div>
         <?php elseif ( empty( $rows ) ) : ?>
         <div class="taocot-empty">
-            <p>Nenhuma cotação ainda. Comece subindo a planilha de estoque mínimo do Formula Certa.</p>
+            <p>Nenhuma cotação ainda. Comece subindo a planilha de estoque mínimo ou montando a lista manualmente.</p>
             <a class="taocot-btn taocot-btn-primary" href="<?php echo esc_url( tao_cot_url( 'cotacoes-nova' ) ); ?>">+ Criar primeira cotação</a>
         </div>
         <?php else : ?>
@@ -237,7 +237,7 @@ function tao_cotacoes_render_view( $cot_id ) {
                 <?php if ( $tem_precos ) : ?><a class="taocot-btn" href="<?php echo esc_url( $export_url ); ?>">&#x2B07;&#xFE0F; Exportar XLSX</a><?php endif; ?>
             </div>
             <?php if ( ! $tem_precos ) : ?>
-                <p class="taocot-muted">Nenhuma proposta processada ainda. Quando o fornecedor mandar o PDF/foto no chat, use <strong>"Processar como proposta"</strong> no anexo — ou anexe/digite pela tabela de fornecedores acima.</p>
+                <p class="taocot-muted">Nenhuma proposta processada ainda. Clique em <strong>"📎 Proposta"</strong> em qualquer fornecedor acima para subir o PDF/foto da cotação — a IA extrai os preços e monta o comparativo. Também dá para digitar manualmente, ou processar um anexo recebido no chat.</p>
             <?php else : ?>
             <p class="taocot-muted">Preços normalizados (R$/g, R$/ml ou R$/milheiro). <span style="background:#dcfce7;padding:1px 6px;border-radius:4px">verde</span> = melhor preço do item; <span style="color:#b91c1c">vermelho</span> = melhor preço acima do último pago.</p>
             <div class="taocot-tscroll">

@@ -51,9 +51,13 @@ function tao_caixa_criar_venda_do_card( $card_id, $workspace_id ) {
             $total += $vt;
         }
 
-        $ro = tao_caixa_api( "/orcamentos?card_id=eq.$card_id&select=id,numero_orcamento,forma_nome,total_orcamento" );
+        $ro = tao_caixa_api( "/orcamentos?card_id=eq.$card_id&select=id,numero_orcamento,forma_nome,total_orcamento,valor_final_fc" );
         foreach ( ( $ro['ok'] ? ( $ro['data'] ?? [] ) : [] ) as $o ) {
-            $vt = round( floatval( $o['total_orcamento'] ?? 0 ), 2 );
+            // Régua do card/Kanban: quando o orçamento veio de IMPORTAÇÃO (FCerta), valor_final_fc > 0
+            // é o valor que o cliente aprovou — é ELE que vai ao Caixa, não o total_orcamento (que o
+            // motor recalcula na aprovação da OM). Orçamento nascido no TAO usa total_orcamento.
+            $vfc = round( floatval( $o['valor_final_fc'] ?? 0 ), 2 );
+            $vt  = $vfc > 0 ? $vfc : round( floatval( $o['total_orcamento'] ?? 0 ), 2 );
             $itens[] = [
                 'orcamento_id'   => $o['id'] ?? null,
                 'descricao'      => trim( 'ORC ' . ( $o['numero_orcamento'] ?? '' ) . ' — ' . ( $o['forma_nome'] ?? 'Fórmula' ) ),
@@ -91,3 +95,81 @@ function tao_caixa_criar_venda_do_card( $card_id, $workspace_id ) {
         error_log( '[tao-caixa] criar venda do card ganho falhou: ' . $e->getMessage() );
     }
 }
+
+/**
+ * Baixa programática do pagamento da venda de UM card (uma forma, quitação total do saldo).
+ * Usado quando o pagamento é confirmado fora do PDV (ex.: aba Entrega do card).
+ * Idempotente: se a venda já está quitada, não faz nada. Retorna o recibo_id criado (ou null).
+ */
+function tao_caixa_baixar_card( $cid, $card_id, $forma_id, $valor = null, $parcelas = 1 ) {
+    if ( ! $cid || ! $card_id || ! $forma_id || ! function_exists( 'tao_caixa_api' ) ) return null;
+
+    $rv = tao_caixa_api( "/caixa_vendas?card_id=eq.$card_id&cliente_id=eq.$cid&status=in.(aberta,parcial)&select=id,valor_total,valor_pago&order=criado_em.asc&limit=1" );
+    if ( ! $rv['ok'] || empty( $rv['data'] ) ) return null;   // sem venda em aberto → nada a baixar
+    $v     = $rv['data'][0];
+    $saldo = round( (float) $v['valor_total'] - (float) $v['valor_pago'], 2 );
+    if ( $saldo <= 0.005 ) return null;
+    $val = ( $valor !== null && (float) $valor > 0 ) ? round( (float) $valor, 2 ) : $saldo;
+    if ( $val > $saldo ) $val = $saldo;
+
+    $rf = tao_caixa_api( "/caixa_formas_pagamento?id=eq.$forma_id&cliente_id=eq.$cid&select=id,nome,tipo,adquirente_id,taxa_pct,prazo_recebimento_dias&limit=1" );
+    if ( ! $rf['ok'] || empty( $rf['data'] ) ) return null;
+    $forma    = $rf['data'][0];
+    $parcelas = max( 1, (int) $parcelas );
+    $tx       = function_exists( 'tao_caixa_resolver_taxa' ) ? tao_caixa_resolver_taxa( $cid, $forma, $parcelas ) : [ 'taxa_pct' => (float) ( $forma['taxa_pct'] ?? 0 ), 'prazo' => (int) ( $forma['prazo_recebimento_dias'] ?? 0 ) ];
+    $vtaxa    = round( $val * $tx['taxa_pct'] / 100, 2 );
+    $uid      = get_current_user_id();
+    $sess     = function_exists( 'tao_caixa_sessao_aberta' ) ? tao_caixa_sessao_aberta( $cid ) : null;
+
+    $rr = tao_caixa_api( '/caixa_recibos', 'POST', [
+        'cliente_id' => $cid, 'valor_total' => $val, 'valor_pago' => $val, 'status' => 'quitado',
+        'pagador_nome' => '', 'sessao_id' => $sess['id'] ?? null, 'criado_por' => $uid, 'criado_em' => gmdate( 'c' ),
+    ] );
+    if ( ! $rr['ok'] || empty( $rr['data'] ) ) return null;
+    $recibo_id = $rr['data'][0]['id'];
+
+    tao_caixa_api( '/caixa_pagamentos', 'POST', [
+        'cliente_id' => $cid, 'recibo_id' => $recibo_id, 'forma_pagamento_id' => $forma_id,
+        'adquirente_id' => $forma['adquirente_id'] ?: null, 'modalidade' => $forma['tipo'] ?? null,
+        'parcelas' => $parcelas, 'valor_bruto' => $val, 'taxa_pct_aplicada' => $tx['taxa_pct'],
+        'valor_taxa' => $vtaxa, 'valor_liquido' => round( $val - $vtaxa, 2 ),
+        'data_prevista_receb' => gmdate( 'Y-m-d', time() + $tx['prazo'] * 86400 ),
+        'criado_por' => $uid, 'criado_em' => gmdate( 'c' ),
+    ] );
+
+    tao_caixa_api( '/caixa_recibo_vendas', 'POST', [
+        'cliente_id' => $cid, 'recibo_id' => $recibo_id, 'venda_id' => $v['id'],
+        'valor_aplicado' => $val, 'criado_em' => gmdate( 'c' ),
+    ] );
+    $np = round( (float) $v['valor_pago'] + $val, 2 );
+    $st = $np >= ( (float) $v['valor_total'] - 0.005 ) ? 'quitada' : 'parcial';
+    tao_caixa_api( "/caixa_vendas?id=eq.{$v['id']}&cliente_id=eq.$cid", 'PATCH', [
+        'valor_pago' => $np, 'status' => $st, 'atualizado_em' => gmdate( 'c' ),
+    ] );
+    if ( $st === 'quitada' ) do_action( 'tao_caixa_venda_paga', $card_id );
+
+    return $recibo_id;
+}
+
+/**
+ * Filtro desacoplado: o módulo de Entregas confirma um pagamento e o Caixa dá a baixa.
+ * Recebe (null, card_id, workspace_id, forma_pagamento_id, valor) → retorna recibo_id ou o valor original.
+ */
+add_filter( 'tao_entregas_baixar_no_caixa', function ( $carry, $card_id, $ws, $forma_id, $valor ) {
+    try {
+        if ( ! empty( $carry ) ) return $carry;              // já baixado por outro
+        if ( ! $card_id || ! $forma_id || ! function_exists( 'tao_caixa_api' ) ) return $carry;
+        $cid = '';
+        if ( $ws ) {
+            $rw = tao_caixa_api( "/crm_workspaces?id=eq.$ws&select=cliente_id&limit=1" );
+            if ( $rw['ok'] && ! empty( $rw['data'] ) ) $cid = $rw['data'][0]['cliente_id'] ?? '';
+        }
+        if ( ! $cid && function_exists( 'tao_caixa_cliente_id' ) ) $cid = tao_caixa_cliente_id();
+        if ( ! $cid ) return $carry;
+        $recibo_id = tao_caixa_baixar_card( $cid, $card_id, $forma_id, $valor );
+        return $recibo_id ?: $carry;
+    } catch ( \Throwable $e ) {
+        error_log( '[tao-caixa] baixa via entrega falhou: ' . $e->getMessage() );
+        return $carry;
+    }
+}, 10, 5 );

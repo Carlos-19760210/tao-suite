@@ -113,6 +113,8 @@
             $('#taof-custo-fixo').val(data.custoFixo);
             $('#taof-valor-minimo').val(data.valorMinimo || '');
             $('#taof-margem').val(data.margemPct);
+            $('#taof-validade-dias').val(data.validadeDias || '');
+            $('#taof-modo-preparo').val(data.modoPreparo || '');
             toggleCustoFixoTipo();
             // Campos de cápsula
             $capTipo.val(data.tipoCapsula || '');
@@ -155,6 +157,8 @@
             custoFixoTipo: $tr.data('custo-fixo-tipo'),
             valorMinimo:   $tr.data('valor-minimo'),
             margemPct:     $tr.data('margem-pct'),
+            validadeDias:  $tr.data('validade-dias'),
+            modoPreparo:   $tr.data('modo-preparo'),
             tipoCapsula:   $tr.data('tipo-capsula'),
             numeroCapsula: $tr.data('numero-capsula'),
             volCapUl:      $tr.data('vol-cap-ul'),

@@ -237,7 +237,7 @@ add_action( 'wp_ajax_tao_caixa_receber_venda', function() {
     if ( ! is_array( $pags ) || ! count( $pags ) ) wp_send_json_error( 'Adicione ao menos uma forma de pagamento' );
 
     // Vendas (ordena por criação = FIFO na distribuição)
-    $rv = tao_caixa_api( "/caixa_vendas?id=in.(" . implode( ',', $vids ) . ")&cliente_id=eq.$cid&select=id,cliente_nome,valor_total,valor_pago,status&order=criado_em.asc" );
+    $rv = tao_caixa_api( "/caixa_vendas?id=in.(" . implode( ',', $vids ) . ")&cliente_id=eq.$cid&select=id,card_id,cliente_nome,valor_total,valor_pago,status&order=criado_em.asc" );
     $raw = $rv['ok'] ? ( $rv['data'] ?? [] ) : [];
     if ( ! $raw ) wp_send_json_error( 'Vendas não encontradas' );
     $vendas = []; $saldo_total = 0.0;
@@ -322,6 +322,8 @@ add_action( 'wp_ajax_tao_caixa_receber_venda', function() {
         tao_caixa_api( "/caixa_vendas?id=eq.{$v['id']}&cliente_id=eq.$cid", 'PATCH', [
             'valor_pago' => $np, 'status' => $st, 'atualizado_em' => gmdate( 'c' ),
         ] );
+        // Venda quitada → avisa quem escuta (ex.: tao-entregas marca a entrega paga p/ liberar o NPS)
+        if ( $st === 'quitada' && ! empty( $v['card_id'] ) ) do_action( 'tao_caixa_venda_paga', $v['card_id'] );
         $rem = round( $rem - $ap, 2 );
     }
 

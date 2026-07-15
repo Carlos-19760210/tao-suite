@@ -866,6 +866,11 @@
                 taofToast('⚠ ' + a.nome + ': substância RESTRITA (' + (a.restricao || 'GLP-1 IN 360/2025') + ') — confira as exigências antes de aprovar');
             }
         }
+        // Bloqueio para manipulação — NÃO impede o orçamento; avisa sobre a data de entrega
+        if (a.bloqueado) {
+            taofToast('⚠ ' + a.nome + ' está BLOQUEADO para manipulação — a data de entrega deverá ser confirmada com o Farmacêutico.');
+            $row.css('box-shadow', 'inset 3px 0 0 #f59e0b').attr('title', 'Produto bloqueado — data de entrega a confirmar com o Farmacêutico');
+        }
         var $s = $row.find('.taof-orc-ativo-search');
         $s.val(a.nome).css({ 'border-color': '', 'background-color': '' });
         $s.removeAttr('placeholder');
@@ -1059,6 +1064,99 @@
                                 e.preventDefault();
                                 $inp.val(label(p));
                                 $('#taof-prescritor-id').val(p.id);
+                                $dd.hide().empty();
+                            })
+                            .appendTo($dd);
+                    });
+                    positionDropdown($inp, $dd);
+                    $dd.show();
+                });
+            }, 280);
+        });
+        $inp.on('blur', function () { setTimeout(function () { $dd.hide().empty(); }, 150); });
+    })();
+
+    // ── Autocomplete de PACIENTE (base de contatos do CRM) ────────────
+    (function initPacienteAC() {
+        var $inp = $('#taof-nome-paciente'), $dd = $('#taof-nome-paciente-dd'), timer = null;
+        if (!$inp.length || $inp.prop('readonly')) return;   // card já traz o paciente travado
+        function pick($item) {
+            var c = $item.data('contato');
+            if (!c) return;
+            $inp.val(c.nome || '');
+            $('#taof-contato-id').val(c.id || '');
+            if (c.whatsapp && !$('#taof-whatsapp').prop('readonly')) $('#taof-whatsapp').val(c.whatsapp);
+            $dd.hide().empty();
+        }
+        $inp.on('input', function () {
+            clearTimeout(timer);
+            $('#taof-contato-id').val('');   // digitação livre invalida o vínculo
+            var q = $(this).val().trim();
+            if (q.length < 2) { $dd.hide().empty(); return; }
+            timer = setTimeout(function () {
+                $.getJSON(ajaxUrl, { action: 'tao_formula_cliente_busca', nonce: nonce, q: q }, function (resp) {
+                    var lista = (resp && resp.success && Array.isArray(resp.data)) ? resp.data : [];
+                    $dd.empty();
+                    if (!lista.length) { $dd.hide(); return; }
+                    lista.forEach(function (c) {
+                        $('<div class="taof-ac-item" data-sel="1">')
+                            .html('<span>' + $('<span>').text(c.nome).html() + '</span>' +
+                                  (c.whatsapp ? '<small>' + $('<span>').text(c.whatsapp).html() + '</small>' : ''))
+                            .data('contato', c)
+                            .on('mousedown', function (e) { e.preventDefault(); pick($(this)); })
+                            .appendTo($dd);
+                    });
+                    positionDropdown($inp, $dd);
+                    $dd.show();
+                });
+            }, 280);
+        });
+        // Navegação por teclado (↑ ↓ Enter Esc)
+        $inp.on('keydown', function (e) {
+            if (!$dd.is(':visible')) {
+                if (e.key === 'ArrowDown' && $(this).val().trim().length >= 2) { e.preventDefault(); $(this).trigger('input'); }
+                return;
+            }
+            var $items = $dd.find('.taof-ac-item[data-sel]');
+            var $cur   = $items.filter('.taof-ac-hl');
+            if (e.key === 'ArrowDown') {
+                e.preventDefault(); $items.removeClass('taof-ac-hl');
+                var $nxt = $cur.length ? $cur.nextAll('[data-sel]').first() : $();
+                ($nxt.length ? $nxt : $items.first()).addClass('taof-ac-hl');
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault(); $items.removeClass('taof-ac-hl');
+                var $prv = $cur.length ? $cur.prevAll('[data-sel]').first() : $();
+                ($prv.length ? $prv : $items.last()).addClass('taof-ac-hl');
+            } else if (e.key === 'Enter') {
+                var $sel = $items.filter('.taof-ac-hl');
+                if ($sel.length) { e.preventDefault(); pick($sel); }
+            } else if (e.key === 'Escape') { $dd.hide().empty(); }
+        });
+        $inp.on('blur', function () { setTimeout(function () { $dd.hide().empty(); }, 150); });
+    })();
+
+    // ── Autocomplete — CID-10 (diagnóstico opcional) ──────────────────
+    (function () {
+        var $inp = $('#taof-cid'), $dd = $('#taof-cid-dd'), timer = null;
+        if (!$inp.length) return;
+        $inp.on('input', function () {
+            clearTimeout(timer);
+            $('#taof-cid-codigo').val(''); $('#taof-cid-descricao').val('');   // digitação livre limpa o vínculo
+            var q = $(this).val().trim();
+            if (q.length < 2) { $dd.hide().empty(); return; }
+            timer = setTimeout(function () {
+                $.getJSON(ajaxUrl, { action: 'tao_formula_cid_busca', nonce: nonce, q: q }, function (resp) {
+                    var lista = (resp && resp.success && Array.isArray(resp.data)) ? resp.data : [];
+                    $dd.empty();
+                    if (!lista.length) { $dd.hide(); return; }
+                    lista.forEach(function (c) {
+                        $('<div class="taof-ac-item">')
+                            .html('<span><strong>' + $('<span>').text(c.codigo).html() + '</strong> ' + $('<span>').text(c.descricao).html() + '</span>')
+                            .on('mousedown', function (e) {
+                                e.preventDefault();
+                                $inp.val(c.codigo + ' — ' + c.descricao);
+                                $('#taof-cid-codigo').val(c.codigo);
+                                $('#taof-cid-descricao').val(c.descricao);
                                 $dd.hide().empty();
                             })
                             .appendTo($dd);
@@ -1456,7 +1554,11 @@
 
         var calculado = itens.reduce(function (s, i) { return s + (i.subtotal || 0); }, 0);
         var custoFixo = getCustoFixo();
-        var subtotal  = calculado + custoFixo;
+        // Sub-Total = o MESMO exibido na tela (window._taofSubtotal, setado por calcularTotais),
+        // que inclui o custo das CÁPSULAS. Sem isso, o valor salvo ignora as cápsulas e diverge
+        // do que o modal mostra (bug do card exibindo total menor que o editor).
+        var subtotal  = (typeof window._taofSubtotal === 'number' && window._taofSubtotal > 0)
+                        ? window._taofSubtotal : (calculado + custoFixo);
         var acrescVal = parseFloat($('#taof-acrescimo-val-inp').val()) || 0;
         var desctVal  = parseFloat($('#taof-desconto-val-inp').val())  || 0;
         var acrescPct = parseFloat($('#taof-acrescimo-pct').val()) || 0;
@@ -1474,10 +1576,13 @@
             orc_id:          EDIT_ORC_ID || '',
             card_id:         window.taofCardId || '',
             nome_paciente:   $('#taof-nome-paciente').val(),
+            contato_id:      $('#taof-contato-id').val() || '',
             nome_cliente:    $('#taof-nome-cliente').val() || '',
             prescritor:      $('#taof-prescritor').val()   || '',
             prescritor_id:   $('#taof-prescritor-id').val() || '',
             posologia:       $('#taof-posologia').val()    || '',
+            cid_codigo:      $('#taof-cid-codigo').val()    || '',
+            cid_descricao:   $('#taof-cid-descricao').val() || '',
             whatsapp:        $('#taof-whatsapp').val(),
             forma_id:        $('#taof-forma-sel').val() || '',
             forma_nome:      formaAtual ? formaAtual.nome : (EDIT_DATA ? (EDIT_DATA.forma_nome || '') : ''),
@@ -1722,6 +1827,9 @@
         $('#taof-prescritor').val(data.prescritor || '');
         $('#taof-prescritor-id').val(data.prescritor_id || '');
         $('#taof-posologia').val(data.posologia || '');
+        $('#taof-cid-codigo').val(data.cid_codigo || '');
+        $('#taof-cid-descricao').val(data.cid_descricao || '');
+        $('#taof-cid').val(data.cid_codigo ? (data.cid_codigo + (data.cid_descricao ? ' — ' + data.cid_descricao : '')) : '');
         $('#taof-whatsapp').val(data.whatsapp || '');
 
         // Forma farmacêutica

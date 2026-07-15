@@ -212,7 +212,11 @@ function tao_cot_assets() {
     .taocot-combo-list .taocot-opt.sel,.taocot-combo-list .taocot-opt:hover{background:#eff6ff}
     .taocot-combo-list .taocot-opt .cod{color:#94a3b8;font-size:11px;margin-left:6px}
     .taocot-combo-list .taocot-opt.livre{color:#a16207;font-style:italic}
-    .taocot-upload{border:2px dashed #cbd5e1;border-radius:10px;padding:26px;text-align:center;background:#fff;cursor:pointer}
+    .taocot-chip{display:inline-flex;align-items:center;padding:4px 11px;border:1px solid #cbd5e1;border-radius:14px;font-size:12px;cursor:pointer;user-select:none;background:#fff;color:#475569;transition:background .12s,border-color .12s,color .12s}
+    .taocot-chip:hover{border-color:#94a3b8}
+    .taocot-chip.on{background:#152C42;border-color:#152C42;color:#fff;font-weight:600}
+    .taocot-chip[data-semwa]{opacity:.7}
+    .taocot-upload{display:block;border:2px dashed #cbd5e1;border-radius:10px;padding:26px;text-align:center;background:#fff;cursor:pointer}
     .taocot-upload:hover{border-color:#152C42}
     .taocot-upload input{display:none}
     .taocot-status-msg{margin:10px 0;font-size:13px;color:#475569}

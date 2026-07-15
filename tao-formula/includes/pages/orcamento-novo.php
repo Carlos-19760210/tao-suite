@@ -206,10 +206,14 @@ function tao_formula_page_orcamento_novo() {
         <div class="taof-row">
             <div class="taof-field" style="flex:3">
                 <label class="taof-label">Paciente <small style="color:#94a3b8;font-weight:400">(quem usa)</small></label>
-                <input type="text" id="taof-nome-paciente" name="nome_paciente"
-                       class="taof-inp" placeholder="Nome do paciente"
-                       value="<?php echo esc_attr( $pre_nome ); ?>"
-                       <?php echo ( $card_id && $pre_nome ) ? 'readonly style="background:#f8fafc;color:#64748b"' : ''; ?>>
+                <div class="taof-ac-wrap" style="position:relative">
+                    <input type="text" id="taof-nome-paciente" name="nome_paciente"
+                           class="taof-inp" placeholder="Nome do paciente" autocomplete="off"
+                           value="<?php echo esc_attr( $pre_nome ); ?>"
+                           <?php echo ( $card_id && $pre_nome ) ? 'readonly style="background:#f8fafc;color:#64748b"' : ''; ?>>
+                    <input type="hidden" id="taof-contato-id" name="contato_id">
+                    <div id="taof-nome-paciente-dd" class="taof-ac-dropdown" style="display:none"></div>
+                </div>
             </div>
             <div class="taof-field" style="flex:3">
                 <label class="taof-label">Cliente <small style="color:#94a3b8;font-weight:400">(quem contrata — se diferente)</small></label>
@@ -240,6 +244,15 @@ function tao_formula_page_orcamento_novo() {
                 <label class="taof-label">Posologia</label>
                 <input type="text" id="taof-posologia" name="posologia"
                        class="taof-inp" placeholder="Ex: Tomar 1 cápsula à noite">
+            </div>
+            <div class="taof-field" style="flex:2">
+                <label class="taof-label">CID-10 <small style="color:#94a3b8;font-weight:400">(opcional)</small></label>
+                <div class="taof-ac-wrap" style="position:relative">
+                    <input type="text" id="taof-cid" name="cid_busca" class="taof-inp" placeholder="código ou diagnóstico..." autocomplete="off">
+                    <input type="hidden" id="taof-cid-codigo" name="cid_codigo">
+                    <input type="hidden" id="taof-cid-descricao" name="cid_descricao">
+                    <div id="taof-cid-dd" class="taof-ac-dropdown" style="display:none"></div>
+                </div>
             </div>
         </div>
 
@@ -744,9 +757,9 @@ function tao_formula_page_orcamento_novo() {
         padding:9px 12px; font-size:14px; border-bottom:1px solid #f1f5f9;
     }
     .taof-totais-table tr:nth-child(even) td { background:#fafafa; }
-    .taof-totais-table td:first-child { color:#475569; }
+    .taof-totais-table td:first-child { color:#475569; white-space:normal; word-break:break-word; padding-right:14px; }
     .taof-totais-table td:nth-child(2) { white-space:nowrap; }
-    .taof-res-val { text-align:right; font-weight:600; width:140px; font-variant-numeric:tabular-nums; }
+    .taof-res-val { text-align:right; font-weight:600; width:150px; min-width:150px; white-space:nowrap; font-variant-numeric:tabular-nums; }
     .taof-subtotal-row td { font-weight:700; background:#f1f5f9!important; border-top:2px solid #e2e8f0!important; border-bottom:2px solid #e2e8f0!important; }
     .taof-final-row td { font-size:17px; background:#f0f9ff!important; border-top:2px solid #0ea5e9!important; }
     .taof-res-desc  { color:#b91c1c; }

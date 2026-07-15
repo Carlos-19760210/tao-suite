@@ -38,3 +38,6 @@ n8n-chatbot-v6-updated.json
 n8n-campanha-workflow.json
 *.bak
 __pycache__/
+
+# Logs e cache temporário de extração PubChem (regeneráveis pelo script)
+pubchem_*

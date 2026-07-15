@@ -19,7 +19,14 @@ function tao_formula_page_prescritores() {
     </div>
 
     <div id="taof-pr-lista"></div>
-    <p style="text-align:center;margin:10px 0"><button type="button" class="button" id="taof-pr-mais" style="display:none">Carregar mais</button></p>
+    <div style="display:flex;gap:10px;align-items:center;justify-content:center;margin:12px 0;font-size:13px;flex-wrap:wrap">
+        <label>Itens por página:
+            <select id="taof-pr-size" style="padding:3px 6px"><option value="20">20</option><option value="30" selected>30</option><option value="50">50</option></select>
+        </label>
+        <button type="button" class="button button-small" id="taof-pr-prev">‹ Anterior</button>
+        <span id="taof-pr-pg" style="color:#64748b">—</span>
+        <button type="button" class="button button-small" id="taof-pr-next">Próxima ›</button>
+    </div>
 
     <!-- Modal -->
     <div id="taof-pr-modal" style="display:none">
@@ -41,7 +48,8 @@ function tao_formula_page_prescritores() {
 
     <script>
     jQuery(function($){
-        var ajaxUrl = taoFormula.ajaxUrl, nonce = taoFormula.nonce, timer = null, offset = 0, q = '';
+        var ajaxUrl = taoFormula.ajaxUrl, nonce = taoFormula.nonce, timer = null, q = '';
+        var pg = 0, sz = 30, total = 0;
 
         function esc(t){ return $('<span>').text(t==null?'':t).html(); }
 
@@ -87,6 +95,22 @@ function tao_formula_page_prescritores() {
             $('#taof-pr-modal-body').html(html);
             $('#taof-pr-modal').show();
             $('#taof-pr-form input[name=nome]').focus();
+            // CEP → preenche endereço/cidade/UF automaticamente (ViaCEP)
+            var $frm = $('#taof-pr-form');
+            function buscaCep(){
+                var cep = ($frm.find('input[name=cep]').val()||'').replace(/\D/g,'');
+                if (cep.length !== 8) return;
+                $.getJSON('https://viacep.com.br/ws/'+cep+'/json/', function(d){
+                    if (!d || d.erro) return;
+                    var end = [d.logradouro, d.bairro].filter(Boolean).join(', ');
+                    if (end) $frm.find('input[name=endereco]').val(end);
+                    if (d.localidade) $frm.find('input[name=cidade]').val(d.localidade);
+                    if (d.uf) $frm.find('input[name=uf]').val(d.uf);
+                });
+            }
+            $frm.find('input[name=cep]').on('blur', buscaCep).on('keyup', function(e){
+                if ((this.value||'').replace(/\D/g,'').length === 8) buscaCep();
+            });
             $('#taof-pr-cancel').on('click', function(){ $('#taof-pr-modal').hide(); });
             $('#taof-pr-form').on('submit', function(e){
                 e.preventDefault();
@@ -104,11 +128,12 @@ function tao_formula_page_prescritores() {
         }
 
         function carregar(reset){
-            if (reset) { offset = 0; }
-            $.getJSON(ajaxUrl, {action:'tao_formula_prescritores_lista', nonce:nonce, q:q, offset:offset}, function(r){
+            if (reset) { pg = 0; }
+            $.getJSON(ajaxUrl, {action:'tao_formula_prescritores_lista', nonce:nonce, q:q, size:sz, offset:pg*sz}, function(r){
                 if (!r.success) { $('#taof-pr-lista').html('<p style="color:#dc2626">'+esc(r.data && r.data.message || 'Erro')+'</p>'); return; }
+                var items = (r.data && r.data.items) || []; total = (r.data && r.data.total) || 0;
                 var rows = '';
-                (r.data || []).forEach(function(p){
+                items.forEach(function(p){
                     var reg = [p.tipo_registro, p.nr_registro].filter(Boolean).join(' ') + (p.uf_registro ? '/'+p.uf_registro : '');
                     rows += '<tr data-p=\''+JSON.stringify(p).replace(/'/g,'&#39;')+'\'>' +
                         '<td><strong>'+esc((p.tratamento?p.tratamento+' ':'')+p.nome)+'</strong></td>' +
@@ -119,10 +144,12 @@ function tao_formula_page_prescritores() {
                         '<td style="text-align:center"><button type="button" class="button button-small taof-pr-edit">Editar</button></td></tr>';
                 });
                 var tbl = '<div class="taof-pr-twrap"><table class="taof-pr-table"><tr><th>Nome</th><th>Registro</th><th>Especialidade</th><th>Contato</th><th>Cidade</th><th></th></tr>' + rows + '</table></div>';
-                if (reset) $('#taof-pr-lista').html(rows ? tbl : '<p style="color:#94a3b8">Nenhum prescritor encontrado.</p>');
-                else $('#taof-pr-lista .taof-pr-table').append(rows);
-                $('#taof-pr-mais').toggle((r.data || []).length >= 30);
-                $('#taof-pr-count').text(r.total != null ? r.total + ' prescritor(es)' : '');
+                $('#taof-pr-lista').html(rows ? tbl : '<p style="color:#94a3b8">Nenhum prescritor encontrado.</p>');
+                var paginas = Math.max(1, Math.ceil(total / sz));
+                $('#taof-pr-pg').text('Página ' + (pg+1) + ' de ' + paginas);
+                $('#taof-pr-prev').prop('disabled', pg <= 0);
+                $('#taof-pr-next').prop('disabled', pg >= paginas - 1);
+                $('#taof-pr-count').text(total + ' prescritor(es)');
             });
         }
 
@@ -130,7 +157,9 @@ function tao_formula_page_prescritores() {
             abrirForm(JSON.parse($(this).closest('tr').attr('data-p')));
         });
         $('#taof-pr-novo').on('click', function(){ abrirForm({}); });
-        $('#taof-pr-mais').on('click', function(){ offset += 30; carregar(false); });
+        $('#taof-pr-size').on('change', function(){ sz = parseInt(this.value, 10) || 30; carregar(true); });
+        $('#taof-pr-prev').on('click', function(){ if (pg > 0) { pg--; carregar(false); } });
+        $('#taof-pr-next').on('click', function(){ pg++; carregar(false); });
         $('#taof-pr-busca').on('input', function(){
             clearTimeout(timer);
             var v = $(this).val().trim();

@@ -26,6 +26,14 @@ function tao_formula_page_sngpc() {
     </div>
 
     <div id="taof-sg-area"><p style="color:#94a3b8">Carregando…</p></div>
+    <div id="taof-sg-pagerbox" style="display:none;gap:10px;align-items:center;justify-content:center;margin:12px 0;font-size:13px;flex-wrap:wrap" class="taof-sg-noprint">
+        <label>Itens por página:
+            <select id="taof-sg-size" style="padding:3px 6px"><option value="20">20</option><option value="30" selected>30</option><option value="50">50</option></select>
+        </label>
+        <button type="button" class="button button-small" id="taof-sg-prev">‹ Anterior</button>
+        <span id="taof-sg-pg" style="color:#64748b">—</span>
+        <button type="button" class="button button-small" id="taof-sg-next">Próxima ›</button>
+    </div>
 
     <div id="taof-sg-modal" style="display:none"><div class="taof-sg-ov"></div><div class="taof-sg-box"><div id="taof-sg-body"></div></div></div>
 
@@ -45,16 +53,25 @@ function tao_formula_page_sngpc() {
     <script>
     jQuery(function($){
         var ajaxUrl=taoFormula.ajaxUrl, nonce=taoFormula.nonce, timer=null;
+        var pg=0, sz=30, total=0;
         function esc(t){return $('<span>').text(t==null?'':t).html();}
         function fdata(d){if(!d)return '—';var s=String(d).substring(0,10).split('-');return s.length===3?s[2]+'/'+s[1]+'/'+s[0]:d;}
         var hoje=new Date(),y=hoje.getFullYear(),m=('0'+(hoje.getMonth()+1)).slice(-2);
         $('#taof-sg-de').val(y+'-'+m+'-01'); $('#taof-sg-ate').val(y+'-'+m+'-'+('0'+hoje.getDate()).slice(-2));
 
-        function carregar(){
-            $.getJSON(ajaxUrl,{action:'tao_formula_sngpc_lista',nonce:nonce,de:$('#taof-sg-de').val(),ate:$('#taof-sg-ate').val(),tipo:$('#taof-sg-tipo').val()},function(r){
+        function pager(){
+            var paginas=Math.max(1,Math.ceil(total/sz));
+            $('#taof-sg-pg').text('Página '+(pg+1)+' de '+paginas);
+            $('#taof-sg-prev').prop('disabled',pg<=0);
+            $('#taof-sg-next').prop('disabled',pg>=paginas-1);
+            $('#taof-sg-pagerbox').css('display','flex');
+        }
+        function carregar(reset){
+            if(reset){pg=0;}
+            $.getJSON(ajaxUrl,{action:'tao_formula_sngpc_lista',nonce:nonce,de:$('#taof-sg-de').val(),ate:$('#taof-sg-ate').val(),tipo:$('#taof-sg-tipo').val(),size:sz,offset:pg*sz},function(r){
                 if(!r.success){$('#taof-sg-area').html('<p style="color:#dc2626">'+esc(r.data&&r.data.message||'Erro')+'</p>');return;}
-                var l=r.data||[]; $('#taof-sg-count').text(l.length+' movimento(s)');
-                if(!l.length){$('#taof-sg-area').html('<p style="color:#94a3b8">Nenhum movimento no período.</p>');return;}
+                var l=(r.data&&r.data.items)||[]; total=(r.data&&r.data.total)||0; $('#taof-sg-count').text(total+' movimento(s)');
+                if(!l.length){$('#taof-sg-area').html('<p style="color:#94a3b8">Nenhum movimento no período.</p>');pager();return;}
                 var rows=l.map(function(x){
                     var extra=x.tipo==='saida'?(esc(x.comprador_nome||'')+(x.nr_notificacao?' · NR '+esc(x.nr_notificacao):'')):(x.tp_perda?esc(x.tp_perda):'');
                     return '<tr><td>'+fdata(x.dt_movimento)+'</td>'+
@@ -68,10 +85,14 @@ function tao_formula_page_sngpc() {
                         '<td style="text-align:center">'+(x.transmitido?'✓':'')+'</td></tr>';
                 }).join('');
                 $('#taof-sg-area').html('<div class="taof-sg-twrap"><table class="taof-sg-tb"><tr><th>Data</th><th>Tipo</th><th>Substância / DCB</th><th>Classe</th><th>Lote</th><th>Qtd</th><th>Prescritor</th><th>Comprador / Detalhe</th><th>Transm.</th></tr>'+rows+'</table></div>');
+                pager();
             });
         }
-        $('#taof-sg-filtrar,#taof-sg-tipo').on('click change',carregar);
+        $('#taof-sg-filtrar,#taof-sg-tipo').on('click change',function(){carregar(true);});
         $('#taof-sg-print').on('click',function(){window.print();});
+        $('#taof-sg-size').on('change',function(){sz=parseInt(this.value,10)||30;carregar(true);});
+        $('#taof-sg-prev').on('click',function(){if(pg>0){pg--;carregar(false);}});
+        $('#taof-sg-next').on('click',function(){pg++;carregar(false);});
 
         // ── Lançar movimento manual ──
         $('#taof-sg-novo').on('click',function(){
@@ -138,6 +159,7 @@ function tao_formula_page_sngpc() {
                         '<td style="text-align:right;color:#991b1b">'+parseFloat(x.perda).toLocaleString('pt-BR')+'</td>'+
                         '<td style="text-align:right;font-weight:700">'+parseFloat(x.saldo).toLocaleString('pt-BR')+' '+esc(x.unidade||'')+'</td></tr>';
                 }).join('');
+                $('#taof-sg-pagerbox').hide();
                 $('#taof-sg-area').html('<h3>Balanço '+fdata(r.data.de)+' a '+fdata(r.data.ate)+' <small style="color:#94a3b8;font-weight:400">(BMPO — por substância)</small></h3>'+
                     '<div class="taof-sg-twrap"><table class="taof-sg-tb"><tr><th>Substância (DCB)</th><th>Classe</th><th>Entradas</th><th>Saídas</th><th>Perdas</th><th>Saldo</th></tr>'+(rows||'<tr><td colspan=6 style="color:#94a3b8">sem movimentos</td></tr>')+'</table></div>'+
                     '<p><button class="button" onclick="jQuery(\'#taof-sg-filtrar\').click()">← voltar ao livro</button></p>');
@@ -155,7 +177,7 @@ function tao_formula_page_sngpc() {
             });
         });
 
-        carregar();
+        carregar(true);
     });
     </script>
     </div>

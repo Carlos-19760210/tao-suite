@@ -1198,6 +1198,15 @@ function tao_crm_ajax_move_card() {
         }
     }
 
+    // Trava plugável: módulos (ex: tao-entregas) podem vetar a ENTRADA em certos estágios.
+    // Retorno esperado: ['bloqueado'=>true,'code'=>..,'msg'=>..] — desacoplado do CRM.
+    if ( $de_estagio !== $estagio_id ) {
+        $veto = apply_filters( 'tao_crm_veto_mover_card', null, $card_id, $estagio_id, $card_atual );
+        if ( is_array( $veto ) && ! empty( $veto['bloqueado'] ) ) {
+            wp_send_json_error( [ 'code' => $veto['code'] ?? 'bloqueado', 'msg' => $veto['msg'] ?? 'Movimentação bloqueada.' ] );
+        }
+    }
+
     $r = tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [
         'estagio_id' => $estagio_id,
         'movido_em'  => gmdate( 'c' ),
@@ -1231,6 +1240,8 @@ function tao_crm_ajax_move_card() {
         tao_crm_disparar_automacoes( $card_id, $estagio_id, 'entrar_fase' );
         tao_crm_disparar_automacoes( $card_id, $estagio_id, 'tempo_na_fase' );
         tao_crm_nps_disparar( $card_id, $estagio_id );   // envia pesquisa NPS ao entrar no estágio NPS
+        // Hook plugável: card entrou em nova fase (módulos reagem — ex.: Fórmula conclui a OM em "Pronto para Entrega")
+        do_action( 'tao_crm_card_movido', $card_id, $estagio_id, $de_estagio, $card_atual );
     }
 
     // Mover para estágio terminal (ganho/perdido)
@@ -1905,6 +1916,17 @@ function tao_crm_ajax_fechar_card() {
         }
     }
 
+    // ── TRAVA de módulos plugáveis no fechar-ganho (desacoplado; no-op se ninguém responder) ──
+    //    Ex.: o Fórmula veta quando há item MP com sinônimo sem ativo correspondente na base
+    //    (não se aprova/gera OM de fórmula incompleta — RDC 67). Roda para AMBOS os caminhos
+    //    de ganho (cruzar p/ Pós-vendas ou fechar no estágio terminal), antes de qualquer movimentação.
+    if ( $tipo === 'ganho' ) {
+        $veto_ganho = apply_filters( 'tao_crm_veto_fechar_ganho', null, $card_id, $card );
+        if ( is_array( $veto_ganho ) && ! empty( $veto_ganho['veto'] ) ) {
+            wp_send_json_error( [ 'code' => $veto_ganho['code'] ?? 'veto_ganho', 'msg' => $veto_ganho['msg'] ?? 'Pendência antes de fechar como ganho.' ] );
+        }
+    }
+
     $re = tao_crm_api( "/crm_estagios?pipeline_id=eq.{$card['pipeline_id']}&tipo=eq.$tipo&limit=1" );
     if ( ! $re['ok'] || empty( $re['data'] ) ) {
         $label = $tipo === 'ganho' ? 'Ganho (✅)' : 'Perdido (✗)';
@@ -1957,6 +1979,10 @@ function tao_crm_ajax_fechar_card() {
                 tao_crm_fire_webhook( $card['workspace_id'], 'card_fechado_ganho', [ 'card_id' => $card_id ] );
                 // Negócio fechado → gera a venda no Caixa (listener isolado; nunca quebra este fluxo)
                 do_action( 'tao_caixa_card_ganho', $card_id, $card['workspace_id'] ?? '' );
+                // Negócio ganho → Pós-vendas: garante a entrega (listener isolado no módulo tao-entregas)
+                do_action( 'tao_entregas_card_ganho', $card_id, $card['workspace_id'] ?? '' );
+                // Negócio ganho → cria a OM do módulo Fórmula (listener isolado; o card nasce com a OM)
+                do_action( 'tao_formula_card_ganho', $card_id, $card['workspace_id'] ?? '' );
                 wp_send_json_success( [ 'pos_vendas' => true ] );
                 return;
             }
@@ -2449,11 +2475,16 @@ function tao_crm_rodape_orcamento() {
 
 function tao_crm_build_orcamento_msg( array $orcs, string $nome, string $rodape ): string {
     $blocos      = [];
-    $total_geral = 0;
+    $total_geral = 0;   // final (com desconto)
+    $bruto_geral = 0;   // valor de venda calculado (sem desconto)
+    $desc_geral  = 0;   // desconto oferecido (R$)
+    $brl = function ( $v ) { return number_format( (float) $v, 2, ',', '.' ); };
     foreach ( $orcs as $o ) {
         $numero  = $o['numero_orcamento'] ?? '—';
-        $total   = (float) ( $o['total_orcamento'] ?? 0 );
-        $total_geral += $total;
+        $total   = (float) ( $o['total_orcamento'] ?? 0 );          // valor com desconto (final)
+        $desc    = (float) ( $o['desconto_fc'] ?? 0 );              // desconto oferecido em R$
+        $bruto   = $total + $desc;                                   // valor de venda calculado
+        $total_geral += $total; $bruto_geral += $bruto; $desc_geral += $desc;
         $itens   = is_string( $o['itens'] ) ? json_decode( $o['itens'], true ) : ( $o['itens'] ?? [] );
         $obs     = trim( $o['observacoes'] ?? '' );
         // Orçamentos importados (sem itens): usa a descrição original preservada em observacoes
@@ -2464,13 +2495,26 @@ function tao_crm_build_orcamento_msg( array $orcs, string $nome, string $rodape 
                 ? tao_formula_build_descricao( $o['forma_nome'] ?? '', $o['forma_vol'] ?? 0, $o['forma_unidade'] ?? 'g', $itens, $o['qtde_potes'] ?? 1 )
                 : 'FORMULA MANIPULADA - ' . strtoupper( $o['forma_nome'] ?? '' );
         }
-        $blocos[] = "ORC:{$numero}\n{$descr}\nValor R\$: " . number_format( $total, 2, ',', '.' );
+        // Com desconto: mostra os 3 valores (calculado, desconto, com desconto). Sem desconto: só o valor.
+        if ( $desc > 0.005 ) {
+            $valor_txt = "Valor R\$: " . $brl( $bruto )
+                       . "\nDesconto R\$: " . $brl( $desc )
+                       . "\nValor com desconto R\$: " . $brl( $total );
+        } else {
+            $valor_txt = "Valor R\$: " . $brl( $total );
+        }
+        $blocos[] = "ORC:{$numero}\n{$descr}\n{$valor_txt}";
     }
-    $total_fmt = number_format( $total_geral, 2, ',', '.' );
     $msg  = "Prezado(a) *{$nome}*,\n\n";
     $msg .= "Seguem detalhes da sua solicitação de orçamento:\n\n\n";
     $msg .= implode( "\n\n", $blocos ) . "\n\n";
-    $msg .= "TOTAL A VISTA: R\$ {$total_fmt}\n\n";
+    if ( $desc_geral > 0.005 ) {
+        $msg .= "VALOR TOTAL: R\$ " . $brl( $bruto_geral ) . "\n";
+        $msg .= "DESCONTO: R\$ " . $brl( $desc_geral ) . "\n";
+        $msg .= "TOTAL A VISTA (com desconto): R\$ " . $brl( $total_geral ) . "\n\n";
+    } else {
+        $msg .= "TOTAL A VISTA: R\$ " . $brl( $total_geral ) . "\n\n";
+    }
     $msg .= $rodape;
     return $msg;
 }
@@ -2529,7 +2573,7 @@ function tao_crm_ajax_enviar_orcamento_formula() {
         $ro = tao_formula_api(
             "/orcamentos?id=in.($ids_str)" .
             "&select=numero_orcamento,forma_nome,forma_vol,forma_unidade,qtde_potes," .
-            "total_orcamento,itens,observacoes,nome_paciente&order=criado_em.asc"
+            "total_orcamento,desconto_fc,itens,observacoes,nome_paciente&order=criado_em.asc"
         );
         if ( ! $ro['ok'] || empty( $ro['data'] ) ) wp_send_json_error( 'Orçamentos não encontrados' );
         $nome = $card['contato_nome'] ?? 'cliente';
@@ -5275,6 +5319,34 @@ function tao_crm_ajax_search_global() {
             foreach ( $r2['data'] ?? [] as $c ) {
                 if ( in_array( $c['id'], $existing_ids, true ) ) continue;
                 $results[] = [ 'tipo' => 'card', 'id' => $c['id'], 'titulo' => $c['titulo'], 'sub' => $c['contato_whatsapp'] ?? '', 'status' => $c['status'] ?? 'aberto', 'pipeline_id' => $c['pipeline_id'] ?? '', 'workspace_id' => $c['workspace_id'] ?? '' ];
+            }
+        }
+    }
+
+    // Busca por Nº de Requisição (o operador procura pelo #requisição do card).
+    // A requisição = segmento do meio de orcamentos.numero_orcamento (mesma régua do Kanban):
+    // acha o orçamento pelo número e traz o card vinculado. Cobre o número DERIVADO do orçamento
+    // (quando o campo "Número Requisição" não foi digitado à mão). Filtro de ws/responsável é
+    // aplicado na 2ª query (crm_cards), então respeita a permissão do usuário.
+    if ( preg_match( '/\d/', $q ) ) {
+        $existing_ids = array_column( $results, 'id' );
+        $r_orc = tao_crm_api( "/orcamentos?numero_orcamento=ilike.*$q_enc*&select=card_id,numero_orcamento&limit=20" );
+        $orc_card_ids = [];
+        if ( $r_orc['ok'] ) {
+            foreach ( $r_orc['data'] ?? [] as $o ) {
+                $ocid = $o['card_id'] ?? '';
+                if ( $ocid && ! in_array( $ocid, $existing_ids, true ) && ! isset( $orc_card_ids[ $ocid ] ) ) {
+                    $orc_card_ids[ $ocid ] = $o['numero_orcamento'] ?? '';
+                }
+            }
+        }
+        if ( $orc_card_ids ) {
+            $ids_in = implode( ',', array_keys( $orc_card_ids ) );
+            $r_oc = tao_crm_api( "/crm_cards?id=in.($ids_in)$ws_filter$cards_filter&select=id,titulo,contato_whatsapp,contato_nome,status,estagio_id,pipeline_id,workspace_id&limit=10" );
+            if ( $r_oc['ok'] ) {
+                foreach ( $r_oc['data'] ?? [] as $c ) {
+                    $results[] = [ 'tipo' => 'card', 'id' => $c['id'], 'titulo' => $c['titulo'], 'sub' => 'Req/Orç: ' . ( $orc_card_ids[ $c['id'] ] ?? '' ), 'status' => $c['status'] ?? 'aberto', 'pipeline_id' => $c['pipeline_id'] ?? '', 'workspace_id' => $c['workspace_id'] ?? '' ];
+                }
             }
         }
     }

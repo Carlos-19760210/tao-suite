@@ -7,23 +7,27 @@ function tao_formula_page_ativos() {
     $cliente_id = tao_formula_cliente_id();
     $busca      = sanitize_text_field( $_GET['s'] ?? '' );
     $filtro_gr  = sanitize_text_field( $_GET['grupo'] ?? '' );
+    $size       = intval( $_GET['size'] ?? 30 ); if ( ! in_array( $size, [ 20, 30, 50 ], true ) ) $size = 30;
+    $off        = max( 0, intval( $_GET['off'] ?? 0 ) );
     $ativos     = [];
+    $total_lista= 0;
     $total_mp   = 0;
     $total_emb  = 0;
     $ultima_sync= null;
 
     if ( $cliente_id ) {
-        $qs = "/ativos?cliente_id=eq.$cliente_id&ativo=eq.true&select=id,codigo_fc,nome,unidade,unidade_padrao,estoque_atual,preco_venda,custo_por_unidade,categoria,grupo,sincronizado_em&order=nome.asc&limit=150";
+        $qs = "/ativos?cliente_id=eq.$cliente_id&ativo=eq.true&select=id,codigo_fc,nome,unidade,unidade_padrao,estoque_atual,preco_venda,custo_por_unidade,categoria,grupo,sincronizado_em&order=nome.asc&limit=$size&offset=$off";
         if ( $busca )     $qs .= '&nome=ilike.*' . urlencode($busca) . '*';
         if ( $filtro_gr ) $qs .= "&grupo=eq.$filtro_gr";
-        $r      = tao_formula_api( $qs );
+        $r      = tao_formula_api( $qs, 'GET', null, true );
         $ativos = $r['ok'] ? ( $r['data'] ?? [] ) : [];
+        $total_lista = $r['ok'] ? (int) $r['total'] : 0;
         if ( $ativos ) $ultima_sync = $ativos[0]['sincronizado_em'] ?? null;
 
-        $rt = tao_formula_api( "/ativos?cliente_id=eq.$cliente_id&ativo=eq.true&grupo=eq.M&select=id" );
-        $total_mp  = $rt['ok'] ? count( $rt['data'] ?? [] ) : 0;
-        $re = tao_formula_api( "/ativos?cliente_id=eq.$cliente_id&ativo=eq.true&grupo=eq.E&select=id" );
-        $total_emb = $re['ok'] ? count( $re['data'] ?? [] ) : 0;
+        $rt = tao_formula_api( "/ativos?cliente_id=eq.$cliente_id&ativo=eq.true&grupo=eq.M&select=id&limit=1", 'GET', null, true );
+        $total_mp  = $rt['ok'] ? (int) $rt['total'] : 0;
+        $re = tao_formula_api( "/ativos?cliente_id=eq.$cliente_id&ativo=eq.true&grupo=eq.E&select=id&limit=1", 'GET', null, true );
+        $total_emb = $re['ok'] ? (int) $re['total'] : 0;
     }
 
     $base_url = tao_formula_url( 'formula-ativos' );
@@ -118,7 +122,36 @@ function tao_formula_page_ativos() {
         </tbody>
     </table>
     </div>
-    <?php if (count($ativos) >= 150) : ?><p style="color:#64748b;font-size:12px;margin-top:6px">Exibindo 150 resultados. Use a busca para filtrar.</p><?php endif; ?>
+    <?php
+    $pg_base = [];
+    if ( $busca )     $pg_base['s'] = $busca;
+    if ( $filtro_gr ) $pg_base['grupo'] = $filtro_gr;
+    $paginas  = max( 1, (int) ceil( $total_lista / $size ) );
+    $pg_cur   = (int) floor( $off / $size ) + 1;
+    $prev_off = max( 0, $off - $size );
+    $next_off = $off + $size;
+    ?>
+    <div style="display:flex;gap:10px;align-items:center;justify-content:center;margin:14px 0;font-size:13px;flex-wrap:wrap">
+        <label>Itens por página:
+            <select onchange="location.href=this.value" style="padding:3px 6px">
+                <?php foreach ( [ 20, 30, 50 ] as $s ) :
+                    $u = esc_url( add_query_arg( $pg_base + [ 'size' => $s, 'off' => 0 ], $base_url ) ); ?>
+                    <option value="<?php echo $u; ?>"<?php selected( $size, $s ); ?>><?php echo $s; ?></option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <?php if ( $pg_cur > 1 ) : ?>
+            <a class="button button-small" href="<?php echo esc_url( add_query_arg( $pg_base + [ 'size' => $size, 'off' => $prev_off ], $base_url ) ); ?>">‹ Anterior</a>
+        <?php else : ?>
+            <span class="button button-small" disabled style="opacity:.5;pointer-events:none">‹ Anterior</span>
+        <?php endif; ?>
+        <span style="color:#64748b">Página <?php echo $pg_cur; ?> de <?php echo $paginas; ?> <small>(<?php echo number_format( $total_lista ); ?> ativos)</small></span>
+        <?php if ( $pg_cur < $paginas ) : ?>
+            <a class="button button-small" href="<?php echo esc_url( add_query_arg( $pg_base + [ 'size' => $size, 'off' => $next_off ], $base_url ) ); ?>">Próxima ›</a>
+        <?php else : ?>
+            <span class="button button-small" disabled style="opacity:.5;pointer-events:none">Próxima ›</span>
+        <?php endif; ?>
+    </div>
     <?php endif; ?>
     </div><!-- /taof-pane-ativos -->
 
@@ -219,6 +252,16 @@ function tao_formula_page_ativos() {
     .taof-s-item.taof-s-hl{background:#eff6ff}
     .taof-s-item:hover{background:#f8fafc}
     .taof-s-item.taof-s-hl{background:#eff6ff!important}
+    #taof-tbody tr.taof-row-hl td{background:#eff6ff!important}
+    .taof-atabs{display:flex;gap:4px;border-bottom:2px solid #e2e8f0;margin-bottom:14px}
+    .taof-atab{background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;padding:7px 14px;cursor:pointer;font-size:13px;font-weight:600;color:#64748b}
+    .taof-atab.active{color:#1e40af;border-bottom-color:#1e40af}
+    .taof-kpi{background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px}
+    .taof-kpi .v{font-size:20px;font-weight:700;color:#0f172a}.taof-kpi .l{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.3px;margin-top:2px}
+    .taof-est-tb{width:100%;border-collapse:collapse;font-size:12px;background:#fff;border:1px solid #e2e8f0;border-radius:6px}
+    .taof-est-tb th,.taof-est-tb td{padding:5px 9px;border-bottom:1px solid #f1f5f9;text-align:left}.taof-est-tb th{background:#f8fafc;color:#64748b;font-size:11px;text-transform:uppercase}
+    .taof-lt-pill{font-size:11px;padding:1px 8px;border-radius:10px}
+    .st-quarentena{background:#fef3c7;color:#92400e}.st-aprovado{background:#dcfce7;color:#166534}.st-reprovado{background:#fee2e2;color:#991b1b}.st-vencido{background:#e5e7eb;color:#374151}.st-esgotado{background:#e5e7eb;color:#374151}
     </style>
     <script>
     (function(){
@@ -253,10 +296,68 @@ function tao_formula_page_ativos() {
                 });
             }
 
+            function fdataBR(d){if(!d)return '—';var p=String(d).substring(0,10).split('-');return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:d;}
+
+            // Aba Estoque & Consumo (carrega sob demanda)
+            function carregarEstoqueAba(id){
+                var $b=$('#taof-atab-estoque-body');
+                $b.html('<p style="color:#94a3b8;font-size:12px;padding:8px 0">Carregando…</p>');
+                $.getJSON(_ajaxUrl,{action:'tao_formula_ativo_estoque',nonce:_nonce,ativo_id:id},function(r){
+                    if(!r.success){$b.html('<p style="color:#dc2626">'+escH((r.data&&r.data.message)||'Erro')+'</p>');return;}
+                    var d=r.data, uc=d.ultima_compra;
+                    var kpi='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:6px 0 16px">'+
+                        '<div class="taof-kpi"><div class="v">'+fmtN(d.saldo,3)+'</div><div class="l">Saldo atual</div></div>'+
+                        '<div class="taof-kpi"><div class="v">'+fmtN(d.media_mensal,3)+'</div><div class="l">Consumo médio/mês</div></div>'+
+                        '<div class="taof-kpi"><div class="v" style="font-size:15px">'+(uc&&uc.preco_compra?'R$ '+fmtN(uc.preco_compra,2):'—')+'</div>'+
+                        '<div class="l">Última compra'+(uc?' · '+fdataBR(uc.dt):'')+(uc&&uc.fornecedor?'<br>'+escH(uc.fornecedor):'')+(uc&&uc.nf_numero?' (NF '+escH(uc.nf_numero)+')':'')+'</div></div></div>';
+                    var cm='';
+                    if(d.consumo_mensal&&d.consumo_mensal.length){
+                        cm='<strong style="font-size:13px">Consumo por mês (12m)</strong>'+
+                           '<div style="overflow-x:auto;margin:6px 0 16px"><table class="taof-est-tb"><tr><th>Mês</th><th style="text-align:right">Saída</th></tr>'+
+                           d.consumo_mensal.map(function(m){return '<tr><td>'+escH(m.mes)+'</td><td style="text-align:right">'+fmtN(m.qtd,3)+'</td></tr>';}).join('')+'</table></div>';
+                    } else cm='<p style="color:#94a3b8;font-size:12px;margin:6px 0 16px">Sem saídas registradas nos últimos 12 meses.</p>';
+                    var lt='<strong style="font-size:13px">Lotes ('+d.lotes.length+')</strong>';
+                    if(d.lotes.length){
+                        var hoje=new Date().toISOString().slice(0,10);
+                        lt+='<div style="overflow-x:auto;margin-top:6px"><table class="taof-est-tb"><tr><th>Lote</th><th>Validade</th><th style="text-align:right">Saldo</th><th>Status</th><th></th></tr>'+
+                        d.lotes.map(function(l){
+                            var venc=l.dt_validade&&l.dt_validade<hoje;
+                            var acao=l.status==='quarentena'?'<button class="button button-small taof-est-aprovar" data-id="'+l.id+'" data-aid="'+id+'">✔</button> <button class="button button-small taof-est-reprovar" data-id="'+l.id+'" data-aid="'+id+'">✖</button> ':'';
+                            acao+='<button class="button button-small taof-est-ajuste" data-id="'+l.id+'" data-aid="'+id+'" data-qt="'+l.qtd_atual+'" title="Inventário / ajuste de saldo">⚖</button>';
+                            return '<tr><td style="font-family:monospace">'+escH(l.nr_lote)+'</td>'+
+                                '<td'+(venc?' style="color:#dc2626"':'')+'>'+fdataBR(l.dt_validade)+'</td>'+
+                                '<td style="text-align:right">'+fmtN(l.qtd_atual,3)+' '+escH(l.unidade||'')+'</td>'+
+                                '<td><span class="taof-lt-pill st-'+escH(l.status)+'">'+escH(l.status)+'</span></td>'+
+                                '<td style="white-space:nowrap">'+acao+'</td></tr>';
+                        }).join('')+'</table></div>';
+                    } else lt+='<p style="color:#94a3b8;font-size:12px;margin-top:6px">Nenhum lote cadastrado.</p>';
+                    $b.html(kpi+cm+lt);
+                });
+            }
+            $(document).on('click','.taof-est-aprovar, .taof-est-reprovar',function(){
+                var rep=$(this).hasClass('taof-est-reprovar'), aid=$(this).data('aid');
+                var res=rep?prompt('Motivo da REPROVAÇÃO do lote:'):prompt('Resultado do CQ (opcional):','Conforme');
+                if(rep&&!res)return; if(res===null)return;
+                $.post(_ajaxUrl,{action:'tao_formula_estq_lote_cq',nonce:_nonce,lote_id:$(this).data('id'),acao:rep?'reprovar':'aprovar',resultado:res},function(r){
+                    if(r.success)carregarEstoqueAba(aid); else alert((r.data&&r.data.message)||'Erro');
+                });
+            });
+            $(document).on('click','.taof-est-ajuste',function(){
+                var aid=$(this).data('aid'), atual=$(this).data('qt');
+                var nova=prompt('Inventário — quantidade REAL contada do lote (atual no sistema: '+atual+'):',atual);
+                if(nova===null||String(nova).trim()==='')return;
+                $.post(_ajaxUrl,{action:'tao_formula_estq_ajuste',nonce:_nonce,lote_id:$(this).data('id'),qtd_nova:nova},function(r){
+                    if(r.success){carregarEstoqueAba(aid);} else alert((r.data&&r.data.message)||'Erro');
+                });
+            });
+
             function renderModalAtivo(a) {
                 var badge=a.grupo==='E'?'<span style="background:#e0f2fe;color:#0369a1;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600">Embalagem</span>':'<span style="background:#f0fdf4;color:#166534;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600">Matéria-Prima</span>';
                 var html='<h2 style="margin:0 0 4px;font-size:19px">'+escH(a.nome)+'</h2>';
-                html+='<div style="margin-bottom:14px">'+badge+(a.codigo_fc?' <span style="color:#94a3b8;font-size:12px;margin-left:8px">FC: '+escH(a.codigo_fc)+'</span>':'')+'</div>';
+                html+='<div style="margin-bottom:10px">'+badge+(a.codigo_fc?' <span style="color:#94a3b8;font-size:12px;margin-left:8px">FC: '+escH(a.codigo_fc)+'</span>':'')+'</div>';
+                html+='<div class="taof-atabs"><button type="button" class="taof-atab active" data-tab="dados">Dados</button><button type="button" class="taof-atab" data-tab="estoque">Estoque &amp; Consumo</button></div>';
+                html+='<div id="taof-atab-estoque" style="display:none"><div id="taof-atab-estoque-body"></div></div>';
+                html+='<div id="taof-atab-dados">';
                 html+=grid(3,[campo('Unidade FC',a.unidade||'—'),campo('Unidade Padrão',a.unidade_padrao||'—'),campo('Estoque',a.estoque_atual!==null?fmtN(a.estoque_atual,3)+' '+(a.unidade||''):'—')]);
                 html+=grid(3,[campo('Custo / '+(a.unidade_padrao||'unid'),'R$ '+fmtN(a.custo_por_unidade,4)),campo('Preço Compra',a.preco_compra?'R$ '+fmtN(a.preco_compra,2):'—'),campo('Preço Venda','R$ '+fmtN(a.preco_venda,2))]);
                 if(a.grupo!=='E'){
@@ -266,7 +367,9 @@ function tao_formula_page_ativos() {
                 html+=grid(2,[campo('Categoria',a.categoria||'—'),campo('Classe Terapêutica',a.classe_terapeutica||'—')]);
                 if(a.observacoes)html+='<div style="background:#f8fafc;border-radius:6px;padding:10px 14px;margin-top:4px"><span style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.4px">Observações</span><p style="margin:4px 0 0;font-size:13px">'+escH(a.observacoes)+'</p></div>';
                 if(a.sincronizado_em){var d=new Date(a.sincronizado_em);html+='<p style="color:#94a3b8;font-size:11px;margin-top:8px">Sincronizado em '+d.toLocaleString('pt-BR')+'</p>';}
-                html+='<p style="margin:10px 0 0"><button type="button" class="button" id="taof-ativo-editar-btn">&#x270F; Editar produto</button></p>';
+                html+='<p style="margin:10px 0 0"><button type="button" class="button" id="taof-ativo-editar-btn">&#x270F; Editar produto</button> '+
+                    '<button type="button" class="button" id="taof-preco-hist-btn" data-aid="'+a.id+'">&#x1F4C8; Hist&oacute;rico de pre&ccedil;os</button></p>'+
+                    '<div id="taof-preco-hist" style="display:none;margin-top:10px"></div>';
                 html += '<div style="border-top:1px solid #e2e8f0;margin-top:16px;padding-top:14px">';
                 html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
                 html += '<strong style="font-size:13px">&#x1F3F7; Sin&ocirc;nimos <span id="taof-sin-ativo-count" style="font-size:11px;color:#94a3b8;font-weight:400"></span></strong>';
@@ -278,9 +381,34 @@ function tao_formula_page_ativos() {
                 html += '<span id="taof-sin-ativo-msg" style="font-size:12px"></span>';
                 html += '</div>';
                 html += '</div>';
+                html += '</div>';  // fecha #taof-atab-dados
                 $('#taof-ativo-modal-body').html(html);
                 reloadSinonimos(a.id);
+                $('#taof-ativo-modal-body .taof-atab').on('click', function(){
+                    var tab=$(this).data('tab');
+                    $('#taof-ativo-modal-body .taof-atab').removeClass('active'); $(this).addClass('active');
+                    $('#taof-atab-dados').toggle(tab==='dados');
+                    $('#taof-atab-estoque').toggle(tab==='estoque');
+                    if(tab==='estoque' && !$('#taof-atab-estoque-body').data('loaded')){ $('#taof-atab-estoque-body').data('loaded',1); carregarEstoqueAba(a.id); }
+                });
             }
+
+            // histórico de preços (linha do tempo) — delegado, registra uma vez
+            $(document).on('click', '#taof-preco-hist-btn', function(){
+                var $box=$('#taof-preco-hist');
+                if($box.is(':visible')){$box.hide();return;}
+                $box.html('<p style="color:#94a3b8;font-size:12px;margin:4px 0">Carregando…</p>').show();
+                $.getJSON(_ajaxUrl,{action:'tao_formula_ativo_precos_hist',nonce:_nonce,ativo_id:$(this).data('aid')},function(r){
+                    var l=(r&&r.success&&r.data)?r.data:[];
+                    if(!l.length){$box.html('<p style="color:#94a3b8;font-size:12px;margin:4px 0">Sem histórico de reajustes ainda. Cada entrada de NF ou alteração de preço passa a registrar aqui.</p>');return;}
+                    function f(d){if(!d)return '—';var p=String(d).substring(0,10).split('-');return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:d;}
+                    function m(n){return n==null?'—':'R$ '+parseFloat(n).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:4});}
+                    var rows=l.map(function(h){return '<tr><td>'+f(h.dt)+'</td><td>'+escH(h.origem||'')+(h.nf_numero?' <small style="color:#94a3b8">NF '+escH(h.nf_numero)+'</small>':'')+'</td>'+
+                        '<td style="text-align:right">'+m(h.preco_compra)+'</td><td style="text-align:right">'+m(h.custo_unidade)+'</td><td style="text-align:right">'+m(h.preco_venda)+'</td></tr>';}).join('');
+                    $box.html('<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;background:#fff;border:1px solid #e2e8f0;border-radius:6px">'+
+                        '<tr style="background:#f8fafc"><th style="padding:5px 8px;text-align:left">Data</th><th style="padding:5px 8px;text-align:left">Origem</th><th style="padding:5px 8px;text-align:right">Compra</th><th style="padding:5px 8px;text-align:right">Custo</th><th style="padding:5px 8px;text-align:right">Venda</th></tr>'+rows+'</table></div>');
+                });
+            });
 
             var _ativoAtual = null;
 
@@ -328,8 +456,8 @@ function tao_formula_page_ativos() {
                 html += fgrid(4,[
                     inp('Pre&ccedil;o compra (R$)','preco_compra',a.preco_compra),
                     inp('Custo/unid (R$)','custo_por_unidade',a.custo_por_unidade),
-                    inp('Pre&ccedil;o venda (R$)','preco_venda',a.preco_venda),
-                    inp('Markup (venda=custo&times;)','markup_preco',a.markup_preco)
+                    inp('Markup (&times;)','markup_preco',a.markup_preco,{ph:'ex: 3'}),
+                    inp('Pre&ccedil;o venda (R$) — calc.','preco_venda',a.preco_venda)
                 ]);
                 html += '<p style="font-size:11px;color:#94a3b8;margin:2px 0 8px">Dados farmacot&eacute;cnicos (matéria-prima):</p>';
                 html += fgrid(4,[
@@ -354,6 +482,41 @@ function tao_formula_page_ativos() {
                     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">'+
                     inp('Classe SNGPC','classe_sngpc',a.classe_sngpc,{ph:'A1, A2, B1, C1, ANTIMICROBIANO...'})+
                     inp('Registro MS','registro_ms',a.registro_ms)+'</div></div>';
+                // Excipiente associado (1, opcional) + bloqueio para manipulação
+                html += '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 12px;margin-bottom:12px">'+
+                    '<div style="display:grid;grid-template-columns:2fr 1.3fr;gap:12px">'+
+                    '<div style="position:relative"><label style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:2px">Excipiente associado <small style="text-transform:none">(sugerido no orçamento — opcional)</small></label>'+
+                    '<input type="text" id="taof-exc-busca" autocomplete="off" value="'+escH(a.excipiente_nome||'')+'" placeholder="buscar excipiente..." style="width:100%;padding:5px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px">'+
+                    '<input type="hidden" name="excipiente_id" value="'+escH(a.excipiente_id||'')+'">'+
+                    '<div id="taof-exc-dd" style="position:absolute;z-index:60;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.12);max-height:180px;overflow:auto;display:none;min-width:240px"></div></div>'+
+                    '<div><label style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:2px">Bloqueio</label>'+
+                    '<label style="font-size:13px;display:inline-flex;align-items:center;gap:6px"><input type="checkbox" name="bloqueado" value="1"'+(a.bloqueado?' checked':'')+'> Bloqueado p/ manipulação</label></div>'+
+                    '</div>'+
+                    '<div style="margin-top:8px">'+inp('Motivo do bloqueio','bloqueado_motivo',a.bloqueado_motivo)+'</div></div>';
+                // Ficha técnica (RDC 67) — especificação da MP (recolhida)
+                html += '<details'+((a.ft_formula_molecular||a.ft_caracteres||a.ft_ph)?' open':'')+' style="margin-bottom:12px;border:1px solid #e0f2fe;border-radius:6px;padding:8px 12px;background:#f8fdff">'+
+                    '<summary style="cursor:pointer;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#0369a1">&#x1F9EA; Ficha t&eacute;cnica da mat&eacute;ria-prima (RDC 67)</summary>'+
+                    '<div style="margin-top:10px">';
+                html += fgrid(3,[
+                    inp('Nome qu&iacute;mico','ft_nome_quimico',a.ft_nome_quimico),
+                    inp('F&oacute;rmula molecular','ft_formula_molecular',a.ft_formula_molecular,{ph:'C22H28FN3O6S'}),
+                    inp('Peso molecular','ft_peso_molecular',a.ft_peso_molecular,{ph:'g/mol'})
+                ]);
+                html += fgrid(3,[
+                    inp('Ponto de fus&atilde;o','ft_ponto_fusao',a.ft_ponto_fusao,{ph:'ºC'}),
+                    inp('pH','ft_ph',a.ft_ph),
+                    inp('Grau de pureza / teor','ft_grau_pureza',a.ft_grau_pureza,{ph:'98,0–102,0%'})
+                ]);
+                html += fgrid(2,[
+                    inp('Caracteres (aspecto/cor/odor)','ft_caracteres',a.ft_caracteres),
+                    inp('Solubilidade','ft_solubilidade',a.ft_solubilidade)
+                ]);
+                html += fgrid(3,[
+                    inp('Conserva&ccedil;&atilde;o / armazenamento','ft_conservacao',a.ft_conservacao),
+                    inp('Refer&ecirc;ncias (farmacopeia)','ft_referencias',a.ft_referencias,{ph:'FB 6, USP...'}),
+                    inp('Revis&atilde;o da ficha','ft_revisao',a.ft_revisao)
+                ]);
+                html += '</div></details>';
                 html += '<p style="margin:6px 0 0">' +
                         '<button type="submit" class="button button-primary">&#x1F4BE; Salvar</button> ' +
                         '<button type="button" class="button" id="taof-ativo-form-cancel">Cancelar</button> ' +
@@ -362,6 +525,38 @@ function tao_formula_page_ativos() {
                 $('#taof-ativo-modal-body').html(html);
                 $('#taof-ativo-modal').show();
                 $('#taof-ativo-form input[name=nome]').focus();
+
+                // Preço de venda = custo × markup (recalcula ao alterar custo ou markup)
+                function _recalcVenda(){
+                    var custo = parseFloat(String($('#taof-ativo-form input[name=custo_por_unidade]').val()).replace(',','.')) || 0;
+                    var mk    = parseFloat(String($('#taof-ativo-form input[name=markup_preco]').val()).replace(',','.')) || 0;
+                    if (custo > 0 && mk > 0) $('#taof-ativo-form input[name=preco_venda]').val((custo * mk).toFixed(2));
+                }
+                $('#taof-ativo-form').on('input', 'input[name=custo_por_unidade], input[name=markup_preco]', _recalcVenda);
+
+                // Autocomplete do excipiente associado
+                (function(){
+                    var $inp=$('#taof-exc-busca'), $dd=$('#taof-exc-dd'), t=null;
+                    if(!$inp.length) return;
+                    $inp.on('input',function(){
+                        $('#taof-ativo-form input[name=excipiente_id]').val('');
+                        var q=$(this).val().trim(); if(q.length<2){$dd.hide();return;}
+                        clearTimeout(t); t=setTimeout(function(){
+                            $.getJSON(_ajaxUrl,{action:'tao_formula_search_ativos',nonce:_nonce,q:q,grupo:''},function(resp){
+                                var l=(resp&&resp.data)?resp.data:[]; $dd.empty();
+                                if(!l.length){$dd.hide();return;}
+                                l.forEach(function(a2){
+                                    $('<div style="padding:6px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #f1f5f9">')
+                                      .text(a2.nome+(a2.codigo_fc?' ['+a2.codigo_fc+']':''))
+                                      .on('mousedown',function(e){e.preventDefault();$inp.val(a2.nome);$('#taof-ativo-form input[name=excipiente_id]').val(a2.id);$dd.hide();})
+                                      .appendTo($dd);
+                                });
+                                $dd.show();
+                            });
+                        },260);
+                    });
+                    $inp.on('blur',function(){setTimeout(function(){$dd.hide();},180);});
+                })();
 
                 $('#taof-ativo-form-cancel').on('click', function(){
                     if (isNovo) { $('#taof-ativo-modal').hide(); } else { renderModalAtivo(_ativoAtual); }
@@ -494,6 +689,25 @@ function tao_formula_page_ativos() {
 
             $inp.on('blur',function(){ setTimeout(function(){ $dd.hide(); _idx=-1; },160); });
             $(document).on('click',function(e){ if(!$(e.target).closest('#taof-s-inp,#taof-s-dd').length) $dd.hide(); });
+
+            // Navegação por setas na LISTA (quando o dropdown de busca não está aberto)
+            var _rowIdx = -1;
+            $(document).on('keydown', function(e){
+                if ($dd.is(':visible')) return;                       // dropdown tem sua própria navegação
+                if ($('#taof-ativo-modal').is(':visible')) return;    // modal aberto: não interfere
+                if (e.key!=='ArrowDown' && e.key!=='ArrowUp' && e.key!=='Enter') return;
+                var tag=(e.target.tagName||'').toLowerCase();
+                if ((tag==='input'||tag==='textarea'||tag==='select') && e.target.id!=='taof-s-inp') return;
+                var $vis = $('#taof-tbody tr:visible');
+                if (!$vis.length) return;
+                if (e.key==='Enter'){ if(_rowIdx>=0){ e.preventDefault(); $vis.eq(_rowIdx).find('.taof-ativo-link').trigger('click'); } return; }
+                e.preventDefault();
+                _rowIdx += (e.key==='ArrowDown'?1:-1);
+                if(_rowIdx<0)_rowIdx=0; if(_rowIdx>=$vis.length)_rowIdx=$vis.length-1;
+                $('#taof-tbody tr').removeClass('taof-row-hl');
+                var $sel=$vis.eq(_rowIdx).addClass('taof-row-hl');
+                if($sel[0]) $sel[0].scrollIntoView({block:'nearest'});
+            });
             // ─────────────────────────────────────────────────────────────
 
             $(document).on('click','#taof-sin-ativo-add',function(){

@@ -57,8 +57,13 @@ function tao_formula_page_sinonimos() {
             <span id="taof-todos-status" style="font-size:12px;color:#94a3b8;margin-left:6px"></span>
         </div>
         <div id="taof-todos-lista" style="font-size:13px"></div>
-        <div style="margin-top:14px;text-align:center">
-            <button type="button" id="taof-todos-mais-btn" class="button" style="display:none">Carregar mais</button>
+        <div style="display:flex;gap:10px;align-items:center;justify-content:center;margin:14px 0;font-size:13px;flex-wrap:wrap">
+            <label>Itens por página:
+                <select id="taof-todos-size" style="padding:3px 6px"><option value="20">20</option><option value="30" selected>30</option><option value="50">50</option></select>
+            </label>
+            <button type="button" class="button button-small" id="taof-todos-prev">‹ Anterior</button>
+            <span id="taof-todos-pg" style="color:#64748b">—</span>
+            <button type="button" class="button button-small" id="taof-todos-next">Próxima ›</button>
         </div>
     </div>
 
@@ -77,7 +82,7 @@ function tao_formula_page_sinonimos() {
             $('#taof-tab-todos').css({ 'border-bottom-color': isBusca ? 'transparent' : '#2563eb', 'color': isBusca ? '#64748b' : '#2563eb' });
             $('#taof-painel-busca').toggle(isBusca);
             $('#taof-painel-todos').toggle(!isBusca);
-            if (!isBusca && !$('#taof-todos-lista').children().length) carregarAtivos(0, true);
+            if (!isBusca && !$('#taof-todos-lista').children().length) carregarAtivos(true);
         });
 
         // ── Busca ativos ──────────────────────────────────────────────────────
@@ -98,44 +103,53 @@ function tao_formula_page_sinonimos() {
         $('#taof-sin-busca').on('keydown', function(e){ if(e.key==='Enter') buscarAtivo(); });
 
         // ── Painel "Todos" ────────────────────────────────────────────────────
-        var todosOffset = 0, todosQ = '', todosCarregando = false;
+        var todosQ = '', todosCarregando = false;
+        var pg = 0, sz = 30, total = 0;
 
-        function carregarAtivos(offset, reset) {
+        function todosPager(){
+            var paginas = Math.max(1, Math.ceil(total / sz));
+            $('#taof-todos-pg').text('Página ' + (pg+1) + ' de ' + paginas);
+            $('#taof-todos-prev').prop('disabled', pg <= 0);
+            $('#taof-todos-next').prop('disabled', pg >= paginas - 1);
+        }
+
+        function carregarAtivos(reset) {
+            if (reset) pg = 0;
             if (todosCarregando) return;
             todosCarregando = true;
-            $('#taof-todos-mais-btn').hide();
             $('#taof-todos-status').text('Carregando…');
 
-            $.post(ajaxurl, { action:'tao_formula_listar_ativos_pag', nonce:nonce, q:todosQ, offset:offset }, function(r){
+            $.post(ajaxurl, { action:'tao_formula_listar_ativos_pag', nonce:nonce, q:todosQ, size:sz, offset:pg*sz }, function(r){
                 todosCarregando = false;
                 if (!r.success) { $('#taof-todos-status').text('Erro ao carregar.'); return; }
-                var ativos = r.data.ativos;
-                todosOffset = offset + ativos.length;
+                var ativos = (r.data && r.data.items) || []; total = (r.data && r.data.total) || 0;
                 $('#taof-todos-status').text('');
-
-                if (reset) $('#taof-todos-lista').empty();
-                if (!ativos.length && reset) {
+                $('#taof-todos-lista').empty();
+                if (!ativos.length) {
                     $('#taof-todos-lista').html('<p style="color:#94a3b8">Nenhum ativo encontrado.</p>');
+                    todosPager();
                     return;
                 }
-                renderTabelaAtivos('#taof-todos-lista', ativos, false, !reset);
-                if (r.data.has_more) $('#taof-todos-mais-btn').show();
+                renderTabelaAtivos('#taof-todos-lista', ativos, false, false);
+                todosPager();
             }).fail(function(){ todosCarregando = false; $('#taof-todos-status').text('Falha de comunicação.'); });
         }
 
         $('#taof-todos-filtrar-btn').on('click', function(){
             todosQ = $('#taof-todos-filtro').val().trim();
             $('#taof-todos-limpar-btn').toggle(!!todosQ);
-            carregarAtivos(0, true);
+            carregarAtivos(true);
         });
         $('#taof-todos-filtro').on('keydown', function(e){ if(e.key==='Enter') $('#taof-todos-filtrar-btn').click(); });
         $('#taof-todos-limpar-btn').on('click', function(){
             todosQ = '';
             $('#taof-todos-filtro').val('');
             $(this).hide();
-            carregarAtivos(0, true);
+            carregarAtivos(true);
         });
-        $('#taof-todos-mais-btn').on('click', function(){ carregarAtivos(todosOffset, false); });
+        $('#taof-todos-size').on('change', function(){ sz = parseInt(this.value, 10) || 30; carregarAtivos(true); });
+        $('#taof-todos-prev').on('click', function(){ if (pg > 0) { pg--; carregarAtivos(false); } });
+        $('#taof-todos-next').on('click', function(){ pg++; carregarAtivos(false); });
 
         // ── Renderiza tabela de ativos (compartilhada por busca e lista) ──────
         function renderTabelaAtivos(containerSel, ativos, loadCounts, append) {

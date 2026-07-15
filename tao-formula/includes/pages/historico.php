@@ -8,8 +8,25 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 function tao_formula_page_historico() {
     if ( ! tao_formula_can_access() ) { echo '<p>Acesso negado.</p>'; return; }
     ?>
+    <?php if ( ! empty( $_GET['modal'] ) ) : ?>
+    <style id="taof-modal-override">
+        #adminmenuwrap,#adminmenuback,#wpadminbar,#wpfooter{display:none!important}
+        #wpcontent,#wpbody-content{margin:0!important;padding:0!important}
+        html.wp-toolbar{padding-top:0!important}
+        body,html{background:#f0f4f8!important}
+        /* esconde os avisos do wp-admin (atualização do WP, banners de plugins) dentro do modal */
+        .update-nag,.updated,.error,.wp-header-end,#screen-meta,#screen-meta-links,
+        .notice,.notice-info,.notice-warning,.notice-success,.notice-error,[class*="notice"]{display:none!important}
+    </style>
+    <?php endif; ?>
     <div class="wrap taof-wrap">
     <h1>🕘 Histórico do Cliente <small style="font-size:12px;color:#94a3b8;font-weight:400">(fórmulas FCerta 2018→2026 — consulta e repetição)</small></h1>
+    <script>
+    window.taofHistCardId = <?php echo wp_json_encode( isset( $_GET['card_id'] ) ? sanitize_text_field( wp_unslash( $_GET['card_id'] ) ) : '' ); ?>;
+    <?php $_hq = isset( $_GET['q'] ) ? sanitize_text_field( wp_unslash( $_GET['q'] ) ) : ''; if ( $_hq ) : ?>
+    jQuery(function($){ var $i=$('#taof-hist-busca'); if($i.length){ $i.val(<?php echo wp_json_encode( $_hq ); ?>).trigger('input'); } });
+    <?php endif; ?>
+    </script>
 
     <div style="margin:14px 0;display:flex;gap:8px;align-items:flex-start">
         <div style="position:relative;flex:1;max-width:520px">
@@ -191,8 +208,15 @@ function tao_formula_page_historico() {
         function repetir(fid, $btn){
             if ($btn.prop('disabled')) return;
             $btn.prop('disabled', true).text('Criando…');
-            $.post(ajaxUrl, {action:'tao_formula_hist_repetir', nonce:nonce, formula_id:fid}, function(resp){
+            var _card = window.taofHistCardId || '';
+            $.post(ajaxUrl, {action:'tao_formula_hist_repetir', nonce:nonce, formula_id:fid, card_id:_card}, function(resp){
                 if (resp.success && resp.data && resp.data.orc_id) {
+                    // Aberto no modal do card (repetição vinculada ao card) → avisa o card e fecha
+                    if (_card && window.parent && window.parent !== window) {
+                        try { window.parent.postMessage({ taofSaved:true, orc_id: resp.data.orc_id }, '*'); } catch(e){}
+                        $btn.text('✓ Repetido!');
+                        return;
+                    }
                     // Portal usa URL amigável (sem query string) → '?'; wp-admin já tem '?page=' → '&'
                     var sep = editorBase.indexOf('?') > -1 ? '&' : '?';
                     window.location.href = editorBase + sep + 'orc_id=' + encodeURIComponent(resp.data.orc_id);
@@ -240,19 +264,39 @@ function tao_formula_page_historico() {
                     chk('saude_diabetes','Diabetes',c.saude_diabetes) + '</div>';
             html += '<div style="margin-bottom:10px">'+cinp('Alergias','alergias',c.alergias)+'</div>';
             html += '<div style="margin-bottom:10px">'+cinp('Observações','observacoes',c.observacoes)+'</div>';
+            // Consentimento LGPD (dado de saúde é sensível)
+            var canal=c.consent_canal||'';
+            var canalOpts=['','verbal','whatsapp','formulario','termo assinado'].map(function(o){return '<option value="'+o+'"'+(canal===o?' selected':'')+'>'+(o||'—')+'</option>';}).join('');
+            html += '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:10px 12px;margin-bottom:10px">' +
+                    '<div style="font-size:11px;color:#92400e;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Consentimento (LGPD — dado de saúde)</div>' +
+                    chk('consentimento','Paciente consentiu o tratamento dos dados',c.consentimento) +
+                    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">' +
+                    cinp('Data do consentimento','consent_data',(c.consent_data||'').substring(0,10),'date') +
+                    '<div><label style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:2px">Canal</label>' +
+                    '<select name="consent_canal" style="width:100%;padding:5px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px">'+canalOpts+'</select></div></div>' +
+                    ( c.anonimizado ? '<p style="margin:8px 0 0;font-size:12px;color:#991b1b">🔒 Registro anonimizado.</p>' : '' ) + '</div>';
             html += '<p style="margin:6px 0 0"><button type="submit" class="button button-primary">💾 Salvar</button> ' +
                     '<button type="button" class="button" id="taof-cli-cancel">Cancelar</button> ' +
+                    ( (!isNovo && !c.anonimizado) ? '<button type="button" class="button" id="taof-cli-anon" data-id="'+c.id+'" style="color:#991b1b;margin-left:6px">🔒 Anonimizar (LGPD)</button>' : '' ) +
                     '<span id="taof-cli-msg" style="font-size:12px;margin-left:8px"></span></p></form>';
             $('#taof-cli-body').html(html);
             $('#taof-cli-modal').show();
             $('#taof-cli-form input[name=nome]').focus();
             $('#taof-cli-cancel').on('click', function(){ $('#taof-cli-modal').hide(); });
+            $('#taof-cli-anon').on('click', function(){
+                if(!confirm('Anonimizar este paciente (LGPD)? Apaga nome, e-mail, nascimento, alergias e observações. As OMs/histórico são preservados por rastreabilidade. Ação irreversível.'))return;
+                var $b=$(this).prop('disabled',true);
+                $.post(ajaxUrl,{action:'tao_formula_contato_anonimizar',nonce:nonce,id:$(this).data('id')},function(r){
+                    if(r.success){$('#taof-cli-modal').hide();alert('Paciente anonimizado.');}
+                    else{$b.prop('disabled',false);$('#taof-cli-msg').css('color','#dc2626').text((r.data&&r.data.message)||'Erro');}
+                }).fail(function(){$b.prop('disabled',false);$('#taof-cli-msg').css('color','#dc2626').text('Falha');});
+            });
             $('#taof-cli-form').on('submit', function(e){
                 e.preventDefault();
                 var $msg = $('#taof-cli-msg');
                 var data = {action:'tao_formula_cliente_save', nonce:nonce};
                 $(this).serializeArray().forEach(function(f){ data[f.name]=f.value; });
-                ['saude_obesidade','saude_colesterol','saude_pressao','saude_diabetes'].forEach(function(k){ if(!(k in data)) data[k]='0'; });
+                ['saude_obesidade','saude_colesterol','saude_pressao','saude_diabetes','consentimento'].forEach(function(k){ if(!(k in data)) data[k]='0'; });
                 if (!isNovo) data.id = c.id;               // edita o contato
                 if (histId) data.hist_id = histId;         // vincula o contato ao paciente do histórico
                 $msg.css('color','#64748b').text('Salvando…');

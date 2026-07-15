@@ -14,8 +14,9 @@ Legenda: ✅ pronto e no ar · 🔶 parcial (falta detalhe) · 🔴 não constru
 | Lote interno por recebimento + rastreio | ✅ | lab_lotes_mp |
 | **CQ de recebimento** (quarentena → aprovado/reprovado, com registro de quem e quando) | ✅ | Estoque → Lotes |
 | Controle de validade (não usar lote vencido) | ✅ | só lote aprovado e não vencido aparece na pesagem |
-| Laudo de análise arquivado por lote | 🔶 | campo existe (laudo_url); falta a tela de **upload do PDF** |
-| Qualificação de fornecedores | 🔶 | cadastro completo; falta campo de **avaliação/qualificação** |
+| Laudo de análise arquivado por lote | ✅ | Lotes → botão Laudo: upload do PDF (uploads/laudos-mp/) + nº do certificado, rastreável por lote (08/07) |
+| Ficha técnica / especificação da MP | ✅ | Ativos → Ficha técnica RDC 67 (fórmula/peso molecular, PF, pH, pureza, caracteres, solubilidade, conservação, referências) (08/07) |
+| Qualificação de fornecedores | ✅ | CRUD de Fornecedor (08/07): status qualificado + data + avaliador + obs; licenças AFE/AE/VISA com validade e alerta de vencido |
 | Fracionamento de MP com registro | 🔶 | movimentos de estoque cobrem; sem tela específica de fracionamento |
 
 ### Manipulação (Ordem de Manipulação)
@@ -29,7 +30,7 @@ Legenda: ✅ pronto e no ar · 🔶 parcial (falta detalhe) · 🔴 não constru
 | Verificação de dose máxima com alerta | ✅ | dose_max Zanini + alerta no orçamento |
 | Fórmulas padrão / oficinais | ✅ | 734 carregadas + botão no editor |
 | Prazo de validade da preparação | ✅ | floral 90 / demais 120 dias |
-| Preparações intermediárias/bases (produção interna) | 🔶 | tabela existe; sem tela (a Magis produz diluídas — capacidade futura) |
+| Preparações intermediárias/bases (produção interna) | ✅ | Produção Interna (08/07): OP com receita escalada, pesagem FEFO, baixa insumos + gera lote do diluído (teor/fator/rastreio ao lote puro) |
 
 ### Rotulagem, documentação e qualidade
 | Exigência | Status | Onde |
@@ -89,7 +90,7 @@ Emissão NFC-e/NF-e com grupo de rastreabilidade (lote/validade) + relatório de
 | Estoque/Compras (FC11xxx entrada NF, FC03100 saldo, FC03110 kardex) | Entrada NF, Lotes, Reposição, Kardex | ✅ |
 | Cotação/Pedidos (FCCotacao) | Módulo Cotações (+ gerado pela reposição) | ✅ |
 | Financeiro compras (FC11200 duplicatas) | Contas a Pagar | ✅ |
-| **Controlados/SNGPC (FC99S21-24, FCSngpc)** | **Controlados/SNGPC (livro, balanço, XML)** | 🔶 construído; falta carga dos controlados + transmissão webservice |
+| **Controlados/SNGPC (FC99S21-24, FCSngpc)** | **Controlados/SNGPC (livro, balanço, XML)** | 🔶 construído + **39 ativos controlados carregados 08/07** (FC03000.INDSNGPC='S', classe=PORTA; antibióticos excluídos — Magis não manipula); falta só transmissão webservice |
 | Livro receituário (FC7LivroReceituario) | Livro de Receituário | ✅ |
 | Fiscal (FCNFE/NFCE/SAT/SPED) | — | 🔴 middleware externo |
 | Vendas/PDV (FCCaixa/FCVarejo) | TAO Caixa + CRM (fora do TAO Lab) | ✅ (outro módulo) |
