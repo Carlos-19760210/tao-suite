@@ -313,45 +313,49 @@ add_action( 'wp_ajax_tao_formula_ativo_estoque', function () {
     ] );
 } );
 
-// ── Helper: gerar número de orçamento (YYYYMMSeq / YYYYMMSeq-XX) ─────────────
+// ── Helper: gerar número de orçamento/OM no padrão TAO Neo YYYYMM-NNNNN-SS ────
+// YYYYMM  = ano+mês; NNNNN = nº da REQUISIÇÃO (5 dígitos, um por card/atendimento);
+// SS      = sequência da fórmula dentro da requisição (2 dígitos). Ex: 202607-00001-01.
+// A UI (orcamentos.php) mostra o segmento do meio como "Nº Requisição". A OM herda
+// exatamente este número do orçamento aprovado.
+// Só considera números do NOVO formato do mês (like "YYYYMM-*"); os históricos do
+// FCerta/formato antigo ("2026070009") ficam como estão e não interferem na contagem.
 
 function tao_formula_gerar_numero( $cliente_id, $card_id = null ) {
-    $prefix = date( 'Ym' ); // ex: "202606"
+    $prefix = date( 'Ym' ); // ex: "202607"
     $r      = tao_formula_api(
         "/orcamentos?cliente_id=eq.$cliente_id" .
-        "&numero_orcamento=like.{$prefix}*" .
-        "&select=numero_orcamento,card_id&order=numero_orcamento.asc&limit=500"
+        "&numero_orcamento=like.{$prefix}-*" .
+        "&select=numero_orcamento,card_id&limit=3000"
     );
     $todos = ( $r['ok'] && is_array( $r['data'] ) ) ? $r['data'] : [];
 
-    $max_seq   = 0;
-    $card_base = null;
+    $max_req  = 0;      // maior nº de requisição do mês (2º segmento)
+    $req_card = null;   // requisição já atribuída a este card (p/ agrupar fórmulas)
 
     foreach ( $todos as $row ) {
-        $num   = $row['numero_orcamento'] ?? '';
-        if ( ! $num ) continue;
-        $parts = explode( '-', $num );
-        $base  = $parts[0];
-        $seq   = (int) substr( $base, strlen( $prefix ) );
-        if ( $seq > $max_seq ) $max_seq = $seq;
-        if ( $card_id && ( $row['card_id'] ?? '' ) === $card_id && count( $parts ) === 1 ) {
-            $card_base = $base;
-        }
+        $parts = explode( '-', (string) ( $row['numero_orcamento'] ?? '' ) );
+        if ( count( $parts ) < 2 || $parts[0] !== $prefix ) continue;   // só o novo formato deste mês
+        $req = (int) $parts[1];
+        if ( $req > $max_req ) $max_req = $req;
+        if ( $card_id && ( $row['card_id'] ?? '' ) === $card_id ) $req_card = $parts[1];
     }
 
-    if ( $card_id && $card_base ) {
+    // fórmula adicional do MESMO card → mantém a requisição, avança a sequência SS
+    if ( $card_id && $req_card !== null ) {
         $max_suf = 0;
         foreach ( $todos as $row ) {
-            $parts = explode( '-', $row['numero_orcamento'] ?? '' );
-            if ( $parts[0] === $card_base && count( $parts ) === 2 ) {
-                $s = (int) $parts[1];
+            $parts = explode( '-', (string) ( $row['numero_orcamento'] ?? '' ) );
+            if ( count( $parts ) >= 2 && $parts[0] === $prefix && $parts[1] === $req_card ) {
+                $s = isset( $parts[2] ) ? (int) $parts[2] : 0;
                 if ( $s > $max_suf ) $max_suf = $s;
             }
         }
-        return $card_base . '-' . str_pad( $max_suf + 1, 2, '0', STR_PAD_LEFT );
+        return $prefix . '-' . $req_card . '-' . str_pad( $max_suf + 1, 2, '0', STR_PAD_LEFT );
     }
 
-    return $prefix . str_pad( $max_seq + 1, 4, '0', STR_PAD_LEFT );
+    // nova requisição → NNNNN (5 dígitos) com a 1ª fórmula (-01)
+    return $prefix . '-' . str_pad( $max_req + 1, 5, '0', STR_PAD_LEFT ) . '-01';
 }
 
 // ── Helper: linha de descrição da fórmula para WhatsApp ──────────────────────
