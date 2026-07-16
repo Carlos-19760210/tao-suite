@@ -227,6 +227,7 @@ add_action( 'wp_ajax_tao_formula_orc_aprovar', function () {
 	if ( ! $cid || ! $orc ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
 	$r = tao_formula_api( "/orcamentos?id=eq.$orc&cliente_id=eq.$cid", 'PATCH', [
 		'status' => 'aprovado_farma', 'aprovado_em' => gmdate( 'c' ), 'motivo_rejeicao' => null,
+		'farmaceutico_id' => get_current_user_id(),   // rastro de auditoria: quem avaliou (RDC 67)
 	] );
 	$r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => 'Erro ao aprovar: ' . mb_substr( (string) $r['raw'], 0, 160 ) ] );
 } );
@@ -240,6 +241,7 @@ add_action( 'wp_ajax_tao_formula_orc_rejeitar', function () {
 	if ( ! $cid || ! $orc ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
 	$r = tao_formula_api( "/orcamentos?id=eq.$orc&cliente_id=eq.$cid", 'PATCH', [
 		'status' => 'rejeitado', 'motivo_rejeicao' => ( $motivo !== '' ? $motivo : 'Não aprovado' ), 'aprovado_em' => null,
+		'farmaceutico_id' => get_current_user_id(),   // rastro de auditoria: quem avaliou (RDC 67)
 	] );
 	$r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => 'Erro ao rejeitar' ] );
 } );
