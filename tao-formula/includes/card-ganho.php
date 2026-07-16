@@ -252,8 +252,22 @@ add_action( 'wp_ajax_tao_formula_orc_reabrir', function () {
 	if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
 	$cid = tao_formula_cliente_id(); $orc = sanitize_text_field( $_POST['orc_id'] ?? '' );
 	if ( ! $cid || ! $orc ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+
+	// Estorno fecha o ciclo com a OM: cancela as OMs abertas do orçamento.
+	// OM CONCLUÍDA (estoque baixado) bloqueia o estorno — exigiria estornar a produção.
+	$roms = tao_formula_api( "/lab_ordens?orcamento_id=eq.$orc&cliente_id=eq.$cid&status=neq.cancelada&select=id,numero,status" );
+	$oms  = $roms['ok'] ? ( $roms['data'] ?? [] ) : [];
+	foreach ( $oms as $om ) {
+		if ( ( $om['status'] ?? '' ) === 'concluida' ) {
+			wp_send_json_error( [ 'message' => 'OM ' . ( $om['numero'] ?? '' ) . ' já concluída (estoque baixado) — estorno indisponível. Trate a devolução pelo Estoque.' ], 409 );
+		}
+	}
+	foreach ( $oms as $om ) {
+		tao_formula_api( "/lab_ordens?id=eq.{$om['id']}&cliente_id=eq.$cid", 'PATCH', [ 'status' => 'cancelada' ] );
+	}
+
 	$r = tao_formula_api( "/orcamentos?id=eq.$orc&cliente_id=eq.$cid", 'PATCH', [
 		'status' => 'pendente_revisao', 'aprovado_em' => null, 'motivo_rejeicao' => null,
 	] );
-	$r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => 'Erro' ] );
+	$r['ok'] ? wp_send_json_success( [ 'oms_canceladas' => count( $oms ) ] ) : wp_send_json_error( [ 'message' => 'Erro' ] );
 } );

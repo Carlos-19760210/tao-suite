@@ -510,9 +510,14 @@ add_action( 'wp_ajax_tao_formula_update_orcamento', function() {
     $cliente_id = tao_formula_cliente_id();
     if ( ! $orc_id || ! $cliente_id ) wp_send_json_error( 'Parâmetros inválidos', 400 );
 
-    $re = tao_formula_api( "/orcamentos?id=eq.$orc_id&cliente_id=eq.$cliente_id&select=card_id,numero_orcamento,total_orcamento&limit=1" );
+    $re = tao_formula_api( "/orcamentos?id=eq.$orc_id&cliente_id=eq.$cliente_id&select=card_id,numero_orcamento,total_orcamento,status&limit=1" );
     if ( ! $re['ok'] || empty( $re['data'] ) ) wp_send_json_error( 'Orçamento não encontrado', 404 );
     $exist = $re['data'][0];
+
+    // Orçamento APROVADO é imutável (RDC 67): para alterar, estorne a aprovação no card.
+    if ( in_array( (string) ( $exist['status'] ?? '' ), [ 'aprovado_farma', 'aceito_paciente' ], true ) ) {
+        wp_send_json_error( 'Orçamento aprovado não pode ser alterado. Estorne a aprovação (no card) para editar.', 409 );
+    }
 
     $itens_raw = stripslashes( $_POST['itens'] ?? '[]' );
     $itens     = json_decode( $itens_raw, true );
@@ -1150,7 +1155,7 @@ add_action( 'wp_ajax_tao_formula_reprocessar_orc', function () {
     if ( ! $cliente_id || ( ! $card_id && ! $orc_id ) ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
 
     $filtro = $orc_id ? ( 'id=eq.' . $orc_id ) : ( 'card_id=eq.' . $card_id );
-    $ro = tao_formula_api( "/orcamentos?$filtro&cliente_id=eq.$cliente_id&select=id,forma_vol,qtde_potes,itens" );
+    $ro = tao_formula_api( "/orcamentos?$filtro&cliente_id=eq.$cliente_id&select=id,forma_vol,qtde_potes,itens,status" );
     if ( ! $ro['ok'] ) {
         wp_send_json_error( [ 'message' => 'Erro ao buscar orçamentos: ' . ( $ro['raw'] ?? '' ) ] );
         return;
@@ -1165,6 +1170,8 @@ add_action( 'wp_ajax_tao_formula_reprocessar_orc', function () {
     $total_upd = 0;
 
     foreach ( $ro['data'] as $orc ) {
+        // Orçamento APROVADO é imutável — reprocessamento pula (estorne para reprocessar).
+        if ( in_array( (string) ( $orc['status'] ?? '' ), [ 'aprovado_farma', 'aceito_paciente' ], true ) ) continue;
         $itens = $orc['itens'] ?? [];
         if ( is_string( $itens ) ) $itens = json_decode( $itens, true ) ?: [];
         if ( ! is_array( $itens ) ) continue;
@@ -1308,8 +1315,13 @@ add_action( 'wp_ajax_tao_formula_excluir_orcamento', function () {
     $orc_id     = sanitize_text_field( $_POST['orc_id'] ?? '' );
     if ( ! $orc_id || ! $cliente_id ) wp_send_json_error( 'Parâmetros inválidos' );
     // Pega o card antes de excluir, p/ re-sincronizar o valor de oportunidade
-    $rc = tao_formula_api( "/orcamentos?id=eq.$orc_id&cliente_id=eq.$cliente_id&select=card_id&limit=1" );
+    $rc = tao_formula_api( "/orcamentos?id=eq.$orc_id&cliente_id=eq.$cliente_id&select=card_id,status&limit=1" );
     $del_card_id = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? ( $rc['data'][0]['card_id'] ?? '' ) : '';
+    // Orçamento APROVADO é imutável (RDC 67): para excluir, estorne a aprovação no card.
+    $del_status = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? (string) ( $rc['data'][0]['status'] ?? '' ) : '';
+    if ( in_array( $del_status, [ 'aprovado_farma', 'aceito_paciente' ], true ) ) {
+        wp_send_json_error( [ 'message' => 'Orçamento aprovado não pode ser excluído. Estorne a aprovação (no card) primeiro.' ], 409 );
+    }
     $r = tao_formula_api( "/orcamentos?id=eq.$orc_id&cliente_id=eq.$cliente_id", 'DELETE' );
     if ( $r['ok'] ) {
         if ( $del_card_id && function_exists( 'tao_crm_sync_valor_oportunidade' ) ) tao_crm_sync_valor_oportunidade( $del_card_id );
