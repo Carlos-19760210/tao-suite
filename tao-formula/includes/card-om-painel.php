@@ -69,27 +69,36 @@ add_action( 'tao_crm_card_paineis', function ( $card ) {
 		}
 		function render(d){
 			var b=jQuery('#taof-om-body'); var h='';
-			if(!d.tem_om){
-				h='<div style="color:#64748b">Sem OM ainda para este card.'+(d.orc_id?' <button type="button" class="button button-small" id="taof-om-gerar">Gerar OM</button>':' (sem orçamento vinculado)')+'</div>';
-				b.html(h);
-				jQuery('#taof-om-gerar').on('click',function(){ acao('tao_formula_prod_gerar_om',{orc_id:d.orc_id}); });
-				return;
-			}
+			var oms=d.oms||[], orcs=d.orcs_sem_om||[];
+			if(!oms.length && !orcs.length){ b.html('<div style="color:#64748b">Sem orçamento vinculado a este card.</div>'); return; }
 			h+='<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px">';
-			h+='<div><strong>OM '+esc(d.om.numero||'')+'</strong> · '+esc(d.om.itens)+' itens · fase: '+esc(d.fase_nome||'—')+'</div>';
+			orcs.forEach(function(o){
+				h+='<div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px dashed #e2e8f0;flex-wrap:wrap">';
+				h+='<span>📄 ORC <strong>'+esc(o.numero||'')+'</strong> · '+esc(o.status_label||o.status||'')+'</span>';
+				h+= o.aprovado
+					? '<button type="button" class="button button-small taof-om-gerar" data-orc="'+esc(o.id)+'">Gerar OM</button>'
+					: '<span style="font-size:10px;color:#94a3b8">aguardando aprovação</span>';
+				h+='</div>';
+			});
+			oms.forEach(function(om){
+				h+='<div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px dashed #e2e8f0;flex-wrap:wrap">';
+				h+='<span>🧪 OM <strong>'+esc(om.numero||'')+'</strong> · '+esc(om.itens)+' itens'+(om.status==='concluida'?' · <span style="color:#166534">concluída</span>':'')+'</span>';
+				h+='<button type="button" class="button button-small taof-om-ficha" data-om="'+esc(om.id)+'">🖨 Ficha</button>';
+				h+='<button type="button" class="button button-small taof-om-rotulo" data-om="'+esc(om.id)+'">🏷 Rótulo</button>';
+				h+='</div>';
+			});
 			h+='<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">';
 			if(d.pode_aprovar) h+='<button type="button" class="button button-primary button-small" id="taof-om-aprovar">✅ Aprovar formulação</button>';
 			if(d.pode_estornar) h+='<button type="button" class="button button-small" id="taof-om-estornar">↩ Estornar aprovação</button>';
-			h+='<button type="button" class="button button-small taof-om-ficha">🖨 Ficha de Pesagem</button>';
-			h+='<button type="button" class="button button-small taof-om-rotulo">🏷 Rótulo</button>';
 			h+='</div>';
-			h+='<div style="margin-top:4px;font-size:10px;color:#94a3b8">Aprovar move o card para <em>Em Produção</em> (não é obrigatório — o card pode ser movido normalmente).</div>';
+			h+='<div style="margin-top:4px;font-size:10px;color:#94a3b8">fase: '+esc(d.fase_nome||'—')+' · Aprovar move o card para <em>Em Produção</em> (não é obrigatório — o card pode ser movido normalmente).</div>';
 			h+='</div>';
 			b.html(h);
+			jQuery('.taof-om-gerar').on('click',function(){ acao('tao_formula_prod_gerar_om',{orc_id:jQuery(this).data('orc')}); });
 			jQuery('#taof-om-aprovar').on('click',function(){ acao('tao_formula_card_aprovar',{card_id:card}); });
 			jQuery('#taof-om-estornar').on('click',function(){ acao('tao_formula_card_estornar',{card_id:card}); });
-			jQuery('.taof-om-ficha').on('click',function(){ abrirFicha(d.om.id); });
-			jQuery('.taof-om-rotulo').on('click',function(){ abrirRotulo(d.om.id); });
+			jQuery('.taof-om-ficha').on('click',function(){ abrirFicha(jQuery(this).data('om')); });
+			jQuery('.taof-om-rotulo').on('click',function(){ abrirRotulo(jQuery(this).data('om')); });
 		}
 		function fdata(s){ if(!s)return '—'; var p=(''+s).substr(0,10).split('-'); return p.length===3?(p[2]+'/'+p[1]+'/'+p[0]):s; }
 		// CSS de impressão robusto — A4 em qualquer impressora (Epson jato/laser). Margens no @page,
@@ -181,32 +190,60 @@ add_action( 'wp_ajax_tao_formula_card_om_info', function () {
 	$ws   = $card['workspace_id'] ?? '';
 	$est  = tao_formula_estagios_producao( $ws );
 
-	// OM do card (a mais recente)
-	$rom = tao_formula_api( "/lab_ordens?card_id=eq.$card_id&select=id,numero,etapa_id&order=criado_em.desc&limit=1" );
-	$om  = ( $rom['ok'] && ! empty( $rom['data'] ) ) ? $rom['data'][0] : null;
+	// TODAS as OMs ativas do card (multi-fórmula: 1 card pode ter N orçamentos → N OMs)
+	$rom = tao_formula_api( "/lab_ordens?card_id=eq.$card_id&status=neq.cancelada&select=id,numero,orcamento_id,status&order=criado_em.asc" );
+	$oms = $rom['ok'] ? ( $rom['data'] ?? [] ) : [];
 
-	// orçamento p/ gerar OM manualmente, se ainda não houver
-	$orc_id = null;
-	if ( ! $om ) {
-		$roc = tao_formula_api( "/orcamentos?card_id=eq.$card_id&select=id&order=criado_em.desc&limit=1" );
-		if ( $roc['ok'] && ! empty( $roc['data'] ) ) $orc_id = $roc['data'][0]['id'];
+	// Todos os orçamentos do card — os aprovados sem OM ganham botão "Gerar OM"
+	$roc  = tao_formula_api( "/orcamentos?card_id=eq.$card_id&select=id,numero_orcamento,status&order=criado_em.asc" );
+	$orcs = $roc['ok'] ? ( $roc['data'] ?? [] ) : [];
+
+	// Contagem de itens por OM (uma query só)
+	$counts = [];
+	if ( $oms ) {
+		$ids = [];
+		foreach ( $oms as $o ) $ids[] = $o['id'];
+		$ri = tao_formula_api( '/lab_ordem_itens?ordem_id=in.(' . implode( ',', $ids ) . ')&select=ordem_id' );
+		foreach ( ( $ri['ok'] ? ( $ri['data'] ?? [] ) : [] ) as $it ) {
+			$counts[ $it['ordem_id'] ] = ( $counts[ $it['ordem_id'] ] ?? 0 ) + 1;
+		}
 	}
 
-	$n_itens = 0; $fase_nome = '';
-	if ( $om ) {
-		$ri = tao_formula_api( "/lab_ordem_itens?ordem_id=eq.{$om['id']}&select=id" );
-		$n_itens = $ri['ok'] ? count( $ri['data'] ?? [] ) : 0;
-		$rn = tao_formula_api( "/crm_estagios?id=eq.{$card['estagio_id']}&select=nome&limit=1" );
-		$fase_nome = ( $rn['ok'] && ! empty( $rn['data'] ) ) ? $rn['data'][0]['nome'] : '';
+	$com_om = [];
+	foreach ( $oms as $o ) { if ( ! empty( $o['orcamento_id'] ) ) $com_om[ $o['orcamento_id'] ] = true; }
+	$labels = [ 'pendente_revisao' => 'pendente', 'aprovado_farma' => 'aprovado', 'enviado_paciente' => 'enviado', 'aceito_paciente' => 'aceito', 'rejeitado' => 'rejeitado' ];
+	$orcs_sem_om = [];
+	foreach ( $orcs as $o ) {
+		if ( isset( $com_om[ $o['id'] ] ) ) continue;
+		$st = (string) ( $o['status'] ?? '' );
+		$orcs_sem_om[] = [
+			'id'           => $o['id'],
+			'numero'       => $o['numero_orcamento'] ?? '',
+			'status'       => $st,
+			'status_label' => $labels[ $st ] ?? $st,
+			'aprovado'     => in_array( $st, [ 'aprovado_farma', 'aceito_paciente' ], true ),
+		];
 	}
 
-	$pode_aprovar  = $om && $est['aguardando'] && $card['estagio_id'] === $est['aguardando'] && $est['em_producao'];
-	$pode_estornar = $om && $est['em_producao'] && $card['estagio_id'] === $est['em_producao'] && $est['aguardando'];
+	$rn = tao_formula_api( "/crm_estagios?id=eq.{$card['estagio_id']}&select=nome&limit=1" );
+	$fase_nome = ( $rn['ok'] && ! empty( $rn['data'] ) ) ? $rn['data'][0]['nome'] : '';
+
+	$pode_aprovar  = $oms && $est['aguardando'] && $card['estagio_id'] === $est['aguardando'] && $est['em_producao'];
+	$pode_estornar = $oms && $est['em_producao'] && $card['estagio_id'] === $est['em_producao'] && $est['aguardando'];
+
+	$oms_out = [];
+	foreach ( $oms as $o ) {
+		$oms_out[] = [
+			'id'     => $o['id'],
+			'numero' => $o['numero'] ?? '',
+			'status' => $o['status'] ?? '',
+			'itens'  => $counts[ $o['id'] ] ?? 0,
+		];
+	}
 
 	wp_send_json_success( [
-		'tem_om'        => (bool) $om,
-		'orc_id'        => $orc_id,
-		'om'            => $om ? [ 'id' => $om['id'], 'numero' => $om['numero'] ?? '', 'itens' => $n_itens ] : null,
+		'oms'           => $oms_out,
+		'orcs_sem_om'   => $orcs_sem_om,
 		'fase_nome'     => $fase_nome,
 		'pode_aprovar'  => (bool) $pode_aprovar,
 		'pode_estornar' => (bool) $pode_estornar,
