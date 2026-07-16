@@ -4,8 +4,8 @@
 import fdb
 from collections import Counter
 
-BASE = r"C:\Users\carlo\AppData\Local\Temp\claude\C--Users-carlo\a6c38159-6860-477a-83dc-c9e69ae557f1\scratchpad"
-con = fdb.connect(database=BASE + r"\fcerta_analise.ib", user="SYSDBA", password="masterkey",
+BASE = r"C:\Users\carlo\FCertaSync"
+con = fdb.connect(database=BASE + r"\fcerta_atual.ib", user="SYSDBA", password="masterkey",
                   fb_library_name=BASE + r"\fb25\fbembed.dll", charset="NONE")
 cur = con.cursor()
 def dec(v): return v.decode("latin-1","replace").strip() if isinstance(v,(bytes,bytearray)) else v

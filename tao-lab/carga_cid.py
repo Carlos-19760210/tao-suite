@@ -5,7 +5,7 @@
 # Regra: só rodar com OK do Carlos.
 import fdb, json, urllib.request, sys, unicodedata
 
-BASE = r"C:\Users\carlo\AppData\Local\Temp\claude\C--Users-carlo\a6c38159-6860-477a-83dc-c9e69ae557f1\scratchpad"
+BASE = r"C:\Users\carlo\FCertaSync"
 SB   = "https://gclayesytzzpzkjvgede.supabase.co/rest/v1"
 KEY  = "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo"
 DRY  = "--commit" not in sys.argv
@@ -20,7 +20,7 @@ def sb_post(rows):
     req = urllib.request.Request(SB + "/cid10?on_conflict=codigo", data=data, method="POST", headers=h)
     return urllib.request.urlopen(req).read()
 
-con = fdb.connect(database=BASE + r"\fcerta_analise.ib", user="SYSDBA", password="masterkey",
+con = fdb.connect(database=BASE + r"\fcerta_atual.ib", user="SYSDBA", password="masterkey",
                   fb_library_name=BASE + r"\fb25\fbembed.dll", charset="NONE")
 cur = con.cursor()
 cur.execute("SELECT CAPITDOE, CATEGDOE, SUBCATDOE, DESCRDOE FROM FC99311 WHERE DESCRDOE IS NOT NULL")

@@ -3,7 +3,7 @@
 # Idempotente: pula codigo_fc já carregado. Requer migration_v3.
 import fdb, json, urllib.request, time
 
-BASE = r"C:\Users\carlo\AppData\Local\Temp\claude\C--Users-carlo\a6c38159-6860-477a-83dc-c9e69ae557f1\scratchpad"
+BASE = r"C:\Users\carlo\FCertaSync"
 SB   = "https://gclayesytzzpzkjvgede.supabase.co/rest/v1"
 KEY  = "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo"
 CID  = "62f98634-77ff-42f4-acaf-8561d56583da"
@@ -27,7 +27,7 @@ def s(v): return v.strip() if isinstance(v, str) else v
 # códigos não mapeados ficam como 'REG <cod>' p/ ajuste via CRUD
 TIPO_REG = {"1": "CRM", "2": "CRO", "3": "CRMV", "9": "CRN"}
 
-con = fdb.connect(database=BASE + r"\fcerta_analise.ib", user="SYSDBA", password="masterkey",
+con = fdb.connect(database=BASE + r"\fcerta_atual.ib", user="SYSDBA", password="masterkey",
                   fb_library_name=BASE + r"\fb25\fbembed.dll", charset="NONE")
 cur = con.cursor()
 

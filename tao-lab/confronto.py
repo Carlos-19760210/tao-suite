@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # CONFRONTO FCerta × TAO Neo — validação final das cargas do Pacote 1
 # Compara campo a campo, dos dois lados, e gera tao-lab/CONFRONTO_CARGAS.md
-import fdb, json, urllib.request, random, unicodedata, re
+import fdb, json, urllib.request, random, unicodedata, re, datetime
+HOJE = datetime.date.today().isoformat()
 
-BASE = r"C:\Users\carlo\AppData\Local\Temp\claude\C--Users-carlo\a6c38159-6860-477a-83dc-c9e69ae557f1\scratchpad"
+BASE = r"C:\Users\carlo\FCertaSync"
 SB="https://gclayesytzzpzkjvgede.supabase.co/rest/v1"
 KEY="sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo"
 CID="62f98634-77ff-42f4-acaf-8561d56583da"
@@ -30,13 +31,13 @@ def eq(a,b,tol=1e-6):
     try: return abs(float(a)-float(b))<=tol*max(1,abs(float(a)))
     except Exception: return str(a).strip()==str(b).strip()
 
-con = fdb.connect(database=BASE+r"\fcerta_analise.ib", user="SYSDBA", password="masterkey",
+con = fdb.connect(database=BASE+r"\fcerta_atual.ib", user="SYSDBA", password="masterkey",
                   fb_library_name=BASE+r"\fb25\fbembed.dll", charset="NONE")
 cur=con.cursor()
 
 L=[]  # linhas do relatório
 L.append("# Confronto FCerta × TAO Neo — Cargas do Pacote 1 (Motor Farmacotécnico)")
-L.append(f"Gerado automaticamente em 07/07/2026. Fonte FCerta: snapshot do banco de 29/06/2026.\n")
+L.append(f"Gerado automaticamente em {HOJE}. Fonte FCerta: backup restaurado em C:\\Users\\carlo\\FCertaSync\\fcerta_atual.ib.\n")
 
 tao_ativos = sball(f"/ativos?cliente_id=eq.{CID}&select=id,codigo_fc,nome,dcb,densidade,markup_preco,fator_diluicao,ativo_puro_id,teor_pct&order=id.asc")
 por_cod={str(a["codigo_fc"]).strip(): a for a in tao_ativos if a.get("codigo_fc")}
@@ -124,14 +125,14 @@ for cdfrm, nome in cur.fetchall():
     L.append(f"- \"{nome}\": itens FCerta={nit_fc} × TAO={nit_tao} {'✓' if tf and nit_fc==nit_tao else '✗'}")
 
 # ── CARGA 4: lotes vivos ─────────────────────────────────────────────────
-cur.execute("SELECT COUNT(*) FROM FC03140 WHERE ESTAT>0 AND DTVAL>='2026-07-07'")
+cur.execute(f"SELECT COUNT(*) FROM FC03140 WHERE ESTAT>0 AND DTVAL>='{HOJE}'")
 n_fc_lot=cur.fetchone()[0]
 tao_lotes=sball(f"/lab_lotes_mp?cliente_id=eq.{CID}&select=ativo_id,nr_lote,dt_validade,qtd_atual,teor_pct&order=id.asc")
 L.append(f"\n## Carga 4 — Lotes vivos (FC03140 → lab_lotes_mp)")
 L.append(f"FCerta (estoque>0, validade≥07/07/2026): **{n_fc_lot}** | TAO: **{len(tao_lotes)}** (19 sem ativo no TAO, não migrados)")
 # amostra 10 lotes: bate validade+estoque+teor
-cur.execute("""SELECT FIRST 400 CDPRO, NRLOT, DTVAL, ESTAT, TEOR FROM FC03140
-               WHERE ESTAT>0 AND DTVAL>='2026-07-07' ORDER BY DTENT DESC""")
+cur.execute(f"""SELECT FIRST 400 CDPRO, NRLOT, DTVAL, ESTAT, TEOR FROM FC03140
+               WHERE ESTAT>0 AND DTVAL>='{HOJE}' ORDER BY DTENT DESC""")
 fc_l=cur.fetchall()
 idx={(l["ativo_id"], (l["nr_lote"] or "").strip()): l for l in tao_lotes}
 ok4=tot4=0; div4=[]
