@@ -114,7 +114,7 @@ function tao_formula_page_ativos() {
             <td><?php echo $gr==='E' ? '<span style="font-size:11px;background:#e0f2fe;color:#0369a1;padding:1px 6px;border-radius:4px">EMB</span>' : '<span style="font-size:11px;background:#f0fdf4;color:#166534;padding:1px 6px;border-radius:4px">MP</span>'; ?></td>
             <td style="font-size:12px"><?php echo esc_html($a['unidade']??'—'); ?> <span style="color:#94a3b8">(<?php echo esc_html($a['unidade_padrao']??''); ?>)</span></td>
             <td style="text-align:right"><?php echo number_format((float)($a['estoque_atual']??0),3,',','.'); ?></td>
-            <td style="text-align:right;font-family:monospace">R$&nbsp;<?php echo number_format((float)($a['custo_por_unidade']??0),4,',','.'); ?></td>
+            <td style="text-align:right;font-family:monospace">R$&nbsp;<?php echo number_format((float)($a['custo_por_unidade']??0),2,',','.'); ?></td>
             <td style="text-align:right;font-family:monospace">R$&nbsp;<?php echo number_format((float)($a['preco_venda']??0),2,',','.'); ?></td>
             <td style="font-size:12px;color:#64748b"><?php echo esc_html($a['categoria']??'—'); ?></td>
         </tr>
@@ -359,7 +359,7 @@ function tao_formula_page_ativos() {
                 html+='<div id="taof-atab-estoque" style="display:none"><div id="taof-atab-estoque-body"></div></div>';
                 html+='<div id="taof-atab-dados">';
                 html+=grid(3,[campo('Unidade FC',a.unidade||'—'),campo('Unidade Padrão',a.unidade_padrao||'—'),campo('Estoque',a.estoque_atual!==null?fmtN(a.estoque_atual,3)+' '+(a.unidade||''):'—')]);
-                html+=grid(3,[campo('Custo / '+(a.unidade_padrao||'unid'),'R$ '+fmtN(a.custo_por_unidade,4)),campo('Preço Compra',a.preco_compra?'R$ '+fmtN(a.preco_compra,2):'—'),campo('Preço Venda','R$ '+fmtN(a.preco_venda,2))]);
+                html+=grid(3,[campo('Custo / '+(a.unidade_padrao||'unid'),'R$ '+fmtN(a.custo_por_unidade,2)),campo('Preço Compra',a.preco_compra?'R$ '+fmtN(a.preco_compra,2):'—'),campo('Preço Venda','R$ '+fmtN(a.preco_venda,2))]);
                 if(a.grupo!=='E'){
                     html+=grid(4,[campo('Fator Correção',a.fator_correcao),campo('Fator Perda',a.fator_perda),campo('Densidade',a.densidade),campo('DCB',a.dcb||'—')]);
                     html+=grid(3,[campo('Dose Mínima',a.dose_min?a.dose_min+(a.uni_dose_min?' '+a.uni_dose_min:''):'—'),campo('Dose Máxima',a.dose_max?a.dose_max+(a.uni_dose_max?' '+a.uni_dose_max:''):'—'),campo('Princípio Ativo',a.principio_ativo||'—')]);
@@ -402,7 +402,7 @@ function tao_formula_page_ativos() {
                     var l=(r&&r.success&&r.data)?r.data:[];
                     if(!l.length){$box.html('<p style="color:#94a3b8;font-size:12px;margin:4px 0">Sem histórico de reajustes ainda. Cada entrada de NF ou alteração de preço passa a registrar aqui.</p>');return;}
                     function f(d){if(!d)return '—';var p=String(d).substring(0,10).split('-');return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:d;}
-                    function m(n){return n==null?'—':'R$ '+parseFloat(n).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:4});}
+                    function m(n){return n==null?'—':'R$ '+parseFloat(n).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
                     var rows=l.map(function(h){return '<tr><td>'+f(h.dt)+'</td><td>'+escH(h.origem||'')+(h.nf_numero?' <small style="color:#94a3b8">NF '+escH(h.nf_numero)+'</small>':'')+'</td>'+
                         '<td style="text-align:right">'+m(h.preco_compra)+'</td><td style="text-align:right">'+m(h.custo_unidade)+'</td><td style="text-align:right">'+m(h.preco_venda)+'</td></tr>';}).join('');
                     $box.html('<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;background:#fff;border:1px solid #e2e8f0;border-radius:6px">'+

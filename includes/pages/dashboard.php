@@ -1057,7 +1057,7 @@ function tao_crm_page_dashboard() {
                     plugins:{ legend:{ display:false } },
                     scales:{
                         y:{ beginAtZero:true, ticks:{
-                            callback: function(v){ return 'R$'+v.toLocaleString('pt-BR'); }
+                            callback: function(v){ return 'R$'+v.toLocaleString('pt-BR',{maximumFractionDigits:2}); }
                         }, grid:{ color:'#f1f5f9' } },
                         x:{ grid:{ display:false } }
                     }

@@ -185,7 +185,7 @@ function tao_cotacoes_render_view( $cot_id ) {
                         <td><?php echo esc_html( $it['codigo_fc'] ?? '' ); ?></td>
                         <td style="text-align:right"><?php echo esc_html( number_format( (float) ( $it['qtd'] ?? 0 ), 2, ',', '.' ) ); ?></td>
                         <td><?php echo esc_html( $it['unidade'] ?? '' ); ?></td>
-                        <td style="text-align:right"><?php echo $it['ult_preco_pago'] !== null ? 'R$ ' . esc_html( number_format( (float) $it['ult_preco_pago'], 4, ',', '.' ) ) : '—'; ?></td>
+                        <td style="text-align:right"><?php echo $it['ult_preco_pago'] !== null ? 'R$ ' . esc_html( number_format( (float) $it['ult_preco_pago'], 2, ',', '.' ) ) : '—'; ?></td>
                         <td><span class="taocot-muted"><?php echo esc_html( $it['origem'] ?? '' ); ?></span></td>
                     </tr>
                 <?php endforeach; ?>
