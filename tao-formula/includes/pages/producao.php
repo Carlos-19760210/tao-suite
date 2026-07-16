@@ -228,7 +228,13 @@ function tao_formula_page_producao() {
                     '<button class="button" id="taof-ficha-close">Fechar</button></div>'+ r.data.html );
             });
         }
-        $(document).on('click','#taof-ficha-print',function(){ window.print(); });
+        $(document).on('click','#taof-ficha-print',function(){
+            // Janela própria só com a ficha (estilo A4 embutido) — window.print() na página imprimia o portal junto.
+            var html=$('#taof-pd-body').clone(); html.find('.taof-ficha-bar').remove();
+            var w=window.open('','taof_ficha','width=980,height=800');
+            w.document.write('<html><head><title>Ficha de Manipulação</title></head><body onload="window.print()" style="margin:0">'+html.html()+'</body></html>');
+            w.document.close();
+        });
         $(document).on('click','#taof-ficha-close',function(){ $('#taof-pd-modal').hide(); $('.taof-pd-box').css('max-width',''); });
         // ── Rótulo RDC 67 imprimível ──
         function imprimirRotulo(id){

@@ -229,7 +229,25 @@ add_action( 'wp_ajax_tao_formula_orc_aprovar', function () {
 		'status' => 'aprovado_farma', 'aprovado_em' => gmdate( 'c' ), 'motivo_rejeicao' => null,
 		'farmaceutico_id' => get_current_user_id(),   // rastro de auditoria: quem avaliou (RDC 67)
 	] );
-	$r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => 'Erro ao aprovar: ' . mb_substr( (string) $r['raw'], 0, 160 ) ] );
+	if ( ! $r['ok'] ) wp_send_json_error( [ 'message' => 'Erro ao aprovar: ' . mb_substr( (string) $r['raw'], 0, 160 ) ] );
+
+	// Card já GANHO (funil de pós-vendas) + chave ligada → a OM nasce na própria aprovação,
+	// sem clique extra. (No fluxo normal ela nasce no ganho; aqui o ganho já passou.)
+	$om_criada = false;
+	$rq = tao_formula_api( "/orcamentos?id=eq.$orc&cliente_id=eq.$cid&select=card_id&limit=1" );
+	$card_id = ( $rq['ok'] && ! empty( $rq['data'] ) ) ? ( $rq['data'][0]['card_id'] ?? '' ) : '';
+	if ( $card_id && function_exists( 'tao_formula_estagios_producao' ) && function_exists( 'tao_formula_criar_om' ) ) {
+		$rc2 = tao_formula_api( "/crm_cards?id=eq.$card_id&select=workspace_id,pipeline_id&limit=1" );
+		if ( $rc2['ok'] && ! empty( $rc2['data'] ) ) {
+			$ws  = $rc2['data'][0]['workspace_id'] ?? '';
+			$est = tao_formula_estagios_producao( $ws );
+			if ( tao_formula_om_ganho_ativo( $ws ) && $est['pipeline'] && ( $rc2['data'][0]['pipeline_id'] ?? '' ) === $est['pipeline'] ) {
+				$res = tao_formula_criar_om( $cid, $orc );
+				$om_criada = ! empty( $res['ok'] );
+			}
+		}
+	}
+	wp_send_json_success( [ 'om_criada' => $om_criada ] );
 } );
 
 add_action( 'wp_ajax_tao_formula_orc_rejeitar', function () {

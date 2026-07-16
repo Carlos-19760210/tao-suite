@@ -129,7 +129,13 @@ add_action( 'tao_crm_card_paineis', function ( $card ) {
 					'<button type="button" class="button tfm-close">Fechar</button></div>'+
 					'<div class="tfm-body"></div></div></div>').appendTo('body');
 				$m.on('click','.tfm-ov,.tfm-close',function(){ $m.hide(); });
-				$m.on('click','.tfm-print',function(){ window.print(); });
+				// Imprime numa JANELA PRÓPRIA só com o HTML da ficha (o <style> A4 vem embutido) —
+				// window.print() na página do portal imprimia o card atrás junto (formato quebrado).
+				$m.on('click','.tfm-print',function(){
+					var w=window.open('','taof_ficha','width=980,height=800');
+					w.document.write('<html><head><title>Ficha de Manipulação</title></head><body onload="window.print()" style="margin:0">'+$m.find('.tfm-body').html()+'</body></html>');
+					w.document.close();
+				});
 			}
 			$m.find('.tfm-body').html('<p style="color:#94a3b8;padding:30px;text-align:center">Carregando ficha…</p>');
 			$m.show();
