@@ -1,6 +1,7 @@
 # Arquivos de teste/deploy local
 *.html
 *.py
+!tao-lab/*.py
 *.txt
 persistent-cookies.txt
 
