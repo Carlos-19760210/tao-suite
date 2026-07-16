@@ -3878,8 +3878,8 @@ add_action( 'wp_ajax_tao_formula_prod_gerar_om', function () {
  * Retorna: ['ok'=>bool, 'ordem_id'=>uuid|null, 'itens'=>int, 'ja_existia'=>bool, 'erro'=>string|null].
  */
 function tao_formula_criar_om( $cliente_id, $orc_id ) {
-    // já tem OM p/ este orçamento?
-    $jx = tao_formula_api( "/lab_ordens?cliente_id=eq.$cliente_id&orcamento_id=eq.$orc_id&select=id,numero&limit=1" );
+    // já tem OM p/ este orçamento? (cancelada não conta — estorno permite gerar de novo)
+    $jx = tao_formula_api( "/lab_ordens?cliente_id=eq.$cliente_id&orcamento_id=eq.$orc_id&status=neq.cancelada&select=id,numero&limit=1" );
     if ( $jx['ok'] && ! empty( $jx['data'] ) )
         return [ 'ok' => false, 'ja_existia' => true, 'ordem_id' => $jx['data'][0]['id'], 'itens' => 0, 'erro' => 'Este orçamento já tem OM (nº ' . $jx['data'][0]['numero'] . ').' ];
 

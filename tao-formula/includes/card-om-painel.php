@@ -167,7 +167,7 @@ add_action( 'tao_crm_card_paineis', function ( $card ) {
 			var data=jQuery.extend({action:action,nonce:nonce},extra||{});
 			jQuery.post(ajax,data,function(r){
 				if(r&&r.success){ msg('✔ ok','#16a34a'); carregar(); }
-				else { msg('✘ '+((r&&r.data&&(r.data.msg||r.data))||'erro'),'#dc2626'); }
+				else { var e=r&&r.data; msg('✘ '+((e&&(e.msg||e.message))||(typeof e==='string'?e:'erro')),'#dc2626'); }
 			},'json').fail(function(){ msg('✘ falha','#dc2626'); });
 		}
 		carregar();
