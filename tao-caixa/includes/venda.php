@@ -116,8 +116,14 @@ function tao_caixa_baixar_card( $cid, $card_id, $forma_id, $valor = null, $parce
     if ( ! $rf['ok'] || empty( $rf['data'] ) ) return null;
     $forma    = $rf['data'][0];
     $parcelas = max( 1, (int) $parcelas );
-    $tx       = function_exists( 'tao_caixa_resolver_taxa' ) ? tao_caixa_resolver_taxa( $cid, $forma, $parcelas ) : [ 'taxa_pct' => (float) ( $forma['taxa_pct'] ?? 0 ), 'prazo' => (int) ( $forma['prazo_recebimento_dias'] ?? 0 ) ];
+    $adq      = function_exists( 'tao_caixa_adquirente_config' ) ? tao_caixa_adquirente_config( $cid, $forma['adquirente_id'] ?? '' ) : null;
+    $tx       = function_exists( 'tao_caixa_resolver_taxa_v2' )
+                ? tao_caixa_resolver_taxa_v2( $cid, $forma, $parcelas )
+                : ( function_exists( 'tao_caixa_resolver_taxa' ) ? tao_caixa_resolver_taxa( $cid, $forma, $parcelas ) : [ 'taxa_pct' => (float) ( $forma['taxa_pct'] ?? 0 ), 'prazo' => (int) ( $forma['prazo_recebimento_dias'] ?? 0 ) ] );
     $vtaxa    = round( $val * $tx['taxa_pct'] / 100, 2 );
+    $vant     = function_exists( 'tao_caixa_calc_antecipacao' ) ? tao_caixa_calc_antecipacao( $adq, $forma['tipo'] ?? '', $parcelas, $val - $vtaxa ) : 0.0;
+    $prazo_r  = ( $adq && ( $adq['politica_recebimento'] ?? '' ) === 'antecipado' && in_array( $forma['tipo'] ?? '', [ 'debito', 'credito' ], true ) )
+                ? (int) ( $adq['prazo_antecipado_dias'] ?? 1 ) : (int) $tx['prazo'];
     $uid      = get_current_user_id();
     $sess     = function_exists( 'tao_caixa_sessao_aberta' ) ? tao_caixa_sessao_aberta( $cid ) : null;
 
@@ -128,14 +134,20 @@ function tao_caixa_baixar_card( $cid, $card_id, $forma_id, $valor = null, $parce
     if ( ! $rr['ok'] || empty( $rr['data'] ) ) return null;
     $recibo_id = $rr['data'][0]['id'];
 
-    tao_caixa_api( '/caixa_pagamentos', 'POST', [
+    $pg = [
         'cliente_id' => $cid, 'recibo_id' => $recibo_id, 'forma_pagamento_id' => $forma_id,
         'adquirente_id' => $forma['adquirente_id'] ?: null, 'modalidade' => $forma['tipo'] ?? null,
         'parcelas' => $parcelas, 'valor_bruto' => $val, 'taxa_pct_aplicada' => $tx['taxa_pct'],
-        'valor_taxa' => $vtaxa, 'valor_liquido' => round( $val - $vtaxa, 2 ),
-        'data_prevista_receb' => gmdate( 'Y-m-d', time() + $tx['prazo'] * 86400 ),
+        'valor_taxa' => $vtaxa, 'valor_liquido' => round( $val - $vtaxa - $vant, 2 ),
+        'data_prevista_receb' => gmdate( 'Y-m-d', time() + $prazo_r * 86400 ),
         'criado_por' => $uid, 'criado_em' => gmdate( 'c' ),
-    ] );
+    ];
+    if ( $vant > 0 ) $pg['valor_antecipacao'] = $vant;   // só após a migration (evita 400)
+    $rp  = tao_caixa_api( '/caixa_pagamentos', 'POST', $pg );
+    $pid = ( $rp['ok'] && ! empty( $rp['data'] ) ) ? ( $rp['data'][0]['id'] ?? null ) : null;
+    if ( $pid && function_exists( 'tao_caixa_gerar_recebiveis' ) ) {
+        tao_caixa_gerar_recebiveis( $cid, $pid, $adq, $forma['tipo'] ?? '', $parcelas, (float) $pg['valor_liquido'], $prazo_r );
+    }
 
     tao_caixa_api( '/caixa_recibo_vendas', 'POST', [
         'cliente_id' => $cid, 'recibo_id' => $recibo_id, 'venda_id' => $v['id'],

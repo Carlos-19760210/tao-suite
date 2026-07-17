@@ -222,6 +222,87 @@ function tao_caixa_resolver_taxa( $cid, $forma, $parcelas ) {
     return [ 'taxa_pct' => $taxa, 'prazo' => $prazo ];
 }
 
+// ═══ OPERADORA COMO CONTRATO (migration_caixa_operadora_v2) ═════════════════
+// Tudo abaixo degrada em silêncio para o modelo antigo enquanto a migration não
+// rodar / os cadastros novos não existirem — nada trava o PDV.
+
+/** Config do contrato da operadora (política de recebimento/antecipação). null = sem config (fallback). */
+function tao_caixa_adquirente_config( $cid, $adq_id ) {
+    static $cache = [];
+    if ( ! $adq_id ) return null;
+    if ( array_key_exists( $adq_id, $cache ) ) return $cache[ $adq_id ];
+    $r = tao_caixa_api( "/caixa_adquirentes?id=eq.$adq_id&cliente_id=eq.$cid&select=id,nome,taxa_antecipacao_pct,politica_recebimento,antecipacao_modo,prazo_antecipado_dias&limit=1" );
+    return $cache[ $adq_id ] = ( $r['ok'] && ! empty( $r['data'] ) ) ? $r['data'][0] : null;
+}
+
+/** Taxa v2: MDR da tabela da OPERADORA (modalidade × bandeira × faixa); bandeira exata vence o curinga (NULL). */
+function tao_caixa_resolver_taxa_v2( $cid, $forma, $parcelas, $bandeira = '' ) {
+    $adq_id = $forma['adquirente_id'] ?? '';
+    $modal  = in_array( $forma['tipo'] ?? '', [ 'debito', 'credito' ], true ) ? $forma['tipo'] : '';
+    if ( $adq_id && $modal ) {
+        $q = "/caixa_taxas?cliente_id=eq.$cid&adquirente_id=eq.$adq_id&modalidade=eq.$modal&ativo=eq.true"
+           . "&parcela_min=lte.$parcelas&parcela_max=gte.$parcelas";
+        $q .= $bandeira !== ''
+            ? '&or=(bandeira.ilike.' . rawurlencode( $bandeira ) . ',bandeira.is.null)'
+            : '&bandeira=is.null';
+        $q .= '&order=bandeira.desc.nullslast,parcela_min.desc&limit=1';
+        $rt = tao_caixa_api( $q );
+        if ( $rt['ok'] && ! empty( $rt['data'] ) ) {
+            return [ 'taxa_pct' => (float) $rt['data'][0]['taxa_pct'], 'prazo' => (int) ( $rt['data'][0]['prazo_recebimento_dias'] ?? 30 ), 'v2' => true ];
+        }
+    }
+    return tao_caixa_resolver_taxa( $cid, $forma, $parcelas ) + [ 'v2' => false ];
+}
+
+/**
+ * Custo de ANTECIPAÇÃO (só crédito + operadora em política 'antecipado'), sobre a base líquida de MDR.
+ * pct_fixo: % único sobre a base. pct_mes: % a.m. × meses antecipados de cada parcela (parcela k = k meses).
+ */
+function tao_caixa_calc_antecipacao( $adq, $modalidade, $parcelas, $base ) {
+    if ( ! $adq || $modalidade !== 'credito' || $base <= 0 ) return 0.0;
+    if ( ( $adq['politica_recebimento'] ?? '' ) !== 'antecipado' ) return 0.0;
+    $pct = (float) ( $adq['taxa_antecipacao_pct'] ?? 0 );
+    if ( $pct <= 0 ) return 0.0;
+    if ( ( $adq['antecipacao_modo'] ?? 'pct_fixo' ) === 'pct_mes' ) {
+        $n = max( 1, (int) $parcelas ); $vp = $base / $n; $tot = 0.0;
+        for ( $k = 1; $k <= $n; $k++ ) $tot += $vp * ( $pct / 100 ) * $k;
+        return round( $tot, 2 );
+    }
+    return round( $base * $pct / 100, 2 );
+}
+
+/**
+ * Gera os RECEBÍVEIS de um pagamento — espelha como a operadora paga:
+ * antecipado → 1 recebível D+prazo_antecipado; fluxo (crédito parcelado) → 1 por parcela a cada 30d;
+ * demais → 1 recebível no prazo resolvido. Falha em silêncio se a migration não rodou.
+ */
+function tao_caixa_gerar_recebiveis( $cid, $pag_id, $adq, $modalidade, $parcelas, $liquido, $prazo_default ) {
+    if ( ! $pag_id || $liquido <= 0 ) return;
+    $parcelas = max( 1, (int) $parcelas );
+    $comum = [ 'cliente_id' => $cid, 'pagamento_id' => $pag_id, 'adquirente_id' => $adq['id'] ?? null ];
+    $linhas = [];
+    if ( $adq && ( $adq['politica_recebimento'] ?? '' ) === 'fluxo' && $modalidade === 'credito' && $parcelas > 1 ) {
+        $vp = floor( ( $liquido / $parcelas ) * 100 ) / 100;
+        for ( $k = 1; $k <= $parcelas; $k++ ) {
+            $linhas[] = $comum + [
+                'parcela_n' => $k, 'parcelas_total' => $parcelas,
+                'valor_previsto' => $k === $parcelas ? round( $liquido - $vp * ( $parcelas - 1 ), 2 ) : $vp,
+                'data_prevista'  => gmdate( 'Y-m-d', time() + $k * 30 * 86400 ),
+            ];
+        }
+    } else {
+        $prazo = ( $adq && ( $adq['politica_recebimento'] ?? '' ) === 'antecipado' )
+            ? (int) ( $adq['prazo_antecipado_dias'] ?? 1 )
+            : max( 0, (int) $prazo_default );
+        $linhas[] = $comum + [
+            'parcela_n' => 1, 'parcelas_total' => 1,
+            'valor_previsto' => round( $liquido, 2 ),
+            'data_prevista'  => gmdate( 'Y-m-d', time() + $prazo * 86400 ),
+        ];
+    }
+    tao_caixa_api( '/caixa_recebiveis', 'POST', $linhas );   // tabela ausente → erro silencioso, PDV segue
+}
+
 add_action( 'wp_ajax_tao_caixa_receber_venda', function() {
     $cid = tao_caixa_ajax_guard();
 
@@ -263,10 +344,16 @@ add_action( 'wp_ajax_tao_caixa_receber_venda', function() {
         $val  = round( (float) str_replace( ',', '.', (string) ( $p['valor'] ?? 0 ) ), 2 );
         if ( ! $fid || $val <= 0 ) continue;
         if ( ! isset( $fmap[ $fid ] ) ) wp_send_json_error( 'Forma de pagamento inválida' );
-        $forma = $fmap[ $fid ];
-        $tx    = tao_caixa_resolver_taxa( $cid, $forma, $parc );
-        $vtaxa = round( $val * $tx['taxa_pct'] / 100, 2 );
-        $linhas[] = [
+        $forma    = $fmap[ $fid ];
+        $bandeira = sanitize_text_field( $p['bandeira'] ?? '' );
+        $terminal = sanitize_text_field( $p['terminal'] ?? '' );
+        $adq      = tao_caixa_adquirente_config( $cid, $forma['adquirente_id'] ?? '' );
+        $tx       = tao_caixa_resolver_taxa_v2( $cid, $forma, $parc, $bandeira );
+        $vtaxa    = round( $val * $tx['taxa_pct'] / 100, 2 );
+        $vant     = tao_caixa_calc_antecipacao( $adq, $forma['tipo'] ?? '', $parc, $val - $vtaxa );
+        $prazo    = ( $adq && ( $adq['politica_recebimento'] ?? '' ) === 'antecipado' && in_array( $forma['tipo'] ?? '', [ 'debito', 'credito' ], true ) )
+                    ? (int) ( $adq['prazo_antecipado_dias'] ?? 1 ) : (int) $tx['prazo'];
+        $ln = [
             'forma_pagamento_id'  => $fid,
             'adquirente_id'       => $forma['adquirente_id'] ?: null,
             'modalidade'          => $forma['tipo'] ?? null,
@@ -274,9 +361,15 @@ add_action( 'wp_ajax_tao_caixa_receber_venda', function() {
             'valor_bruto'         => $val,
             'taxa_pct_aplicada'   => $tx['taxa_pct'],
             'valor_taxa'          => $vtaxa,
-            'valor_liquido'       => round( $val - $vtaxa, 2 ),
-            'data_prevista_receb' => gmdate( 'Y-m-d', time() + $tx['prazo'] * 86400 ),
+            'valor_liquido'       => round( $val - $vtaxa - $vant, 2 ),
+            'data_prevista_receb' => gmdate( 'Y-m-d', time() + $prazo * 86400 ),
         ];
+        // Campos da migration v2 — só entram quando há dado (evita 400 antes da migration)
+        if ( $vant > 0 )         $ln['valor_antecipacao'] = $vant;
+        if ( $bandeira !== '' )  $ln['bandeira'] = $bandeira;
+        if ( $terminal !== '' )  $ln['terminal'] = $terminal;
+        $ln['_adq'] = $adq; $ln['_prazo_res'] = $prazo;   // uso interno (removidos antes do POST)
+        $linhas[] = $ln;
         $soma += $val;
     }
     if ( ! count( $linhas ) ) wp_send_json_error( 'Pagamentos inválidos' );
@@ -299,11 +392,15 @@ add_action( 'wp_ajax_tao_caixa_receber_venda', function() {
     if ( ! $rr['ok'] || empty( $rr['data'] ) ) wp_send_json_error( 'Falha ao criar recibo: ' . ( $rr['raw'] ?? '' ) );
     $recibo_id = $rr['data'][0]['id'];
 
-    // Pagamentos
+    // Pagamentos (+ recebíveis por pagamento — como a operadora paga)
     foreach ( $linhas as $ln ) {
+        $adq = $ln['_adq'] ?? null; $prazo_res = $ln['_prazo_res'] ?? 0;
+        unset( $ln['_adq'], $ln['_prazo_res'] );
         $ln['cliente_id'] = $cid; $ln['recibo_id'] = $recibo_id;
         $ln['criado_por'] = $uid; $ln['criado_em'] = gmdate( 'c' );
-        tao_caixa_api( '/caixa_pagamentos', 'POST', $ln );
+        $rp = tao_caixa_api( '/caixa_pagamentos', 'POST', $ln );
+        $pid = ( $rp['ok'] && ! empty( $rp['data'] ) ) ? ( $rp['data'][0]['id'] ?? null ) : null;
+        if ( $pid ) tao_caixa_gerar_recebiveis( $cid, $pid, $adq, $ln['modalidade'] ?? '', $ln['parcelas'] ?? 1, (float) $ln['valor_liquido'], $prazo_res );
     }
 
     // Distribui o valor recebido entre as vendas (FIFO) + baixa cada uma
@@ -378,6 +475,10 @@ add_action( 'wp_ajax_tao_caixa_estornar_venda', function() {
 
         // 3) Marca os pagamentos do recibo como estornados
         tao_caixa_api( "/caixa_pagamentos?recibo_id=eq.$rid&cliente_id=eq.$cid", 'PATCH', [ 'estornado' => true ] );
+        // Estorno cancela os recebíveis dos pagamentos (conciliação não espera mais por eles)
+        $rpe = tao_caixa_api( "/caixa_pagamentos?recibo_id=eq.$rid&cliente_id=eq.$cid&select=id" );
+        $pids = array_column( $rpe['ok'] ? ( $rpe['data'] ?? [] ) : [], 'id' );
+        if ( $pids ) tao_caixa_api( '/caixa_recebiveis?pagamento_id=in.(' . implode( ',', $pids ) . ")&cliente_id=eq.$cid&status=eq.previsto", 'PATCH', [ 'status' => 'cancelado' ] );
     }
 
     if ( ! $n_recibos ) wp_send_json_error( 'Nada a estornar (recibos já estornados).' );
