@@ -2082,18 +2082,18 @@ function tao_crm_page_card() {
                     }
                     listDiv.querySelectorAll('.taof-orc-aprovar').forEach(function(b){
                         b.addEventListener('click', function(){
-                            orcAcao('tao_formula_orc_aprovar', this.dataset.id).then(function(r){ if(r.success) carregarFormulas(); else alert((r.data&&r.data.message)||'Erro ao aprovar'); });
+                            orcAcao('tao_formula_orc_aprovar', this.dataset.id).then(function(r){ if(r.success){ carregarFormulas(); window.postMessage({taofSaved:true},'*'); } else alert((r.data&&r.data.message)||'Erro ao aprovar'); });
                         });
                     });
                     listDiv.querySelectorAll('.taof-orc-rejeitar').forEach(function(b){
                         b.addEventListener('click', function(){
                             var m = prompt('Motivo da rejeição (opcional):','') || '';
-                            orcAcao('tao_formula_orc_rejeitar', this.dataset.id, {motivo:m}).then(function(r){ if(r.success) carregarFormulas(); else alert('Erro ao rejeitar'); });
+                            orcAcao('tao_formula_orc_rejeitar', this.dataset.id, {motivo:m}).then(function(r){ if(r.success){ carregarFormulas(); window.postMessage({taofSaved:true},'*'); } else alert('Erro ao rejeitar'); });
                         });
                     });
                     listDiv.querySelectorAll('.taof-orc-reabrir').forEach(function(b){
                         b.addEventListener('click', function(){
-                            orcAcao('tao_formula_orc_reabrir', this.dataset.id).then(function(r){ if(r.success) carregarFormulas(); else alert('Erro'); });
+                            orcAcao('tao_formula_orc_reabrir', this.dataset.id).then(function(r){ if(r.success){ carregarFormulas(); window.postMessage({taofSaved:true},'*'); } else alert('Erro'); });
                         });
                     });
                 })
