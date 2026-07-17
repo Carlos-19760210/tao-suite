@@ -28,6 +28,16 @@ add_action( 'wp_ajax_tao_caixa_save_adquirente', function() {
         'taxa_antecipacao_pct' => round( (float) str_replace( ',', '.', $_POST['taxa_antecipacao_pct'] ?? 0 ), 3 ),
         'ativo'                => ( ( $_POST['ativo'] ?? '1' ) === '1' ),
     ];
+    // Campos do contrato (migration v2) — só entram se o form os enviou (compatível pré-migration)
+    if ( isset( $_POST['politica_recebimento'] ) && in_array( $_POST['politica_recebimento'], [ 'antecipado', 'fluxo' ], true ) ) {
+        $payload['politica_recebimento'] = $_POST['politica_recebimento'];
+    }
+    if ( isset( $_POST['antecipacao_modo'] ) && in_array( $_POST['antecipacao_modo'], [ 'pct_fixo', 'pct_mes' ], true ) ) {
+        $payload['antecipacao_modo'] = $_POST['antecipacao_modo'];
+    }
+    if ( isset( $_POST['prazo_antecipado_dias'] ) && $_POST['prazo_antecipado_dias'] !== '' ) {
+        $payload['prazo_antecipado_dias'] = max( 0, (int) $_POST['prazo_antecipado_dias'] );
+    }
 
     if ( $id ) {
         $r = tao_caixa_api( "/caixa_adquirentes?id=eq.$id&cliente_id=eq.$cid", 'PATCH', $payload );
@@ -57,19 +67,29 @@ add_action( 'wp_ajax_tao_caixa_save_taxa', function() {
 
     $id    = sanitize_text_field( $_POST['id'] ?? '' );
     $forma = sanitize_text_field( $_POST['forma_pagamento_id'] ?? '' );
-    if ( ! $forma ) wp_send_json_error( 'Selecione a forma de pagamento' );
+    $adq   = sanitize_text_field( $_POST['adquirente_id'] ?? '' );
+    $modal = sanitize_text_field( $_POST['modalidade'] ?? '' );
+    // Modelo novo = taxa da OPERADORA (adquirente+modalidade); legado = taxa da forma. Um dos dois.
+    if ( ! $adq && ! $forma ) wp_send_json_error( 'Selecione a operadora (ou, no modo legado, a forma de pagamento)' );
+    if ( $adq && ! in_array( $modal, [ 'debito', 'credito' ], true ) ) wp_send_json_error( 'Informe a modalidade (débito ou crédito)' );
 
     $pmin = max( 1, (int) ( $_POST['parcela_min'] ?? 1 ) );
     $pmax = max( $pmin, (int) ( $_POST['parcela_max'] ?? $pmin ) );
 
     $payload = [
-        'forma_pagamento_id'     => $forma,
+        'forma_pagamento_id'     => $forma ?: null,
         'parcela_min'            => $pmin,
         'parcela_max'            => $pmax,
         'taxa_pct'               => round( (float) str_replace( ',', '.', $_POST['taxa_pct'] ?? 0 ), 3 ),
         'prazo_recebimento_dias' => max( 0, (int) ( $_POST['prazo_recebimento_dias'] ?? 1 ) ),
         'ativo'                  => ( ( $_POST['ativo'] ?? '1' ) === '1' ),
     ];
+    if ( $adq ) {
+        $payload['adquirente_id'] = $adq;
+        $payload['modalidade']    = $modal;
+        $bandeira = strtoupper( trim( sanitize_text_field( $_POST['bandeira'] ?? '' ) ) );
+        $payload['bandeira'] = $bandeira !== '' ? $bandeira : null;   // null = todas (curinga)
+    }
 
     if ( $id ) {
         $r = tao_caixa_api( "/caixa_taxas?id=eq.$id&cliente_id=eq.$cid", 'PATCH', $payload );

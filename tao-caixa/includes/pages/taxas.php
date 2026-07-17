@@ -15,6 +15,8 @@ function tao_caixa_page_taxas() {
     $cid       = tao_caixa_cliente_id();
     $formas    = [];
     $forma_map = [];
+    $adqs      = [];
+    $adq_map   = [];
     $taxas     = [];
     $forma_filtro = sanitize_text_field( $_GET['forma'] ?? '' );
 
@@ -23,15 +25,27 @@ function tao_caixa_page_taxas() {
         $formas = $rf['ok'] ? ( $rf['data'] ?? [] ) : [];
         foreach ( $formas as $f ) $forma_map[ $f['id'] ] = $f['nome'];
 
+        $ra   = tao_caixa_api( "/caixa_adquirentes?cliente_id=eq.$cid&order=nome.asc&select=id,nome" );
+        $adqs = $ra['ok'] ? ( $ra['data'] ?? [] ) : [];
+        foreach ( $adqs as $a ) $adq_map[ $a['id'] ] = $a['nome'];
+
         $flt = $forma_filtro ? "&forma_pagamento_id=eq.$forma_filtro" : '';
-        $rt    = tao_caixa_api( "/caixa_taxas?cliente_id=eq.$cid$flt&order=forma_pagamento_id.asc,parcela_min.asc" );
+        $rt    = tao_caixa_api( "/caixa_taxas?cliente_id=eq.$cid$flt&order=parcela_min.asc" );
         $taxas = $rt['ok'] ? ( $rt['data'] ?? [] ) : [];
+        // Operadora primeiro (modelo novo), legado por forma depois
+        usort( $taxas, function ( $x, $y ) {
+            $ax = ! empty( $x['adquirente_id'] ) ? 0 : 1;
+            $ay = ! empty( $y['adquirente_id'] ) ? 0 : 1;
+            if ( $ax !== $ay ) return $ax <=> $ay;
+            return ( (int) ( $x['parcela_min'] ?? 1 ) ) <=> ( (int) ( $y['parcela_min'] ?? 1 ) );
+        } );
     }
+    $modalidades = [ 'debito' => 'Débito', 'credito' => 'Crédito' ];
     ?>
     <div class="wrap taoc-wrap">
         <div class="taoc-bar">
             <h1>&#x1F4CA; Taxas por Faixa de Parcelas</h1>
-            <?php if ( $formas ) : ?>
+            <?php if ( $formas || $adqs ) : ?>
             <button class="taoc-btn taoc-btn-primary" data-caixa-new data-modal="taoc-taxa-modal" data-title="Nova Taxa">+ Nova Taxa</button>
             <?php endif; ?>
         </div>
@@ -45,10 +59,10 @@ function tao_caixa_page_taxas() {
 
         <?php if ( ! $cid ) : ?>
         <div class="notice notice-warning"><p>Cliente não identificado.</p></div>
-        <?php elseif ( ! $formas ) : ?>
+        <?php elseif ( ! $formas && ! $adqs ) : ?>
         <div class="taoc-empty">
-            <p>Cadastre uma <strong>Forma de Pagamento</strong> de cartão antes de definir as taxas.</p>
-            <a class="taoc-btn taoc-btn-primary" href="<?php echo esc_url( tao_caixa_url( 'caixa-formas' ) ); ?>">Ir para Formas de Pagamento</a>
+            <p>Cadastre uma <strong>Operadora de Cartão</strong> antes de definir as taxas de MDR.</p>
+            <a class="taoc-btn taoc-btn-primary" href="<?php echo esc_url( tao_caixa_url( 'caixa-adquirentes' ) ); ?>">Ir para Operadoras</a>
         </div>
         <?php elseif ( empty( $taxas ) ) : ?>
         <div class="taoc-empty">
@@ -58,13 +72,17 @@ function tao_caixa_page_taxas() {
         <?php else : ?>
         <table class="taoc-table">
             <thead>
-                <tr><th>Forma de Pagamento</th><th>Faixa de parcelas</th><th style="text-align:right">Taxa</th><th style="text-align:right">Prazo</th><th style="text-align:center">Status</th><th style="text-align:center;width:150px">Ações</th></tr>
+                <tr><th>Operadora / Forma</th><th>Modalidade</th><th>Bandeira</th><th>Faixa de parcelas</th><th style="text-align:right">Taxa</th><th style="text-align:right">Prazo</th><th style="text-align:center">Status</th><th style="text-align:center;width:150px">Ações</th></tr>
             </thead>
             <tbody>
             <?php foreach ( $taxas as $t ) :
+                $eh_operadora = ! empty( $t['adquirente_id'] );
                 $json = wp_json_encode( [
                     'id'                     => $t['id'],
                     'forma_pagamento_id'     => $t['forma_pagamento_id'] ?? '',
+                    'adquirente_id'          => $t['adquirente_id'] ?? '',
+                    'modalidade'             => $t['modalidade'] ?? '',
+                    'bandeira'               => $t['bandeira'] ?? '',
                     'parcela_min'            => $t['parcela_min'] ?? 1,
                     'parcela_max'            => $t['parcela_max'] ?? 1,
                     'taxa_pct'               => $t['taxa_pct'] ?? 0,
@@ -74,7 +92,16 @@ function tao_caixa_page_taxas() {
                 $ativo = ! empty( $t['ativo'] );
             ?>
                 <tr data-row data-id="<?php echo esc_attr( $t['id'] ); ?>" data-json='<?php echo esc_attr( $json ); ?>'>
-                    <td><strong><?php echo esc_html( $forma_map[ $t['forma_pagamento_id'] ] ?? '—' ); ?></strong></td>
+                    <td>
+                        <?php if ( $eh_operadora ) : ?>
+                            <strong><?php echo esc_html( $adq_map[ $t['adquirente_id'] ] ?? '—' ); ?></strong>
+                        <?php else : ?>
+                            <?php echo esc_html( $forma_map[ $t['forma_pagamento_id'] ] ?? '—' ); ?>
+                            <span class="taoc-pill off" style="font-size:10px" title="Taxa presa à forma de pagamento (modelo antigo) — recadastre pela operadora">legado</span>
+                        <?php endif; ?>
+                    </td>
+                    <td><?php echo esc_html( $eh_operadora ? ( $modalidades[ $t['modalidade'] ?? '' ] ?? '—' ) : '—' ); ?></td>
+                    <td><?php echo esc_html( $eh_operadora ? ( ( $t['bandeira'] ?? '' ) !== '' && $t['bandeira'] !== null ? $t['bandeira'] : 'Todas' ) : '—' ); ?></td>
                     <td><?php echo esc_html( tao_caixa_faixa_label( $t['parcela_min'] ?? 1, $t['parcela_max'] ?? 1 ) ); ?></td>
                     <td style="text-align:right"><?php echo number_format( (float) ( $t['taxa_pct'] ?? 0 ), 3, ',', '.' ); ?>%</td>
                     <td style="text-align:right"><?php echo (int) ( $t['prazo_recebimento_dias'] ?? 0 ); ?> d</td>
@@ -97,10 +124,36 @@ function tao_caixa_page_taxas() {
             <h2 data-title>Nova Taxa</h2>
             <form data-action="tao_caixa_save_taxa">
                 <input type="hidden" name="id">
+                <div class="taoc-field taoc-field-inline">
+                    <div style="flex:1">
+                        <label>Operadora *</label>
+                        <select name="adquirente_id">
+                            <option value="">— Selecione —</option>
+                            <?php foreach ( $adqs as $a ) : ?>
+                            <option value="<?php echo esc_attr( $a['id'] ); ?>"><?php echo esc_html( $a['nome'] ); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div style="flex:1">
+                        <label>Modalidade *</label>
+                        <select name="modalidade">
+                            <option value="">— Selecione —</option>
+                            <option value="debito">Débito</option>
+                            <option value="credito">Crédito</option>
+                        </select>
+                    </div>
+                </div>
                 <div class="taoc-field">
-                    <label>Forma de Pagamento *</label>
-                    <select name="forma_pagamento_id" required>
-                        <option value="">— Selecione —</option>
+                    <label>Bandeira</label>
+                    <input type="text" name="bandeira" placeholder="vazio = TODAS (curinga) · ex.: VISA, MASTER, ELO" list="taoc-bandeiras">
+                    <datalist id="taoc-bandeiras">
+                        <option value="VISA"><option value="MASTER"><option value="ELO"><option value="HIPER"><option value="AMEX">
+                    </datalist>
+                </div>
+                <div class="taoc-field">
+                    <label style="color:#94a3b8">Forma de Pagamento (modo legado — só se não escolher operadora)</label>
+                    <select name="forma_pagamento_id">
+                        <option value="">—</option>
                         <?php foreach ( $formas as $f ) : ?>
                         <option value="<?php echo esc_attr( $f['id'] ); ?>" <?php selected( $forma_filtro, $f['id'] ); ?>><?php echo esc_html( $f['nome'] ); ?></option>
                         <?php endforeach; ?>
