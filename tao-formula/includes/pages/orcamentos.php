@@ -133,7 +133,12 @@ function tao_formula_page_orcamentos() {
             </td>
             <td class="taof-td-dt"><?php echo esc_html($dt); ?></td>
             <td class="taof-col-c taof-td-acoes">
+                <?php if ( in_array( $st, [ 'aprovado_farma', 'aceito_paciente' ], true ) ) : ?>
+                <span class="taof-btn taof-btn-sm" style="opacity:.45;cursor:not-allowed"
+                      title="Orçamento aprovado (OM gerada) — não pode ser alterado. Para editar, estorne a aprovação no card.">🔒 Aprovado</span>
+                <?php else : ?>
                 <a class="taof-btn taof-btn-sm" href="<?php echo esc_url( add_query_arg( 'orc_id', $o['id'], $novo_url ) ); ?>" title="Abrir/editar fórmula">✎ Editar</a>
+                <?php endif; ?>
                 <?php if ( $st === 'pendente_revisao' ) : ?>
                 <button class="taof-btn taof-btn-sm taof-btn-primary taof-orc-aprovar"
                         data-id="<?php echo esc_attr($o['id']); ?>">✅ Aprovar e Enviar</button>

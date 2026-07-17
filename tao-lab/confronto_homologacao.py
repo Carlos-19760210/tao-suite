@@ -78,17 +78,22 @@ for req in REQS:
         sr=serier_int(serier); tot_series+=1
         num_tao=f"0001-{seg}-{sr}"
         # TAO: orçamento + OM
-        orc=sbq(f"/orcamentos?cliente_id=eq.{CID}&numero_orcamento=eq.{num_tao}&select=id,status,valor_final_fc,total_orcamento&limit=1")
+        orc=sbq(f"/orcamentos?cliente_id=eq.{CID}&numero_orcamento=eq.{num_tao}&select=id,status,valor_final_fc,total_orcamento,desconto_fc&limit=1")
         om =sbq(f"/lab_ordens?cliente_id=eq.{CID}&numero=eq.{num_tao}&status=neq.cancelada&select=id,status&limit=1")
+        # PRCOBR = preço CHEIO no FCerta; o portal registra o FINAL (com desconto da venda).
+        # Comparável = final TAO + desconto TAO (bruto reconstituído) × PRCOBR.
         val_fc=f(prcobr); o=orc[0] if orc else None
-        val_tao=(f(o.get("valor_final_fc")) if o and o.get("valor_final_fc") is not None else (f(o.get("total_orcamento")) if o else None))
+        val_fin=(f(o.get("valor_final_fc")) if o and o.get("valor_final_fc") is not None else (f(o.get("total_orcamento")) if o else None))
+        desc  =f(o.get("desconto_fc"),0.0) if o else 0.0
+        val_tao=(val_fin+ (desc or 0.0)) if val_fin is not None else None
         val_ok = (val_fc is not None and val_tao is not None and abs(val_fc-val_tao)<=0.01)
         if val_ok: ok_val+=1
         st_orc=o["status"] if o else "NÃO IMPORTADO"
         st_om =om[0]["status"] if om else "sem OM"
-        vtxt = f"R$ {val_fc:.2f} × R$ {val_tao:.2f}" if (val_fc is not None and val_tao is not None) else f"{val_fc} × {val_tao}"
-        L.append(f"- **{num_tao}** ({dec(nomepa) or '—'}): valor FC×TAO = {vtxt} {'✓' if val_ok else '✗'} | orc: {st_orc} | OM: {st_om}")
-        if not val_ok and o: diverg.append((num_tao,"valor",val_fc,val_tao))
+        vtxt = (f"R$ {val_fc:.2f} × R$ {val_tao:.2f} (final {val_fin:.2f} + desc {desc or 0:.2f})"
+                if (val_fc is not None and val_tao is not None) else f"{val_fc} × {val_tao}")
+        L.append(f"- **{num_tao}** ({dec(nomepa) or '—'}): cheio FC×TAO = {vtxt} {'✓' if val_ok else '✗'} | orc: {st_orc} | OM: {st_om}")
+        if not val_ok and o: diverg.append((num_tao,"valor cheio",val_fc,val_tao))
 
         # pesagem item a item (só se tem OM)
         if not om: continue

@@ -2018,8 +2018,13 @@ function tao_crm_page_card() {
                             + '<td style="padding:5px 2px;color:#94a3b8">' + dt + '</td>'
                             + '<td style="padding:5px 2px;white-space:nowrap">'
                             + (!window.taofCrmFechado ? aprovBtns(o) : '')
-                            + (!window.taofCrmFechado ? '<button class="button button-small taof-orc-editar" data-url="' + editUrl + '" style="font-size:10px;padding:2px 6px">✏</button> ' : '')
-                            + (!window.taofCrmFechado ? '<button class="button button-small taof-orc-excluir" data-id="' + o.id + '" data-num="' + (o.numero_orcamento||'') + '" style="font-size:10px;padding:2px 6px;color:#dc2626;border-color:#fca5a5">🗑</button>' : '')
+                            // Aprovado (OM gerada) = imutável: sem editar/excluir — para alterar, estornar a aprovação
+                            + (!window.taofCrmFechado && !(o.status==='aprovado_farma'||o.status==='aceito_paciente')
+                                ? '<button class="button button-small taof-orc-editar" data-url="' + editUrl + '" style="font-size:10px;padding:2px 6px">✏</button> ' : '')
+                            + (!window.taofCrmFechado && !(o.status==='aprovado_farma'||o.status==='aceito_paciente')
+                                ? '<button class="button button-small taof-orc-excluir" data-id="' + o.id + '" data-num="' + (o.numero_orcamento||'') + '" style="font-size:10px;padding:2px 6px;color:#dc2626;border-color:#fca5a5">🗑</button>' : '')
+                            + ((o.status==='aprovado_farma'||o.status==='aceito_paciente')
+                                ? '<span title="Orçamento aprovado (OM gerada) — estorne a aprovação para editar" style="font-size:10px;color:#94a3b8">🔒</span>' : '')
                             + '</td>'
                             + '</tr>';
                     });
