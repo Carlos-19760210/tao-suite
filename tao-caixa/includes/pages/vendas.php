@@ -59,9 +59,9 @@ function tao_caixa_page_vendas() {
             }
         }
         // Formas + faixas de taxa (para o modal "Receber")
-        $rf = tao_caixa_api( "/caixa_formas_pagamento?cliente_id=eq.$cid&ativo=eq.true&order=ordem.asc,nome.asc&select=id,nome,tipo,taxa_pct,prazo_recebimento_dias" );
+        $rf = tao_caixa_api( "/caixa_formas_pagamento?cliente_id=eq.$cid&ativo=eq.true&order=ordem.asc,nome.asc&select=id,nome,tipo,adquirente_id,taxa_pct,prazo_recebimento_dias" );
         $formas = $rf['ok'] ? ( $rf['data'] ?? [] ) : [];
-        $rtx = tao_caixa_api( "/caixa_taxas?cliente_id=eq.$cid&ativo=eq.true&select=forma_pagamento_id,parcela_min,parcela_max,taxa_pct,prazo_recebimento_dias" );
+        $rtx = tao_caixa_api( "/caixa_taxas?cliente_id=eq.$cid&ativo=eq.true&select=forma_pagamento_id,adquirente_id,modalidade,bandeira,parcela_min,parcela_max,taxa_pct,prazo_recebimento_dias" );
         $taxas = $rtx['ok'] ? ( $rtx['data'] ?? [] ) : [];
 
         // Vindo de um card (?card=…) com exatamente 1 venda em aberto → abre o Receber direto
@@ -287,11 +287,25 @@ function tao_caixa_page_vendas() {
             FORMAS.forEach(function(f){ h += '<option value="'+f.id+'">' + String(f.nome).replace(/</g,'&lt;') + '</option>'; });
             return h;
         }
-        function resolveLinha(fid, parc){
+        function ehCartao(f){ return f && (f.tipo==='debito'||f.tipo==='credito') && f.adquirente_id; }
+        function resolveLinha(fid, parc, band){
             var f = FORMAS.filter(function(x){ return x.id===fid; })[0];
             var taxa = f ? parseFloat(f.taxa_pct||0) : 0, prazo = f ? parseInt(f.prazo_recebimento_dias||0) : 0;
-            var fx = TAXAS.filter(function(t){ return t.forma_pagamento_id===fid && parc>=t.parcela_min && parc<=t.parcela_max; })
-                          .sort(function(a,b){ return b.parcela_min-a.parcela_min; })[0];
+            // Modelo novo: taxa da OPERADORA (modalidade × bandeira × faixa) — bandeira exata vence o curinga
+            var fx = null;
+            if(ehCartao(f)){
+                var cand = TAXAS.filter(function(t){
+                    return t.adquirente_id===f.adquirente_id && t.modalidade===f.tipo
+                        && parc>=t.parcela_min && parc<=t.parcela_max
+                        && (!t.bandeira || (band && t.bandeira.toUpperCase()===band.toUpperCase()));
+                });
+                cand.sort(function(a,b){ return (b.bandeira?1:0)-(a.bandeira?1:0) || b.parcela_min-a.parcela_min; });
+                fx = cand[0] || null;
+            }
+            if(!fx){ // legado: taxa presa à forma
+                fx = TAXAS.filter(function(t){ return t.forma_pagamento_id===fid && parc>=t.parcela_min && parc<=t.parcela_max; })
+                          .sort(function(a,b){ return b.parcela_min-a.parcela_min; })[0] || null;
+            }
             if(fx){ taxa=parseFloat(fx.taxa_pct); prazo=parseInt(fx.prazo_recebimento_dias); }
             return { taxa:taxa, prazo:prazo };
         }
@@ -304,8 +318,13 @@ function tao_caixa_page_vendas() {
                 var parc = parseInt(div.querySelector('.pag-parc').value||1);
                 var val = parseFloat((div.querySelector('.pag-valor').value||'0').replace(',','.'))||0;
                 soma += val;
+                // Bandeira: só aparece em cartão com operadora vinculada
+                var f = FORMAS.filter(function(x){ return x.id===fid; })[0];
+                var bsel = div.querySelector('.pag-band');
+                bsel.style.display = ehCartao(f) ? '' : 'none';
+                var band = ehCartao(f) ? bsel.value : '';
                 var prev = div.querySelector('.pag-prev');
-                if(fid && val>0){ var r = resolveLinha(fid,parc); prev.innerHTML = 'taxa '+r.taxa.toFixed(2).replace('.',',')+'% · líquido '+brl(val-val*r.taxa/100)+' · '+r.prazo+'d'; }
+                if(fid && val>0){ var r = resolveLinha(fid,parc,band); prev.innerHTML = 'taxa '+r.taxa.toFixed(2).replace('.',',')+'% · líquido '+brl(val-val*r.taxa/100)+' · '+r.prazo+'d'; }
                 else prev.innerHTML = '';
             }
             soma = Math.round(soma*100)/100;
@@ -321,12 +340,17 @@ function tao_caixa_page_vendas() {
             div.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap';
             div.innerHTML =
                 '<select class="pag-forma" style="flex:2;min-width:120px;padding:5px;border:1px solid #cbd5e1;border-radius:4px">'+formaOpts()+'</select>'
+              + '<select class="pag-band" title="bandeira" style="display:none;width:92px;padding:5px;border:1px solid #cbd5e1;border-radius:4px">'
+              +   '<option value="">Bandeira…</option><option value="VISA">Visa</option><option value="MASTER">Master</option>'
+              +   '<option value="ELO">Elo</option><option value="HIPER">Hiper</option><option value="AMEX">Amex</option>'
+              + '</select>'
               + '<input class="pag-parc" type="number" min="1" max="24" value="1" title="parcelas" style="width:46px;padding:5px;border:1px solid #cbd5e1;border-radius:4px;text-align:center">'
               + '<input class="pag-valor" type="number" min="0" step="0.01" value="'+(valor!=null?valor.toFixed(2):'')+'" placeholder="valor" style="width:96px;padding:5px;border:1px solid #cbd5e1;border-radius:4px;text-align:right">'
               + '<button type="button" class="pag-rm taoc-btn" title="remover" style="padding:4px 9px">&#x2715;</button>'
               + '<div class="pag-prev" style="flex-basis:100%;font-size:11px;color:#64748b"></div>';
             box.appendChild(div);
             div.querySelector('.pag-forma').addEventListener('change', recalc);
+            div.querySelector('.pag-band').addEventListener('change', recalc);
             div.querySelector('.pag-parc').addEventListener('input', recalc);
             div.querySelector('.pag-valor').addEventListener('input', recalc);
             div.querySelector('.pag-rm').addEventListener('click', function(){ div.remove(); recalc(); });
@@ -410,7 +434,9 @@ function tao_caixa_page_vendas() {
                 var fid = div.querySelector('.pag-forma').value;
                 var parc = parseInt(div.querySelector('.pag-parc').value||1);
                 var val = parseFloat((div.querySelector('.pag-valor').value||'0').replace(',','.'))||0;
-                if(fid && val>0) pags.push({ forma_pagamento_id:fid, parcelas:parc, valor:val });
+                var f = FORMAS.filter(function(x){ return x.id===fid; })[0];
+                var band = ehCartao(f) ? div.querySelector('.pag-band').value : '';
+                if(fid && val>0) pags.push({ forma_pagamento_id:fid, parcelas:parc, valor:val, bandeira:band });
             }
             if(!pags.length){ alert('Informe ao menos uma forma com valor.'); return; }
             var soma = 0; pags.forEach(function(p){ soma += p.valor; });
