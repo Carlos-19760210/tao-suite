@@ -346,7 +346,6 @@ add_action( 'wp_ajax_tao_caixa_receber_venda', function() {
         if ( ! isset( $fmap[ $fid ] ) ) wp_send_json_error( 'Forma de pagamento inválida' );
         $forma    = $fmap[ $fid ];
         $bandeira = sanitize_text_field( $p['bandeira'] ?? '' );
-        $terminal = sanitize_text_field( $p['terminal'] ?? '' );
         $adq      = tao_caixa_adquirente_config( $cid, $forma['adquirente_id'] ?? '' );
         $tx       = tao_caixa_resolver_taxa_v2( $cid, $forma, $parc, $bandeira );
         $vtaxa    = round( $val * $tx['taxa_pct'] / 100, 2 );
@@ -367,7 +366,6 @@ add_action( 'wp_ajax_tao_caixa_receber_venda', function() {
         // Campos da migration v2 — só entram quando há dado (evita 400 antes da migration)
         if ( $vant > 0 )         $ln['valor_antecipacao'] = $vant;
         if ( $bandeira !== '' )  $ln['bandeira'] = $bandeira;
-        if ( $terminal !== '' )  $ln['terminal'] = $terminal;
         $ln['_adq'] = $adq; $ln['_prazo_res'] = $prazo;   // uso interno (removidos antes do POST)
         $linhas[] = $ln;
         $soma += $val;

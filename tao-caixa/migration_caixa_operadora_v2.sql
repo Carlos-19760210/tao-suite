@@ -16,7 +16,7 @@
 ALTER TABLE caixa_adquirentes ADD COLUMN IF NOT EXISTS politica_recebimento  text    NOT NULL DEFAULT 'antecipado'; -- antecipado|fluxo
 ALTER TABLE caixa_adquirentes ADD COLUMN IF NOT EXISTS antecipacao_modo      text    NOT NULL DEFAULT 'pct_fixo';   -- pct_fixo (% único) | pct_mes (% a.m. × meses antecipados por parcela)
 ALTER TABLE caixa_adquirentes ADD COLUMN IF NOT EXISTS prazo_antecipado_dias integer NOT NULL DEFAULT 1;            -- D+1
-ALTER TABLE caixa_adquirentes ADD COLUMN IF NOT EXISTS terminais             text;                                  -- lista "Balcão,Entrega" (vazio = extrato único/EC único)
+-- (sem abertura por máquina/terminal — decisão Carlos 17/07: extrato único por operadora)
 
 -- ── Taxas: dona = operadora ─────────────────────────────────────────────────
 ALTER TABLE caixa_taxas ADD COLUMN IF NOT EXISTS adquirente_id uuid REFERENCES caixa_adquirentes(id);
@@ -26,7 +26,6 @@ ALTER TABLE caixa_taxas ALTER COLUMN forma_pagamento_id DROP NOT NULL; -- linha 
 
 -- ── Pagamento: dimensões novas + custo de antecipação separado do MDR ───────
 ALTER TABLE caixa_pagamentos ADD COLUMN IF NOT EXISTS bandeira          text;
-ALTER TABLE caixa_pagamentos ADD COLUMN IF NOT EXISTS terminal          text;
 ALTER TABLE caixa_pagamentos ADD COLUMN IF NOT EXISTS valor_antecipacao numeric NOT NULL DEFAULT 0;
 
 -- ── Recebíveis (novo alvo da conciliação) ───────────────────────────────────
