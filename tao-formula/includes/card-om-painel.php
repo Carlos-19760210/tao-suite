@@ -177,6 +177,8 @@ add_action( 'tao_crm_card_paineis', function ( $card ) {
 			},'json').fail(function(){ msg('✘ falha','#dc2626'); });
 		}
 		carregar();
+		// Recarrega a seção de OM quando o modal do editor fecha/salva (mesmo evento do card)
+		window.addEventListener('message', function(e){ if(e.data && (e.data.taofSaved || e.data.taofClosed)) carregar(); });
 	})();
 	</script>
 	<?php

@@ -1341,12 +1341,19 @@ add_action( 'wp_ajax_tao_formula_salvar_sinonimo', function () {
     $ativo_id   = sanitize_text_field( $_POST['ativo_id'] ?? '' );
     $sinonimo   = strtoupper( trim( sanitize_text_field( $_POST['sinonimo'] ?? '' ) ) );
     if ( ! $ativo_id || ! $sinonimo || ! $cliente_id ) wp_send_json_error( 'Parâmetros inválidos' );
+    // UPSERT: se o sinônimo já existe (constraint lower(sinonimo)), re-associa ao ativo informado
+    $ex = tao_formula_api( '/ativos_sinonimos?cliente_id=eq.' . $cliente_id . '&sinonimo=ilike.' . rawurlencode( $sinonimo ) . '&select=id&limit=1' );
+    if ( $ex['ok'] && ! empty( $ex['data'] ) ) {
+        $r = tao_formula_api( "/ativos_sinonimos?id=eq.{$ex['data'][0]['id']}&cliente_id=eq.$cliente_id", 'PATCH', [ 'ativo_id' => $ativo_id ] );
+        $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => 'Erro ao re-associar: ' . $r['raw'] ] );
+        return;
+    }
     $r = tao_formula_api( '/ativos_sinonimos', 'POST', [
         'cliente_id' => $cliente_id,
         'ativo_id'   => $ativo_id,
         'sinonimo'   => $sinonimo,
     ] );
-    $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => 'Erro ao salvar (talvez já exista): ' . $r['raw'] ] );
+    $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => 'Erro ao salvar: ' . $r['raw'] ] );
 } );
 
 // ── Excluir sinônimo ──────────────────────────────────────────────────────────
@@ -1884,22 +1891,34 @@ function tao_formula_parse_descricao_itens( $descr, $cliente_id ) {
         }
         if ( ! $nome ) continue;
 
-        // Busca ativo pelo nome — wildcards (*) NÃO devem ser encoded (PostgREST usa * como glob)
+        // Busca ativo pelo nome — ORDEM IMPORTA: exato → sinônimo exato → prefixo → contém.
+        // "NAC" caía em *NAC* e casava com aceclofeNACo; substring agora é o ÚLTIMO recurso
+        // e só para nomes com 5+ caracteres (sigla curta não faz substring).
         $nome_enc = rawurlencode( $nome );
         $sel_ativo = 'id,nome,codigo_fc,preco_venda,custo_por_unidade,unidade_padrao,fator_perda,diluicao,teor,densidade,concentracao';
-        $ra  = tao_formula_api(
-            "/ativos?cliente_id=eq.{$cliente_id}&nome=ilike.*{$nome_enc}*&select={$sel_ativo}&limit=1"
-        );
 
-        // Fallback: se não achou por nome, tenta um sinônimo cadastrado (ativos_sinonimos)
+        // 1) nome EXATO (case-insensitive)
+        $ra = tao_formula_api( "/ativos?cliente_id=eq.{$cliente_id}&nome=ilike.{$nome_enc}&select={$sel_ativo}&limit=1" );
+
+        // 2) sinônimo EXATO cadastrado
         if ( ! ( $ra['ok'] && ! empty( $ra['data'] ) ) ) {
             $rs = tao_formula_api(
-                "/ativos_sinonimos?cliente_id=eq.{$cliente_id}&sinonimo=ilike." . rawurlencode( $nome ) . "&select=ativo_id&limit=1"
+                "/ativos_sinonimos?cliente_id=eq.{$cliente_id}&sinonimo=ilike.{$nome_enc}&ativo_id=not.is.null&select=ativo_id&limit=1"
             );
             if ( $rs['ok'] && ! empty( $rs['data'] ) ) {
                 $aid = $rs['data'][0]['ativo_id'];
                 $ra  = tao_formula_api( "/ativos?id=eq.{$aid}&cliente_id=eq.{$cliente_id}&select={$sel_ativo}&limit=1" );
             }
+        }
+
+        // 3) nome por PREFIXO
+        if ( ! ( $ra['ok'] && ! empty( $ra['data'] ) ) ) {
+            $ra = tao_formula_api( "/ativos?cliente_id=eq.{$cliente_id}&nome=ilike.{$nome_enc}*&select={$sel_ativo}&order=nome.asc&limit=1" );
+        }
+
+        // 4) nome CONTÉM — só p/ termos com 5+ caracteres
+        if ( ! ( $ra['ok'] && ! empty( $ra['data'] ) ) && mb_strlen( $nome ) >= 5 ) {
+            $ra = tao_formula_api( "/ativos?cliente_id=eq.{$cliente_id}&nome=ilike.*{$nome_enc}*&select={$sel_ativo}&order=nome.asc&limit=1" );
         }
 
         $ativo_id    = '';

@@ -1824,11 +1824,12 @@ function tao_crm_page_card() {
         // Modal de verdade: clique fora NÃO fecha (evita perder edição sem confirmar/fechar).
         // Saída é pelo botão Fechar/Salvar do editor (postMessage abaixo).
 
-        // postMessage do iframe
+        // postMessage do iframe — fechar OU salvar recarrega a lista (o card sempre
+        // reflete o que foi feito no modal, sem precisar de F5)
         window.addEventListener('message', function (e) {
             if (!e.data || !e.data.taofSaved && !e.data.taofClosed) return;
             fecharModal();
-            if (e.data.taofSaved) carregarFormulas();
+            carregarFormulas();
         });
 
         // ── Análise de preços do card (todos os orçamentos) ───────────
