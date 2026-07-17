@@ -1730,10 +1730,14 @@
         var valorFinalTxt = $('#taof-res-final strong').text().replace('R$', '').replace(/\./g,'').replace(',','.').trim();
         var valorFinal = parseFloat(valorFinalTxt) || 0;
 
-        // Reconciliação: diferença entre a venda dos itens e o valor final (custo fixo + acréscimo − desconto)
-        var _ajuste = valorFinal - totalVenda;
+        // Custo fixo da forma — linha própria na análise (pedido Carlos 17/07)
+        if (custoFixoReal > 0) {
+            rows += renderLinha('Custo fixo da forma (manipulação)', '', 0, 0, 0, custoFixoReal, false, false);
+        }
+        // Reconciliação: o que resta entre venda dos itens + custo fixo e o valor final (CM/acréscimo − desconto)
+        var _ajuste = valorFinal - totalVenda - custoFixoReal;
         if (Math.abs(_ajuste) >= 0.01) {
-            rows += renderLinha('Custo fixo + acréscimo − desconto', '', 0, 0, 0, _ajuste, false, false);
+            rows += renderLinha('CM (+) − Desconto (−)', '', 0, 0, 0, _ajuste, false, false);
         }
 
         // ── Total ────────────────────────────────────────────────────
