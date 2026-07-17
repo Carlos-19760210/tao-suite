@@ -61,6 +61,13 @@ function tao_caixa_page_vendas() {
         // Formas + faixas de taxa (para o modal "Receber")
         $rf = tao_caixa_api( "/caixa_formas_pagamento?cliente_id=eq.$cid&ativo=eq.true&order=ordem.asc,nome.asc&select=id,nome,tipo,adquirente_id,taxa_pct,prazo_recebimento_dias" );
         $formas = $rf['ok'] ? ( $rf['data'] ?? [] ) : [];
+        // Forma de cartão só entra no PDV se a OPERADORA dela estiver ativa (forma sem operadora passa)
+        $radq = tao_caixa_api( "/caixa_adquirentes?cliente_id=eq.$cid&ativo=eq.true&select=id" );
+        $adq_ativos = array_flip( array_column( $radq['ok'] ? ( $radq['data'] ?? [] ) : [], 'id' ) );
+        $formas = array_values( array_filter( $formas, function ( $f ) use ( $adq_ativos ) {
+            $aid = $f['adquirente_id'] ?? '';
+            return ! $aid || isset( $adq_ativos[ $aid ] );
+        } ) );
         $rtx = tao_caixa_api( "/caixa_taxas?cliente_id=eq.$cid&ativo=eq.true&select=forma_pagamento_id,adquirente_id,modalidade,bandeira,parcela_min,parcela_max,taxa_pct,prazo_recebimento_dias" );
         $taxas = $rtx['ok'] ? ( $rtx['data'] ?? [] ) : [];
 
