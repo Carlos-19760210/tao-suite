@@ -1859,14 +1859,28 @@ function tao_formula_parse_descricao_itens( $descr, $cliente_id ) {
         $nome      = trim( $part );
         $dose      = null;
         $dose_unit = 'mg';
+        $unit_explicita = false;
+
+        // Números do FCerta são pt-BR: vírgula = decimal; ponto seguido de 3 dígitos = milhar ("50.000" UI = 50000)
+        $num_br = function ( $s ) {
+            $s = trim( (string) $s );
+            if ( strpos( $s, ',' ) !== false ) return (float) str_replace( ',', '.', str_replace( '.', '', $s ) );
+            if ( preg_match( '/^\d{1,3}(\.\d{3})+$/', $s ) ) return (float) str_replace( '.', '', $s );
+            return (float) $s;
+        };
 
         // Tenta extrair "NOME DOSE UNIT"
         if ( preg_match( '/^(.+?)\s+([\d.,]+)\s*(mg|mcg|g|UI|UFC|BLH|ml|%)\s*$/i', $part, $im ) ) {
             $nome      = trim( $im[1] );
-            $dose      = (float) str_replace( ',', '.', $im[2] );
+            $dose      = $num_br( $im[2] );
             $raw_unit  = $im[3];
             $dose_unit = in_array( strtolower($raw_unit), ['ui','ufc','blh'] )
                          ? strtoupper($raw_unit) : strtolower($raw_unit);
+            $unit_explicita = true;
+        } elseif ( preg_match( '/^(.+?)\s+([\d.,]+)\s*$/', $part, $im ) ) {
+            // Dose SEM unidade no texto — a unidade vem do cadastro do ativo (resolvida abaixo)
+            $nome = trim( $im[1] );
+            $dose = $num_br( $im[2] );
         }
         if ( ! $nome ) continue;
 
@@ -1915,6 +1929,15 @@ function tao_formula_parse_descricao_itens( $descr, $cliente_id ) {
             $teor_at     = (float)(  $at['teor']               ?? 100 );
             $densidade_at = (float)( $at['densidade']          ?? 1 ) ?: 1.0;
             $conc_at      = (float)( $at['concentracao']       ?? 0 );
+
+            // Produto de unidade ESPECIAL (UI/UFC/BLH — ex.: Vitamina D): a dose é nessa unidade,
+            // salvo se o texto disse explicitamente outra unidade de massa (g/mcg/ml/%).
+            // Corrige o caso "VIT D em mg" (dose sem unidade ou mg default → UI do cadastro).
+            $upad_up = strtoupper( (string) $unid_padrao );
+            if ( $dose !== null && in_array( $upad_up, [ 'UI', 'UFC', 'BLH' ], true )
+                 && ( ! $unit_explicita || $dose_unit === 'mg' ) ) {
+                $dose_unit = $upad_up;
+            }
         }
 
         $itens[] = [
@@ -2236,7 +2259,19 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
             $equiv     = $motor_on_calc ? ( (float)( $item['equiv'] ?? 1 ) ?: 1.0 ) : 1.0;
             $preco     = (float)( $item['preco_venda'] ?? 0 );
 
-            if ( $dose > 0 && $preco > 0 ) {
+            $unit_up = strtoupper( (string) ( $item['dose_unit'] ?? '' ) );
+            if ( $dose > 0 && in_array( $unit_up, [ 'UI', 'UFC', 'BLH' ], true ) ) {
+                // Especiais (ex.: Vitamina D em UI): massa = dose ÷ concentração (UI|UFC por g) — port do isSpecial do JS
+                $conc         = (float) ( $item['concentracao'] ?? 0 );
+                $dose_ufc     = $unit_up === 'BLH' ? $dose * 1e9 : $dose;
+                $qtd_total_g  = $conc > 0 ? ( $dose_ufc / $conc ) * $mult : 0.0;
+                $qtd_total_mg = $qtd_total_g * 1000;
+                if     ( $unid_pad === 'g' )                       $qtd_em_padrao = $qtd_total_g;
+                elseif ( $unid_pad === 'mg' )                      $qtd_em_padrao = $qtd_total_mg;
+                elseif ( strtoupper( $unid_pad ) === $unit_up )    $qtd_em_padrao = $dose * $mult;
+                else                                               $qtd_em_padrao = $qtd_total_g;
+                $subtotal = round( $qtd_em_padrao * $preco, 4 );
+            } elseif ( $dose > 0 && $preco > 0 ) {
                 switch ( $dose_unit ) {
                     case 'g':   $dose_mg = $dose * 1000; break;
                     case 'mcg': $dose_mg = $dose / 1000; break;

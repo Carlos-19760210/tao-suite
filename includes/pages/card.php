@@ -1821,10 +1821,8 @@ function tao_crm_page_card() {
             });
         }
 
-        // Clique fora do iframe fecha modal
-        modal.addEventListener('click', function (e) {
-            if (e.target === modal) fecharModal();
-        });
+        // Modal de verdade: clique fora NÃO fecha (evita perder edição sem confirmar/fechar).
+        // Saída é pelo botão Fechar/Salvar do editor (postMessage abaixo).
 
         // postMessage do iframe
         window.addEventListener('message', function (e) {

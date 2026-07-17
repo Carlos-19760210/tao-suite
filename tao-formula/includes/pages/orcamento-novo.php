@@ -444,7 +444,7 @@ function tao_formula_page_orcamento_novo() {
                 <td id="taof-res-subtotal" class="taof-res-val">R$&nbsp;0,00</td>
             </tr>
             <tr>
-                <td>(+) Acréscimo</td>
+                <td>(+) CM</td>
                 <td>
                     <input type="number" id="taof-acrescimo-val-inp" name="acrescimo_val"
                            value="0" min="0" step="0.01" class="taof-money-inp"
@@ -495,14 +495,14 @@ function tao_formula_page_orcamento_novo() {
         <button type="submit" class="button button-primary button-large" id="taof-orc-salvar">
             <?php echo $edit_data ? '💾 Atualizar Orçamento' : '💾 Salvar Orçamento'; ?>
         </button>
-        <button type="button" class="button button-large" id="taof-btn-analise" title="Comparativo de preços por ativo">
-            📊 Análise de Preços
-        </button>
         <?php if ( $is_modal ) : ?>
-        <button type="button" class="button button-large" id="taof-cancel-btn">Cancelar</button>
+        <button type="button" class="button button-large" id="taof-cancel-btn">✕ Fechar</button>
         <?php else : ?>
         <a href="<?php echo esc_url($url_lista); ?>" class="button button-large">Cancelar</a>
         <?php endif; ?>
+        <button type="button" class="button button-large" id="taof-btn-analise" title="Comparativo de preços por ativo">
+            📊 Análise de Preços
+        </button>
         <span class="taof-spinner spinner" style="float:none;visibility:hidden"></span>
         <span class="taof-msg" style="display:none"></span>
     </div>
