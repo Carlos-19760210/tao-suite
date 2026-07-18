@@ -728,6 +728,7 @@
         'Não responde os contatos',
         'Não há mais interesse no serviço',
         'Falta de Insumo',
+        'Drogaria',
         'Não remete à venda',
         'Fechou com concorrente',
         'Declinamos o trabalho',
@@ -755,11 +756,14 @@
         $(this).css('borderColor', '#d1d5db');
         var isOutro  = v === 'Outro (especificar)';
         var isInsumo = v === 'Falta de Insumo';
+        var isDrog   = v === 'Drogaria';
         $('#tao-crm-fechar-outro')
-            .attr('placeholder', isInsumo ? 'Qual insumo faltou? (obrigatório)' : 'Descreva o motivo...')
+            .attr('placeholder', isInsumo ? 'Qual insumo faltou? (obrigatório)'
+                               : isDrog   ? 'Qual medicação foi procurada? (obrigatório)'
+                                          : 'Descreva o motivo...')
             .css('borderColor', '#d1d5db');
-        $('#tao-crm-fechar-outro-wrap').toggle(isOutro || isInsumo);
-        if(isOutro || isInsumo) $('#tao-crm-fechar-outro').focus();
+        $('#tao-crm-fechar-outro-wrap').toggle(isOutro || isInsumo || isDrog);
+        if(isOutro || isInsumo || isDrog) $('#tao-crm-fechar-outro').focus();
     });
 
     var _fecharValores = {};
@@ -890,6 +894,16 @@
             }
             $('#tao-crm-fechar-outro').css('borderColor', '#d1d5db');
             motivo = 'Falta de Insumo: ' + insumo;
+        } else if (motivo === 'Drogaria') {
+            // Regra: informar QUAL medicação o cliente procurava é obrigatório (mede a demanda perdida)
+            var medic = $('#tao-crm-fechar-outro').val().trim();
+            if (!medic) {
+                $('#tao-crm-fechar-outro-wrap').show();
+                $('#tao-crm-fechar-outro').css('borderColor', '#ef4444').focus();
+                return;
+            }
+            $('#tao-crm-fechar-outro').css('borderColor', '#d1d5db');
+            motivo = 'Drogaria: ' + medic;
         }
 
         // Fechamento em LOTE como perdido (kanban): mesmo motivo para todos os selecionados
