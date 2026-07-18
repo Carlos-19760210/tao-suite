@@ -203,12 +203,46 @@ function tao_formula_page_orcamentos() {
             if (!confirm('Atesto que avaliei a prescrição e a fórmula está farmacotecnicamente adequada para manipulação.\n\nAo aprovar, o orçamento é liberado para envio ao paciente. Confirmar?')) return;
             updateStatus($(this).data('id'), 'aprovado_farma', $(this));
         });
+        // Motivo da rejeição: "Produto Drogaria" exige o produto; "Outro" exige descrição
+        function taofMotivoRejeicao(cb){
+            var ov=document.createElement('div');
+            ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:100060;display:flex;align-items:center;justify-content:center';
+            ov.innerHTML='<div style="background:#fff;border-radius:10px;padding:18px 20px;width:380px;max-width:92vw;box-shadow:0 10px 40px rgba(0,0,0,.3)">'
+                +'<h3 style="margin:0 0 10px;font-size:14px">Motivo da rejeição</h3>'
+                +'<select id="taof-rej-tipo" style="width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:6px;margin-bottom:8px">'
+                +'<option value="">— Selecione —</option>'
+                +'<option value="drogaria">Produto Drogaria</option>'
+                +'<option value="outro">Outro</option></select>'
+                +'<input id="taof-rej-prod" type="text" placeholder="Qual produto? (obrigatório)" style="display:none;width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:6px;margin-bottom:8px">'
+                +'<textarea id="taof-rej-txt" rows="2" placeholder="Descreva o motivo (obrigatório)" style="display:none;width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:6px;margin-bottom:8px"></textarea>'
+                +'<div style="display:flex;gap:8px;justify-content:flex-end">'
+                +'<button type="button" class="taoc-btn taof-btn" id="taof-rej-cancel">Cancelar</button>'
+                +'<button type="button" class="taof-btn taof-btn-primary" id="taof-rej-ok">Rejeitar</button></div></div>';
+            document.body.appendChild(ov);
+            var sel=ov.querySelector('#taof-rej-tipo'), prod=ov.querySelector('#taof-rej-prod'), txt=ov.querySelector('#taof-rej-txt');
+            sel.addEventListener('change',function(){
+                prod.style.display = sel.value==='drogaria' ? '' : 'none';
+                txt.style.display  = sel.value==='outro'    ? '' : 'none';
+            });
+            ov.querySelector('#taof-rej-cancel').addEventListener('click',function(){ ov.remove(); });
+            ov.querySelector('#taof-rej-ok').addEventListener('click',function(){
+                var m='';
+                if(sel.value==='drogaria'){
+                    var p=(prod.value||'').trim();
+                    if(!p){ alert('Informe o produto de drogaria.'); prod.focus(); return; }
+                    m='Produto Drogaria: '+p;
+                } else if(sel.value==='outro'){
+                    m=(txt.value||'').trim();
+                    if(!m){ alert('Descreva o motivo.'); txt.focus(); return; }
+                } else { alert('Selecione o motivo.'); return; }
+                ov.remove(); cb(m);
+            });
+        }
         $(document).on('click', '.taof-orc-rejeitar', function() {
-            var motivo = prompt('Motivo da rejeição (obrigatório):', '');
-            if (motivo === null) return;
-            motivo = (motivo || '').trim();
-            if (!motivo) { alert('É necessário informar o motivo da rejeição.'); return; }
-            updateStatus($(this).data('id'), 'rejeitado', $(this), { motivo: motivo });
+            var $b = $(this);
+            taofMotivoRejeicao(function(motivo){
+                updateStatus($b.data('id'), 'rejeitado', $b, { motivo: motivo });
+            });
         });
 
         // Importar receita — a IA interpreta o PDF/foto e cria os orçamentos (mesmo motor do card)
