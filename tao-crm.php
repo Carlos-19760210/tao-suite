@@ -1162,8 +1162,9 @@ function tao_crm_ajax_move_card() {
     }
 
     // Regra: mover p/ "Flw Orçamento Enviado" ou QUALQUER fase posterior exige ≥1 item OU ≥1 orçamento (valor sozinho não basta)
+    // EXCEÇÃO (Carlos 18/07): "Análise Técnica" não exige — o card chega lá justamente PARA a análise gerar o orçamento.
     if ( $de_estagio !== $estagio_id ) {
-        $rde = tao_crm_api( "/crm_estagios?id=eq.$estagio_id&select=ordem,pipeline_id,tipo&limit=1" );
+        $rde = tao_crm_api( "/crm_estagios?id=eq.$estagio_id&select=nome,ordem,pipeline_id,tipo&limit=1" );
         if ( $rde['ok'] && ! empty( $rde['data'] ) ) {
             // Estágios TERMINAIS não aceitam arrasto direto: perdido exige motivo e
             // ganho exige confirmação do Valor Final — o front reencaminha pro fluxo de fechamento.
@@ -1189,7 +1190,9 @@ function tao_crm_ajax_move_card() {
                     if ( strpos( $sn, 'ORÇAMENTO ENVIADO' ) !== false || strpos( $sn, 'ORCAMENTO ENVIADO' ) !== false ) { $flw_ord = (int) ( $s['ordem'] ?? 0 ); break; }
                 }
             }
-            if ( $flw_ord >= 0 && $dord >= $flw_ord && ! tao_crm_card_tem_negocio( $card_id ) ) {
+            $dnome      = mb_strtoupper( $rde['data'][0]['nome'] ?? '' );
+            $eh_analise = ( mb_strpos( $dnome, 'ANÁLISE TÉCNICA' ) !== false || mb_strpos( $dnome, 'ANALISE TECNICA' ) !== false );
+            if ( ! $eh_analise && $flw_ord >= 0 && $dord >= $flw_ord && ! tao_crm_card_tem_negocio( $card_id ) ) {
                 wp_send_json_error( [
                     'code' => 'sem_negocio',
                     'msg'  => 'Adicione ao menos um item ou orçamento ao negócio antes de movimentar para essa fase.',
