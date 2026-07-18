@@ -1954,42 +1954,6 @@ function tao_crm_page_card() {
             return '<button class="button button-small taof-orc-aprovar" data-id="'+o.id+'" style="font-size:10px;padding:2px 6px;color:#16a34a;border-color:#86efac" title="Aprovar — vira OM">✅</button> '
                  + '<button class="button button-small taof-orc-rejeitar" data-id="'+o.id+'" style="font-size:10px;padding:2px 6px;color:#dc2626;border-color:#fca5a5" title="Rejeitar — não vira OM">✕</button> ';
         }
-        // Modal de motivo da rejeição: "Produto Drogaria" exige informar o produto; "Outro" exige descrição
-        function taofMotivoRejeicao(cb){
-            var ov=document.createElement('div');
-            ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:100060;display:flex;align-items:center;justify-content:center';
-            ov.innerHTML='<div style="background:#fff;border-radius:10px;padding:18px 20px;width:380px;max-width:92vw;box-shadow:0 10px 40px rgba(0,0,0,.3)">'
-                +'<h3 style="margin:0 0 10px;font-size:14px">Motivo da rejeição</h3>'
-                +'<select id="taof-rej-tipo" style="width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:6px;margin-bottom:8px">'
-                +'<option value="">— Selecione —</option>'
-                +'<option value="drogaria">Produto Drogaria</option>'
-                +'<option value="outro">Outro</option></select>'
-                +'<input id="taof-rej-prod" type="text" placeholder="Qual produto? (obrigatório)" style="display:none;width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:6px;margin-bottom:8px">'
-                +'<textarea id="taof-rej-txt" rows="2" placeholder="Descreva o motivo (obrigatório)" style="display:none;width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:6px;margin-bottom:8px"></textarea>'
-                +'<div style="display:flex;gap:8px;justify-content:flex-end">'
-                +'<button type="button" class="button" id="taof-rej-cancel">Cancelar</button>'
-                +'<button type="button" class="button button-primary" id="taof-rej-ok">Rejeitar</button></div></div>';
-            document.body.appendChild(ov);
-            var sel=ov.querySelector('#taof-rej-tipo'), prod=ov.querySelector('#taof-rej-prod'), txt=ov.querySelector('#taof-rej-txt');
-            sel.addEventListener('change',function(){
-                prod.style.display = sel.value==='drogaria' ? '' : 'none';
-                txt.style.display  = sel.value==='outro'    ? '' : 'none';
-            });
-            ov.querySelector('#taof-rej-cancel').addEventListener('click',function(){ ov.remove(); });
-            ov.querySelector('#taof-rej-ok').addEventListener('click',function(){
-                var m='';
-                if(sel.value==='drogaria'){
-                    var p=(prod.value||'').trim();
-                    if(!p){ alert('Informe o produto de drogaria.'); prod.focus(); return; }
-                    m='Produto Drogaria: '+p;
-                } else if(sel.value==='outro'){
-                    m=(txt.value||'').trim();
-                    if(!m){ alert('Descreva o motivo.'); txt.focus(); return; }
-                } else { alert('Selecione o motivo.'); return; }
-                ov.remove(); cb(m);
-            });
-        }
-
         function carregarFormulas() {
             if (!listDiv) return;
             listDiv.innerHTML = '<span style="color:#94a3b8">Carregando...</span>';
@@ -2123,10 +2087,8 @@ function tao_crm_page_card() {
                     });
                     listDiv.querySelectorAll('.taof-orc-rejeitar').forEach(function(b){
                         b.addEventListener('click', function(){
-                            var oid = this.dataset.id;
-                            taofMotivoRejeicao(function(m){
-                                orcAcao('tao_formula_orc_rejeitar', oid, {motivo:m}).then(function(r){ if(r.success){ carregarFormulas(); window.postMessage({taofSaved:true},'*'); } else alert('Erro ao rejeitar'); });
-                            });
+                            var m = prompt('Motivo da rejeição (opcional):','') || '';
+                            orcAcao('tao_formula_orc_rejeitar', this.dataset.id, {motivo:m}).then(function(r){ if(r.success){ carregarFormulas(); window.postMessage({taofSaved:true},'*'); } else alert('Erro ao rejeitar'); });
                         });
                     });
                     listDiv.querySelectorAll('.taof-orc-reabrir').forEach(function(b){
