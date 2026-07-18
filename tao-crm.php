@@ -2495,27 +2495,17 @@ function tao_crm_build_orcamento_msg( array $orcs, string $nome, string $rodape 
                 ? tao_formula_build_descricao( $o['forma_nome'] ?? '', $o['forma_vol'] ?? 0, $o['forma_unidade'] ?? 'g', $itens, $o['qtde_potes'] ?? 1 )
                 : 'FORMULA MANIPULADA - ' . strtoupper( $o['forma_nome'] ?? '' );
         }
-        // Com desconto: mostra os 3 valores (calculado, desconto, com desconto). Sem desconto: só o valor.
-        if ( $desc > 0.005 ) {
-            $valor_txt = "Valor R\$: " . $brl( $bruto )
-                       . "\nDesconto R\$: " . $brl( $desc )
-                       . "\nValor com desconto R\$: " . $brl( $total );
-        } else {
-            $valor_txt = "Valor R\$: " . $brl( $total );
-        }
-        $blocos[] = "ORC:{$numero}\n{$descr}\n{$valor_txt}";
+        // Cada ITEM (fórmula) mostra o SEU preço total; o fechamento traz VALOR TOTAL + VALOR COM DESCONTO.
+        $blocos[] = "ORC:{$numero}\n{$descr}\nValor R\$: " . $brl( $bruto );
     }
     $msg  = "Prezado(a) *{$nome}*,\n\n";
     $msg .= "Seguem detalhes da sua solicitação de orçamento:\n\n\n";
     $msg .= implode( "\n\n", $blocos ) . "\n\n";
+    $msg .= "VALOR TOTAL: R\$ " . $brl( $bruto_geral ) . "\n";
     if ( $desc_geral > 0.005 ) {
-        $msg .= "VALOR TOTAL: R\$ " . $brl( $bruto_geral ) . "\n";
-        $msg .= "DESCONTO: R\$ " . $brl( $desc_geral ) . "\n";
-        $msg .= "TOTAL A VISTA (com desconto): R\$ " . $brl( $total_geral ) . "\n\n";
-    } else {
-        $msg .= "TOTAL A VISTA: R\$ " . $brl( $total_geral ) . "\n\n";
+        $msg .= "VALOR COM DESCONTO (à vista): R\$ " . $brl( $total_geral ) . "\n";
     }
-    $msg .= $rodape;
+    $msg .= "\n" . $rodape;
     return $msg;
 }
 
