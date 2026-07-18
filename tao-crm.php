@@ -2483,6 +2483,11 @@ function tao_crm_build_orcamento_msg( array $orcs, string $nome, string $rodape 
         $numero  = $o['numero_orcamento'] ?? '—';
         $total   = (float) ( $o['total_orcamento'] ?? 0 );          // valor com desconto (final)
         $desc    = (float) ( $o['desconto_fc'] ?? 0 );              // desconto oferecido em R$
+        // Desconto pode estar só em % (sem o R$): deriva o cheio a partir do percentual
+        if ( $desc <= 0.005 ) {
+            $pct = (float) ( $o['desconto_pct'] ?? 0 );
+            if ( $pct > 0 && $pct < 100 ) $desc = round( $total / ( 1 - $pct / 100 ) - $total, 2 );
+        }
         $bruto   = $total + $desc;                                   // valor de venda calculado
         $total_geral += $total; $bruto_geral += $bruto; $desc_geral += $desc;
         $itens   = is_string( $o['itens'] ) ? json_decode( $o['itens'], true ) : ( $o['itens'] ?? [] );
@@ -2503,7 +2508,7 @@ function tao_crm_build_orcamento_msg( array $orcs, string $nome, string $rodape 
     $msg .= implode( "\n\n", $blocos ) . "\n\n";
     $msg .= "VALOR TOTAL: R\$ " . $brl( $bruto_geral ) . "\n";
     if ( $desc_geral > 0.005 ) {
-        $msg .= "VALOR COM DESCONTO (à vista): R\$ " . $brl( $total_geral ) . "\n";
+        $msg .= "\n*VALOR COM DESCONTO: R\$ " . $brl( $total_geral ) . "*\n";
     }
     $msg .= "\n" . $rodape;
     return $msg;
@@ -2529,7 +2534,7 @@ function tao_crm_ajax_preview_orcamento_formula() {
     $ro = tao_formula_api(
         "/orcamentos?id=in.($ids_str)" .
         "&select=numero_orcamento,forma_nome,forma_vol,forma_unidade,qtde_potes," .
-        "total_orcamento,itens,observacoes,nome_paciente&order=criado_em.asc"
+        "total_orcamento,desconto_fc,desconto_pct,itens,observacoes,nome_paciente&order=criado_em.asc"
     );
     if ( ! $ro['ok'] || empty( $ro['data'] ) ) wp_send_json_error( 'Orçamentos não encontrados' );
 
@@ -2563,7 +2568,7 @@ function tao_crm_ajax_enviar_orcamento_formula() {
         $ro = tao_formula_api(
             "/orcamentos?id=in.($ids_str)" .
             "&select=numero_orcamento,forma_nome,forma_vol,forma_unidade,qtde_potes," .
-            "total_orcamento,desconto_fc,itens,observacoes,nome_paciente&order=criado_em.asc"
+            "total_orcamento,desconto_fc,desconto_pct,itens,observacoes,nome_paciente&order=criado_em.asc"
         );
         if ( ! $ro['ok'] || empty( $ro['data'] ) ) wp_send_json_error( 'Orçamentos não encontrados' );
         $nome = $card['contato_nome'] ?? 'cliente';
