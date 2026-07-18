@@ -3,6 +3,32 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
 // ── Busca de Ativos (autocomplete) ───────────────────────────────────────────
 
+/**
+ * PREÇO COM FATOR (paridade FCerta) — atrás da chave tao_formula_preco_fator (default OFF).
+ * Ligada, o preço de venda EFETIVO do ativo passa a ser custo_por_unidade × markup_preco
+ * (o FATOR do FCerta, carga 1), como o FCerta precifica. Aplicado no ponto único de
+ * leitura do ativo — editor, importação, receita IA e reprocessamento herdam juntos.
+ */
+function tao_formula_preco_fator_on() {
+    static $on = null;
+    if ( $on === null ) $on = get_option( 'tao_formula_preco_fator' ) === '1';
+    return $on;
+}
+/** Transforma preco_venda em custo×fator (linha única de ativo ou lista). */
+function tao_formula_aplica_fator( $rows ) {
+    if ( ! tao_formula_preco_fator_on() || ! is_array( $rows ) || ! $rows ) return $rows;
+    $uma  = isset( $rows['id'] );               // linha única?
+    $list = $uma ? [ $rows ] : $rows;
+    foreach ( $list as &$a ) {
+        if ( ! is_array( $a ) ) continue;
+        $mk = (float) ( $a['markup_preco'] ?? 0 );
+        $cu = (float) ( $a['custo_por_unidade'] ?? 0 );
+        if ( $mk > 1 && $cu > 0 ) $a['preco_venda'] = round( $cu * $mk, 6 );
+    }
+    unset( $a );
+    return $uma ? $list[0] : $list;
+}
+
 add_action( 'wp_ajax_tao_formula_search_ativos', function() {
     while ( ob_get_level() > 0 ) ob_end_clean();
     check_ajax_referer( 'tao_formula_nonce', 'nonce' );
@@ -15,7 +41,7 @@ add_action( 'wp_ajax_tao_formula_search_ativos', function() {
 
     $term     = urlencode( $q );
     $motor_on = get_option( 'tao_formula_motor_v2' ) === '1';
-    $sel_at   = 'id,codigo_fc,nome,unidade,unidade_padrao,preco_compra,custo_por_unidade,preco_venda,fator_correcao,fator_perda,densidade,diluicao,teor,grupo,concentracao,bloqueado'
+    $sel_at   = 'id,codigo_fc,nome,unidade,unidade_padrao,preco_compra,custo_por_unidade,preco_venda,markup_preco,fator_correcao,fator_perda,densidade,diluicao,teor,grupo,concentracao,bloqueado'
               . ( $motor_on ? ',dose_max,uni_dose_max,dose_max_dia,dose_max_unidade,restricao' : '' );
     $base  = "/ativos?cliente_id=eq.$cliente_id&ativo=eq.true" .
              "&select=$sel_at" .
@@ -31,6 +57,7 @@ add_action( 'wp_ajax_tao_formula_search_ativos', function() {
         $qs_all = $base . "&or=(nome.ilike.*{$term}*,codigo_fc.ilike.*{$term}*)";
         $r = tao_formula_api( $qs_all );
     }
+    if ( $r['ok'] ) $r['data'] = tao_formula_aplica_fator( $r['data'] ?? [] );
 
     // Motor v2: inclui matches por SINÔNIMO (equivalência sal↔base aplicada pelo nome prescrito)
     if ( $motor_on && $r['ok'] && $grupo === 'M' ) {
@@ -45,7 +72,7 @@ add_action( 'wp_ajax_tao_formula_search_ativos', function() {
                 "&select=$sel_at&limit=" . count( $ids )
             );
             $por_id = [];
-            foreach ( ( $ra['ok'] ? $ra['data'] : [] ) as $at ) $por_id[ $at['id'] ] = $at;
+            foreach ( tao_formula_aplica_fator( $ra['ok'] ? $ra['data'] : [] ) as $at ) $por_id[ $at['id'] ] = $at;
             $ja_tem = array_column( $r['data'], 'id' );
             foreach ( $rs['data'] as $sin ) {
                 $at = $por_id[ $sin['ativo_id'] ] ?? null;
@@ -430,6 +457,12 @@ function tao_formula_orc_payload( $itens ) {
     // Ficha de manipulação: data da prescrição + previsão de retirada (migration_ficha_om_v1)
     $p['dt_prescricao']     = sanitize_text_field( $_POST['dt_prescricao']     ?? '' ) ?: null;
     $p['previsao_retirada'] = sanitize_text_field( $_POST['previsao_retirada'] ?? '' ) ?: null;
+    // Controlados 344/98 (migration_orc_controlado_v1): receita + comprador — a OM herda
+    $p['tp_receita']       = sanitize_text_field( $_POST['tp_receita']       ?? '' ) ?: null;
+    $p['nr_notificacao']   = sanitize_text_field( $_POST['nr_notificacao']   ?? '' ) ?: null;
+    $p['comprador_nome']   = sanitize_text_field( $_POST['comprador_nome']   ?? '' ) ?: null;
+    $p['comprador_doc_tp'] = sanitize_text_field( $_POST['comprador_doc_tp'] ?? '' ) ?: null;
+    $p['comprador_doc_nr'] = sanitize_text_field( $_POST['comprador_doc_nr'] ?? '' ) ?: null;
     return $p;
 }
 
@@ -797,7 +830,7 @@ function tao_formula_criar_orc_ia_core( $args ) {
         $ra = tao_formula_api(
             '/ativos?cliente_id=eq.' . $cliente_id .
             '&or=(nome.ilike.*' . rawurlencode( $nome_a ) . '*,codigo_fc.ilike.*' . rawurlencode( $nome_a ) . '*)' .
-            '&select=id,codigo_fc,nome,unidade_padrao,preco_venda,custo_por_unidade,diluicao,teor&limit=1'
+            '&select=id,codigo_fc,nome,unidade_padrao,preco_venda,custo_por_unidade,markup_preco,diluicao,teor&limit=1'
         );
         $at    = ( $ra['ok'] && ! empty( $ra['data'] ) ) ? $ra['data'][0] : null;
         $equiv = 1.0;   // equivalência sal↔base quando o match vem de sinônimo (motor v2)
@@ -813,7 +846,7 @@ function tao_formula_criar_orc_ia_core( $args ) {
                 $ra2 = tao_formula_api(
                     '/ativos?id=eq.' . $rs['data'][0]['ativo_id'] .
                     '&cliente_id=eq.' . $cliente_id .
-                    '&select=id,codigo_fc,nome,unidade_padrao,preco_venda,custo_por_unidade,diluicao,teor&limit=1'
+                    '&select=id,codigo_fc,nome,unidade_padrao,preco_venda,custo_por_unidade,markup_preco,diluicao,teor&limit=1'
                 );
                 $at = ( $ra2['ok'] && ! empty( $ra2['data'] ) ) ? $ra2['data'][0] : null;
                 if ( $at ) $equiv = (float) ( $rs['data'][0]['fator_equiv'] ?? 1 ) ?: 1.0;
@@ -831,7 +864,7 @@ function tao_formula_criar_orc_ia_core( $args ) {
                 $ra2 = tao_formula_api(
                     '/ativos?id=eq.' . $rs['data'][0]['ativo_id'] .
                     '&cliente_id=eq.' . $cliente_id .
-                    '&select=id,codigo_fc,nome,unidade_padrao,preco_venda,custo_por_unidade,diluicao,teor&limit=1'
+                    '&select=id,codigo_fc,nome,unidade_padrao,preco_venda,custo_por_unidade,markup_preco,diluicao,teor&limit=1'
                 );
                 $at = ( $ra2['ok'] && ! empty( $ra2['data'] ) ) ? $ra2['data'][0] : null;
                 if ( $at ) $equiv = (float) ( $rs['data'][0]['fator_equiv'] ?? 1 ) ?: 1.0;
@@ -839,6 +872,7 @@ function tao_formula_criar_orc_ia_core( $args ) {
         }
 
         if ( ! $at ) $nao_encontrados[] = $nome_a;
+        if ( $at ) $at = tao_formula_aplica_fator( $at );
 
         $preco     = (float) ( $at['preco_venda']      ?? 0 );
         $unid_p    = $at['unidade_padrao'] ?? 'mg';
@@ -1165,7 +1199,7 @@ add_action( 'wp_ajax_tao_formula_reprocessar_orc', function () {
         return;
     }
 
-    $sel_at    = 'id,codigo_fc,nome,unidade_padrao,preco_venda,custo_por_unidade,fator_perda,diluicao,teor';
+    $sel_at    = 'id,codigo_fc,nome,unidade_padrao,preco_venda,custo_por_unidade,markup_preco,fator_perda,diluicao,teor';
     $motor_on  = get_option( 'tao_formula_motor_v2' ) === '1';
     $total_upd = 0;
 
@@ -1231,6 +1265,7 @@ add_action( 'wp_ajax_tao_formula_reprocessar_orc', function () {
             }
 
             if ( ! $at ) continue;
+            $at = tao_formula_aplica_fator( $at );
 
             // Recalcular subtotal com fórmula completa (replica calcularLinha do JS)
             $dose      = (float) ( $item['dose']     ?? 0 );
@@ -3969,6 +4004,12 @@ function tao_formula_criar_om( $cliente_id, $orc_id ) {
         'modo_preparo'      => $modo_preparo,
         'dt_prescricao'     => $o['dt_prescricao'] ?? null,       // herdado do orçamento (ficha)
         'previsao_retirada' => $o['previsao_retirada'] ?? null,   // herdado do orçamento (ficha)
+        // Controlados 344/98 — herdados do orçamento (colunas da OM = Pacote 4)
+        'tp_receita'        => $o['tp_receita']       ?? null,
+        'nr_notificacao'    => $o['nr_notificacao']   ?? null,
+        'comprador_nome'    => $o['comprador_nome']   ?? null,
+        'comprador_doc_tp'  => $o['comprador_doc_tp'] ?? null,
+        'comprador_doc_nr'  => $o['comprador_doc_nr'] ?? null,
         'dt_validade'   => gmdate( 'Y-m-d', strtotime( "+$dias days" ) ),
         'etapa_id'      => tao_formula_etapa_inicial( $cliente_id ),
         'status'        => 'aberta',

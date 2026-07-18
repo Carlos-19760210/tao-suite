@@ -1598,6 +1598,12 @@
             desconto_pct:    desctPct,
             total_orcamento: final,
             observacoes:     $('#taof-observacoes').val(),
+            // Controlados (344/98) — receita + comprador; a OM herda na criação
+            tp_receita:       ($('#taof-ctl-tipo').val()      || ''),
+            nr_notificacao:   ($('#taof-ctl-notif').val()     || ''),
+            comprador_nome:   ($('#taof-ctl-comprador').val() || ''),
+            comprador_doc_tp: ($('#taof-ctl-doctp').val()     || ''),
+            comprador_doc_nr: ($('#taof-ctl-docnr').val()     || ''),
             itens:           JSON.stringify(itens)
         };
         // Orçamento importado do FC: propaga o Final pro card (Kanban lê valor_final_fc)

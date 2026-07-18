@@ -314,6 +314,42 @@ function tao_formula_page_orcamento_novo() {
             </div>
         </div>
 
+        <!-- Linha 4: Controlados (Portaria 344/98) — receita + comprador; a OM herda -->
+        <?php $edt = $edit_data ?? []; ?>
+        <details style="margin-top:2px" <?php echo ! empty( $edt['tp_receita'] ) || ! empty( $edt['comprador_nome'] ) ? 'open' : ''; ?>>
+            <summary style="cursor:pointer;font-size:12px;color:#92400e;font-weight:600">🔒 Receituário de controle especial (Portaria 344) — preencher quando houver ativo controlado</summary>
+            <div class="taof-row" style="margin-top:8px">
+                <div class="taof-field" style="width:130px">
+                    <label class="taof-label">Tipo de receita</label>
+                    <select id="taof-ctl-tipo" class="taof-inp">
+                        <?php foreach ( [ '' => '—', 'A' => 'A (amarela)', 'B' => 'B (azul)', 'B2' => 'B2', 'C1' => 'C1', 'C2' => 'C2' ] as $v => $l ) : ?>
+                        <option value="<?php echo esc_attr( $v ); ?>" <?php selected( $edt['tp_receita'] ?? '', $v ); ?>><?php echo esc_html( $l ); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="taof-field" style="width:170px">
+                    <label class="taof-label">Nº notificação</label>
+                    <input type="text" id="taof-ctl-notif" class="taof-inp" value="<?php echo esc_attr( $edt['nr_notificacao'] ?? '' ); ?>">
+                </div>
+                <div class="taof-field" style="flex:1;min-width:180px">
+                    <label class="taof-label">Comprador (se ≠ paciente)</label>
+                    <input type="text" id="taof-ctl-comprador" class="taof-inp" value="<?php echo esc_attr( $edt['comprador_nome'] ?? '' ); ?>">
+                </div>
+                <div class="taof-field" style="width:90px">
+                    <label class="taof-label">Doc.</label>
+                    <select id="taof-ctl-doctp" class="taof-inp">
+                        <?php foreach ( [ '' => '—', 'RG' => 'RG', 'CPF' => 'CPF', 'CNH' => 'CNH' ] as $v => $l ) : ?>
+                        <option value="<?php echo esc_attr( $v ); ?>" <?php selected( $edt['comprador_doc_tp'] ?? '', $v ); ?>><?php echo esc_html( $l ); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="taof-field" style="width:160px">
+                    <label class="taof-label">Nº documento</label>
+                    <input type="text" id="taof-ctl-docnr" class="taof-inp" value="<?php echo esc_attr( $edt['comprador_doc_nr'] ?? '' ); ?>">
+                </div>
+            </div>
+        </details>
+
     </div><!-- .taof-orc-card -->
 
     <!-- ══ DETAIL — Ingredientes ══════════════════════════════════════ -->
