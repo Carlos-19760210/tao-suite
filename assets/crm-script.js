@@ -436,6 +436,8 @@
                     location.reload();
                 } else {
                     _lastMovedCardId = cardId;
+                    // o próprio movimento não deve disparar o soft-refresh do quadro
+                    if (window.taoCrmBumpSince) window.taoCrmBumpSince();
                 }
             },
             function(err){ alert('Erro ao mover: ' + err); location.reload(); }
@@ -1403,6 +1405,9 @@
         });
 
         var _kRefreshing = false;
+        // Movimento feito pelo PRÓPRIO usuário avança o relógio do verificador —
+        // o soft-refresh (que apaga o quadro por segundos) só dispara p/ alterações de OUTROS.
+        window.taoCrmBumpSince = function(){ _kSince = new Date().toISOString(); };
         function _softRefreshKanban(){
             if(_kRefreshing) return;
             _kRefreshing = true;
