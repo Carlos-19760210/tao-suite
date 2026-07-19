@@ -296,8 +296,9 @@ function tao_caixa_calc_antecipacao( $adq, $modalidade, $parcelas, $base ) {
  * antecipado → 1 recebível D+prazo_antecipado; fluxo (crédito parcelado) → 1 por parcela a cada 30d;
  * demais → 1 recebível no prazo resolvido. Falha em silêncio se a migration não rodou.
  */
-function tao_caixa_gerar_recebiveis( $cid, $pag_id, $adq, $modalidade, $parcelas, $liquido, $prazo_default ) {
+function tao_caixa_gerar_recebiveis( $cid, $pag_id, $adq, $modalidade, $parcelas, $liquido, $prazo_default, $base_ts = null ) {
     if ( ! $pag_id || $liquido <= 0 ) return;
+    $base_ts  = $base_ts ?: time();   // data do pagamento (pode ser retroativa) — prazos contam a partir dela
     $parcelas = max( 1, (int) $parcelas );
     $comum = [ 'cliente_id' => $cid, 'pagamento_id' => $pag_id, 'adquirente_id' => $adq['id'] ?? null ];
     $linhas = [];
@@ -307,7 +308,7 @@ function tao_caixa_gerar_recebiveis( $cid, $pag_id, $adq, $modalidade, $parcelas
             $linhas[] = $comum + [
                 'parcela_n' => $k, 'parcelas_total' => $parcelas,
                 'valor_previsto' => $k === $parcelas ? round( $liquido - $vp * ( $parcelas - 1 ), 2 ) : $vp,
-                'data_prevista'  => gmdate( 'Y-m-d', time() + $k * 30 * 86400 ),
+                'data_prevista'  => gmdate( 'Y-m-d', $base_ts + $k * 30 * 86400 ),
             ];
         }
     } else {
@@ -317,7 +318,7 @@ function tao_caixa_gerar_recebiveis( $cid, $pag_id, $adq, $modalidade, $parcelas
         $linhas[] = $comum + [
             'parcela_n' => 1, 'parcelas_total' => 1,
             'valor_previsto' => round( $liquido, 2 ),
-            'data_prevista'  => gmdate( 'Y-m-d', time() + $prazo * 86400 ),
+            'data_prevista'  => gmdate( 'Y-m-d', $base_ts + $prazo * 86400 ),
         ];
     }
     tao_caixa_api( '/caixa_recebiveis', 'POST', $linhas );   // tabela ausente → erro silencioso, PDV segue
@@ -392,8 +393,17 @@ add_action( 'wp_ajax_tao_caixa_receber_venda', function() {
     }
     if ( ! count( $linhas ) ) wp_send_json_error( 'Pagamentos inválidos' );
     $soma = round( $soma, 2 );
-    if ( $soma > $saldo_total + 0.005 ) {
-        wp_send_json_error( 'Total dos pagamentos acima do saldo (R$ ' . number_format( $saldo_total, 2, ',', '.' ) . ')' );
+
+    // Campos do recebimento (PDV): CPF, data do pagamento (hoje ou passada), desconto adicional, cupom fiscal
+    $cpf_pag  = sanitize_text_field( $_POST['cpf_pagador'] ?? '' );
+    $desc_ad  = round( max( 0, (float) str_replace( ',', '.', (string) ( $_POST['desconto_adicional'] ?? 0 ) ) ), 2 );
+    $cupom    = ( $_POST['cupom_fiscal'] ?? '0' ) === '1';
+    $dt_pag   = sanitize_text_field( $_POST['data_pagamento'] ?? '' );
+    if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $dt_pag ) || $dt_pag > wp_date( 'Y-m-d' ) ) $dt_pag = wp_date( 'Y-m-d' );
+    $base_ts  = strtotime( $dt_pag . ' 12:00:00' ) ?: time();
+
+    if ( $soma + $desc_ad > $saldo_total + 0.005 ) {
+        wp_send_json_error( 'Pagamentos + desconto acima do saldo (R$ ' . number_format( $saldo_total, 2, ',', '.' ) . ')' );
     }
 
     $uid = get_current_user_id();
@@ -401,28 +411,43 @@ add_action( 'wp_ajax_tao_caixa_receber_venda', function() {
 
     // Recibo (cupom) — carimba a sessão de caixa aberta (Fase 2), se houver
     $sess_ab = tao_caixa_sessao_aberta( $cid );
-    $rr = tao_caixa_api( '/caixa_recibos', 'POST', [
+    $recibo_base = [
         'cliente_id'   => $cid, 'valor_total' => $soma, 'valor_pago' => $soma,
         'status'       => 'quitado', 'pagador_nome' => $pagador,
         'sessao_id'    => $sess_ab['id'] ?? null,
         'criado_por'   => $uid, 'criado_em' => gmdate( 'c' ),
-    ] );
+    ];
+    $recibo_v2 = $recibo_base + [
+        'cpf_pagador'    => $cpf_pag ?: null,
+        'data_pagamento' => $dt_pag,
+        'desconto'       => $desc_ad,
+        'cupom_fiscal'   => $cupom,
+    ];
+    $rr = tao_caixa_api( '/caixa_recibos', 'POST', $recibo_v2 );
+    if ( ! $rr['ok'] && strpos( (string) ( $rr['raw'] ?? '' ), 'column' ) !== false ) {
+        // migration_caixa_recibo_campos_v1 ainda não rodou
+        if ( $desc_ad > 0 ) wp_send_json_error( 'Desconto no recebimento requer a migration de recibo (migration_caixa_recibo_campos_v1.sql). Rode-a ou zere o desconto.' );
+        $rr = tao_caixa_api( '/caixa_recibos', 'POST', $recibo_base );
+    }
     if ( ! $rr['ok'] || empty( $rr['data'] ) ) wp_send_json_error( 'Falha ao criar recibo: ' . ( $rr['raw'] ?? '' ) );
     $recibo_id = $rr['data'][0]['id'];
 
     // Pagamentos (+ recebíveis por pagamento — como a operadora paga)
+    // Data-base = data do pagamento informada (prazos e recebíveis contam a partir dela)
     foreach ( $linhas as $ln ) {
         $adq = $ln['_adq'] ?? null; $prazo_res = $ln['_prazo_res'] ?? 0;
         unset( $ln['_adq'], $ln['_prazo_res'] );
         $ln['cliente_id'] = $cid; $ln['recibo_id'] = $recibo_id;
+        $ln['data_prevista_receb'] = gmdate( 'Y-m-d', $base_ts + ( (int) $prazo_res ) * 86400 );
         $ln['criado_por'] = $uid; $ln['criado_em'] = gmdate( 'c' );
         $rp = tao_caixa_api( '/caixa_pagamentos', 'POST', $ln );
         $pid = ( $rp['ok'] && ! empty( $rp['data'] ) ) ? ( $rp['data'][0]['id'] ?? null ) : null;
-        if ( $pid ) tao_caixa_gerar_recebiveis( $cid, $pid, $adq, $ln['modalidade'] ?? '', $ln['parcelas'] ?? 1, (float) $ln['valor_liquido'], $prazo_res );
+        if ( $pid ) tao_caixa_gerar_recebiveis( $cid, $pid, $adq, $ln['modalidade'] ?? '', $ln['parcelas'] ?? 1, (float) $ln['valor_liquido'], $prazo_res, $base_ts );
     }
 
-    // Distribui o valor recebido entre as vendas (FIFO) + baixa cada uma
-    $rem = $soma; $quitadas = 0;
+    // Distribui o valor recebido + desconto adicional entre as vendas (FIFO) + baixa cada uma
+    // (o desconto abate saldo como se fosse pagamento — fica registrado no recibo)
+    $rem = round( $soma + $desc_ad, 2 ); $quitadas = 0;
     foreach ( $vendas as $v ) {
         if ( $rem <= 0.005 ) break;
         $ap = round( min( $rem, $v['_saldo'] ), 2 );

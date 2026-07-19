@@ -226,6 +226,31 @@ function tao_caixa_page_vendas() {
             <h2>&#x1F4B3; Receber pagamento</h2>
             <p id="taoc-rec-info" style="font-size:13px;color:#475569;margin:0 0 12px"></p>
             <input type="hidden" id="taoc-rec-venda">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+                <div style="flex:1;min-width:150px">
+                    <label style="font-size:11px;color:#64748b;display:block">CPF do cliente</label>
+                    <input type="text" id="taoc-rec-cpf" placeholder="000.000.000-00" maxlength="14"
+                           style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:4px">
+                </div>
+                <div style="width:140px">
+                    <label style="font-size:11px;color:#64748b;display:block">Data do pagamento</label>
+                    <input type="date" id="taoc-rec-data" max="<?php echo esc_attr( wp_date( 'Y-m-d' ) ); ?>"
+                           value="<?php echo esc_attr( wp_date( 'Y-m-d' ) ); ?>"
+                           style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:4px">
+                </div>
+                <div style="width:110px">
+                    <label style="font-size:11px;color:#64748b;display:block">Desconto (R$)</label>
+                    <input type="number" id="taoc-rec-desc" min="0" step="0.01" value="0"
+                           style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:4px;text-align:right">
+                </div>
+                <div style="width:120px">
+                    <label style="font-size:11px;color:#64748b;display:block">Taxas (Cupom Fiscal)</label>
+                    <select id="taoc-rec-cupom" style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:4px">
+                        <option value="0">Não</option>
+                        <option value="1">Sim</option>
+                    </select>
+                </div>
+            </div>
             <div id="taoc-pag-linhas"></div>
             <button type="button" id="taoc-add-pag" class="taoc-btn" style="margin-top:4px">+ Adicionar forma (split)</button>
             <div id="taoc-rec-resumo" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:10px 12px;font-size:13px;margin:12px 0;color:#334155"></div>
@@ -335,8 +360,11 @@ function tao_caixa_page_vendas() {
                 else prev.innerHTML = '';
             }
             soma = Math.round(soma*100)/100;
-            var falta = Math.round((saldo-soma)*100)/100;
-            resumo.innerHTML = 'Saldo: <strong>'+brl(saldo)+'</strong> &nbsp;&middot;&nbsp; Pagamentos: <strong>'+brl(soma)+'</strong> &nbsp;&middot;&nbsp; '
+            var descAd = parseFloat((document.getElementById('taoc-rec-desc')||{}).value||'0')||0;
+            var falta = Math.round((saldo-soma-descAd)*100)/100;
+            resumo.innerHTML = 'Saldo: <strong>'+brl(saldo)+'</strong> &nbsp;&middot;&nbsp; Pagamentos: <strong>'+brl(soma)+'</strong>'
+                + (descAd>0 ? ' &nbsp;&middot;&nbsp; Desconto: <strong style="color:#0369a1">'+brl(descAd)+'</strong>' : '')
+                + ' &nbsp;&middot;&nbsp; '
                 + (falta < -0.005
                     ? 'Excede: <strong style="color:#dc2626">'+brl(-falta)+'</strong>'
                     : 'Falta: <strong style="color:'+(Math.abs(falta)<0.005?'#16a34a':'#92400e')+'">'+brl(falta)+'</strong>');
@@ -368,9 +396,15 @@ function tao_caixa_page_vendas() {
             selVendas = ids; saldo = Math.round(saldoTotal*100)/100;
             info.innerHTML = label;
             box.innerHTML=''; msg.style.display='none';
+            var _c=document.getElementById('taoc-rec-cpf');   if(_c) _c.value='';
+            var _d=document.getElementById('taoc-rec-desc');  if(_d) _d.value='0';
+            var _dt=document.getElementById('taoc-rec-data'); if(_dt) _dt.value=_dt.getAttribute('max');
+            var _cf=document.getElementById('taoc-rec-cupom');if(_cf) _cf.value='0';
             addLinha(saldo);
             modal.style.display='block';
         }
+        var _descInp=document.getElementById('taoc-rec-desc');
+        if(_descInp) _descInp.addEventListener('input', function(){ recalc(); });
         var btns = document.querySelectorAll('.taoc-receber');
         for(var i=0;i<btns.length;i++){
             btns[i].addEventListener('click', function(){
@@ -447,11 +481,17 @@ function tao_caixa_page_vendas() {
             }
             if(!pags.length){ alert('Informe ao menos uma forma com valor.'); return; }
             var soma = 0; pags.forEach(function(p){ soma += p.valor; });
-            if(soma > saldo + 0.005){ alert('Total dos pagamentos ('+brl(soma)+') excede o saldo ('+brl(saldo)+').'); return; }
+            var descAd = parseFloat((document.getElementById('taoc-rec-desc')||{}).value||'0')||0;
+            if(soma + descAd > saldo + 0.005){ alert('Pagamentos + desconto ('+brl(soma+descAd)+') excedem o saldo ('+brl(saldo)+').'); return; }
+            var dtPag = (document.getElementById('taoc-rec-data')||{}).value||'';
             var cb = document.getElementById('taoc-rec-confirm'); cb.disabled=true; cb.textContent='Processando...';
             var fd = new FormData();
             fd.append('action','tao_caixa_receber_venda'); fd.append('nonce',C.nonce);
             fd.append('venda_ids',JSON.stringify(selVendas)); fd.append('pagamentos',JSON.stringify(pags));
+            fd.append('cpf_pagador',(document.getElementById('taoc-rec-cpf')||{}).value||'');
+            fd.append('data_pagamento',dtPag);
+            fd.append('desconto_adicional',descAd);
+            fd.append('cupom_fiscal',(document.getElementById('taoc-rec-cupom')||{}).value||'0');
             fetch(C.ajaxUrl,{method:'POST',body:fd,credentials:'same-origin'})
                 .then(function(r){ return r.json(); })
                 .then(function(resp){
