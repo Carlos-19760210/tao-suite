@@ -3529,6 +3529,10 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
             // Evolution v2.3.7+: remoteJidAlt contém o @s.whatsapp.net real
             if ( $is_lid && $jid_alt && strpos( $jid_alt, '@s.whatsapp.net' ) !== false ) {
                 $num = str_replace( '@s.whatsapp.net', '', $jid_alt );
+                tao_crm_save_lid_mapping( $num_lid, $num );
+                // Rota de resposta por instância: a sessão conversa com o contato via
+                // @lid; envio ao número puro pode não entregar (sessão re-pareada).
+                update_option( 'tao_crm_lidroute_' . ( $inst['evolution_instancia'] ?? '' ) . '_' . $num, $num_lid, false );
             } else {
                 $num = $is_lid ? $num_lid : str_replace( [ '@s.whatsapp.net', '@g.us' ], '', $jid );
                 if ( $is_lid && $num_lid ) {
@@ -3860,6 +3864,15 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
                 if ( isset( $fw_ev['data'] ) ) {
                     $fw_ev['_crm_retorno']    = $is_retorno;
                     $fw_ev['_crm_contato_id'] = $contato_id;
+
+                    // Evento @lid: remove remoteJidAlt/sender do encaminhado para o N8N
+                    // responder ao PRÓPRIO @lid (entrega); ao número puro não entrega
+                    // em sessão re-pareada (Iluminar 19/07). Identidade do contato no
+                    // CRM segue pelo número real (resolvida acima, não é afetada).
+                    if ( isset( $fw_ev['data']['key']['remoteJid'] ) && strpos( $fw_ev['data']['key']['remoteJid'], '@lid' ) !== false ) {
+                        unset( $fw_ev['data']['key']['remoteJidAlt'] );
+                        $fw_ev['sender'] = '';
+                    }
 
                     // Contexto de pedido em Pós Vendas (informa TAO para disambiguação)
                     if ( $pos_vendas_card ) {

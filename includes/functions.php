@@ -41,6 +41,12 @@ function tao_crm_evolution_send( $workspace, $numero, $texto, $blocking = false 
 
     if ( ! $url || ! $key || ! $inst ) return [ 'ok' => false, 'error' => 'Evolution não configurada' ];
 
+    // Rota @lid: se a sessão desta instância conversa com este contato via @lid
+    // (salvo pelo dispatch ao receber), envia para o @lid — após re-pareamento o
+    // envio ao número puro é aceito mas NÃO entrega (visto no Iluminar 19/07).
+    $rota_lid = get_option( 'tao_crm_lidroute_' . $inst . '_' . preg_replace( '/\D/', '', (string) $numero ), '' );
+    if ( $rota_lid ) $numero = $rota_lid;
+
     $r = wp_remote_post( "$url/message/sendText/$inst", [
         'headers'  => [ 'Content-Type' => 'application/json', 'apikey' => $key ],
         'body'     => wp_json_encode( [ 'number' => $numero, 'text' => $texto ] ),
