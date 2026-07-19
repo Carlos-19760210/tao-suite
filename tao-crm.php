@@ -3530,9 +3530,6 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
             if ( $is_lid && $jid_alt && strpos( $jid_alt, '@s.whatsapp.net' ) !== false ) {
                 $num = str_replace( '@s.whatsapp.net', '', $jid_alt );
                 tao_crm_save_lid_mapping( $num_lid, $num );
-                // Rota de resposta por instância: a sessão conversa com o contato via
-                // @lid; envio ao número puro pode não entregar (sessão re-pareada).
-                update_option( 'tao_crm_lidroute_' . ( $inst['evolution_instancia'] ?? '' ) . '_' . $num, $num_lid, false );
             } else {
                 $num = $is_lid ? $num_lid : str_replace( [ '@s.whatsapp.net', '@g.us' ], '', $jid );
                 if ( $is_lid && $num_lid ) {
@@ -3542,6 +3539,33 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
             }
             $num_plain = $num;
             if ( ! $num || strpos( $jid, '@g.us' ) !== false ) continue;
+
+            // ── Rota @lid (19/07): em sessão re-pareada o envio ao número puro é aceito
+            // mas NÃO entrega (ack ERROR); só o @lid entrega (DELIVERY_ACK provado).
+            // O webhook chega TRADUZIDO (remoteJid=número real, addressingMode='lid'),
+            // então o @lid verdadeiro é recuperado do store da Evolution pelo key.id
+            // e cacheado por instância+número (option tao_crm_lidroute_*).
+            $lid_jid = $is_lid ? $jid : '';
+            if ( ! $lid_jid && ( $msg['key']['addressingMode'] ?? '' ) === 'lid' ) {
+                $route_opt = 'tao_crm_lidroute_' . ( $inst['evolution_instancia'] ?? '' ) . '_' . $num;
+                $lid_jid   = get_option( $route_opt, '' );
+                if ( ! $lid_jid && ! empty( $msg['key']['id'] ) ) {
+                    $rfm = wp_remote_post( rtrim( $inst['evolution_url'] ?? '', '/' ) . '/chat/findMessages/' . rawurlencode( $inst['evolution_instancia'] ?? '' ), [
+                        'headers' => [ 'Content-Type' => 'application/json', 'apikey' => $inst['evolution_key'] ?? '' ],
+                        'body'    => wp_json_encode( [ 'where' => [ 'key' => [ 'id' => $msg['key']['id'] ] ], 'limit' => 1 ] ),
+                        'timeout' => 8,
+                    ] );
+                    if ( ! is_wp_error( $rfm ) ) {
+                        $bfm  = json_decode( wp_remote_retrieve_body( $rfm ), true );
+                        $recs = $bfm['messages']['records'] ?? ( is_array( $bfm ) ? $bfm : [] );
+                        $rj   = $recs[0]['key']['remoteJid'] ?? '';
+                        if ( strpos( $rj, '@lid' ) !== false ) $lid_jid = $rj;
+                    }
+                }
+            }
+            if ( $lid_jid && $num ) {
+                update_option( 'tao_crm_lidroute_' . ( $inst['evolution_instancia'] ?? '' ) . '_' . $num, $lid_jid, false );
+            }
 
             $tipo = 'text'; $conteudo = ''; $midia = null;
             $m    = $msg['message'] ?? [];
@@ -3865,11 +3889,11 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
                     $fw_ev['_crm_retorno']    = $is_retorno;
                     $fw_ev['_crm_contato_id'] = $contato_id;
 
-                    // Evento @lid: remove remoteJidAlt/sender do encaminhado para o N8N
-                    // responder ao PRÓPRIO @lid (entrega); ao número puro não entrega
-                    // em sessão re-pareada (Iluminar 19/07). Identidade do contato no
-                    // CRM segue pelo número real (resolvida acima, não é afetada).
-                    if ( isset( $fw_ev['data']['key']['remoteJid'] ) && strpos( $fw_ev['data']['key']['remoteJid'], '@lid' ) !== false ) {
+                    // Conversa via @lid: reescreve o encaminhado p/ o N8N responder ao
+                    // PRÓPRIO @lid (único destino que entrega — ack provado 19/07).
+                    // Identidade do contato no CRM segue pelo número real.
+                    if ( $lid_jid && isset( $fw_ev['data']['key'] ) ) {
+                        $fw_ev['data']['key']['remoteJid'] = $lid_jid;
                         unset( $fw_ev['data']['key']['remoteJidAlt'] );
                         $fw_ev['sender'] = '';
                     }
