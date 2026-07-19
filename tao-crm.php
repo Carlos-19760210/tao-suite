@@ -3882,7 +3882,19 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
             // Bloqueia N8N se cliente tem card no pós-vendas (evita msg de horário + criação de novo card de vendas)
             // Transient por contato evita duplo encaminhamento quando mensagens chegam em paralelo (ex: 2 imagens simultâneas)
             $_n8n_fwd_key = 'tao_crm_n8n_fwd_' . md5( $WS_ID . $num );
+            if ( ! $from_me ) {
+                tao_crm_log_error( 'dispatch', '[2b] fwd_check', [
+                    'blocked' => $_n8n_blocked_by_card ? 1 : 0,
+                    'posv'    => $pos_vendas_card ? 1 : 0,
+                    'url_ok'  => $N8N_URL ? 1 : 0,
+                    'fw_cache'=> empty( $fw_cache[ $WS_ID ] ) ? 0 : 1,
+                    'trans'   => get_transient( $_n8n_fwd_key ) ? 1 : 0,
+                    'handoff' => $is_handoff_req ? 1 : 0,
+                    'horario' => tao_crm_esta_em_horario( $WS_ID ) ? 1 : 0,
+                ] );
+            }
             if ( ! $from_me && ! $_n8n_blocked_by_card && ! $pos_vendas_card && $N8N_URL && empty( $fw_cache[ $WS_ID ] ) && ! get_transient( $_n8n_fwd_key ) && ! ( $is_handoff_req && ! tao_crm_esta_em_horario( $WS_ID ) ) ) {
+                tao_crm_log_error( 'dispatch', '[2b] FORWARD para N8N', [ 'num' => $num ] );
                 set_transient( $_n8n_fwd_key, 1, 30 );
                 $fw_ev = $ev;
                 if ( isset( $fw_ev['data'] ) ) {
