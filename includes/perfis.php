@@ -375,6 +375,9 @@ function tao_crm_page_perfis() {
             $.post(ajaxurl, {action:'tao_crm_perfis_listar', nonce:nonce, workspace_id:ws()}, function(r){
                 if(!r.success){ $('#tp-app').text('Erro: '+(r.data||'?')); return; }
                 DATA = r.data; render();
+            }).fail(function(x){
+                $('#tp-app').html('<span style="color:#dc2626">Falha na chamada (HTTP '+x.status+'). '
+                    + $('<span>').text(String(x.responseText||'').slice(0,300)).html() + '</span>');
             });
         }
         function permDe(pid, tela){
