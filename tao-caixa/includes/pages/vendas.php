@@ -228,8 +228,8 @@ function tao_caixa_page_vendas() {
             <input type="hidden" id="taoc-rec-venda">
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
                 <div style="flex:1;min-width:150px">
-                    <label style="font-size:11px;color:#64748b;display:block">CPF do cliente</label>
-                    <input type="text" id="taoc-rec-cpf" placeholder="000.000.000-00" maxlength="14"
+                    <label style="font-size:11px;color:#64748b;display:block">CPF/CNPJ do cliente</label>
+                    <input type="text" id="taoc-rec-cpf" placeholder="CPF ou CNPJ" maxlength="18"
                            style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:4px">
                 </div>
                 <div style="width:140px">
@@ -292,6 +292,23 @@ function tao_caixa_page_vendas() {
         var modal = document.getElementById('taoc-receber-modal');
 
         function brl(v){ return 'R$ ' + (parseFloat(v)||0).toFixed(2).replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.'); }
+        // Validação de CPF (11 díg.) e CNPJ (14 díg.) pelos dígitos verificadores
+        function docValido(doc){
+            var d = (doc||'').replace(/\D/g,'');
+            if(!d) return true;                       // vazio é permitido
+            function calc(base, pesos){ var s=0; for(var i=0;i<pesos.length;i++) s+=parseInt(base[i])*pesos[i]; var r=s%11; return r<2?0:11-r; }
+            if(d.length===11){
+                if(/^(\d)\1{10}$/.test(d)) return false;
+                var p1=[10,9,8,7,6,5,4,3,2], p2=[11,10,9,8,7,6,5,4,3,2];
+                return calc(d,p1)===parseInt(d[9]) && calc(d,p2)===parseInt(d[10]);
+            }
+            if(d.length===14){
+                if(/^(\d)\1{13}$/.test(d)) return false;
+                var q1=[5,4,3,2,9,8,7,6,5,4,3,2], q2=[6,5,4,3,2,9,8,7,6,5,4,3,2];
+                return calc(d,q1)===parseInt(d[12]) && calc(d,q2)===parseInt(d[13]);
+            }
+            return false;                              // tamanho inválido
+        }
 
         // ── Busca por texto (como no Kanban): casa por texto OU por dígitos ──
         var busca = document.getElementById('taoc-venda-busca');
@@ -480,6 +497,12 @@ function tao_caixa_page_vendas() {
                 if(fid && val>0) pags.push({ forma_pagamento_id:fid, parcelas:parc, valor:val, bandeira:band });
             }
             if(!pags.length){ alert('Informe ao menos uma forma com valor.'); return; }
+            var _cpfEl = document.getElementById('taoc-rec-cpf');
+            if(_cpfEl && !docValido(_cpfEl.value)){
+                alert('CPF/CNPJ inválido — confira os dígitos.');
+                _cpfEl.style.borderColor = '#dc2626'; _cpfEl.focus(); return;
+            }
+            if(_cpfEl) _cpfEl.style.borderColor = '#cbd5e1';
             var soma = 0; pags.forEach(function(p){ soma += p.valor; });
             var descAd = parseFloat((document.getElementById('taoc-rec-desc')||{}).value||'0')||0;
             if(soma + descAd > saldo + 0.005){ alert('Pagamentos + desconto ('+brl(soma+descAd)+') excedem o saldo ('+brl(saldo)+').'); return; }

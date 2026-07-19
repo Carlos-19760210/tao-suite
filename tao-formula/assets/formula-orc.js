@@ -789,6 +789,21 @@
     function initRow($row) {
         $row.on('input change', '.taof-orc-dose, .taof-orc-dose-unit', function () { calcularLinha($row); });
         $row.on('click', '.taof-btn-del-item', function () { if (!_loadingEdit) _valorFinalTravado = null; $row.remove(); calcularTotais(); });
+        // ✏ Nome de EXIBIÇÃO para o cliente (nome_prescricao): rótulo, mensagem WhatsApp e livro
+        // mostram este texto (ex.: prescrição "SILÍCIO ORGÂNICO" p/ o ativo "SILICIUM MAX")
+        $row.on('click', '.taof-btn-nome-cli', function () {
+            var atual = ($row.data('nome-prescricao') || $row.data('ativo-nome') || '').toString();
+            var novo  = prompt('Nome de exibição para o CLIENTE (rótulo e mensagem):', atual);
+            if (novo === null) return;
+            novo = novo.trim().toUpperCase();
+            if (!novo) return;
+            $row.data('nome-prescricao', novo);
+            var difere = novo !== ($row.data('ativo-nome') || '').toString().toUpperCase();
+            $row.find('.taof-btn-nome-cli')
+                .css('color', difere ? '#0369a1' : '')
+                .attr('title', difere ? ('Cliente vê: ' + novo) : 'Nome de exibição para o cliente (rótulo e mensagem)');
+            taofToast('✓ Cliente verá: ' + novo);
+        });
         // Enter na dose: navegação rápida (QSP → cria nova linha; demais → próxima linha).
         // Tab fica natural: passa por Unidade e botão QSP, sem criar linha.
         $row.on('keydown', '.taof-orc-dose', function (e) {
@@ -1893,6 +1908,12 @@
                 'ativo-nome':      item.nome || '',
                 'nome-prescricao': item.nome_prescricao || item.nome || '',
                 'codigo-fc':       item.codigo_fc || '',
+            });
+            // Pincel azul quando o cliente vê um nome diferente do produto (nome_prescricao ≠ nome)
+            if ((item.nome_prescricao || '') && item.nome_prescricao !== item.nome) {
+                $row.find('.taof-btn-nome-cli').css('color', '#0369a1').attr('title', 'Cliente vê: ' + item.nome_prescricao);
+            }
+            $row.data({
                 'unid-padrao':     unidPadrao,
                 'custo-unit':      parseFloat(item.custo_por_unidade || 0),
                 'venda-unit':      vendaUnit,

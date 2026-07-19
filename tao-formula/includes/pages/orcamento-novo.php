@@ -648,6 +648,8 @@ function tao_formula_page_orcamento_novo() {
                 <button type="button" class="taof-btn-qsp button button-small" title="Marcar como excipiente QSP">QSP</button>
             </td>
             <td class="col-del">
+                <button type="button" class="taof-btn-nome-cli button button-small"
+                        style="padding:2px 6px" title="Nome de exibição para o cliente (rótulo e mensagem)">✏</button>
                 <button type="button" class="taof-btn-del-item button button-small"
                         style="color:#b91c1c;padding:2px 6px" title="Remover">✕</button>
             </td>
