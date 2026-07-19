@@ -28,6 +28,7 @@ function tao_caixa_pode_operar( $user_id = null ) {
     $user = $user_id ? get_user_by( 'id', $user_id ) : wp_get_current_user();
     if ( ! $user || ! $user->ID ) return false;
     if ( user_can( $user, 'manage_options' ) ) return true;
+    if ( ! $user_id && function_exists( 'tao_crm_tela_oculta' ) && tao_crm_tela_oculta( 'caixa' ) ) return false;
     if ( function_exists( 'cbpm_is_master' ) && ! $user_id && cbpm_is_master() ) return true;
     return user_can( $user, 'tao_caixa_operar' );
 }

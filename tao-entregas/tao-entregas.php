@@ -30,6 +30,7 @@ function tao_entregas_api( $path, $method = 'GET', $body = null ) {
     return [ 'ok' => false, 'data' => null, 'raw' => 'tao_crm_api indisponível' ];
 }
 function tao_entregas_can_access() {
+    if ( function_exists( 'tao_crm_tela_oculta' ) && tao_crm_tela_oculta( 'entregas' ) ) return false;
     return function_exists( 'cbpm_can_access' ) ? cbpm_can_access() : current_user_can( 'read' );
 }
 

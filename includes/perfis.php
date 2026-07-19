@@ -1,0 +1,301 @@
+<?php
+if ( ! defined( 'ABSPATH' ) ) exit;
+
+/**
+ * PERFIS DE ACESSO (Fase 1) — negócio × perfil × tela × recurso × permissão.
+ * Desenho aprovado pelo Carlos (19/07/2026):
+ *   • crm_perfis / crm_perfil_usuarios / crm_permissoes (migration_perfis_v1.sql)
+ *   • Permissões: oculto | leitura | opera
+ *   • REGRA DE OURO: usuário SEM perfil atribuído = comportamento atual (nada muda
+ *     até atribuir) e administrador WP sempre enxerga tudo. Perfil atribuído sem
+ *     regra explícita para uma tela nova = opera (catálogo cresce sem trancar ninguém).
+ *   • Fase 1 aplica no nível de TELA (módulos consultam tao_crm_tela_oculta()).
+ *     Fase 2 = recursos finos (orcamento.aprovar, caixa.estornar, ...).
+ */
+
+// ── Catálogo de telas (a matriz da UI lê DAQUI — tela nova = 1 linha aqui) ────
+function tao_crm_catalogo_telas() {
+    return [
+        'kanban'        => 'CRM — Kanban / Cards',
+        'contatos'      => 'CRM — Contatos',
+        'campanhas'     => 'CRM — Campanhas',
+        'crm_config'    => 'CRM — Configurações',
+        'formula'       => 'Fórmulas — Orçamentos / Editor',
+        'formula_prod'  => 'Fórmulas — Produção / Estoque',
+        'formula_sngpc' => 'Fórmulas — SNGPC / Livro',
+        'formula_config'=> 'Fórmulas — Configurações',
+        'caixa'         => 'Caixa — PDV / Vendas',
+        'caixa_config'  => 'Caixa — Operadoras / Taxas / Formas',
+        'cotacoes'      => 'Cotações (compras)',
+        'entregas'      => 'Entregas',
+    ];
+}
+
+// ── Engine ────────────────────────────────────────────────────────────────────
+/** Perfil do usuário logado (qualquer workspace na Fase 1). null = sem perfil (legado). */
+function tao_crm_perfil_usuario() {
+    static $cache = false;
+    if ( $cache !== false ) return $cache;
+    $uid = get_current_user_id();
+    if ( ! $uid || ( function_exists( 'current_user_can' ) && current_user_can( 'manage_options' ) ) ) return $cache = null;
+    $t = get_transient( 'tao_perfil_u' . $uid );
+    if ( $t !== false ) return $cache = ( $t === 'none' ? null : $t );
+    $r = tao_crm_api( "/crm_perfil_usuarios?usuario_id=eq.$uid&select=perfil_id&limit=1" );
+    $pid = ( $r['ok'] && ! empty( $r['data'] ) ) ? $r['data'][0]['perfil_id'] : null;
+    set_transient( 'tao_perfil_u' . $uid, $pid ?: 'none', 10 * MINUTE_IN_SECONDS );
+    return $cache = $pid;
+}
+
+/** Mapa de permissões do perfil: ["tela|recurso" => permissao]. Cache 10 min. */
+function tao_crm_permissoes_do_perfil( $perfil_id ) {
+    static $cache = [];
+    if ( isset( $cache[ $perfil_id ] ) ) return $cache[ $perfil_id ];
+    $t = get_transient( 'tao_perms_' . $perfil_id );
+    if ( is_array( $t ) ) return $cache[ $perfil_id ] = $t;
+    $r = tao_crm_api( "/crm_permissoes?perfil_id=eq.$perfil_id&select=tela,recurso,permissao&limit=1000" );
+    $map = [];
+    foreach ( ( $r['ok'] ? ( $r['data'] ?? [] ) : [] ) as $p ) {
+        $map[ $p['tela'] . '|' . ( $p['recurso'] ?: '*' ) ] = $p['permissao'];
+    }
+    set_transient( 'tao_perms_' . $perfil_id, $map, 10 * MINUTE_IN_SECONDS );
+    return $cache[ $perfil_id ] = $map;
+}
+
+/** Permissão efetiva: 'oculto' | 'leitura' | 'opera'. Sem perfil/admin ⇒ opera (legado). */
+function tao_crm_permissao( $tela, $recurso = '*' ) {
+    $pid = tao_crm_perfil_usuario();
+    if ( ! $pid ) return 'opera';
+    $map = tao_crm_permissoes_do_perfil( $pid );
+    return $map[ $tela . '|' . $recurso ] ?? $map[ $tela . '|*' ] ?? 'opera';
+}
+
+/** Atalhos para os módulos (ponto único de gate por tela). */
+function tao_crm_tela_oculta( $tela )  { return tao_crm_permissao( $tela ) === 'oculto'; }
+function tao_crm_pode_operar( $tela )  { return tao_crm_permissao( $tela ) === 'opera'; }
+
+// ── Seeds automáticos: perfis padrão com matriz preenchida ────────────────────
+function tao_crm_perfis_seed_padrao( $ws_id ) {
+    $telas = array_keys( tao_crm_catalogo_telas() );
+    $perfis = [
+        'Gestor'       => [],   // tudo opera (default) — sem exceções
+        'Farmacêutica' => [ 'crm_config' => 'leitura', 'caixa_config' => 'leitura' ],
+        'Atendente'    => [ 'crm_config' => 'oculto', 'formula_config' => 'oculto', 'caixa_config' => 'oculto', 'formula_sngpc' => 'leitura', 'cotacoes' => 'oculto' ],
+        'Financeiro'   => [ 'formula' => 'leitura', 'formula_prod' => 'leitura', 'formula_sngpc' => 'leitura', 'formula_config' => 'oculto', 'kanban' => 'leitura', 'campanhas' => 'oculto', 'crm_config' => 'oculto' ],
+    ];
+    $criados = 0;
+    foreach ( $perfis as $nome => $exc ) {
+        $ex = tao_crm_api( "/crm_perfis?workspace_id=eq.$ws_id&nome=eq." . rawurlencode( $nome ) . "&select=id&limit=1" );
+        if ( $ex['ok'] && ! empty( $ex['data'] ) ) continue;   // idempotente
+        $rp = tao_crm_api( '/crm_perfis', 'POST', [ 'workspace_id' => $ws_id, 'nome' => $nome, 'descricao' => 'Perfil padrão (seed automático)', 'ativo' => true ], [ 'Prefer' => 'return=representation' ] );
+        if ( ! $rp['ok'] || empty( $rp['data'] ) ) continue;
+        $pid = $rp['data'][0]['id'];
+        $rows = [];
+        foreach ( $telas as $t ) {
+            $rows[] = [ 'perfil_id' => $pid, 'tela' => $t, 'recurso' => '*', 'permissao' => $exc[ $t ] ?? 'opera' ];
+        }
+        tao_crm_api( '/crm_permissoes', 'POST', $rows );
+        $criados++;
+    }
+    return $criados;
+}
+
+// ── AJAX (CRUD — admin only) ─────────────────────────────────────────────────
+function tao_crm_perfis_guard() {
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Apenas administradores gerenciam perfis.' );
+}
+
+add_action( 'wp_ajax_tao_crm_perfis_listar', function () {
+    tao_crm_perfis_guard();
+    $ws = sanitize_text_field( $_POST['workspace_id'] ?? '' );
+    $rp = tao_crm_api( "/crm_perfis?workspace_id=eq.$ws&order=nome.asc&select=id,nome,descricao,ativo" );
+    $ru = tao_crm_api( "/crm_perfil_usuarios?workspace_id=eq.$ws&select=usuario_id,perfil_id" );
+    $perfis = $rp['ok'] ? ( $rp['data'] ?? [] ) : [];
+    $ids = array_column( $perfis, 'id' );
+    $perms = [];
+    if ( $ids ) {
+        $rr = tao_crm_api( '/crm_permissoes?perfil_id=in.(' . implode( ',', $ids ) . ')&select=perfil_id,tela,recurso,permissao&limit=2000' );
+        $perms = $rr['ok'] ? ( $rr['data'] ?? [] ) : [];
+    }
+    $users = [];
+    foreach ( get_users( [ 'fields' => [ 'ID', 'display_name', 'user_login' ] ] ) as $u ) {
+        $users[] = [ 'id' => (int) $u->ID, 'nome' => $u->display_name ?: $u->user_login ];
+    }
+    wp_send_json_success( [
+        'perfis' => $perfis, 'vinculos' => $ru['ok'] ? ( $ru['data'] ?? [] ) : [],
+        'permissoes' => $perms, 'usuarios' => $users, 'telas' => tao_crm_catalogo_telas(),
+    ] );
+} );
+
+add_action( 'wp_ajax_tao_crm_perfil_salvar', function () {
+    tao_crm_perfis_guard();
+    $ws   = sanitize_text_field( $_POST['workspace_id'] ?? '' );
+    $id   = sanitize_text_field( $_POST['id'] ?? '' );
+    $nome = trim( sanitize_text_field( $_POST['nome'] ?? '' ) );
+    if ( ! $ws || ! $nome ) wp_send_json_error( 'Informe o nome do perfil.' );
+    $body = [ 'nome' => $nome, 'descricao' => sanitize_text_field( $_POST['descricao'] ?? '' ), 'ativo' => ( $_POST['ativo'] ?? '1' ) === '1' ];
+    if ( $id ) {
+        $r = tao_crm_api( "/crm_perfis?id=eq.$id", 'PATCH', $body, [ 'Prefer' => 'return=representation' ] );
+    } else {
+        $body['workspace_id'] = $ws;
+        $r = tao_crm_api( '/crm_perfis', 'POST', $body, [ 'Prefer' => 'return=representation' ] );
+    }
+    $r['ok'] ? wp_send_json_success( $r['data'][0] ?? [] ) : wp_send_json_error( $r['error'] ?? 'erro' );
+} );
+
+add_action( 'wp_ajax_tao_crm_perfil_excluir', function () {
+    tao_crm_perfis_guard();
+    $id = sanitize_text_field( $_POST['id'] ?? '' );
+    if ( ! $id ) wp_send_json_error( 'id' );
+    $r = tao_crm_api( "/crm_perfis?id=eq.$id", 'DELETE' );   // permissões e vínculos caem por cascade
+    delete_transient( 'tao_perms_' . $id );
+    $r['ok'] ? wp_send_json_success() : wp_send_json_error( $r['error'] ?? 'erro' );
+} );
+
+add_action( 'wp_ajax_tao_crm_perfil_atribuir', function () {
+    tao_crm_perfis_guard();
+    $ws  = sanitize_text_field( $_POST['workspace_id'] ?? '' );
+    $uid = (int) ( $_POST['usuario_id'] ?? 0 );
+    $pid = sanitize_text_field( $_POST['perfil_id'] ?? '' );
+    if ( ! $ws || ! $uid ) wp_send_json_error( 'dados' );
+    tao_crm_api( "/crm_perfil_usuarios?workspace_id=eq.$ws&usuario_id=eq.$uid", 'DELETE' );
+    if ( $pid ) tao_crm_api( '/crm_perfil_usuarios', 'POST', [ 'workspace_id' => $ws, 'perfil_id' => $pid, 'usuario_id' => $uid ] );
+    delete_transient( 'tao_perfil_u' . $uid );
+    wp_send_json_success();
+} );
+
+add_action( 'wp_ajax_tao_crm_permissoes_salvar', function () {
+    tao_crm_perfis_guard();
+    $pid   = sanitize_text_field( $_POST['perfil_id'] ?? '' );
+    $lista = json_decode( wp_unslash( $_POST['permissoes'] ?? '[]' ), true );
+    if ( ! $pid || ! is_array( $lista ) ) wp_send_json_error( 'dados' );
+    tao_crm_api( "/crm_permissoes?perfil_id=eq.$pid", 'DELETE' );
+    $rows = [];
+    foreach ( $lista as $p ) {
+        $perm = in_array( $p['permissao'] ?? '', [ 'oculto', 'leitura', 'opera' ], true ) ? $p['permissao'] : 'opera';
+        $rows[] = [ 'perfil_id' => $pid, 'tela' => sanitize_text_field( $p['tela'] ?? '' ), 'recurso' => sanitize_text_field( $p['recurso'] ?? '*' ) ?: '*', 'permissao' => $perm ];
+    }
+    if ( $rows ) tao_crm_api( '/crm_permissoes', 'POST', $rows );
+    delete_transient( 'tao_perms_' . $pid );
+    wp_send_json_success();
+} );
+
+add_action( 'wp_ajax_tao_crm_perfis_seed', function () {
+    tao_crm_perfis_guard();
+    $ws = sanitize_text_field( $_POST['workspace_id'] ?? '' );
+    if ( ! $ws ) wp_send_json_error( 'workspace' );
+    wp_send_json_success( [ 'criados' => tao_crm_perfis_seed_padrao( $ws ) ] );
+} );
+
+// ── Tela de administração (wp-admin → TAO CRM → Perfis de Acesso) ────────────
+add_action( 'admin_menu', function () {
+    add_submenu_page( 'tao-crm', 'Perfis de Acesso', 'Perfis de Acesso', 'manage_options', 'tao-crm-perfis', 'tao_crm_page_perfis' );
+}, 99 );
+
+function tao_crm_page_perfis() {
+    if ( ! current_user_can( 'manage_options' ) ) return;
+    $wss = function_exists( 'tao_crm_get_workspaces' ) ? tao_crm_get_workspaces() : [];
+    $nonce = wp_create_nonce( 'tao_crm_nonce' );
+    ?>
+    <div class="wrap">
+        <h1>🔐 Perfis de Acesso</h1>
+        <p style="color:#64748b;max-width:760px">Negócio × perfil × tela × permissão. Usuário <strong>sem perfil</strong> mantém o comportamento atual;
+        administradores sempre veem tudo. Tela nova entra na matriz automaticamente com "Opera" (ninguém fica trancado).</p>
+        <p>
+            <label>Negócio:
+                <select id="tp-ws">
+                    <?php foreach ( $wss as $w ) : ?>
+                    <option value="<?php echo esc_attr( $w['id'] ); ?>"><?php echo esc_html( $w['nome'] ); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
+            <button class="button" id="tp-seed" title="Cria Gestor/Farmacêutica/Atendente/Financeiro com matriz preenchida (idempotente)">⚙ Criar perfis padrão</button>
+            <button class="button button-primary" id="tp-novo">+ Novo perfil</button>
+        </p>
+        <div id="tp-app">Carregando…</div>
+    </div>
+    <script>
+    (function($){
+        var nonce = <?php echo wp_json_encode( $nonce ); ?>, DATA = null;
+        function ws(){ return $('#tp-ws').val(); }
+        function carregar(){
+            $('#tp-app').text('Carregando…');
+            $.post(ajaxurl, {action:'tao_crm_perfis_listar', nonce:nonce, workspace_id:ws()}, function(r){
+                if(!r.success){ $('#tp-app').text('Erro: '+(r.data||'?')); return; }
+                DATA = r.data; render();
+            });
+        }
+        function permDe(pid, tela){
+            var hit = (DATA.permissoes||[]).filter(function(p){ return p.perfil_id===pid && p.tela===tela && (p.recurso==='*'||!p.recurso); })[0];
+            return hit ? hit.permissao : 'opera';
+        }
+        function render(){
+            var h = '';
+            // ── Atribuição usuário → perfil ──
+            h += '<h2>Usuários deste negócio</h2><table class="widefat" style="max-width:640px"><thead><tr><th>Usuário</th><th>Perfil</th></tr></thead><tbody>';
+            (DATA.usuarios||[]).forEach(function(u){
+                var v = (DATA.vinculos||[]).filter(function(x){ return parseInt(x.usuario_id)===u.id; })[0];
+                h += '<tr><td>'+u.nome+' <span style="color:#94a3b8">#'+u.id+'</span></td><td><select class="tp-vinc" data-uid="'+u.id+'">'
+                   + '<option value="">— sem perfil (comportamento atual) —</option>';
+                (DATA.perfis||[]).forEach(function(p){
+                    h += '<option value="'+p.id+'"'+((v&&v.perfil_id===p.id)?' selected':'')+'>'+p.nome+'</option>';
+                });
+                h += '</select></td></tr>';
+            });
+            h += '</tbody></table>';
+            // ── Matriz por perfil ──
+            (DATA.perfis||[]).forEach(function(p){
+                h += '<h2 style="margin-top:22px">'+p.nome+' '+(p.ativo?'':'<span style="color:#dc2626">(inativo)</span>')
+                   + ' <button class="button button-small tp-excluir" data-id="'+p.id+'">Excluir</button></h2>';
+                h += '<table class="widefat striped" style="max-width:760px" data-perfil="'+p.id+'"><thead><tr><th>Tela</th><th style="width:220px">Permissão</th></tr></thead><tbody>';
+                Object.keys(DATA.telas||{}).forEach(function(t){
+                    var atual = permDe(p.id, t);
+                    h += '<tr><td>'+DATA.telas[t]+'</td><td><select class="tp-perm" data-tela="'+t+'">';
+                    [['opera','Opera (tudo)'],['leitura','Somente leitura'],['oculto','Oculto']].forEach(function(o){
+                        h += '<option value="'+o[0]+'"'+(atual===o[0]?' selected':'')+'>'+o[1]+'</option>';
+                    });
+                    h += '</select></td></tr>';
+                });
+                h += '</tbody></table><p><button class="button button-primary tp-salvar-matriz" data-perfil="'+p.id+'">💾 Salvar matriz de '+p.nome+'</button></p>';
+            });
+            $('#tp-app').html(h);
+        }
+        $('#tp-ws').on('change', carregar);
+        $('#tp-seed').on('click', function(){
+            $.post(ajaxurl, {action:'tao_crm_perfis_seed', nonce:nonce, workspace_id:ws()}, function(r){
+                alert(r.success ? ('Perfis padrão criados: '+r.data.criados) : ('Erro: '+r.data)); carregar();
+            });
+        });
+        $('#tp-novo').on('click', function(){
+            var n = prompt('Nome do novo perfil:'); if(!n) return;
+            $.post(ajaxurl, {action:'tao_crm_perfil_salvar', nonce:nonce, workspace_id:ws(), nome:n}, function(r){
+                if(!r.success){ alert('Erro: '+r.data); return; } carregar();
+            });
+        });
+        $(document).on('change', '.tp-vinc', function(){
+            $.post(ajaxurl, {action:'tao_crm_perfil_atribuir', nonce:nonce, workspace_id:ws(), usuario_id:$(this).data('uid'), perfil_id:$(this).val()}, function(r){
+                if(!r.success) alert('Erro: '+r.data);
+            });
+        });
+        $(document).on('click', '.tp-excluir', function(){
+            if(!confirm('Excluir este perfil? Usuários vinculados voltam ao comportamento atual.')) return;
+            $.post(ajaxurl, {action:'tao_crm_perfil_excluir', nonce:nonce, id:$(this).data('id')}, function(r){
+                if(!r.success){ alert('Erro: '+r.data); return; } carregar();
+            });
+        });
+        $(document).on('click', '.tp-salvar-matriz', function(){
+            var pid = $(this).data('perfil'), lista = [];
+            $('table[data-perfil="'+pid+'"] .tp-perm').each(function(){
+                lista.push({ tela: $(this).data('tela'), recurso:'*', permissao: $(this).val() });
+            });
+            var $b = $(this).prop('disabled', true).text('Salvando…');
+            $.post(ajaxurl, {action:'tao_crm_permissoes_salvar', nonce:nonce, perfil_id:pid, permissoes: JSON.stringify(lista)}, function(r){
+                $b.prop('disabled', false).text('💾 Salvar matriz');
+                r.success ? $b.text('✔ Salvo') : alert('Erro: '+r.data);
+            });
+        });
+        carregar();
+    })(jQuery);
+    </script>
+    <?php
+}

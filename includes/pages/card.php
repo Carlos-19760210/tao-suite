@@ -2001,6 +2001,19 @@ function tao_crm_page_card() {
                                 if (pn && pn !== 'EXCIPIENTE BASE') { pendentesNomes[pn] = true; anyPendente = true; }
                             }
                         }
+                        // Custo dos insumos + margem (análise de preços inline — pedido Carlos 19/07)
+                        var custoOrc = 0;
+                        itens.forEach(function(it){
+                            var cu = parseFloat(it.custo_por_unidade || 0), qg = parseFloat(it.qtd_total_g || 0);
+                            if (cu > 0 && qg > 0) custoOrc += ((it.unid_padrao === 'g') ? qg : qg * 1000) * cu;
+                        });
+                        var totNum  = parseFloat(o.total_orcamento || 0);
+                        var margemX = custoOrc > 0 ? (totNum / custoOrc) : 0;
+                        var mCor    = margemX >= 4 ? '#16a34a' : (margemX >= 2 ? '#d97706' : '#dc2626');
+                        var custoHtml = custoOrc > 0
+                            ? 'C: ' + custoOrc.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})
+                              + ' · <span style="color:' + mCor + ';font-weight:600">' + margemX.toFixed(1) + 'x</span>'
+                            : '<span style="color:#cbd5e1">—</span>';
                         var descOrc = (o.forma_nome || '—') + (priAtivo ? ' — ' + priAtivo : '');
                         var editUrl = baseUrl
                             + '&modal=1'
@@ -2013,6 +2026,7 @@ function tao_crm_page_card() {
                             + '<td style="padding:5px 4px;font-weight:600;color:#0f172a">' + (o.numero_orcamento || '—') + '</td>'
                             + '<td style="padding:5px 4px;color:#475569;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + descOrc.replace(/"/g,'&quot;') + '">' + descOrc + '</td>'
                             + '<td style="padding:5px 4px;text-align:right;font-weight:700;color:#0f172a;white-space:nowrap">' + tot + '</td>'
+                            + '<td style="padding:5px 4px;text-align:right;font-size:11px;color:#64748b;white-space:nowrap" title="Custo dos insumos e margem sobre o custo">' + custoHtml + '</td>'
                             + '<td style="padding:5px 4px">'
                             + '<span style="background:' + sl[1] + ';color:' + sl[2] + ';border-radius:10px;padding:1px 7px;font-size:10px;font-weight:600">' + sl[0] + '</span>'
                             + '</td>'

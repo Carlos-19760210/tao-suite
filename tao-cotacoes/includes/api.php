@@ -19,6 +19,7 @@ function tao_cot_is_master() {
 /** Quem pode operar cotações: master ou gestor do negócio. */
 function tao_cot_pode() {
     if ( current_user_can( 'manage_options' ) ) return true;
+    if ( function_exists( 'tao_crm_tela_oculta' ) && tao_crm_tela_oculta( 'cotacoes' ) ) return false;
     if ( function_exists( 'cbpm_is_master' ) && cbpm_is_master() ) return true;
     if ( function_exists( 'cbpm_is_gestor' ) && cbpm_is_gestor() ) return true;
     return false;
