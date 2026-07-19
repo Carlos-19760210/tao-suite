@@ -397,6 +397,14 @@ add_action( 'wp_ajax_tao_caixa_receber_venda', function() {
     // Campos do recebimento (PDV): CPF, data do pagamento (hoje ou passada), desconto adicional, cupom fiscal
     $cpf_pag  = sanitize_text_field( $_POST['cpf_pagador'] ?? '' );
     $desc_ad  = round( max( 0, (float) str_replace( ',', '.', (string) ( $_POST['desconto_adicional'] ?? 0 ) ) ), 2 );
+    // Alçada (etapa 1): desconto adicional acima do limite do perfil → bloqueia
+    if ( $desc_ad > 0 && function_exists( 'tao_crm_alcada' ) ) {
+        $lim_alc = tao_crm_alcada( 'pdv.desconto_valor' );
+        if ( $lim_alc !== null && $desc_ad > $lim_alc + 0.005 ) {
+            wp_send_json_error( 'Desconto de R$ ' . number_format( $desc_ad, 2, ',', '.' )
+                . ' acima da sua alçada (máximo R$ ' . number_format( $lim_alc, 2, ',', '.' ) . '). Solicite a um gestor.' );
+        }
+    }
     $cupom    = ( $_POST['cupom_fiscal'] ?? '0' ) === '1';
     $dt_pag   = sanitize_text_field( $_POST['data_pagamento'] ?? '' );
     if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $dt_pag ) || $dt_pag > wp_date( 'Y-m-d' ) ) $dt_pag = wp_date( 'Y-m-d' );

@@ -158,6 +158,39 @@ function tao_crm_modulo_todo_oculto( array $telas ) {
     return true;
 }
 
+// ── Alçadas (etapa 1): até quanto o perfil decide sozinho ────────────────────
+// A permissão diz ONDE o usuário chega; a alçada diz ATÉ QUANTO decide sem um
+// gestor. Sem linha cadastrada (ou sem perfil/admin) = sem limite.
+function tao_crm_catalogo_alcadas() {
+    return [
+        'orcamento.desconto_pct' => [ 'label' => 'Desconto máximo no orçamento (Fórmulas)',        'unidade' => '%'  ],
+        'pdv.desconto_valor'     => [ 'label' => 'Desconto adicional máximo no recebimento (PDV)', 'unidade' => 'R$' ],
+    ];
+}
+
+/** Mapa de alçadas do perfil: [recurso => limite]. Cache 10 min. */
+function tao_crm_alcadas_do_perfil( $perfil_id ) {
+    static $cache = [];
+    if ( isset( $cache[ $perfil_id ] ) ) return $cache[ $perfil_id ];
+    $t = get_transient( 'tao_alc_' . $perfil_id );
+    if ( is_array( $t ) ) return $cache[ $perfil_id ] = $t;
+    $r = tao_crm_api( "/crm_alcadas?perfil_id=eq.$perfil_id&select=recurso,limite&limit=200" );
+    $map = [];
+    foreach ( ( $r['ok'] ? ( $r['data'] ?? [] ) : [] ) as $a ) {
+        $map[ $a['recurso'] ] = (float) $a['limite'];
+    }
+    set_transient( 'tao_alc_' . $perfil_id, $map, 10 * MINUTE_IN_SECONDS );
+    return $cache[ $perfil_id ] = $map;
+}
+
+/** Limite do usuário logado para o recurso; null = sem limite (admin, sem perfil ou sem cadastro). */
+function tao_crm_alcada( $recurso ) {
+    $pid = tao_crm_perfil_usuario();
+    if ( ! $pid ) return null;
+    $map = tao_crm_alcadas_do_perfil( $pid );
+    return isset( $map[ $recurso ] ) ? (float) $map[ $recurso ] : null;
+}
+
 // ── Seeds automáticos: perfis padrão com matriz preenchida ────────────────────
 function tao_crm_perfis_seed_padrao( $ws_id ) {
     $telas = array_keys( tao_crm_catalogo_telas() );
@@ -198,9 +231,13 @@ add_action( 'wp_ajax_tao_crm_perfis_listar', function () {
     $perfis = $rp['ok'] ? ( $rp['data'] ?? [] ) : [];
     $ids = array_column( $perfis, 'id' );
     $perms = [];
+    $alcadas = [];
     if ( $ids ) {
-        $rr = tao_crm_api( '/crm_permissoes?perfil_id=in.(' . implode( ',', $ids ) . ')&select=perfil_id,tela,recurso,permissao&limit=2000' );
+        $in = implode( ',', $ids );
+        $rr = tao_crm_api( "/crm_permissoes?perfil_id=in.($in)&select=perfil_id,tela,recurso,permissao&limit=2000" );
         $perms = $rr['ok'] ? ( $rr['data'] ?? [] ) : [];
+        $ra = tao_crm_api( "/crm_alcadas?perfil_id=in.($in)&select=perfil_id,recurso,limite&limit=500" );
+        $alcadas = $ra['ok'] ? ( $ra['data'] ?? [] ) : [];   // tabela pode não existir ainda → lista vazia
     }
     $users = [];
     foreach ( get_users( [ 'fields' => [ 'ID', 'display_name', 'user_login' ] ] ) as $u ) {
@@ -209,6 +246,7 @@ add_action( 'wp_ajax_tao_crm_perfis_listar', function () {
     wp_send_json_success( [
         'perfis' => $perfis, 'vinculos' => $ru['ok'] ? ( $ru['data'] ?? [] ) : [],
         'permissoes' => $perms, 'usuarios' => $users, 'telas' => tao_crm_catalogo_telas(),
+        'alcadas' => $alcadas, 'catalogo_alcadas' => tao_crm_catalogo_alcadas(),
     ] );
 } );
 
@@ -232,8 +270,9 @@ add_action( 'wp_ajax_tao_crm_perfil_excluir', function () {
     tao_crm_perfis_guard();
     $id = sanitize_text_field( $_POST['id'] ?? '' );
     if ( ! $id ) wp_send_json_error( 'id' );
-    $r = tao_crm_api( "/crm_perfis?id=eq.$id", 'DELETE' );   // permissões e vínculos caem por cascade
+    $r = tao_crm_api( "/crm_perfis?id=eq.$id", 'DELETE' );   // permissões, alçadas e vínculos caem por cascade
     delete_transient( 'tao_perms_' . $id );
+    delete_transient( 'tao_alc_' . $id );
     $r['ok'] ? wp_send_json_success() : wp_send_json_error( $r['error'] ?? 'erro' );
 } );
 
@@ -262,6 +301,21 @@ add_action( 'wp_ajax_tao_crm_permissoes_salvar', function () {
     }
     if ( $rows ) tao_crm_api( '/crm_permissoes', 'POST', $rows );
     delete_transient( 'tao_perms_' . $pid );
+    // Alçadas do perfil (mesma gravação: substitui tudo pelo que veio da tela)
+    if ( isset( $_POST['alcadas'] ) ) {
+        $alc = json_decode( wp_unslash( $_POST['alcadas'] ), true );
+        if ( is_array( $alc ) ) {
+            tao_crm_api( "/crm_alcadas?perfil_id=eq.$pid", 'DELETE' );
+            $arows = [];
+            foreach ( $alc as $a ) {
+                $rec = sanitize_text_field( $a['recurso'] ?? '' );
+                if ( $rec === '' || ! isset( $a['limite'] ) || ! is_numeric( $a['limite'] ) ) continue;
+                $arows[] = [ 'perfil_id' => $pid, 'recurso' => $rec, 'limite' => (float) $a['limite'] ];
+            }
+            if ( $arows ) tao_crm_api( '/crm_alcadas', 'POST', $arows );
+            delete_transient( 'tao_alc_' . $pid );
+        }
+    }
     wp_send_json_success();
 } );
 
@@ -354,7 +408,21 @@ function tao_crm_page_perfis() {
                     });
                     h += '</select></td></tr>';
                 });
-                h += '</tbody></table><p><button class="button button-primary tp-btn tp-btn-pri tp-salvar-matriz" data-perfil="'+p.id+'">💾 Salvar matriz de '+p.nome+'</button></p>';
+                h += '</tbody></table>';
+                // ── Alçadas do perfil ──
+                h += '<h3 style="font-size:13px;margin:14px 0 6px">Alçadas <span style="color:#94a3b8;font-weight:400">(vazio = sem limite)</span></h3>';
+                h += '<table class="widefat tp-tab" style="max-width:760px" data-perfil-alc="'+p.id+'"><tbody>';
+                Object.keys(DATA.catalogo_alcadas||{}).forEach(function(rk){
+                    var meta = DATA.catalogo_alcadas[rk];
+                    var atual = (DATA.alcadas||[]).filter(function(a){ return a.perfil_id===p.id && a.recurso===rk; })[0];
+                    h += '<tr><td>'+meta.label+'</td><td style="width:220px;white-space:nowrap">'
+                       + (meta.unidade==='R$' ? 'R$ ' : '')
+                       + '<input type="number" step="0.01" min="0" class="tp-alc" data-recurso="'+rk+'" style="width:110px;padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px" value="'+(atual!==undefined&&atual!==null?atual.limite:'')+'">'
+                       + (meta.unidade==='%' ? ' %' : '')
+                       + '</td></tr>';
+                });
+                h += '</tbody></table>';
+                h += '<p><button class="button button-primary tp-btn tp-btn-pri tp-salvar-matriz" data-perfil="'+p.id+'">💾 Salvar matriz de '+p.nome+'</button></p>';
             });
             $('#tp-app').html(h);
         }
@@ -382,12 +450,16 @@ function tao_crm_page_perfis() {
             });
         });
         $(document).on('click', '.tp-salvar-matriz', function(){
-            var pid = $(this).data('perfil'), lista = [];
+            var pid = $(this).data('perfil'), lista = [], alc = [];
             $('table[data-perfil="'+pid+'"] .tp-perm').each(function(){
                 lista.push({ tela: $(this).data('tela'), recurso:'*', permissao: $(this).val() });
             });
+            $('table[data-perfil-alc="'+pid+'"] .tp-alc').each(function(){
+                var v = $(this).val();
+                if (v !== '' && !isNaN(parseFloat(v))) alc.push({ recurso: $(this).data('recurso'), limite: parseFloat(v) });
+            });
             var $b = $(this).prop('disabled', true).text('Salvando…');
-            $.post(ajaxurl, {action:'tao_crm_permissoes_salvar', nonce:nonce, perfil_id:pid, permissoes: JSON.stringify(lista)}, function(r){
+            $.post(ajaxurl, {action:'tao_crm_permissoes_salvar', nonce:nonce, perfil_id:pid, permissoes: JSON.stringify(lista), alcadas: JSON.stringify(alc)}, function(r){
                 $b.prop('disabled', false).text('💾 Salvar matriz');
                 r.success ? $b.text('✔ Salvo') : alert('Erro: '+r.data);
             });

@@ -441,6 +441,21 @@ function tao_formula_orc_payload( $itens ) {
     // Desconto em R$ = fonte da verdade (reaproveita a coluna desconto_fc).
     if ( isset( $_POST['desconto_val'] ) && $_POST['desconto_val'] !== '' )
         $p['desconto_fc'] = (float) $_POST['desconto_val'];
+    // Alçada (etapa 1): desconto acima do limite do perfil → bloqueia com orientação.
+    // Compara o MAIOR entre o % informado e o % derivado do desconto em R$.
+    if ( function_exists( 'tao_crm_alcada' ) ) {
+        $lim = tao_crm_alcada( 'orcamento.desconto_pct' );
+        if ( $lim !== null ) {
+            $pct  = (float) $p['desconto_pct'];
+            $desc = (float) ( $p['desconto_fc'] ?? 0 );
+            $tot  = (float) $p['total_orcamento'];
+            if ( $desc > 0 && ( $tot + $desc ) > 0 ) $pct = max( $pct, $desc / ( $tot + $desc ) * 100 );
+            if ( $pct > $lim + 0.005 ) {
+                wp_send_json_error( sprintf( 'Desconto de %s%% acima da sua alçada (máximo %s%%). Solicite a um gestor.',
+                    number_format( $pct, 1, ',', '.' ), number_format( $lim, 1, ',', '.' ) ) );
+            }
+        }
+    }
     // Consistência do card: orçamento FC guarda o Final também em valor_final_fc,
     // pra o Kanban (tao_crm_sync_valor_oportunidade lê valor_final_fc) refletir a edição.
     if ( isset( $_POST['valor_final_fc'] ) && $_POST['valor_final_fc'] !== '' )
