@@ -237,7 +237,13 @@
         draggedCardId  = null;
         draggedStageId = null;
 
-        // Verifica campos obrigatórios na entrada da fase destino
+        // Fase destino SEM campos configurados (mapa embutido no carregamento): move DIRETO,
+        // sem a pré-consulta que causava o engasgo de 1-3s no arrasto.
+        if (typeof taoCrmStagesComCampos !== 'undefined' && taoCrmStagesComCampos.indexOf(newStage) === -1) {
+            executarMoveCard(movedId, newStage, {});
+            return;
+        }
+        // Fase com campos: verifica os obrigatórios na entrada (abre o modal com valores atuais)
         crmPost(
             { action:'tao_crm_get_campos_destino', nonce:taoCrm.nonce, estagio_id:newStage, card_id:movedId },
             function(resp){

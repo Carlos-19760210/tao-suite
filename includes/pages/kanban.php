@@ -687,6 +687,17 @@ function tao_crm_page_kanban() {
     var taoCrmWorkspaceId  = <?php echo wp_json_encode( $ws_id ); ?>;
     var taoCrmPipelineId   = <?php echo wp_json_encode( $pipeline_id ); ?>;
     var taoCrmLoadedAt     = <?php echo wp_json_encode( gmdate( 'c' ) ); ?>;
+    <?php
+    // PERFORMANCE do arrasto: fases SEM campos configurados movem direto, sem a pré-consulta
+    // get_campos_destino (que custava 1-3s). Aqui só mapeamos QUAIS fases têm campos.
+    $_est_ids = array_column( $estagios, 'id' );
+    $_com_campos = [];
+    if ( $_est_ids ) {
+        $_rcc = tao_crm_api( '/crm_campos_estagio?estagio_id=in.(' . implode( ',', $_est_ids ) . ')&select=estagio_id' );
+        $_com_campos = array_values( array_unique( array_column( $_rcc['ok'] ? ( $_rcc['data'] ?? [] ) : [], 'estagio_id' ) ) );
+    }
+    ?>
+    var taoCrmStagesComCampos = <?php echo wp_json_encode( $_com_campos ); ?>;
     var taoCrmGanhoCampos  = <?php echo wp_json_encode( $kanban_ganho_campos ); ?>;
     var taoCrmGanhoValores = {};
     // SLA por estágio (minutos para alerta / crítico)
