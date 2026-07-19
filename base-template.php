@@ -245,6 +245,7 @@ $cfg_subs['cfg-geral'] = [
         [ 'slug' => 'chatbot-platform-negocios',  'label' => 'Neg&oacute;cios',            'url' => cbpm_url('negocios') ],
         [ 'slug' => 'chatbot-platform-categorias','label' => 'Categorias',                 'url' => cbpm_url('categorias') ],
         [ 'slug' => 'chatbot-platform-usuarios',  'label' => 'Usu&aacute;rios',            'url' => cbpm_url('usuarios') ],
+        [ 'slug' => 'tao-crm-perfis',             'label' => 'Perfis de Acesso',           'url' => cbpm_url('crm-perfis') ],
         [ 'slug' => 'chatbot-platform-conectores','label' => 'Conectores',                 'url' => cbpm_url('conectores') ],
         [ 'slug' => 'chatbot-platform-settings',  'label' => 'Plataforma','url' => cbpm_url('configuracoes') ],
     ],
@@ -288,9 +289,13 @@ if ( $has_crm ) {
             [ 'slug' => 'tao-crm-settings', 'label' => 'Configura&ccedil;&otilde;es', 'url' => cbpm_url('crm-settings') ],
         ],
     ];
-    if ( current_user_can( 'manage_options' ) && function_exists( 'tao_crm_page_perfis' ) ) {
-        $cfg_subs['cfg-crm']['items'][] = [ 'slug' => 'tao-crm-perfis', 'label' => 'Perfis de Acesso', 'url' => cbpm_url('crm-perfis') ];
-    }
+}
+// Perfis de Acesso é do SISTEMA (não do CRM): fica em Config→Geral junto de Usuários,
+// e só para administrador. Remove da lista Geral se não for admin ou sem o módulo.
+if ( ! ( current_user_can( 'manage_options' ) && function_exists( 'tao_crm_page_perfis' ) ) ) {
+    $cfg_subs['cfg-geral']['items'] = array_values( array_filter( $cfg_subs['cfg-geral']['items'], function ( $it ) {
+        return ( $it['slug'] ?? '' ) !== 'tao-crm-perfis';
+    } ) );
 }
 $nav['config'] = [
     'label' => 'Configura&ccedil;&otilde;es',
