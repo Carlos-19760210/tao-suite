@@ -221,7 +221,9 @@
 
         var $list    = $(this);
         var newStage = $list.data('stage-id');
-        var $card    = $('[data-card-id="' + draggedCardId + '"]');
+        // Seletor restrito ao CARD: o checkbox de seleção também tem data-card-id — sem o
+        // .tao-crm-card, o prepend arrastava o checkbox pra fora do card (ficava solto na coluna)
+        var $card    = $('.tao-crm-card[data-card-id="' + draggedCardId + '"]');
         var oldStage = draggedStageId;
 
         if(newStage === oldStage) return;
