@@ -219,6 +219,9 @@ function tao_crm_perfis_seed_padrao( $ws_id ) {
 
 // ── AJAX (CRUD — admin only) ─────────────────────────────────────────────────
 function tao_crm_perfis_guard() {
+    // Byte/BOM de algum arquivo vaza antes do JSON e quebra o parse no jQuery
+    // (gotcha da casa) — limpa o buffer antes de responder.
+    while ( ob_get_level() > 0 ) ob_end_clean();
     check_ajax_referer( 'tao_crm_nonce', 'nonce' );
     if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Apenas administradores gerenciam perfis.' );
 }
