@@ -1217,18 +1217,8 @@ function tao_crm_ajax_move_card() {
 
     if ( ! $r['ok'] ) wp_send_json_error( $r['error'] );
 
-    // Salvar valores de campos fornecidos (campos na entrada da fase)
-    foreach ( (array) ( $_POST['valores'] ?? [] ) as $campo_id => $valor ) {
-        $campo_id = sanitize_text_field( $campo_id );
-        $valor    = sanitize_text_field( $valor );
-        if ( ! $campo_id ) continue;
-        $ex = tao_crm_api( "/crm_cards_valores?card_id=eq.$card_id&campo_id=eq.$campo_id&limit=1" );
-        if ( $ex['ok'] && ! empty( $ex['data'] ) ) {
-            tao_crm_api( "/crm_cards_valores?card_id=eq.$card_id&campo_id=eq.$campo_id", 'PATCH', [ 'valor' => $valor ] );
-        } else {
-            tao_crm_api( '/crm_cards_valores', 'POST', [ 'card_id' => $card_id, 'campo_id' => $campo_id, 'valor' => $valor ] );
-        }
-    }
+    // (valores do modal já foram persistidos no INÍCIO do handler via tao_crm_salvar_campos_card —
+    //  o loop duplicado que regravava cada campo aqui foi removido: eram 2 chamadas × campo à toa)
 
     tao_crm_api( '/crm_cards_historico', 'POST', [
         'card_id'         => $card_id,
@@ -1236,6 +1226,11 @@ function tao_crm_ajax_move_card() {
         'para_estagio_id' => $estagio_id,
         'usuario_id'      => get_current_user_id(),
     ] );
+
+    // ── PERFORMANCE: o card JÁ ESTÁ movido e registrado — responde ao atendente AGORA e
+    //    executa o pós-processamento (automações, hooks de módulos, webhook, fila) com a
+    //    conexão fechada. O atendente é liberado em ~1s; o resto roda no servidor.
+    tao_crm_responder_e_continuar( [ 'success' => true, 'data' => null ] );
 
     if ( $de_estagio && $de_estagio !== $estagio_id ) {
         tao_crm_disparar_automacoes( $card_id, $de_estagio, 'sair_fase', true );
@@ -1274,7 +1269,33 @@ function tao_crm_ajax_move_card() {
     // Processa fila de automações vencidas (WP-cron não confiável sem tráfego)
     tao_crm_processar_fila_fn();
 
-    wp_send_json_success();
+    wp_die();   // resposta já foi enviada em tao_crm_responder_e_continuar()
+}
+
+/**
+ * Envia a resposta JSON AGORA e fecha a conexão com o navegador, deixando o restante
+ * do handler rodar em segundo plano no servidor (LiteSpeed/FastCGI). O atendente não
+ * espera automações/hooks/webhooks — só a gravação essencial, que acontece antes.
+ */
+function tao_crm_responder_e_continuar( array $payload ) {
+    ignore_user_abort( true );
+    $json = wp_json_encode( $payload );
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    if ( ! headers_sent() ) {
+        status_header( 200 );
+        header( 'Content-Type: application/json; charset=utf-8' );
+        header( 'Content-Length: ' . strlen( $json ) );
+        header( 'Connection: close' );
+    }
+    echo $json;
+    if ( function_exists( 'fastcgi_finish_request' ) ) {
+        fastcgi_finish_request();
+    } elseif ( function_exists( 'litespeed_finish_request' ) ) {
+        litespeed_finish_request();
+    } else {
+        flush();
+    }
+    if ( function_exists( 'set_time_limit' ) ) @set_time_limit( 90 );
 }
 
 // ─── AJAX: CAMPOS OBRIGATÓRIOS DA FASE DESTINO ───────────────────────────────
