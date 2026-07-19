@@ -243,8 +243,8 @@ function tao_caixa_page_vendas() {
                     <input type="number" id="taoc-rec-desc" min="0" step="0.01" value="0"
                            style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:4px;text-align:right">
                 </div>
-                <div style="width:120px">
-                    <label style="font-size:11px;color:#64748b;display:block">Taxas (Cupom Fiscal)</label>
+                <div style="width:100px">
+                    <label style="font-size:11px;color:#64748b;display:block">Taxas</label>
                     <select id="taoc-rec-cupom" style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:4px">
                         <option value="0">Não</option>
                         <option value="1">Sim</option>
