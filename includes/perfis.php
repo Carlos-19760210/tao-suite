@@ -197,7 +197,19 @@ function tao_crm_page_perfis() {
     $wss = function_exists( 'tao_crm_get_workspaces' ) ? tao_crm_get_workspaces() : [];
     $nonce = wp_create_nonce( 'tao_crm_nonce' );
     ?>
-    <div class="wrap">
+    <style>
+    /* Estilo próprio: a tela roda também no portal /robos/, onde o CSS do wp-admin não existe */
+    #tp-wrap { max-width: 900px; }
+    #tp-wrap h1 { font-size: 22px; margin: 0 0 8px; }
+    #tp-wrap h2 { font-size: 16px; margin: 24px 0 8px; }
+    #tp-wrap table.tp-tab { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; }
+    #tp-wrap table.tp-tab th { text-align: left; font-size: 12px; color: #64748b; padding: 8px 10px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; }
+    #tp-wrap table.tp-tab td { padding: 7px 10px; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+    #tp-wrap select, #tp-wrap .tp-btn { padding: 5px 10px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; font-size: 13px; cursor: pointer; }
+    #tp-wrap .tp-btn-pri { background: #2563eb; border-color: #2563eb; color: #fff; }
+    #tp-wrap .tp-btn:disabled { opacity: .6; cursor: default; }
+    </style>
+    <div id="tp-wrap" class="wrap">
         <h1>🔐 Perfis de Acesso</h1>
         <p style="color:#64748b;max-width:760px">Negócio × perfil × tela × permissão. Usuário <strong>sem perfil</strong> mantém o comportamento atual;
         administradores sempre veem tudo. Tela nova entra na matriz automaticamente com "Opera" (ninguém fica trancado).</p>
@@ -209,13 +221,14 @@ function tao_crm_page_perfis() {
                     <?php endforeach; ?>
                 </select>
             </label>
-            <button class="button" id="tp-seed" title="Cria Gestor/Farmacêutica/Atendente/Financeiro com matriz preenchida (idempotente)">⚙ Criar perfis padrão</button>
-            <button class="button button-primary" id="tp-novo">+ Novo perfil</button>
+            <button class="button tp-btn" id="tp-seed" title="Cria Gestor/Farmacêutica/Atendente/Financeiro com matriz preenchida (idempotente)">⚙ Criar perfis padrão</button>
+            <button class="button button-primary tp-btn tp-btn-pri" id="tp-novo">+ Novo perfil</button>
         </p>
         <div id="tp-app">Carregando…</div>
     </div>
     <script>
     (function($){
+        var ajaxurl = window.ajaxurl || <?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>;
         var nonce = <?php echo wp_json_encode( $nonce ); ?>, DATA = null;
         function ws(){ return $('#tp-ws').val(); }
         function carregar(){
@@ -232,7 +245,7 @@ function tao_crm_page_perfis() {
         function render(){
             var h = '';
             // ── Atribuição usuário → perfil ──
-            h += '<h2>Usuários deste negócio</h2><table class="widefat" style="max-width:640px"><thead><tr><th>Usuário</th><th>Perfil</th></tr></thead><tbody>';
+            h += '<h2>Usuários deste negócio</h2><table class="widefat tp-tab" style="max-width:640px"><thead><tr><th>Usuário</th><th>Perfil</th></tr></thead><tbody>';
             (DATA.usuarios||[]).forEach(function(u){
                 var v = (DATA.vinculos||[]).filter(function(x){ return parseInt(x.usuario_id)===u.id; })[0];
                 h += '<tr><td>'+u.nome+' <span style="color:#94a3b8">#'+u.id+'</span></td><td><select class="tp-vinc" data-uid="'+u.id+'">'
@@ -246,8 +259,8 @@ function tao_crm_page_perfis() {
             // ── Matriz por perfil ──
             (DATA.perfis||[]).forEach(function(p){
                 h += '<h2 style="margin-top:22px">'+p.nome+' '+(p.ativo?'':'<span style="color:#dc2626">(inativo)</span>')
-                   + ' <button class="button button-small tp-excluir" data-id="'+p.id+'">Excluir</button></h2>';
-                h += '<table class="widefat striped" style="max-width:760px" data-perfil="'+p.id+'"><thead><tr><th>Tela</th><th style="width:220px">Permissão</th></tr></thead><tbody>';
+                   + ' <button class="button button-small tp-btn tp-excluir" data-id="'+p.id+'">Excluir</button></h2>';
+                h += '<table class="widefat striped tp-tab" style="max-width:760px" data-perfil="'+p.id+'"><thead><tr><th>Tela</th><th style="width:220px">Permissão</th></tr></thead><tbody>';
                 Object.keys(DATA.telas||{}).forEach(function(t){
                     var atual = permDe(p.id, t);
                     h += '<tr><td>'+DATA.telas[t]+'</td><td><select class="tp-perm" data-tela="'+t+'">';
@@ -256,7 +269,7 @@ function tao_crm_page_perfis() {
                     });
                     h += '</select></td></tr>';
                 });
-                h += '</tbody></table><p><button class="button button-primary tp-salvar-matriz" data-perfil="'+p.id+'">💾 Salvar matriz de '+p.nome+'</button></p>';
+                h += '</tbody></table><p><button class="button button-primary tp-btn tp-btn-pri tp-salvar-matriz" data-perfil="'+p.id+'">💾 Salvar matriz de '+p.nome+'</button></p>';
             });
             $('#tp-app').html(h);
         }

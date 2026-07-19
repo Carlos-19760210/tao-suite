@@ -32,6 +32,9 @@ if ( $has_crm ) {
     $secoes['tao-crm-inbox']    = [ 'fn' => 'tao_crm_page_inbox',       'label' => 'CRM Inbox' ];
     $secoes['tao-crm-contatos'] = [ 'fn' => 'tao_crm_page_contatos',    'label' => 'Contatos' ];
     $secoes['tao-crm-settings'] = [ 'fn' => 'tao_crm_page_settings',    'label' => 'CRM Configurações' ];
+    if ( function_exists( 'tao_crm_page_perfis' ) ) {
+        $secoes['tao-crm-perfis'] = [ 'fn' => 'tao_crm_page_perfis', 'label' => 'Perfis de Acesso' ];
+    }
 }
 
 $has_formula = function_exists( 'tao_formula_page_dashboard' );
@@ -275,6 +278,9 @@ if ( $has_crm ) {
             [ 'slug' => 'tao-crm-settings', 'label' => 'Configura&ccedil;&otilde;es', 'url' => cbpm_url('crm-settings') ],
         ],
     ];
+    if ( current_user_can( 'manage_options' ) && function_exists( 'tao_crm_page_perfis' ) ) {
+        $cfg_subs['cfg-crm']['items'][] = [ 'slug' => 'tao-crm-perfis', 'label' => 'Perfis de Acesso', 'url' => cbpm_url('crm-perfis') ];
+    }
 }
 $nav['config'] = [
     'label' => 'Configura&ccedil;&otilde;es',

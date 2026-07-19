@@ -80,6 +80,7 @@ add_action( 'template_redirect', function() {
         'crm-campos'     => 'tao-crm-campos',
         'crm-automacoes' => 'tao-crm-automacoes',
         'crm-contatos'   => 'tao-crm-contatos',
+        'crm-perfis'     => 'tao-crm-perfis',
         'usuarios'       => 'chatbot-platform-usuarios',
         'formula'            => 'tao-formula',
         'formula-dashboard'  => 'tao-formula',
