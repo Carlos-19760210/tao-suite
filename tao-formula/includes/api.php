@@ -12,7 +12,7 @@ function tao_formula_supabase_key() {
 }
 
 function tao_formula_can_access() {
-    if ( function_exists( 'tao_crm_tela_oculta' ) && tao_crm_tela_oculta( 'formula' ) ) return false;
+    if ( function_exists( 'tao_crm_modulo_todo_oculto' ) && tao_crm_modulo_todo_oculto( [ 'formula', 'cadastros', 'formula_estoque', 'formula_prod', 'formula_sngpc', 'formula_config', 'contas_pagar' ] ) ) return false;
     if ( function_exists( 'cbpm_can_access' ) ) return cbpm_can_access();
     return current_user_can( 'manage_options' );
 }

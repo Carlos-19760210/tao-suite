@@ -88,6 +88,16 @@ if ( get_query_var( 'cbpm_page', '' ) === 'negocios' ) $page_atual = 'chatbot-pl
 if ( ! isset( $secoes[ $page_atual ] ) ) $page_atual = 'chatbot-platform';
 $fn = $secoes[ $page_atual ]['fn'] ?? 'cbpm_page_clientes';
 
+// ─── Perfis de Acesso (tao-crm/includes/perfis.php): tela oculta p/ o perfil → home ──
+$tem_perfis = function_exists( 'tao_crm_tela_da_secao' ) && function_exists( 'tao_crm_tela_oculta' );
+if ( $tem_perfis ) {
+    $tela_gate = tao_crm_tela_da_secao( $page_atual );
+    if ( $tela_gate && tao_crm_tela_oculta( $tela_gate ) ) {
+        $page_atual = 'chatbot-platform';
+        $fn = $secoes['chatbot-platform']['fn'];
+    }
+}
+
 // ─── Estrutura do menu accordion ─────────────────────────────────────────────
 // Reorg por MÓDULO (Jun 2026): cada módulo 1× no topo; toda config recolhida em "Configurações".
 // Slugs/rotas/chaves de itens preservados — só muda agrupamento/ordem/rótulo.
@@ -287,6 +297,31 @@ $nav['config'] = [
     'icon'  => '&#x2699;&#xFE0F;',
     'subs'  => $cfg_subs,
 ];
+
+// ─── Perfis de Acesso: esconde do menu itens/grupos cuja tela está oculta ────
+if ( $tem_perfis ) {
+    $tp_visivel = function ( $it ) {
+        $t = tao_crm_tela_da_secao( $it['slug'] ?? '' );
+        return ! $t || ! tao_crm_tela_oculta( $t );
+    };
+    foreach ( $nav as $gk => $g ) {
+        if ( isset( $g['slug'] ) && ! isset( $g['items'] ) && ! isset( $g['subs'] ) ) {   // entrada direta (ex.: Campanhas)
+            if ( ! $tp_visivel( $g ) ) unset( $nav[ $gk ] );
+            continue;
+        }
+        if ( ! empty( $g['items'] ) ) {
+            $nav[ $gk ]['items'] = array_values( array_filter( $g['items'], $tp_visivel ) );
+            if ( empty( $nav[ $gk ]['items'] ) && empty( $g['subs'] ) ) { unset( $nav[ $gk ] ); continue; }
+        }
+        if ( ! empty( $g['subs'] ) ) {
+            foreach ( $g['subs'] as $sk => $s ) {
+                $nav[ $gk ]['subs'][ $sk ]['items'] = array_values( array_filter( $s['items'] ?? [], $tp_visivel ) );
+                if ( empty( $nav[ $gk ]['subs'][ $sk ]['items'] ) ) unset( $nav[ $gk ]['subs'][ $sk ] );
+            }
+            if ( empty( $nav[ $gk ]['subs'] ) && empty( $nav[ $gk ]['items'] ) ) unset( $nav[ $gk ] );
+        }
+    }
+}
 
 // Detecta grupo/sub do item ativo (auto-expande no load) — suporta módulo (itens diretos),
 // grupo Configurações (subs) e entrada direta (Campanhas, sem itens).

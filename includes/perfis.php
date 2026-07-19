@@ -14,21 +14,93 @@ if ( ! defined( 'ABSPATH' ) ) exit;
  */
 
 // ── Catálogo de telas (a matriz da UI lê DAQUI — tela nova = 1 linha aqui) ────
+// Cobre TODA a solução TAO Neo: Agente, CRM, Campanhas, Cadastros, Fórmulas,
+// Estoque, Financeiro, Entregas, Cotações e Configurações.
 function tao_crm_catalogo_telas() {
     return [
-        'kanban'        => 'CRM — Kanban / Cards',
-        'contatos'      => 'CRM — Contatos',
-        'campanhas'     => 'CRM — Campanhas',
-        'crm_config'    => 'CRM — Configurações',
-        'formula'       => 'Fórmulas — Orçamentos / Editor',
-        'formula_prod'  => 'Fórmulas — Produção / Estoque',
-        'formula_sngpc' => 'Fórmulas — SNGPC / Livro',
-        'formula_config'=> 'Fórmulas — Configurações',
-        'caixa'         => 'Caixa — PDV / Vendas',
-        'caixa_config'  => 'Caixa — Operadoras / Taxas / Formas',
-        'cotacoes'      => 'Cotações (compras)',
-        'entregas'      => 'Entregas',
+        'neo'            => 'Agente — Painel',
+        'neo_pedidos'    => 'Agente — Pedidos',
+        'neo_leads'      => 'Agente — Leads',
+        'neo_historico'  => 'Agente — Histórico',
+        'neo_conteudo'   => 'Agente — Promoções / Avisos',
+        'kanban'         => 'CRM — Painel / Kanban / Cards',
+        'contatos'       => 'Cadastros — Clientes / Contatos',
+        'campanhas'      => 'Campanhas (+ Listas de Contatos)',
+        'cadastros'      => 'Cadastros — Prescritores / Fornecedores / Ativos / Formas',
+        'formula'        => 'Fórmulas — Orçamentos / Editor / Histórico',
+        'formula_estoque'=> 'Estoque — NF / Lotes / Inventário / Reposição',
+        'formula_prod'   => 'Fórmulas — Produção',
+        'formula_sngpc'  => 'Fórmulas — SNGPC / Livro',
+        'caixa'          => 'Caixa — PDV / Vendas / Sessão / Conciliação',
+        'contas_pagar'   => 'Financeiro — Contas a Pagar',
+        'cotacoes'       => 'Cotações (compras)',
+        'entregas'       => 'Entregas',
+        'crm_config'     => 'Config — CRM',
+        'formula_config' => 'Config — Fórmulas',
+        'caixa_config'   => 'Config — Caixa (Operadoras / Taxas / Formas)',
+        'plataforma_config' => 'Config — Plataforma / Agente (Negócios, Usuários, Conectores, Catálogo)',
     ];
+}
+
+/**
+ * Mapa seção do portal → tela do catálogo. É o que liga o roteador (/robos/*)
+ * ao perfil: dispatcher e menu do portal consultam aqui. Seção não mapeada
+ * (home, telas novas) = sem gate — nada tranca por omissão.
+ */
+function tao_crm_tela_da_secao( $secao ) {
+    static $map = [
+        'chatbot-platform-neo-dashboard'   => 'neo',
+        'chatbot-platform-dashboard'       => 'neo',
+        'chatbot-platform-pedidos'         => 'neo_pedidos',
+        'chatbot-platform-leads'           => 'neo_leads',
+        'chatbot-platform-historico'       => 'neo_historico',
+        'chatbot-platform-conteudo'        => 'neo_conteudo',
+        'chatbot-platform-campanhas'       => 'campanhas',
+        'chatbot-platform-listas'          => 'campanhas',
+        'chatbot-platform-negocios'        => 'plataforma_config',
+        'chatbot-platform-categorias'      => 'plataforma_config',
+        'chatbot-platform-usuarios'        => 'plataforma_config',
+        'chatbot-platform-conectores'      => 'plataforma_config',
+        'chatbot-platform-settings'        => 'plataforma_config',
+        'chatbot-platform-catalogo'        => 'plataforma_config',
+        'chatbot-platform-disponibilidade' => 'plataforma_config',
+        'chatbot-platform-campos-extras'   => 'plataforma_config',
+        'tao-crm-dashboard'                => 'kanban',
+        'tao-crm-kanban'                   => 'kanban',
+        'tao-crm-inbox'                    => 'kanban',
+        'tao-crm-contatos'                 => 'contatos',
+        'tao-crm-settings'                 => 'crm_config',
+        'tao-formula'                      => 'formula',
+        'tao-formula-orcamentos'           => 'formula',
+        'tao-formula-orc-novo'             => 'formula',
+        'tao-formula-historico'            => 'formula',
+        'tao-formula-prescritores'         => 'cadastros',
+        'tao-formula-fornecedores'         => 'cadastros',
+        'tao-formula-ativos'               => 'cadastros',
+        'tao-formula-formas'               => 'cadastros',
+        'tao-cotacoes-fornecedores'        => 'cadastros',
+        'tao-formula-estoque-nf'           => 'formula_estoque',
+        'tao-formula-estoque-lotes'        => 'formula_estoque',
+        'tao-formula-estoque-inventario'   => 'formula_estoque',
+        'tao-formula-estoque-repo'         => 'formula_estoque',
+        'tao-formula-producao'             => 'formula_prod',
+        'tao-formula-producao-interna'     => 'formula_prod',
+        'tao-formula-livro'                => 'formula_sngpc',
+        'tao-formula-sngpc'                => 'formula_sngpc',
+        'tao-formula-contas-pagar'         => 'contas_pagar',
+        'tao-formula-config'               => 'formula_config',
+        'tao-caixa-dashboard'              => 'caixa',
+        'tao-caixa-vendas'                 => 'caixa',
+        'tao-caixa-sessao'                 => 'caixa',
+        'tao-caixa-conciliacao'            => 'caixa',
+        'tao-caixa-adquirentes'            => 'caixa_config',
+        'tao-caixa-taxas'                  => 'caixa_config',
+        'tao-caixa-formas'                 => 'caixa_config',
+        'tao-cotacoes'                     => 'cotacoes',
+        'tao-cotacoes-nova'                => 'cotacoes',
+        'tao-entregas-painel'              => 'entregas',
+    ];
+    return $map[ $secao ] ?? '';
 }
 
 // ── Engine ────────────────────────────────────────────────────────────────────
@@ -73,14 +145,27 @@ function tao_crm_permissao( $tela, $recurso = '*' ) {
 function tao_crm_tela_oculta( $tela )  { return tao_crm_permissao( $tela ) === 'oculto'; }
 function tao_crm_pode_operar( $tela )  { return tao_crm_permissao( $tela ) === 'opera'; }
 
+/**
+ * Gate de MÓDULO (usado pelos can_access): nega só quando TODAS as telas do
+ * módulo estão ocultas. O bloqueio tela a tela é do dispatcher do portal —
+ * aqui é o cinto de segurança dos AJAX sem derrubar telas ainda permitidas.
+ */
+function tao_crm_modulo_todo_oculto( array $telas ) {
+    if ( ! tao_crm_perfil_usuario() ) return false;
+    foreach ( $telas as $t ) {
+        if ( ! tao_crm_tela_oculta( $t ) ) return false;
+    }
+    return true;
+}
+
 // ── Seeds automáticos: perfis padrão com matriz preenchida ────────────────────
 function tao_crm_perfis_seed_padrao( $ws_id ) {
     $telas = array_keys( tao_crm_catalogo_telas() );
     $perfis = [
         'Gestor'       => [],   // tudo opera (default) — sem exceções
-        'Farmacêutica' => [ 'crm_config' => 'leitura', 'caixa_config' => 'leitura' ],
-        'Atendente'    => [ 'crm_config' => 'oculto', 'formula_config' => 'oculto', 'caixa_config' => 'oculto', 'formula_sngpc' => 'leitura', 'cotacoes' => 'oculto' ],
-        'Financeiro'   => [ 'formula' => 'leitura', 'formula_prod' => 'leitura', 'formula_sngpc' => 'leitura', 'formula_config' => 'oculto', 'kanban' => 'leitura', 'campanhas' => 'oculto', 'crm_config' => 'oculto' ],
+        'Farmacêutica' => [ 'crm_config' => 'leitura', 'caixa_config' => 'leitura', 'plataforma_config' => 'leitura' ],
+        'Atendente'    => [ 'crm_config' => 'oculto', 'formula_config' => 'oculto', 'caixa_config' => 'oculto', 'plataforma_config' => 'oculto', 'formula_sngpc' => 'leitura', 'cotacoes' => 'oculto', 'contas_pagar' => 'oculto' ],
+        'Financeiro'   => [ 'formula' => 'leitura', 'formula_prod' => 'leitura', 'formula_sngpc' => 'leitura', 'formula_config' => 'oculto', 'kanban' => 'leitura', 'campanhas' => 'oculto', 'crm_config' => 'oculto', 'plataforma_config' => 'oculto', 'neo_conteudo' => 'oculto' ],
     ];
     $criados = 0;
     foreach ( $perfis as $nome => $exc ) {
