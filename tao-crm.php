@@ -3928,9 +3928,15 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
                     $fw_ev['_crm_contato_id'] = $contato_id;
 
                     // Conversa via @lid: reescreve o encaminhado p/ o N8N responder ao
-                    // PRÓPRIO @lid (único destino que entrega — ack provado 19/07).
-                    // Identidade do contato no CRM segue pelo número real.
-                    if ( $lid_jid && isset( $fw_ev['data']['key'] ) ) {
+                    // PRÓPRIO @lid (único destino que entrega em sessão re-pareada, ex.: Iluminar).
+                    // NÃO aplicar onde o número puro já entrega: reescrever aqui fazia o N8N
+                    // identificar o contato pelo @lid e criar contato/card FANTASMA no LID de
+                    // 15 dígitos (incidente 20/07 — cards não nasciam no número real). Gate por
+                    // workspace: a farmácia (7c4cae7f) NUNCA reescreve; lista ajustável sem deploy
+                    // via option tao_crm_lid_skip_ws (CSV de workspace_id).
+                    $_lid_skip_ws = array_filter( array_map( 'trim', explode( ',',
+                        get_option( 'tao_crm_lid_skip_ws', '7c4cae7f-7591-4955-8d7a-c8c5e19cf62d' ) ) ) );
+                    if ( $lid_jid && ! in_array( $WS_ID, $_lid_skip_ws, true ) && isset( $fw_ev['data']['key'] ) ) {
                         $fw_ev['data']['key']['remoteJid'] = $lid_jid;
                         unset( $fw_ev['data']['key']['remoteJidAlt'] );
                         $fw_ev['sender'] = '';
