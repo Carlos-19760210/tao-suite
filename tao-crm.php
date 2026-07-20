@@ -3457,6 +3457,8 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
     $hs_cache   = []; // pl_id          → handoff stage_id
     $fw_cache   = []; // ws_id          → já encaminhou ao N8N neste request
     $ct_cache   = []; // ws_id|num      → [ id, is_retorno ]
+    $fs_cache   = []; // pl_id          → primeiro estágio do funil
+    $fs2_cache  = []; // pl_id          → primeiro estágio ATIVO (≠ fase muda do opt-in)
 
     foreach ( $eventos as $ev ) {
         $evento = strtolower( $ev['event'] ?? $ev['type'] ?? '' );
@@ -3765,12 +3767,14 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
             // ── 2c. Busca card aberto de tracking (Pós Vendas, sem bloquear chatbot) ─
             // Busca em TODAS as instâncias para garantir que cards de pós-vendas sejam detectados
             // independentemente da instância em que foram criados.
-            $tracking_card_id    = $card_id;
+            $tracking_card_id      = $card_id;
+            $tracking_card_estagio = '';
             $pos_vendas_card     = null;
             if ( ! $card_id ) {
                 $rt = tao_crm_api( "/crm_cards?workspace_id=eq.$WS_ID&contato_whatsapp=eq.$num&fechado=eq.false&atendimento_humano=eq.false&select=id,estagio_id,titulo,pipeline_id&order=criado_em.desc&limit=1" );
                 if ( $rt['ok'] && ! empty( $rt['data'] ) ) {
-                    $tracking_card_id = $rt['data'][0]['id'];
+                    $tracking_card_id      = $rt['data'][0]['id'];
+                    $tracking_card_estagio = $rt['data'][0]['estagio_id'] ?? '';
                     // Só bloqueia N8N se o card está num pipeline secundário (pós-vendas).
                     // Cards no pipeline principal não devem impedir o chatbot de atuar.
                     if ( ( $rt['data'][0]['pipeline_id'] ?? '' ) !== $PL_ID ) {
@@ -3807,6 +3811,28 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
                 }
             }
             tao_crm_log_error( 'dispatch', '[2c] tracking_card=' . ( $tracking_card_id ? substr($tracking_card_id,0,8) : 'none' ) . ' pos_vendas=' . ( $pos_vendas_card ? substr($pos_vendas_card['id'],0,8) : 'none' ) );
+
+            // ── 2d. Opt-in do bot (chave por workspace — ex.: Iluminar em número
+            // compartilhado). Contato NOVO só ativa o bot se a mensagem contiver um
+            // termo-gatilho (o wa.me do site/IG/FB manda o texto pronto); sem gatilho
+            // o card nasce na fase "muda" (Pessoal/Profissional) e o bot fica MUDO.
+            // Card na fase muda = mudo sempre — mover o card no Kanban liga/desliga.
+            $_optin_frases = $_chatbot_primary ? trim( (string) get_option( 'tao_crm_optin_frases_' . $WS_ID, '' ) ) : '';
+            $_mute_stage   = $_optin_frases !== '' ? (string) get_option( 'tao_crm_mute_stage_' . $WS_ID, '' ) : '';
+            $_optin_match  = false;
+            if ( $_optin_frases !== '' && $tipo === 'text' ) {
+                $_lc_optin = mb_strtolower( $conteudo );
+                foreach ( explode( '|', mb_strtolower( $_optin_frases ) ) as $_t_optin ) {
+                    $_t_optin = trim( $_t_optin );
+                    if ( $_t_optin !== '' && mb_strpos( $_lc_optin, $_t_optin ) !== false ) { $_optin_match = true; break; }
+                }
+            }
+            $_bot_mudo = false;
+            if ( $_optin_frases !== '' && ! $from_me ) {
+                if ( $_mute_stage && $tracking_card_estagio === $_mute_stage )  $_bot_mudo = true;
+                elseif ( ! $tracking_card_id && ! $_optin_match )               $_bot_mudo = true;
+                if ( $_bot_mudo ) tao_crm_log_error( 'dispatch', '[2d] bot MUDO (opt-in)', [ 'num' => $num_plain, 'match' => $_optin_match ? 1 : 0, 'card' => $tracking_card_id ? substr( $tracking_card_id, 0, 8 ) : 'novo' ] );
+            }
 
             // ── 2e. Conflito cross-instância: número ativo em outra instância ─────────
             // Se não encontrou card nesta instância mas há um aberto em outra, avisa e descarta.
@@ -3893,7 +3919,7 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
                     'horario' => tao_crm_esta_em_horario( $WS_ID ) ? 1 : 0,
                 ] );
             }
-            if ( ! $from_me && ! $_n8n_blocked_by_card && ! $pos_vendas_card && $N8N_URL && empty( $fw_cache[ $WS_ID ] ) && ! get_transient( $_n8n_fwd_key ) && ! ( $is_handoff_req && ! tao_crm_esta_em_horario( $WS_ID ) ) ) {
+            if ( ! $from_me && ! $_bot_mudo && ! $_n8n_blocked_by_card && ! $pos_vendas_card && $N8N_URL && empty( $fw_cache[ $WS_ID ] ) && ! get_transient( $_n8n_fwd_key ) && ! ( $is_handoff_req && ! tao_crm_esta_em_horario( $WS_ID ) ) ) {
                 tao_crm_log_error( 'dispatch', '[2b] FORWARD para N8N', [ 'num' => $num ] );
                 set_transient( $_n8n_fwd_key, 1, 30 );
                 $fw_ev = $ev;
@@ -4159,13 +4185,27 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
                     $rfs = tao_crm_api( "/crm_estagios?pipeline_id=eq.$PL_ID&order=ordem.asc&limit=1" );
                     $fs_cache[ $PL_ID ] = ( $rfs['ok'] && ! empty( $rfs['data'] ) ) ? $rfs['data'][0]['id'] : null;
                 }
-                if ( ! empty( $fs_cache[ $PL_ID ] ) ) {
+                // Opt-in ligado: sem gatilho → card na fase muda (Pessoal/Profissional);
+                // com gatilho → primeira fase ATIVA do funil (pula a fase muda).
+                $_estagio_2g = $fs_cache[ $PL_ID ];
+                if ( $_mute_stage ) {
+                    if ( $_bot_mudo ) {
+                        $_estagio_2g = $_mute_stage;
+                    } elseif ( $_estagio_2g === $_mute_stage ) {
+                        if ( ! isset( $fs2_cache[ $PL_ID ] ) ) {
+                            $rfs2 = tao_crm_api( "/crm_estagios?pipeline_id=eq.$PL_ID&id=neq.$_mute_stage&order=ordem.asc&limit=1" );
+                            $fs2_cache[ $PL_ID ] = ( $rfs2['ok'] && ! empty( $rfs2['data'] ) ) ? $rfs2['data'][0]['id'] : $_estagio_2g;
+                        }
+                        $_estagio_2g = $fs2_cache[ $PL_ID ];
+                    }
+                }
+                if ( ! empty( $_estagio_2g ) ) {
                     $push_2g = trim( $msg['pushName'] ?? '' );
                     $nome_2g = ( $push_2g && $push_2g !== '.' ) ? $push_2g : $num_plain;
                     $rc2g = tao_crm_api( '/crm_cards', 'POST', [
                         'workspace_id'       => $WS_ID,
                         'pipeline_id'        => $PL_ID,
-                        'estagio_id'         => $fs_cache[ $PL_ID ],
+                        'estagio_id'         => $_estagio_2g,
                         'instancia_id'       => $INST_ID,
                         'contato_id'         => $contato_id,
                         'titulo'             => $nome_2g,
