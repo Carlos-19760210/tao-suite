@@ -12,14 +12,18 @@ function tao_caixa_page_sessao() {
     $brl = function ( $v ) { return 'R$ ' . number_format( (float) $v, 2, ',', '.' ); };
 
     $sessao   = $cid ? tao_caixa_sessao_aberta( $cid ) : null;
-    $recebido = 0.0; $cash = 0.0; $n_recibos = 0;
+    $recebido = 0.0; $cash = 0.0; $n_recibos = 0; $movs = []; $mov_liq = 0.0;
     if ( $sessao ) {
         $sid = $sessao['id'];
         $rr = tao_caixa_api( "/caixa_recibos?sessao_id=eq.$sid&cliente_id=eq.$cid&status=neq.estornado&select=valor_total" );
         foreach ( ( $rr['ok'] ? ( $rr['data'] ?? [] ) : [] ) as $r ) { $recebido += (float) $r['valor_total']; $n_recibos++; }
         $cash = tao_caixa_dinheiro_da_sessao( $cid, $sid );
+        $rm = tao_caixa_api( "/caixa_movimentos?sessao_id=eq.$sid&cliente_id=eq.$cid&order=criado_em.desc&select=tipo,valor,motivo,criado_em" );
+        $movs = $rm['ok'] ? ( $rm['data'] ?? [] ) : [];
+        foreach ( $movs as $m ) { $mov_liq += ( $m['tipo'] === 'sangria' ? -1 : 1 ) * (float) $m['valor']; }
+        $mov_liq = round( $mov_liq, 2 );
     }
-    $gaveta = $sessao ? round( (float) $sessao['saldo_inicial'] + $cash, 2 ) : 0.0;
+    $gaveta = $sessao ? round( (float) $sessao['saldo_inicial'] + $cash + $mov_liq, 2 ) : 0.0;
 
     // Últimas sessões fechadas
     $fechadas = [];
@@ -71,14 +75,58 @@ function tao_caixa_page_sessao() {
                 <div style="font-size:12px;color:#64748b">Dinheiro recebido</div>
                 <strong style="font-size:20px"><?php echo $brl( $cash ); ?></strong>
             </div>
+            <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:16px">
+                <div style="font-size:12px;color:#64748b">Aportes − sangrias</div>
+                <strong style="font-size:20px;color:<?php echo $mov_liq < 0 ? '#dc2626' : '#0f172a'; ?>"><?php echo $brl( $mov_liq ); ?></strong>
+            </div>
             <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:16px">
                 <div style="font-size:12px;color:#64748b">Esperado na gaveta</div>
                 <strong style="font-size:20px;color:#1d4ed8"><?php echo $brl( $gaveta ); ?></strong>
-                <div style="font-size:11px;color:#94a3b8">saldo inicial + dinheiro</div>
+                <div style="font-size:11px;color:#94a3b8">inicial + dinheiro + aportes − sangrias</div>
             </div>
         </div>
 
-        <div class="taoc-card" style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:20px;max-width:460px">
+        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start">
+        <div class="taoc-card" style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:20px;flex:1 1 320px;max-width:460px">
+            <h2 style="margin:0 0 4px;font-size:16px">Aporte / Sangria</h2>
+            <p style="font-size:13px;color:#64748b;margin:0 0 14px">Entrada (troco, reforço) ou retirada de dinheiro da gaveta. Lançou errado? Lance o movimento inverso.</p>
+            <div class="taoc-field">
+                <label>Tipo</label>
+                <select id="mv-tipo" style="padding:7px;border:1px solid #cbd5e1;border-radius:6px">
+                    <option value="aporte">Aporte (entrada)</option>
+                    <option value="sangria">Sangria (retirada)</option>
+                </select>
+            </div>
+            <div class="taoc-field" style="margin-top:8px">
+                <label>Valor (R$)</label>
+                <input type="number" id="mv-valor" min="0" step="0.01" placeholder="0,00" style="width:160px;padding:7px;border:1px solid #cbd5e1;border-radius:6px">
+            </div>
+            <div class="taoc-field" style="margin-top:8px">
+                <label>Motivo <span id="mv-motivo-req" style="color:#94a3b8">(obrigatório na sangria)</span></label>
+                <input type="text" id="mv-motivo" placeholder="ex.: depósito no banco, troco, pagamento motoboy" style="width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:6px">
+            </div>
+            <div class="taoc-actions" style="margin-top:14px">
+                <button type="button" id="mv-lancar" class="taoc-btn taoc-btn-primary">Lançar</button>
+            </div>
+            <p id="mv-msg" style="display:none;margin-top:10px;font-size:13px"></p>
+            <?php if ( $movs ) : ?>
+            <table class="taoc-table" style="margin-top:16px">
+                <thead><tr><th>Hora</th><th>Tipo</th><th style="text-align:right">Valor</th><th>Motivo</th></tr></thead>
+                <tbody>
+                <?php foreach ( $movs as $m ) : $sang = $m['tipo'] === 'sangria'; ?>
+                    <tr>
+                        <td><?php echo esc_html( date_i18n( 'd/m H:i', strtotime( $m['criado_em'] ) ) ); ?></td>
+                        <td style="color:<?php echo $sang ? '#dc2626' : '#16a34a'; ?>;font-weight:600"><?php echo $sang ? 'Sangria' : 'Aporte'; ?></td>
+                        <td style="text-align:right"><?php echo ( $sang ? '−' : '+' ) . ' ' . $brl( $m['valor'] ); ?></td>
+                        <td><?php echo esc_html( $m['motivo'] ?? '—' ); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+            <?php endif; ?>
+        </div>
+
+        <div class="taoc-card" style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:20px;flex:1 1 320px;max-width:460px">
             <h2 style="margin:0 0 12px;font-size:16px">Fechar caixa</h2>
             <div class="taoc-field">
                 <label>Valor contado na gaveta (R$)</label>
@@ -89,6 +137,7 @@ function tao_caixa_page_sessao() {
                 <button type="button" id="sx-fechar" class="taoc-btn taoc-btn-primary">Fechar caixa</button>
             </div>
             <p id="sx-msg" style="display:none;margin-top:10px;font-size:13px"></p>
+        </div>
         </div>
 
         <?php endif; ?>
@@ -130,6 +179,24 @@ function tao_caixa_page_sessao() {
         }
         var ab=document.getElementById('sx-abrir');
         if(ab) ab.addEventListener('click',function(){ post('tao_caixa_abrir_sessao',{ saldo_inicial:document.getElementById('sx-saldo').value, observacoes:document.getElementById('sx-obs').value }, ab); });
+        var mv=document.getElementById('mv-lancar');
+        if(mv) mv.addEventListener('click',function(){
+            var tipo=document.getElementById('mv-tipo').value,
+                val=document.getElementById('mv-valor').value,
+                mot=document.getElementById('mv-motivo').value.trim(),
+                msg=document.getElementById('mv-msg');
+            function err(t){ msg.style.display='block'; msg.style.color='#dc2626'; msg.textContent=t; }
+            if(!val||parseFloat(val.replace(',','.'))<=0) return err('Informe um valor maior que zero.');
+            if(tipo==='sangria'&&!mot) return err('Informe o motivo da sangria.');
+            if(tipo==='sangria'&&!confirm('Confirmar sangria de R$ '+val+'?')) return;
+            var fd=new FormData(); fd.append('action','tao_caixa_lancar_movimento'); fd.append('nonce',C.nonce);
+            fd.append('tipo',tipo); fd.append('valor',val); fd.append('motivo',mot);
+            mv.disabled=true; mv.textContent='Lançando...';
+            fetch(C.ajaxUrl,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(function(resp){
+                if(resp&&resp.success){ location.reload(); }
+                else { mv.disabled=false; mv.textContent='Lançar'; err('Erro: '+((resp&&resp.data)||'falha')); }
+            }).catch(function(){ mv.disabled=false; mv.textContent='Lançar'; err('Falha de comunicação'); });
+        });
         var fc=document.getElementById('sx-fechar');
         if(fc) fc.addEventListener('click',function(){
             var v=document.getElementById('sx-contado').value;

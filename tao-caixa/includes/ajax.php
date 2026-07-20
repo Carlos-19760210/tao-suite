@@ -210,7 +210,7 @@ add_action( 'wp_ajax_tao_caixa_fechar_sessao', function() {
     $sid = $sess['id'];
     $informado = round( (float) str_replace( ',', '.', $_POST['saldo_final_informado'] ?? 0 ), 2 );
     $cash = tao_caixa_dinheiro_da_sessao( $cid, $sid );
-    $calc = round( (float) $sess['saldo_inicial'] + $cash, 2 );
+    $calc = round( (float) $sess['saldo_inicial'] + $cash + tao_caixa_movimentos_da_sessao( $cid, $sid ), 2 );
     $div  = round( $informado - $calc, 2 );
     $r = tao_caixa_api( "/caixa_sessoes?id=eq.$sid&cliente_id=eq.$cid", 'PATCH', [
         'fechado_em'            => gmdate( 'c' ),
@@ -221,6 +221,46 @@ add_action( 'wp_ajax_tao_caixa_fechar_sessao', function() {
     ] );
     if ( ! $r['ok'] ) wp_send_json_error( 'Falha ao fechar caixa: ' . ( $r['raw'] ?? '' ) );
     wp_send_json_success( [ 'calculado' => $calc, 'informado' => $informado, 'divergencia' => $div ] );
+} );
+
+// ── Aportes e sangrias (migration_caixa_movimentos_v1) ─────────────────────────
+
+/** Líquido de aportes − sangrias de uma sessão. 0.0 se a migration não rodou. */
+function tao_caixa_movimentos_da_sessao( $cid, $sid ) {
+    $r = tao_caixa_api( "/caixa_movimentos?sessao_id=eq.$sid&cliente_id=eq.$cid&select=tipo,valor" );
+    $liq = 0.0;
+    foreach ( ( $r['ok'] ? ( $r['data'] ?? [] ) : [] ) as $m ) {
+        $liq += ( ( $m['tipo'] ?? '' ) === 'sangria' ? -1 : 1 ) * (float) $m['valor'];
+    }
+    return round( $liq, 2 );
+}
+
+add_action( 'wp_ajax_tao_caixa_lancar_movimento', function() {
+    $cid  = tao_caixa_ajax_guard();
+    $sess = tao_caixa_sessao_aberta( $cid );
+    if ( ! $sess ) wp_send_json_error( 'Nenhum caixa aberto — abra o caixa para lançar aporte/sangria.' );
+    $tipo = sanitize_text_field( $_POST['tipo'] ?? '' );
+    if ( ! in_array( $tipo, [ 'aporte', 'sangria' ], true ) ) wp_send_json_error( 'Tipo inválido.' );
+    $valor = round( (float) str_replace( ',', '.', $_POST['valor'] ?? 0 ), 2 );
+    if ( $valor <= 0 ) wp_send_json_error( 'Informe um valor maior que zero.' );
+    $motivo = sanitize_textarea_field( wp_unslash( $_POST['motivo'] ?? '' ) );
+    if ( $tipo === 'sangria' && $motivo === '' ) wp_send_json_error( 'Informe o motivo da sangria.' );
+    $sid = $sess['id'];
+    if ( $tipo === 'sangria' ) {
+        $gaveta = round( (float) $sess['saldo_inicial'] + tao_caixa_dinheiro_da_sessao( $cid, $sid ) + tao_caixa_movimentos_da_sessao( $cid, $sid ), 2 );
+        if ( $valor > $gaveta ) wp_send_json_error( 'Sangria maior que o esperado na gaveta (R$ ' . number_format( $gaveta, 2, ',', '.' ) . ').' );
+    }
+    $r = tao_caixa_api( '/caixa_movimentos', 'POST', [
+        'cliente_id'  => $cid,
+        'sessao_id'   => $sid,
+        'tipo'        => $tipo,
+        'valor'       => $valor,
+        'motivo'      => $motivo !== '' ? $motivo : null,
+        'operador_id' => get_current_user_id(),
+        'criado_em'   => gmdate( 'c' ),
+    ] );
+    if ( ! $r['ok'] || empty( $r['data'] ) ) wp_send_json_error( 'Falha ao lançar: ' . ( $r['raw'] ?? '' ) );
+    wp_send_json_success( $r['data'][0] );
 } );
 
 /**
