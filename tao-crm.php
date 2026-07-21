@@ -2186,14 +2186,33 @@ function tao_crm_renovar_card( $card, $rsd ) {
         ], [ 'Prefer' => 'return=representation' ] );
         $novo_id = ( $rn['ok'] && ! empty( $rn['data'] ) ) ? $rn['data'][0]['id'] : null;
     }
-    // Clona os orçamentos (mesma base Supabase) com o novo card_id — formula idêntica
+    // Card novo = aproveita ESTRUTURA + orçamentos + itens de venda, mas com NÚMEROS de
+    // orçamento NOVOS e estado de aprovação/OM/envio zerado (segue a vida normal do funil).
+    // Campos obrigatórios (valores de campo do card) NÃO são copiados — nascem vazios.
     if ( $novo_id ) {
+        $gerar_num = function_exists( 'tao_formula_gerar_numero' );
         $ro = tao_crm_api( "/orcamentos?card_id=eq.{$card['id']}&select=*" );
         foreach ( ( $ro['ok'] ? ( $ro['data'] ?? [] ) : [] ) as $o ) {
-            unset( $o['id'], $o['criado_em'], $o['atualizado_em'] );
-            $o['card_id'] = $novo_id;
+            $cli = $o['cliente_id'] ?? '';
+            foreach ( [ 'id','criado_em','atualizado_em','aprovado_em','validado_por','validado_em',
+                        'validacao_automatica','concentracoes_validadas','motivo_rejeicao','ajustes_farma',
+                        'enviado_em','aceito_paciente_em','estimativa_enviada_em','interesse_confirmado_em',
+                        'expira_em','previsao_retirada','farmaceutico_id','txt_path','txt_gerado_em',
+                        'valor_final_fc' ] as $_k ) unset( $o[ $_k ] );
+            $o['card_id']          = $novo_id;
+            $o['status']           = 'pendente_revisao';
+            $o['numero_orcamento'] = ( $gerar_num && $cli ) ? tao_formula_gerar_numero( $cli, $novo_id )
+                                                            : ( $o['numero_orcamento'] ?? '' );
             tao_crm_api( '/orcamentos', 'POST', $o );
         }
+        // Itens de venda (crm_card_itens) — mesma estrutura no card novo
+        $ri = tao_crm_api( "/crm_card_itens?card_id=eq.{$card['id']}&select=*" );
+        foreach ( ( $ri['ok'] ? ( $ri['data'] ?? [] ) : [] ) as $it ) {
+            unset( $it['id'], $it['criado_em'], $it['atualizado_em'] );
+            $it['card_id'] = $novo_id;
+            tao_crm_api( '/crm_card_itens', 'POST', $it );
+        }
+        if ( function_exists( 'tao_crm_sync_valor_oportunidade' ) ) tao_crm_sync_valor_oportunidade( $novo_id );
     }
     if ( ! empty( $rsd['renovado'] ) ) {
         tao_crm_api( "/crm_cards?id=eq.{$card['id']}", 'PATCH', [ 'estagio_id' => $rsd['renovado'], 'movido_em' => gmdate( 'c' ) ] );
