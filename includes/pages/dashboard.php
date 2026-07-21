@@ -22,13 +22,35 @@ function tao_crm_page_dashboard() {
     $ws_id = $ws['id'];
 
     // ── Período ────────────────────────────────────────────────────────────────
-    $dias  = max( 1, min( 180, intval( $_GET['dias'] ?? 1 ) ) );   // padrão: Hoje
-    if ( $dias === 1 ) {
+    // Presets (dias) + "Mês corrente" (periodo=mes) + intervalo específico (de/ate).
+    // Todos produzem [$desde, $ate_ts] em UTC; $ate_ts limita o fim (default = agora).
+    $_tz_sp  = new DateTimeZone( 'America/Sao_Paulo' );
+    $_tz_utc = new DateTimeZone( 'UTC' );
+    $_brt_utc = function ( $ymd, $hms ) use ( $_tz_sp, $_tz_utc ) {
+        $d = DateTime::createFromFormat( 'Y-m-d H:i:s', $ymd . ' ' . $hms, $_tz_sp );
+        if ( ! $d ) return null;
+        $d->setTimezone( $_tz_utc );
+        return $d->format( 'c' );
+    };
+    $de_g    = sanitize_text_field( $_GET['de']  ?? '' );
+    $ate_g   = sanitize_text_field( $_GET['ate'] ?? '' );
+    $periodo = sanitize_text_field( $_GET['periodo'] ?? '' );
+    $dias    = max( 1, min( 180, intval( $_GET['dias'] ?? 1 ) ) );   // padrão: Hoje
+    $ate_ts  = gmdate( 'c' );
+    if ( preg_match( '/^\d{4}-\d{2}-\d{2}$/', $de_g ) && preg_match( '/^\d{4}-\d{2}-\d{2}$/', $ate_g ) ) {
+        $periodo = 'custom';
+        $desde   = $_brt_utc( $de_g, '00:00:00' ) ?: gmdate( 'c', strtotime( '-30 days' ) );
+        $ate_ts  = $_brt_utc( $ate_g, '23:59:59' ) ?: gmdate( 'c' );
+    } elseif ( $periodo === 'mes' ) {
+        $_ini = new DateTime( 'first day of this month', $_tz_sp );
+        $_ini->setTime( 0, 0, 0 );
+        $_ini->setTimezone( $_tz_utc );
+        $desde = $_ini->format( 'c' );
+    } elseif ( $dias === 1 ) {
         // "Hoje" = dia-calendário corrente em BRT (00:00 → agora), não 24h corridas.
-        // Convertido para UTC para comparar com criado_em (armazenado em UTC).
-        $_d0 = new DateTime( 'now', new DateTimeZone( 'America/Sao_Paulo' ) );
+        $_d0 = new DateTime( 'now', $_tz_sp );
         $_d0->setTime( 0, 0, 0 );
-        $_d0->setTimezone( new DateTimeZone( 'UTC' ) );
+        $_d0->setTimezone( $_tz_utc );
         $desde = $_d0->format( 'c' );
     } else {
         $desde = gmdate( 'c', strtotime( "-{$dias} days" ) );
@@ -143,9 +165,9 @@ function tao_crm_page_dashboard() {
 
             if ( $is_ganho ) {
                 $ganho_week_events[] = [ 'dt' => $dt, 'card_id' => $cid ];
-                if ( $dt >= $desde && ! isset( $ganho_events[ $cid ] ) ) $ganho_events[ $cid ] = $dt;
+                if ( $dt >= $desde && $dt <= $ate_ts && ! isset( $ganho_events[ $cid ] ) ) $ganho_events[ $cid ] = $dt;
             }
-            if ( $is_perdido && $dt >= $desde && ! isset( $perdido_events[ $cid ] ) ) {
+            if ( $is_perdido && $dt >= $desde && $dt <= $ate_ts && ! isset( $perdido_events[ $cid ] ) ) {
                 $perdido_events[ $cid ]  = $dt;
                 $perdido_motivos[ $cid ] = $h['motivo'] ?? '';
             }
@@ -206,7 +228,7 @@ function tao_crm_page_dashboard() {
     $renov = [ 'enviados' => 0, 'aceites' => 0, 'recusas' => 0, 'semresp' => 0, 'vendas' => 0, 'receita' => 0.0 ];
     $renov_novos = [];   // ids dos cards clonados nos aceites
     $rrv = tao_crm_api( "/crm_cards_historico?obs=ilike." . rawurlencode( 'Renovação:' ) . "*" .
-                        "&criado_em=gte." . urlencode( $desde ) .
+                        "&criado_em=gte." . urlencode( $desde ) . "&criado_em=lte." . urlencode( $ate_ts ) .
                         "&select=card_id,motivo,obs&order=criado_em.desc&limit=2000" );
     foreach ( ( $rrv['ok'] ? ( $rrv['data'] ?? [] ) : [] ) as $h ) {
         $hm = $h['motivo'] ?? ''; $ho = $h['obs'] ?? '';
@@ -249,7 +271,7 @@ function tao_crm_page_dashboard() {
     $handoff  = array_values( array_filter( $abertos, fn( $c ) => ! empty( $c['atendimento_humano'] ) ) );
 
     // Novos no período
-    $novos_periodo = array_values( array_filter( $all, fn( $c ) => ( $c['criado_em'] ?? '' ) >= $desde ) );
+    $novos_periodo = array_values( array_filter( $all, fn( $c ) => ( $c['criado_em'] ?? '' ) >= $desde && ( $c['criado_em'] ?? '' ) <= $ate_ts ) );
 
     // Taxa de conversão
     $total_fechados = count( $fechados );
@@ -333,7 +355,7 @@ function tao_crm_page_dashboard() {
     // TMR = tempo médio até a 1ª resposta (1ª msg 'in' → 1ª msg 'out' seguinte), no período
     $tmr_secs = [];
     $rm = tao_crm_api(
-        "/crm_mensagens?workspace_id=eq.$ws_id&enviado_em=gte." . urlencode( $desde ) .
+        "/crm_mensagens?workspace_id=eq.$ws_id&enviado_em=gte." . urlencode( $desde ) . "&enviado_em=lte." . urlencode( $ate_ts ) .
         "&select=card_id,direcao,enviado_em&order=enviado_em.asc&limit=8000"
     );
     $msgs_by_card = [];
@@ -465,7 +487,7 @@ function tao_crm_page_dashboard() {
     };
 
     // ── NPS (respostas no período) ───────────────────────────────────────────
-    $nps_r     = tao_crm_api( "/crm_nps?workspace_id=eq.$ws_id&respondido_em=gte." . urlencode( $desde ) . "&select=nota&limit=2000" );
+    $nps_r     = tao_crm_api( "/crm_nps?workspace_id=eq.$ws_id&respondido_em=gte." . urlencode( $desde ) . "&respondido_em=lte." . urlencode( $ate_ts ) . "&select=nota&limit=2000" );
     $nps_rows  = $nps_r['ok'] ? ( $nps_r['data'] ?? [] ) : [];
     $nps_total = count( $nps_rows );
     $nps_prom  = $nps_neu = $nps_det = 0;
@@ -557,7 +579,7 @@ function tao_crm_page_dashboard() {
 
         <!-- Topbar -->
         <div class="crm-topbar-dash">
-            <h1 style="margin:0">&#x1F4CA; Vis&atilde;o Geral &mdash; <?php echo esc_html( $ws['nome'] ); ?></h1>
+            <h1 style="margin:0">&#x1F4CA; Vis&atilde;o Geral &mdash; Magis-TAO CRM</h1>
             <?php
             $_form_action = $_dash_is_frontend ? cbpm_url( 'crm-dashboard' ) : admin_url( 'admin.php' );
             ?>
@@ -567,11 +589,18 @@ function tao_crm_page_dashboard() {
                 <?php endif; ?>
                 <input type="hidden" name="workspace_id" value="<?php echo esc_attr( $ws_id ); ?>">
                 <label style="font-size:13px;color:#64748b">Período:</label>
-                <select name="dias" onchange="this.form.submit()">
+                <select name="dias" onchange="this.form.de.value='';this.form.ate.value='';this.form.periodo.value='';this.form.submit()">
                     <?php foreach ( [ 1 => 'Hoje', 7 => '7 dias', 30 => '30 dias', 90 => '90 dias', 180 => '6 meses' ] as $v => $l ) : ?>
-                    <option value="<?php echo $v; ?>" <?php selected( $dias, $v ); ?>><?php echo $l; ?></option>
+                    <option value="<?php echo $v; ?>" <?php echo ( $periodo === '' && $dias == $v ) ? 'selected' : ''; ?>><?php echo $l; ?></option>
                     <?php endforeach; ?>
                 </select>
+                <input type="hidden" name="periodo" value="<?php echo esc_attr( $periodo === 'mes' ? 'mes' : '' ); ?>">
+                <button type="submit" class="button<?php echo $periodo === 'mes' ? ' button-primary' : ''; ?>" style="font-size:12px"
+                        onclick="this.form.de.value='';this.form.ate.value='';this.form.periodo.value='mes'">Mês corrente</button>
+                <span style="color:#cbd5e1">|</span>
+                <input type="date" name="de"  value="<?php echo esc_attr( $de_g ); ?>"  style="padding:4px 6px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px" title="De">
+                <input type="date" name="ate" value="<?php echo esc_attr( $ate_g ); ?>" style="padding:4px 6px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px" title="Até">
+                <button type="submit" class="button<?php echo $periodo === 'custom' ? ' button-primary' : ''; ?>" style="font-size:12px" onclick="this.form.periodo.value=''">Aplicar</button>
                 <?php if ( count( $pipelines ) > 1 ) : ?>
                 <label style="font-size:13px;color:#64748b;margin-left:6px">Funil:</label>
                 <select name="funil" onchange="this.form.submit()">
