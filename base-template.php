@@ -28,6 +28,8 @@ $secoes = [
 $has_crm = function_exists( 'tao_crm_page_kanban_full' );
 if ( $has_crm ) {
     $secoes['tao-crm-dashboard'] = [ 'fn' => 'tao_crm_page_dashboard',  'label' => 'Dashboard CRM' ];
+    if ( function_exists( 'tao_crm_page_analise' ) )
+        $secoes['tao-crm-analise'] = [ 'fn' => 'tao_crm_page_analise',  'label' => 'Análise' ];
     $secoes['tao-crm-kanban']   = [ 'fn' => 'tao_crm_page_kanban_full', 'label' => 'CRM Kanban' ];
     $secoes['tao-crm-inbox']    = [ 'fn' => 'tao_crm_page_inbox',       'label' => 'CRM Inbox' ];
     $secoes['tao-crm-contatos'] = [ 'fn' => 'tao_crm_page_contatos',    'label' => 'Contatos' ];
@@ -121,10 +123,12 @@ if ( $has_crm ) {
     $nav['crm'] = [
         'label' => 'CRM',
         'icon'  => '&#x1F3AF;',
-        'items' => [
+        'items' => array_values( array_filter( [
             [ 'slug' => 'tao-crm-dashboard', 'label' => 'Painel',   'url' => cbpm_url('crm-dashboard') ],
+            ( function_exists( 'tao_crm_is_gestor' ) && tao_crm_is_gestor() )
+                ? [ 'slug' => 'tao-crm-analise', 'label' => 'Análise', 'url' => cbpm_url('crm-analise') ] : null,
             [ 'slug' => 'tao-crm-kanban',    'label' => 'Kanban',   'url' => cbpm_url('crm-kanban') ],
-        ],
+        ] ) ),
     ];
 }
 

@@ -65,6 +65,7 @@ require_once TAO_CRM_DIR . 'includes/pages/dashboard.php';
 require_once TAO_CRM_DIR . 'includes/pages/kanban.php';
 require_once TAO_CRM_DIR . 'includes/pages/card.php';
 require_once TAO_CRM_DIR . 'includes/pages/settings.php';
+require_once TAO_CRM_DIR . 'includes/pages/analise.php';
 // tao_crm_page_conversas is defined inline below (no separate file needed)
 
 // ─── CRON: AUTOMAÇÕES ─────────────────────────────────────────────────────────
@@ -5859,6 +5860,103 @@ add_action( 'wp_ajax_tao_crm_get_card_itens', function () {
 
     $r = tao_crm_api( "/crm_card_itens?card_id=eq.$card_id&order=ordem.asc,criado_em.asc" );
     $r['ok'] ? wp_send_json_success( $r['data'] ?? [] ) : wp_send_json_error( $r['error'] );
+} );
+
+// ── Análise (hub) — dataset achatado de OMs cruzando CRM + Fórmula + Caixa. Read-only, gestão.
+//    Cada linha = uma OM/orçamento no período, com telefone/paciente/funil/fase/responsável,
+//    forma farmacêutica, status, e (via card→venda→recibo→pagamento) a FORMA DE PAGAMENTO + valor pago.
+add_action( 'wp_ajax_tao_crm_analise_dataset', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    nocache_headers();
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+    $ws = sanitize_text_field( $_POST['workspace_id'] ?? '' );
+    if ( ! $ws || ! tao_crm_is_gestor( $ws ) ) wp_send_json_error( 'Acesso negado' );
+    $de  = sanitize_text_field( $_POST['de']  ?? '' );
+    $ate = sanitize_text_field( $_POST['ate'] ?? '' );
+    if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $de ) )  $de  = gmdate( 'Y-m-01' );
+    if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $ate ) ) $ate = gmdate( 'Y-m-d' );
+
+    $rw  = tao_crm_api( "/crm_workspaces?id=eq.$ws&select=cliente_id&limit=1" );
+    $cli = ( $rw['ok'] && ! empty( $rw['data'] ) ) ? ( $rw['data'][0]['cliente_id'] ?? '' ) : '';
+    if ( ! $cli ) wp_send_json_success( [ 'rows' => [], 'de' => $de, 'ate' => $ate ] );
+
+    $ate_fim = $ate . 'T23:59:59';
+    $ro = tao_crm_api( "/orcamentos?cliente_id=eq.$cli&criado_em=gte.$de&criado_em=lte.$ate_fim" .
+                       "&select=id,card_id,numero_orcamento,forma_nome,status,total_orcamento,criado_em,nome_paciente" .
+                       "&order=criado_em.desc&limit=5000" );
+    $oms = ( $ro['ok'] ? ( $ro['data'] ?? [] ) : [] );
+    if ( ! $oms ) wp_send_json_success( [ 'rows' => [], 'de' => $de, 'ate' => $ate ] );
+
+    $card_ids = array_values( array_unique( array_filter( array_column( $oms, 'card_id' ) ) ) );
+    $cards = [];
+    if ( $card_ids ) {
+        $rc = tao_crm_api( "/crm_cards?id=in.(" . implode( ',', $card_ids ) . ")&select=id,contato_whatsapp,contato_nome,pipeline_id,estagio_id,responsavel_id" );
+        foreach ( ( $rc['ok'] ? ( $rc['data'] ?? [] ) : [] ) as $c ) $cards[ $c['id'] ] = $c;
+    }
+    $pl_map = []; $est_map = [];
+    $rp = tao_crm_api( "/crm_pipelines?workspace_id=eq.$ws&select=id,nome" );
+    foreach ( ( $rp['ok'] ? ( $rp['data'] ?? [] ) : [] ) as $p ) $pl_map[ $p['id'] ] = $p['nome'];
+    $re = tao_crm_api( "/crm_estagios?select=id,nome&limit=2000" );
+    foreach ( ( $re['ok'] ? ( $re['data'] ?? [] ) : [] ) as $e ) $est_map[ $e['id'] ] = $e['nome'];
+    $resp_map = [];
+    foreach ( array_values( array_unique( array_filter( array_map( function ( $c ) { return $c['responsavel_id'] ?? 0; }, $cards ) ) ) ) as $uid ) {
+        $u = get_userdata( (int) $uid ); if ( $u ) $resp_map[ $uid ] = $u->display_name;
+    }
+    // Caixa: card → venda → recibo → pagamento → forma
+    $venda_por_card = []; $venda_ids = [];
+    if ( $card_ids ) {
+        $rv = tao_crm_api( "/caixa_vendas?card_id=in.(" . implode( ',', $card_ids ) . ")&select=id,card_id,valor_pago" );
+        foreach ( ( $rv['ok'] ? ( $rv['data'] ?? [] ) : [] ) as $v ) { $venda_por_card[ $v['card_id'] ][] = $v; $venda_ids[] = $v['id']; }
+    }
+    $recibo_por_venda = []; $recibo_ids = [];
+    if ( $venda_ids ) {
+        $rrv = tao_crm_api( "/caixa_recibo_vendas?venda_id=in.(" . implode( ',', array_unique( $venda_ids ) ) . ")&select=venda_id,recibo_id" );
+        foreach ( ( $rrv['ok'] ? ( $rrv['data'] ?? [] ) : [] ) as $r ) { $recibo_por_venda[ $r['venda_id'] ][] = $r['recibo_id']; $recibo_ids[] = $r['recibo_id']; }
+    }
+    $forma_por_recibo = [];
+    if ( $recibo_ids ) {
+        $rpg  = tao_crm_api( "/caixa_pagamentos?recibo_id=in.(" . implode( ',', array_unique( $recibo_ids ) ) . ")&select=recibo_id,forma_pagamento_id,bandeira" );
+        $pags = ( $rpg['ok'] ? ( $rpg['data'] ?? [] ) : [] );
+        $fids = array_values( array_unique( array_filter( array_column( $pags, 'forma_pagamento_id' ) ) ) );
+        $fnome = [];
+        if ( $fids ) {
+            $rf = tao_crm_api( "/caixa_formas_pagamento?id=in.(" . implode( ',', $fids ) . ")&select=id,nome" );
+            foreach ( ( $rf['ok'] ? ( $rf['data'] ?? [] ) : [] ) as $f ) $fnome[ $f['id'] ] = $f['nome'];
+        }
+        foreach ( $pags as $p ) {
+            $nome = $fnome[ $p['forma_pagamento_id'] ?? '' ] ?? '';
+            $band = $p['bandeira'] ?? '';
+            if ( $nome ) $forma_por_recibo[ $p['recibo_id'] ][ trim( $nome . ' ' . $band ) ] = 1;
+        }
+    }
+
+    $rows = [];
+    foreach ( $oms as $o ) {
+        $c = $cards[ $o['card_id'] ?? '' ] ?? [];
+        $vpago = 0; $formas = [];
+        foreach ( $venda_por_card[ $o['card_id'] ?? '' ] ?? [] as $v ) {
+            $vpago += (float) ( $v['valor_pago'] ?? 0 );
+            foreach ( $recibo_por_venda[ $v['id'] ] ?? [] as $rid )
+                foreach ( array_keys( $forma_por_recibo[ $rid ] ?? [] ) as $fk ) $formas[ $fk ] = 1;
+        }
+        $data = substr( (string) ( $o['criado_em'] ?? '' ), 0, 10 );
+        $rows[] = [
+            'OM'            => $o['numero_orcamento'] ?? '',
+            'Data'          => $data,
+            'Mes'           => substr( $data, 0, 7 ),
+            'Telefone'      => $c['contato_whatsapp'] ?? '',
+            'Paciente'      => $o['nome_paciente'] ?: ( $c['contato_nome'] ?? '' ),
+            'Forma Farmac.' => $o['forma_nome'] ?? '',
+            'Status'        => $o['status'] ?? '',
+            'Funil'         => $pl_map[ $c['pipeline_id'] ?? '' ] ?? '',
+            'Fase'          => $est_map[ $c['estagio_id'] ?? '' ] ?? '',
+            'Responsavel'   => $resp_map[ $c['responsavel_id'] ?? 0 ] ?? '',
+            'Forma Pagto'   => $formas ? implode( ' + ', array_keys( $formas ) ) : '—',
+            'Valor Orcado'  => (float) ( $o['total_orcamento'] ?? 0 ),
+            'Valor Pago'    => round( $vpago, 2 ),
+        ];
+    }
+    wp_send_json_success( [ 'rows' => $rows, 'de' => $de, 'ate' => $ate ] );
 } );
 
 // ── Busca de contato por nome OU WhatsApp (autocomplete do Novo Card). Read-only.

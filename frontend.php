@@ -72,6 +72,7 @@ add_action( 'template_redirect', function() {
         'listas'         => 'chatbot-platform-listas',
         'crm'            => 'tao-crm-dashboard',
         'crm-dashboard'  => 'tao-crm-dashboard',
+        'crm-analise'    => 'tao-crm-analise',
         'crm-inbox'      => 'tao-crm-inbox',
         'crm-kanban'     => 'tao-crm-kanban',
         'crm-settings'   => 'tao-crm-settings',
