@@ -2165,55 +2165,70 @@ function tao_crm_renov_base_ts( $card ) {
     return strtotime( $card['criado_em'] );
 }
 
-// Clona o card (+ orçamentos) num novo card em Funil › Aguardando Atendimento e move o atual p/ Renovado
+// Adiciona N dias ÚTEIS a um timestamp (pula sáb/dom; dia calculado no horário BRT ~UTC-3).
+function tao_crm_add_dias_uteis( $ts, $n ) {
+    $d = (int) $ts;
+    while ( $n > 0 ) {
+        $d += DAY_IN_SECONDS;
+        $wd = (int) gmdate( 'w', $d - 3 * HOUR_IN_SECONDS );   // 0=dom, 6=sáb
+        if ( $wd !== 0 && $wd !== 6 ) $n--;
+    }
+    return $d;
+}
+
+// Cria um card NOVO em Funil › Aguardando Atendimento aproveitando ESTRUTURA + orçamentos
+// (renumerados, estado zerado) + itens de venda do card origem. Campos obrigatórios do card
+// NÃO são copiados (nascem vazios). Retorna o id do card novo (ou null). NÃO mexe no origem.
+function tao_crm_renov_clonar_card( $card, $rsd, $titulo_prefixo = 'RENOVACAO' ) {
+    if ( empty( $rsd['funil'] ) || empty( $rsd['aguardando'] ) ) return null;
+    $tel = preg_replace( '/\D/', '', $card['contato_whatsapp'] ?? '' );
+    $rn = tao_crm_api( '/crm_cards', 'POST', [
+        'workspace_id'       => $card['workspace_id'],
+        'pipeline_id'        => $rsd['funil'],
+        'estagio_id'         => $rsd['aguardando'],
+        'instancia_id'       => $card['instancia_id'] ?? null,
+        'contato_id'         => $card['contato_id'] ?? null,
+        'titulo'             => trim( $titulo_prefixo . ' ' . $tel ),
+        'contato_nome'       => $card['contato_nome'] ?: $tel,
+        'contato_whatsapp'   => $card['contato_whatsapp'],
+        'atendimento_humano' => true,
+        'criado_em'          => gmdate( 'c' ),
+        'movido_em'          => gmdate( 'c' ),
+    ], [ 'Prefer' => 'return=representation' ] );
+    $novo_id = ( $rn['ok'] && ! empty( $rn['data'] ) ) ? $rn['data'][0]['id'] : null;
+    if ( ! $novo_id ) return null;
+
+    $gerar_num = function_exists( 'tao_formula_gerar_numero' );
+    $ro = tao_crm_api( "/orcamentos?card_id=eq.{$card['id']}&select=*" );
+    foreach ( ( $ro['ok'] ? ( $ro['data'] ?? [] ) : [] ) as $o ) {
+        $cli = $o['cliente_id'] ?? '';
+        foreach ( [ 'id','criado_em','atualizado_em','aprovado_em','validado_por','validado_em',
+                    'validacao_automatica','concentracoes_validadas','motivo_rejeicao','ajustes_farma',
+                    'enviado_em','aceito_paciente_em','estimativa_enviada_em','interesse_confirmado_em',
+                    'expira_em','previsao_retirada','farmaceutico_id','txt_path','txt_gerado_em',
+                    'valor_final_fc' ] as $_k ) unset( $o[ $_k ] );
+        $o['card_id']          = $novo_id;
+        $o['status']           = 'pendente_revisao';
+        $o['numero_orcamento'] = ( $gerar_num && $cli ) ? tao_formula_gerar_numero( $cli, $novo_id )
+                                                        : ( $o['numero_orcamento'] ?? '' );
+        tao_crm_api( '/orcamentos', 'POST', $o );
+    }
+    $ri = tao_crm_api( "/crm_card_itens?card_id=eq.{$card['id']}&select=*" );
+    foreach ( ( $ri['ok'] ? ( $ri['data'] ?? [] ) : [] ) as $it ) {
+        unset( $it['id'], $it['criado_em'], $it['atualizado_em'] );
+        $it['card_id'] = $novo_id;
+        tao_crm_api( '/crm_card_itens', 'POST', $it );
+    }
+    if ( function_exists( 'tao_crm_sync_valor_oportunidade' ) ) tao_crm_sync_valor_oportunidade( $novo_id );
+    if ( function_exists( 'tao_crm_disparar_automacoes' ) ) tao_crm_disparar_automacoes( $novo_id, $rsd['aguardando'], 'entrar_fase', false, $card['workspace_id'] );
+    return $novo_id;
+}
+
+// SIM claro → renovação efetiva: clona card novo e move o ORIGEM p/ Renovado.
 function tao_crm_renovar_card( $card, $rsd ) {
     $ws  = $card['workspace_id'];
     $tel = preg_replace( '/\D/', '', $card['contato_whatsapp'] ?? '' );
-    $novo_id = null;
-    if ( ! empty( $rsd['funil'] ) && ! empty( $rsd['aguardando'] ) ) {
-        $rn = tao_crm_api( '/crm_cards', 'POST', [
-            'workspace_id'       => $ws,
-            'pipeline_id'        => $rsd['funil'],
-            'estagio_id'         => $rsd['aguardando'],
-            'instancia_id'       => $card['instancia_id'] ?? null,
-            'contato_id'         => $card['contato_id'] ?? null,
-            'titulo'             => 'RENOVACAO ' . $tel,
-            'contato_nome'       => $card['contato_nome'] ?: $tel,
-            'contato_whatsapp'   => $card['contato_whatsapp'],
-            'atendimento_humano' => true,
-            'criado_em'          => gmdate( 'c' ),
-            'movido_em'          => gmdate( 'c' ),
-        ], [ 'Prefer' => 'return=representation' ] );
-        $novo_id = ( $rn['ok'] && ! empty( $rn['data'] ) ) ? $rn['data'][0]['id'] : null;
-    }
-    // Card novo = aproveita ESTRUTURA + orçamentos + itens de venda, mas com NÚMEROS de
-    // orçamento NOVOS e estado de aprovação/OM/envio zerado (segue a vida normal do funil).
-    // Campos obrigatórios (valores de campo do card) NÃO são copiados — nascem vazios.
-    if ( $novo_id ) {
-        $gerar_num = function_exists( 'tao_formula_gerar_numero' );
-        $ro = tao_crm_api( "/orcamentos?card_id=eq.{$card['id']}&select=*" );
-        foreach ( ( $ro['ok'] ? ( $ro['data'] ?? [] ) : [] ) as $o ) {
-            $cli = $o['cliente_id'] ?? '';
-            foreach ( [ 'id','criado_em','atualizado_em','aprovado_em','validado_por','validado_em',
-                        'validacao_automatica','concentracoes_validadas','motivo_rejeicao','ajustes_farma',
-                        'enviado_em','aceito_paciente_em','estimativa_enviada_em','interesse_confirmado_em',
-                        'expira_em','previsao_retirada','farmaceutico_id','txt_path','txt_gerado_em',
-                        'valor_final_fc' ] as $_k ) unset( $o[ $_k ] );
-            $o['card_id']          = $novo_id;
-            $o['status']           = 'pendente_revisao';
-            $o['numero_orcamento'] = ( $gerar_num && $cli ) ? tao_formula_gerar_numero( $cli, $novo_id )
-                                                            : ( $o['numero_orcamento'] ?? '' );
-            tao_crm_api( '/orcamentos', 'POST', $o );
-        }
-        // Itens de venda (crm_card_itens) — mesma estrutura no card novo
-        $ri = tao_crm_api( "/crm_card_itens?card_id=eq.{$card['id']}&select=*" );
-        foreach ( ( $ri['ok'] ? ( $ri['data'] ?? [] ) : [] ) as $it ) {
-            unset( $it['id'], $it['criado_em'], $it['atualizado_em'] );
-            $it['card_id'] = $novo_id;
-            tao_crm_api( '/crm_card_itens', 'POST', $it );
-        }
-        if ( function_exists( 'tao_crm_sync_valor_oportunidade' ) ) tao_crm_sync_valor_oportunidade( $novo_id );
-    }
+    $novo_id = tao_crm_renov_clonar_card( $card, $rsd, 'RENOVACAO' );
     if ( ! empty( $rsd['renovado'] ) ) {
         tao_crm_api( "/crm_cards?id=eq.{$card['id']}", 'PATCH', [ 'estagio_id' => $rsd['renovado'], 'movido_em' => gmdate( 'c' ) ] );
         tao_crm_api( '/crm_cards_historico', 'POST', [
@@ -2222,14 +2237,34 @@ function tao_crm_renovar_card( $card, $rsd ) {
             'para_estagio_id' => $rsd['renovado'],
             'usuario_id'      => 0,
             'motivo'          => 'Renovação aceita',
-            'obs'             => 'Renovação: cliente respondeu 1; novo card ' . (string) $novo_id,
+            'obs'             => 'Renovação: cliente confirmou; novo card ' . (string) $novo_id,
         ] );
     }
     tao_crm_renov_del( $card['id'] );
     if ( $tel ) tao_crm_lock_chatbot( $tel, $ws );
     tao_crm_evolution_send( tao_crm_get_evo_creds( $card ), $card['contato_whatsapp'], 'Que ótimo! 🎉 Já encaminhei sua renovação para nossa equipe — em breve entramos em contato.' );
-    if ( $novo_id ) tao_crm_disparar_automacoes( $novo_id, $rsd['aguardando'], 'entrar_fase', false, $ws );
     tao_crm_log_error( 'renovacao', 'renovado: novo card=' . substr( (string) $novo_id, 0, 8 ) . ' de=' . substr( $card['id'], 0, 8 ), [ 'tel' => $tel ] );
+    return $novo_id;
+}
+
+// Retorno que NÃO é sim nem não claro → abre card de tratamento em Aguardando Atendimento.
+// O ORIGEM permanece em "Renovação em Curso" (só sai quando renovado de fato ou fecha em 30 dias).
+function tao_crm_renov_abrir_tratamento( $card, $rsd ) {
+    $ws  = $card['workspace_id'];
+    $tel = preg_replace( '/\D/', '', $card['contato_whatsapp'] ?? '' );
+    $novo_id = tao_crm_renov_clonar_card( $card, $rsd, 'RETORNO RENOVACAO' );
+    tao_crm_api( '/crm_cards_historico', 'POST', [
+        'card_id'         => $card['id'],
+        'de_estagio_id'   => $rsd['renovacao'] ?: null,
+        'para_estagio_id' => $rsd['renovacao'] ?: null,
+        'usuario_id'      => 0,
+        'motivo'          => 'Retorno de renovação (a tratar)',
+        'obs'             => 'Renovação: cliente respondeu (não foi sim/não claro); card de tratamento ' . (string) $novo_id . '. Origem segue em Renovação em Curso.',
+    ] );
+    tao_crm_renov_del( $card['id'] );   // já respondeu → para de lembrar; origem fica na coluna
+    if ( $tel ) tao_crm_lock_chatbot( $tel, $ws );
+    tao_crm_evolution_send( tao_crm_get_evo_creds( $card ), $card['contato_whatsapp'], 'Recebi sua mensagem! 🌿 Já encaminhei para nossa equipe te atender — em breve entramos em contato.' );
+    tao_crm_log_error( 'renovacao', 'tratamento: novo card=' . substr( (string) $novo_id, 0, 8 ) . ' de=' . substr( $card['id'], 0, 8 ), [ 'tel' => $tel ] );
     return $novo_id;
 }
 
@@ -2249,8 +2284,22 @@ function tao_crm_renovacao_cron() {
         $max_ciclo = max( 1, (int) get_option( 'tao_crm_renov_maxrun_' . $ws_id, 3 ) );
         $env_ciclo = 0;
         $em_horario = ! function_exists( 'tao_crm_esta_em_horario' ) || tao_crm_esta_em_horario( $ws_id );
-        $rc = tao_crm_api( "/crm_cards?workspace_id=eq.$ws_id&estagio_id=eq.{$rsd['renovacao']}&fechado=eq.false&select=id,contato_nome,contato_whatsapp,criado_em,instancia_id,workspace_id,atendimento_humano&limit=500" );
+        $rc = tao_crm_api( "/crm_cards?workspace_id=eq.$ws_id&estagio_id=eq.{$rsd['renovacao']}&fechado=eq.false&select=id,contato_nome,contato_whatsapp,criado_em,movido_em,instancia_id,workspace_id,atendimento_humano&limit=500" );
         foreach ( ( $rc['ok'] ? ( $rc['data'] ?? [] ) : [] ) as $card ) {
+            // Fecha por tempo: 30 dias na coluna "Renovação em Curso" sem ser renovado → Não Renovado.
+            $mov = strtotime( $card['movido_em'] ?? ( $card['criado_em'] ?? '' ) );
+            if ( $mov && ( time() - $mov ) >= 30 * DAY_IN_SECONDS ) {
+                if ( ! empty( $rsd['nao_renovado'] ) ) {
+                    tao_crm_api( "/crm_cards?id=eq.{$card['id']}", 'PATCH', [ 'estagio_id' => $rsd['nao_renovado'], 'movido_em' => gmdate( 'c' ) ] );
+                    tao_crm_api( '/crm_cards_historico', 'POST', [
+                        'card_id' => $card['id'], 'de_estagio_id' => $rsd['renovacao'], 'para_estagio_id' => $rsd['nao_renovado'],
+                        'usuario_id' => 0, 'motivo' => 'Renovação não concluída em 30 dias',
+                        'obs' => 'Renovação: 30 dias na coluna sem renovar — encerrado automaticamente',
+                    ] );
+                }
+                tao_crm_renov_del( $card['id'] );
+                continue;
+            }
             if ( ! empty( $card['atendimento_humano'] ) ) continue;
             $cid = $card['id'];
             $st  = tao_crm_renov_get( $cid );
@@ -3706,10 +3755,12 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
                             $rtxt   = mb_strtolower( trim( $conteudo ) );
                             $is_neg = (bool) preg_match( '/^\s*2\b/', $rtxt ) || preg_match( '/\b(n[aã]o|agora n[aã]o)\b/u', $rtxt );
                             $is_zzz = (bool) preg_match( '/^\s*3\b/', $rtxt ) || strpos( $rtxt, 'lembr' ) !== false || strpos( $rtxt, '5 dia' ) !== false || strpos( $rtxt, 'depois' ) !== false;
+                            $is_yes = (bool) preg_match( '/^\s*1\b/', $rtxt ) || preg_match( '/\b(sim|quero|renovar|renova|pode|aceito|claro|isso|com certeza|bora|vamos)\b/u', $rtxt );
                             if ( $is_zzz ) {
                                 $r_snz = (int) get_option( 'tao_crm_renov_snooze_' . $WS_ID, 5 );
-                                tao_crm_renov_set( $rcard['id'], [ 'enviado_em' => null, 'proximo' => gmdate( 'c', time() + $r_snz * DAY_IN_SECONDS ) ] );
-                                tao_crm_evolution_send( $inst, $num, 'Combinado! Vou te lembrar em ' . $r_snz . ' dias. 🌿' );
+                                $prox  = tao_crm_add_dias_uteis( time(), $r_snz );
+                                tao_crm_renov_set( $rcard['id'], [ 'enviado_em' => null, 'proximo' => gmdate( 'c', $prox ) ] );
+                                tao_crm_evolution_send( $inst, $num, 'Combinado! Vou te lembrar em ' . $r_snz . ' dias úteis. 🌿' );
                             } elseif ( $is_neg ) {
                                 if ( ! empty( $rsd['nao_renovado'] ) ) {
                                     tao_crm_api( "/crm_cards?id=eq.{$rcard['id']}", 'PATCH', [ 'estagio_id' => $rsd['nao_renovado'], 'movido_em' => gmdate( 'c' ) ] );
@@ -3725,8 +3776,10 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
                                 tao_crm_renov_del( $rcard['id'] );
                                 tao_crm_unlock_chatbot( $num, $WS_ID );
                                 tao_crm_evolution_send( $inst, $num, 'Tudo bem! Quando quiser renovar, é só nos chamar. 🌿' );
+                            } elseif ( $is_yes ) {
+                                tao_crm_renovar_card( $rcard, $rsd );          // SIM claro → renovação efetiva (origem → Renovado)
                             } else {
-                                tao_crm_renovar_card( $rcard, $rsd );   // positiva (1/sim/quero/… ou ambígua)
+                                tao_crm_renov_abrir_tratamento( $rcard, $rsd ); // ambíguo → abre card p/ tratar; origem fica em Renovação
                             }
                             tao_crm_log_error( 'renovacao', 'resposta "' . substr( $rtxt, 0, 14 ) . '" card=' . substr( $rcard['id'], 0, 8 ), [ 'num' => $num ] );
                             continue;
