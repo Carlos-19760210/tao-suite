@@ -2800,6 +2800,75 @@ add_action( 'wp_ajax_tao_formula_hist_repetir', function () {
     ] );
 } );
 
+// ── Repetir orçamento INTERNO: clona um orçamento de outro card do MESMO cliente
+//    para o card atual, como orçamento NOVO pendente de revisão. Copia só o
+//    orçamento (composição/forma/preços — o orçamento do TAO é autocontido) e
+//    zera o estado (aprovação/OM/envio). Daí segue o fluxo normal: revisar →
+//    aprovar → vira OM. NUNCA copia a OM. Pedido Carlos 20/07.
+add_action( 'wp_ajax_tao_formula_orc_repetir', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $src_id     = sanitize_text_field( $_POST['orc_id'] ?? '' );
+    $card_id    = sanitize_text_field( $_POST['card_id'] ?? '' ) ?: null;
+    if ( ! $cliente_id || ! $src_id || ! $card_id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+
+    $rs = tao_formula_api( "/orcamentos?id=eq.$src_id&cliente_id=eq.$cliente_id&limit=1" );
+    if ( ! $rs['ok'] || empty( $rs['data'] ) ) wp_send_json_error( [ 'message' => 'Orçamento de origem não encontrado' ] );
+    $o = $rs['data'][0];
+
+    $itens = is_string( $o['itens'] ?? null ) ? json_decode( $o['itens'], true ) : ( $o['itens'] ?? [] );
+    if ( ! is_array( $itens ) ) $itens = [];
+
+    $numero  = tao_formula_gerar_numero( $cliente_id, $card_id );
+    $src_num = $o['numero_orcamento'] ?? '?';
+
+    $payload = [
+        'cliente_id'             => $cliente_id,
+        'card_id'                => $card_id,
+        'contato_id'             => tao_formula_contato_do_card( $card_id ),
+        'numero_orcamento'       => $numero,
+        'status'                 => 'pendente_revisao',
+        'tipo_entrada'           => $o['tipo_entrada'] ?? 'texto',
+        'nome_paciente'          => $o['nome_paciente'] ?? null,
+        'nome_cliente'           => $o['nome_cliente'] ?? null,
+        'prescritor'             => $o['prescritor'] ?? null,
+        'prescritor_id'          => $o['prescritor_id'] ?? null,
+        'posologia'              => $o['posologia'] ?? null,
+        'cid_codigo'             => $o['cid_codigo'] ?? null,
+        'cid_descricao'          => $o['cid_descricao'] ?? null,
+        'tp_receita'             => $o['tp_receita'] ?? null,
+        'medicamento_controlado' => $o['medicamento_controlado'] ?? null,
+        'whatsapp'               => $o['whatsapp'] ?? '',
+        'forma_id'               => $o['forma_id'] ?? null,
+        'forma_nome'             => $o['forma_nome'] ?? null,
+        'forma_tipo'             => $o['forma_tipo'] ?? null,
+        'forma_unidade'          => $o['forma_unidade'] ?? null,
+        'forma_vol'              => $o['forma_vol'] ?? null,
+        'qtde_potes'             => $o['qtde_potes'] ?? null,
+        'qtd_unidades'           => $o['qtd_unidades'] ?? null,
+        'itens'                  => $itens,
+        'formula_estruturada'    => $o['formula_estruturada'] ?? null,
+        'total_orcamento'        => $o['total_orcamento'] ?? 0,
+        'total_insumos'          => $o['total_insumos'] ?? 0,
+        'custo_total'            => $o['custo_total'] ?? null,
+        'custo_fixo_aplicado'    => $o['custo_fixo_aplicado'] ?? 0,
+        'margem_aplicada'        => $o['margem_aplicada'] ?? 0,
+        'acrescimo_aplicado'     => $o['acrescimo_aplicado'] ?? 0,
+        'desconto_pct'           => $o['desconto_pct'] ?? 0,
+        'observacoes'            => mb_substr( '[REPETIÇÃO] Do orçamento ' . $src_num . '. ' . (string) ( $o['observacoes'] ?? '' ), 0, 1000 ),
+        'atualizado_em'          => gmdate( 'c' ),
+    ];
+
+    $r = tao_formula_orc_gravar( '/orcamentos', 'POST', $payload );
+    if ( ! $r['ok'] ) wp_send_json_error( [ 'message' => 'Erro ao repetir: ' . mb_substr( (string) ( $r['raw'] ?? '' ), 0, 300 ) ] );
+
+    if ( function_exists( 'tao_crm_sync_valor_oportunidade' ) ) tao_crm_sync_valor_oportunidade( $card_id );
+
+    wp_send_json_success( [ 'orc_id' => $r['data'][0]['id'] ?? null, 'numero' => $numero ] );
+} );
+
 // ═══════════════════════════════════════════════════════════════════════════
 // PRESCRITORES — CRUD (espelho FC04000) + autocomplete p/ o editor
 // ═══════════════════════════════════════════════════════════════════════════

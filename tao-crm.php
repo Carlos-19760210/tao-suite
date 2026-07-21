@@ -5780,6 +5780,60 @@ add_action( 'wp_ajax_tao_crm_get_card_itens', function () {
     $r['ok'] ? wp_send_json_success( $r['data'] ?? [] ) : wp_send_json_error( $r['error'] );
 } );
 
+// ── Histórico de atendimento do cliente: cards anteriores × data, com seus itens
+//    e orçamentos, para consulta e repetição a partir do card. Read-only.
+add_action( 'wp_ajax_tao_crm_hist_atendimento', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+    $card_id = sanitize_text_field( $_POST['card_id'] ?? '' );
+    if ( ! $card_id ) wp_send_json_error( 'card_id inválido' );
+    $ws = tao_crm_check_card_access( $card_id );
+    if ( ! $ws ) wp_send_json_error( 'Acesso negado' );
+
+    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=contato_whatsapp,workspace_id&limit=1" );
+    if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( 'Card não encontrado' );
+    $wa = $rc['data'][0]['contato_whatsapp'] ?? '';
+    if ( ! $wa ) wp_send_json_success( [ 'cards' => [] ] );
+
+    $rk = tao_crm_api( "/crm_cards?contato_whatsapp=eq.$wa&workspace_id=eq.$ws&id=neq.$card_id" .
+                       "&select=id,titulo,contato_nome,status,fechado,criado_em,pipeline_id,valor_oportunidade" .
+                       "&order=criado_em.desc&limit=60" );
+    $cards = ( $rk['ok'] ? ( $rk['data'] ?? [] ) : [] );
+    if ( ! $cards ) wp_send_json_success( [ 'cards' => [] ] );
+
+    $ids = implode( ',', array_map( function ( $c ) { return $c['id']; }, $cards ) );
+
+    $ri = tao_crm_api( "/crm_card_itens?card_id=in.($ids)&select=id,card_id,descricao,quantidade,preco_unitario,desconto_tipo,desconto_valor,total,catalogo_id,ordem&order=ordem.asc" );
+    $itens_por_card = [];
+    foreach ( ( $ri['ok'] ? ( $ri['data'] ?? [] ) : [] ) as $it ) $itens_por_card[ $it['card_id'] ][] = $it;
+
+    $ro = tao_crm_api( "/orcamentos?card_id=in.($ids)&select=id,card_id,numero_orcamento,forma_nome,forma_vol,forma_unidade,qtde_potes,total_orcamento,status,criado_em&order=criado_em.asc" );
+    $orcs_por_card = [];
+    foreach ( ( $ro['ok'] ? ( $ro['data'] ?? [] ) : [] ) as $o ) $orcs_por_card[ $o['card_id'] ][] = $o;
+
+    $pl_map = [];
+    $rp = tao_crm_api( "/crm_pipelines?workspace_id=eq.$ws&select=id,nome" );
+    foreach ( ( $rp['ok'] ? ( $rp['data'] ?? [] ) : [] ) as $p ) $pl_map[ $p['id'] ] = $p['nome'];
+
+    $out = [];
+    foreach ( $cards as $c ) {
+        $its  = $itens_por_card[ $c['id'] ] ?? [];
+        $orcs = $orcs_por_card[ $c['id'] ] ?? [];
+        if ( ! $its && ! $orcs ) continue;   // só cards com algo repetível
+        $out[] = [
+            'id'         => $c['id'],
+            'titulo'     => $c['titulo'] ?: ( $c['contato_nome'] ?? '' ),
+            'data'       => $c['criado_em'],
+            'status'     => ! empty( $c['fechado'] ) ? ( $c['status'] ?? 'fechado' ) : 'aberto',
+            'pipeline'   => $pl_map[ $c['pipeline_id'] ] ?? '',
+            'valor'      => $c['valor_oportunidade'],
+            'itens'      => $its,
+            'orcamentos' => $orcs,
+        ];
+    }
+    wp_send_json_success( [ 'cards' => $out ] );
+} );
+
 // ── SAVE (insert ou update) de item ──────────────────────────────────────────
 add_action( 'wp_ajax_tao_crm_save_card_item', function () {
     check_ajax_referer( 'tao_crm_nonce', 'nonce' );
