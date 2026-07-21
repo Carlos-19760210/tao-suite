@@ -230,9 +230,6 @@ function tao_crm_page_card() {
                 <button class="button tao-crm-btn-ganho" id="tao-crm-btn-ganho">&#x2705; Fechar Neg&oacute;cio</button>
                 <button class="button tao-crm-btn-perdido" id="tao-crm-btn-perdido">&#x274C; Neg&oacute;cio Perdido</button>
             </div>
-            <button type="button" id="crm-formalizar-btn" class="button" style="margin-left:8px" title="Gerar Or&ccedil;amento, Proposta ou Pedido formal">
-                &#x1F4CB; Formalizar
-            </button>
             <?php endif; ?>
         <?php if ( tao_crm_is_gestor( $card['workspace_id'] ?? '' ) && empty( $card['fechado'] ) ) : ?>
         <?php if ( ! empty( $card['atendimento_humano'] ) ) : ?>

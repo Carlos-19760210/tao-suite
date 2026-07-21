@@ -1579,6 +1579,7 @@ function tao_crm_ajax_create_card() {
     $whats        = preg_replace( '/\D/', '', $_POST['contato_whatsapp'] ?? '' );
     $titulo       = sanitize_text_field( $_POST['titulo'] ?? '' ) ?: $nome;
     $instancia_id = sanitize_text_field( $_POST['instancia_id'] ?? '' ) ?: null;
+    $contato_id   = sanitize_text_field( $_POST['contato_id'] ?? '' ) ?: null;   // vínculo ao contato escolhido no autocomplete
 
     if ( ! $workspace_id || ! $pipeline_id || ! $estagio_id || ! $nome || strlen( $whats ) < 10 ) {
         wp_send_json_error( 'Preencha todos os campos obrigatórios' );
@@ -1597,6 +1598,7 @@ function tao_crm_ajax_create_card() {
         'movido_em'         => gmdate( 'c' ),
     ];
     if ( $instancia_id ) $card_data['instancia_id'] = $instancia_id;
+    if ( $contato_id )   $card_data['contato_id']   = $contato_id;
 
     $r = tao_crm_api( '/crm_cards', 'POST', $card_data, [ 'Prefer' => 'return=representation' ] );
 
@@ -5778,6 +5780,21 @@ add_action( 'wp_ajax_tao_crm_get_card_itens', function () {
 
     $r = tao_crm_api( "/crm_card_itens?card_id=eq.$card_id&order=ordem.asc,criado_em.asc" );
     $r['ok'] ? wp_send_json_success( $r['data'] ?? [] ) : wp_send_json_error( $r['error'] );
+} );
+
+// ── Busca de contato por nome OU WhatsApp (autocomplete do Novo Card). Read-only.
+add_action( 'wp_ajax_tao_crm_contato_busca', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+    $ws = sanitize_text_field( $_POST['workspace_id'] ?? ( $_GET['workspace_id'] ?? '' ) );
+    $q  = trim( sanitize_text_field( $_POST['q'] ?? ( $_GET['q'] ?? '' ) ) );
+    if ( ! $ws || mb_strlen( $q ) < 2 ) { wp_send_json_success( [] ); }
+    $enc  = rawurlencode( $q );
+    $base = "/crm_contatos?workspace_id=eq.$ws&or=(nome.ilike.*{$enc}*,whatsapp.ilike.*{$enc}*)" .
+            "&select=id,nome,whatsapp&order=nome.asc&limit=10";
+    $r = tao_crm_api( $base . '&anonimizado=eq.false' );
+    if ( ! $r['ok'] ) $r = tao_crm_api( $base );   // fallback se a coluna não existir
+    wp_send_json_success( $r['ok'] ? ( $r['data'] ?? [] ) : [] );
 } );
 
 // ── Histórico de atendimento do cliente: cards anteriores × data, com seus itens
