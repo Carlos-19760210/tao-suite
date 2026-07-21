@@ -607,10 +607,9 @@ function tao_crm_page_kanban() {
                     <input type="text" name="contato_nome" id="tao-crm-nc-nome" autocomplete="off" required placeholder="Digite para buscar ou cadastrar…">
                     <div class="tao-crm-nc-dd" data-for="nome" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:60;background:#fff;border:1px solid #cbd5e1;border-top:none;border-radius:0 0 6px 6px;box-shadow:0 8px 20px rgba(0,0,0,.12);max-height:220px;overflow-y:auto;font-size:13px"></div>
                 </div>
-                <div class="tao-crm-field" style="position:relative">
+                <div class="tao-crm-field">
                     <label>WhatsApp *</label>
-                    <input type="text" name="contato_whatsapp" id="tao-crm-nc-whats" autocomplete="off" required placeholder="Digite para buscar ou cadastrar…">
-                    <div class="tao-crm-nc-dd" data-for="whats" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:60;background:#fff;border:1px solid #cbd5e1;border-top:none;border-radius:0 0 6px 6px;box-shadow:0 8px 20px rgba(0,0,0,.12);max-height:220px;overflow-y:auto;font-size:13px"></div>
+                    <input type="text" name="contato_whatsapp" id="tao-crm-nc-whats" required placeholder="Ex: 5511999999999">
                 </div>
                 <div class="tao-crm-field">
                     <label>Título do card</label>

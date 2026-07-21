@@ -1585,6 +1585,13 @@ function tao_crm_ajax_create_card() {
         wp_send_json_error( 'Preencha todos os campos obrigatórios' );
     }
 
+    // Contato único: se não veio vinculado do autocomplete (cliente novo), registra/acha
+    // o contato pelo WhatsApp no workspace e vincula (cadastra se não existir).
+    if ( ! $contato_id ) {
+        $up = tao_crm_upsert_contato( $workspace_id, $whats, $nome );
+        $contato_id = $up['id'] ?? null;
+    }
+
     $card_data = [
         'workspace_id'      => $workspace_id,
         'pipeline_id'       => $pipeline_id,
@@ -5790,7 +5797,7 @@ add_action( 'wp_ajax_tao_crm_contato_busca', function () {
     $q  = trim( sanitize_text_field( $_POST['q'] ?? ( $_GET['q'] ?? '' ) ) );
     if ( ! $ws || mb_strlen( $q ) < 2 ) { wp_send_json_success( [] ); }
     $enc  = rawurlencode( $q );
-    $base = "/crm_contatos?workspace_id=eq.$ws&or=(nome.ilike.*{$enc}*,whatsapp.ilike.*{$enc}*)" .
+    $base = "/crm_contatos?workspace_id=eq.$ws&nome=ilike.*{$enc}*" .
             "&select=id,nome,whatsapp&order=nome.asc&limit=10";
     $r = tao_crm_api( $base . '&anonimizado=eq.false' );
     if ( ! $r['ok'] ) $r = tao_crm_api( $base );   // fallback se a coluna não existir

@@ -281,17 +281,20 @@
         }, function(err){ $btn.prop('disabled',false); alert('Erro: ' + err); });
     });
 
-    // ─── AUTOCOMPLETE de cliente no Novo Card (nome/telefone → lista, setas do teclado) ──
+    // ─── AUTOCOMPLETE de cliente no Novo Card — SÓ pelo Nome (setas do teclado) ──
+    //     Escolher da lista vincula o contato existente (preenche nome+whatsapp+id).
+    //     Não escolher = cliente novo: cadastra o contato no submit (backend upsert).
     (function(){
         var $nome = $('#tao-crm-nc-nome'), $wa = $('#tao-crm-nc-whats'), $cid = $('#tao-crm-nc-contato-id');
-        if(!$nome.length || !$wa.length) return;
+        var $dd   = $('.tao-crm-nc-dd[data-for=nome]');
+        if(!$nome.length || !$dd.length) return;
         var wsId = $('#tao-crm-new-card-form input[name=workspace_id]').val();
-        var timer=null, items=[], sel=-1, $ddAtivo=null;
+        var timer=null, items=[], sel=-1;
         function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
-        function fecha(){ $('.tao-crm-nc-dd').hide().empty(); items=[]; sel=-1; $ddAtivo=null; }
-        function realca(){ if(!$ddAtivo) return; $ddAtivo.find('.tao-crm-nc-opt').each(function(i){ this.style.background = (i===sel)?'#eff6ff':''; }); }
-        function render($dd, data){
-            items=data; sel=-1; $ddAtivo=$dd;
+        function fecha(){ $dd.hide().empty(); items=[]; sel=-1; }
+        function realca(){ $dd.find('.tao-crm-nc-opt').each(function(i){ this.style.background=(i===sel)?'#eff6ff':''; }); }
+        function render(data){
+            items=data; sel=-1;
             if(!data.length){ $dd.hide().empty(); return; }
             var h=''; data.forEach(function(c,i){
                 h += '<div class="tao-crm-nc-opt" data-i="'+i+'" style="padding:7px 10px;cursor:pointer;border-bottom:1px solid #f1f5f9">'
@@ -299,29 +302,27 @@
             });
             $dd.html(h).show();
         }
-        function escolhe(i){ var c=items[i]; if(!c) return; $nome.val(c.nome||''); $wa.val(c.whatsapp||''); $cid.val(c.id||''); fecha(); }
-        function busca($input, $dd){
-            var q=($input.val()||'').trim();
-            $cid.val(''); // digitou algo → desvincula até escolher da lista
+        function escolhe(i){ var c=items[i]; if(!c) return; $nome.val(c.nome||''); if(c.whatsapp) $wa.val(c.whatsapp); $cid.val(c.id||''); fecha(); }
+        $nome.on('input', function(){
+            var q=($nome.val()||'').trim();
+            $cid.val(''); // digitou → desvincula; se não escolher da lista, cadastra novo no submit
             if(q.length<2){ fecha(); return; }
             clearTimeout(timer);
             timer=setTimeout(function(){
                 crmPost({action:'tao_crm_contato_busca', nonce:taoCrm.nonce, workspace_id:wsId, q:q}, function(r){
-                    if(r && r.success) render($dd, r.data||[]);
+                    if(r && r.success) render(r.data||[]);
                 });
             }, 220);
-        }
-        $nome.on('input', function(){ busca($nome, $('.tao-crm-nc-dd[data-for=nome]')); });
-        $wa.on('input',   function(){ busca($wa,   $('.tao-crm-nc-dd[data-for=whats]')); });
-        $('#tao-crm-new-card-form').on('keydown', '#tao-crm-nc-nome,#tao-crm-nc-whats', function(e){
-            if(!$ddAtivo || !items.length) return;
+        });
+        $nome.on('keydown', function(e){
+            if(!items.length) return;
             if(e.key==='ArrowDown'){ e.preventDefault(); sel=Math.min(sel+1, items.length-1); realca(); }
             else if(e.key==='ArrowUp'){ e.preventDefault(); sel=Math.max(sel-1, 0); realca(); }
             else if(e.key==='Enter'){ if(sel>=0){ e.preventDefault(); escolhe(sel); } }
             else if(e.key==='Escape'){ fecha(); }
         });
-        $('#tao-crm-new-card-form').on('mousedown', '.tao-crm-nc-opt', function(e){ e.preventDefault(); escolhe(parseInt(this.dataset.i,10)); });
-        $('#tao-crm-new-card-form').on('mousemove', '.tao-crm-nc-opt', function(){ sel=parseInt(this.dataset.i,10); realca(); });
+        $dd.on('mousedown', '.tao-crm-nc-opt', function(e){ e.preventDefault(); escolhe(parseInt(this.dataset.i,10)); });
+        $dd.on('mousemove', '.tao-crm-nc-opt', function(){ sel=parseInt(this.dataset.i,10); realca(); });
         $(document).on('click.nc-ac', function(e){ if(!$(e.target).closest('.tao-crm-field').length) fecha(); });
     })();
 
