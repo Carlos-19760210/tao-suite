@@ -602,10 +602,10 @@ function tao_crm_page_kanban() {
                     </select>
                 </div>
                 <input type="hidden" name="contato_id" id="tao-crm-nc-contato-id">
-                <div class="tao-crm-field" style="position:relative">
+                <div class="tao-crm-field" style="position:relative;overflow:visible">
                     <label>Nome do contato *</label>
                     <input type="text" name="contato_nome" id="tao-crm-nc-nome" autocomplete="off" required placeholder="Digite para buscar ou cadastrar…">
-                    <div class="tao-crm-nc-dd" data-for="nome" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:60;background:#fff;border:1px solid #cbd5e1;border-top:none;border-radius:0 0 6px 6px;box-shadow:0 8px 20px rgba(0,0,0,.12);max-height:220px;overflow-y:auto;font-size:13px"></div>
+                    <div class="tao-crm-nc-dd" data-for="nome" style="display:none;position:absolute;left:20px;right:20px;top:100%;z-index:99999;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,.18);max-height:240px;overflow-y:auto;font-size:13px"></div>
                 </div>
                 <div class="tao-crm-field">
                     <label>WhatsApp *</label>
