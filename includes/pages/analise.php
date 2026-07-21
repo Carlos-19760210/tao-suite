@@ -111,25 +111,26 @@ function tao_crm_page_analise() {
 
             function aggs(){
                 var u=$.pivotUtilities, f=u.numberFormat({ thousandsSep:'.', decimalSep:',', prefix:'R$ ' });
+                // cada valor é o GERADOR do agregador (recebe [coluna] via `vals`) — não chamar aqui
                 return {
-                    'Contagem de OMs'      : u.aggregatorTemplates.count()(),
-                    'Soma Valor Orçado'    : u.aggregatorTemplates.sum(f)(['Valor Orcado']),
-                    'Soma Valor Pago'      : u.aggregatorTemplates.sum(f)(['Valor Pago']),
-                    'Ticket Médio (Orçado)': u.aggregatorTemplates.average(f)(['Valor Orcado'])
+                    'Contagem de OMs' : u.aggregatorTemplates.count(),
+                    'Soma (R$)'       : u.aggregatorTemplates.sum(f),
+                    'Média (R$)'      : u.aggregatorTemplates.average(f)
                 };
             }
             var VIS = {
-                pagamento:   { rows:['Forma Pagto'],   cols:['Mes'],    agg:'Soma Valor Pago' },
-                forma:       { rows:['Forma Farmac.'], cols:['Status'], agg:'Contagem de OMs' },
-                responsavel: { rows:['Responsavel'],   cols:['Mes'],    agg:'Soma Valor Orçado' },
-                dia:         { rows:['Data'],          cols:[],         agg:'Contagem de OMs' }
+                pagamento:   { rows:['Forma Pagto'],   cols:['Mes'],    agg:'Soma (R$)',        vals:['Valor Pago'] },
+                forma:       { rows:['Forma Farmac.'], cols:['Status'], agg:'Contagem de OMs',  vals:[] },
+                responsavel: { rows:['Responsavel'],   cols:['Mes'],    agg:'Soma (R$)',        vals:['Valor Orcado'] },
+                dia:         { rows:['Data'],          cols:[],         agg:'Contagem de OMs',  vals:[] }
             };
 
             function render(){
                 if (!DATA.length) { document.getElementById('an-pivot').innerHTML=''; setMsg('Nenhuma OM no período selecionado.', '#b45309'); return; }
                 var v = VIS[curVis] || VIS.pagamento;
                 $('#an-pivot').pivotUI(DATA, {
-                    rows:v.rows, cols:v.cols, aggregators:aggs(), aggregatorName:v.agg,
+                    rows:v.rows, cols:v.cols, vals:v.vals,
+                    aggregators:aggs(), aggregatorName:v.agg,
                     renderers:$.pivotUtilities.renderers, rendererName:'Table', unusedAttrsVertical:false
                 }, true);
             }
