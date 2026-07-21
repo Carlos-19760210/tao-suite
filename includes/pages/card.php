@@ -486,6 +486,12 @@ function tao_crm_page_card() {
                                         title="Resumo de margem de todos os orçamentos do card">
                                     &#x1F4CA; Análise de preços
                                 </button>
+                                <button type="button" id="crm-hist-atend-btn"
+                                        class="button button-small"
+                                        style="font-size:11px;color:#7c3aed;border-color:#c4b5fd"
+                                        title="Atendimentos anteriores do cliente — repetir orçamento ou item para este card">
+                                    &#x1F550; Histórico do cliente
+                                </button>
                             </div>
                         </div>
                         <div id="crm-formulas-list" style="font-size:12px;color:#94a3b8;padding:4px 0;max-height:280px;overflow-y:auto;overflow-x:auto">
@@ -502,6 +508,17 @@ function tao_crm_page_card() {
                                 <span id="crm-analise-conc-status" style="font-size:11px;color:#64748b"></span>
                             </div>
                             <div id="crm-analise-cenario" style="margin-top:8px"></div>
+                        </div>
+
+                        <!-- Modal: Histórico do cliente (atendimentos anteriores × data) -->
+                        <div id="crm-hist-atend-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99997;align-items:flex-start;justify-content:center">
+                            <div style="background:#fff;border-radius:10px;width:96vw;max-width:820px;margin-top:4vh;max-height:90vh;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.35);display:flex;flex-direction:column">
+                                <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #e2e8f0">
+                                    <strong style="font-size:14px;color:#0f172a">&#x1F550; Histórico do cliente <span style="color:#94a3b8;font-weight:400">— repetir para este card</span></strong>
+                                    <button type="button" id="crm-hist-atend-fechar" class="button button-small" style="font-size:12px">&#x2715;</button>
+                                </div>
+                                <div id="crm-hist-atend-body" style="overflow-y:auto;padding:10px 14px;font-size:13px">Carregando…</div>
+                            </div>
                         </div>
 
                         <?php if ( empty( $card['fechado'] ) ) : ?>
@@ -1939,6 +1956,98 @@ function tao_crm_page_card() {
                 renderCenario();
                 clearTimeout(anTimer);
                 anTimer = setTimeout(function () { carregarAnalise(true); }, 900);
+            });
+        })();
+
+        // ── Histórico do cliente: atendimentos anteriores × data, com repetição ──
+        (function () {
+            var btn    = document.getElementById('crm-hist-atend-btn');
+            var modal  = document.getElementById('crm-hist-atend-modal');
+            var body   = document.getElementById('crm-hist-atend-body');
+            var fechar = document.getElementById('crm-hist-atend-fechar');
+            if (!btn || !modal || !body) return;
+
+            function moeda(v){ return (parseFloat(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+            function esc(s){ return (s==null?'':String(s)).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+            function dt(s){ return s ? new Date(s).toLocaleDateString('pt-BR') : '—'; }
+            function cor(st){ return st==='ganho'?'#16a34a':(st==='perdido'?'#dc2626':'#6366f1'); }
+
+            btn.addEventListener('click', function(){ modal.style.display='flex'; carregar(); });
+            if (fechar) fechar.addEventListener('click', function(){ modal.style.display='none'; });
+            modal.addEventListener('click', function(e){ if(e.target===modal) modal.style.display='none'; });
+
+            function carregar(){
+                body.innerHTML = 'Carregando…';
+                var b = new URLSearchParams({ action:'tao_crm_hist_atendimento', nonce: taoCrm.nonce, card_id: cardId });
+                fetch(ajaxUrl, { method:'POST', credentials:'same-origin',
+                                 headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:b.toString() })
+                  .then(function(r){ return r.text(); })
+                  .then(function(txt){
+                    var resp, i=txt.indexOf('{'); try{ resp=JSON.parse(i>0?txt.slice(i):txt); }
+                    catch(e){ body.innerHTML='<span style="color:#dc2626">Erro ao carregar.</span>'; return; }
+                    if(!resp.success){ body.innerHTML='<span style="color:#dc2626">'+esc(resp.data||'Erro')+'</span>'; return; }
+                    render(resp.data.cards||[]);
+                  });
+            }
+
+            function render(cards){
+                if(!cards.length){ body.innerHTML='<span style="color:#94a3b8">Nenhum atendimento anterior com orçamento ou item para repetir.</span>'; return; }
+                var h='';
+                cards.forEach(function(c, idx){
+                    h += '<div style="border:1px solid #e2e8f0;border-radius:8px;margin-bottom:8px;overflow:hidden">';
+                    h += '<div class="crm-hist-head" data-idx="'+idx+'" style="display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;padding:8px 12px;cursor:pointer;background:#f8fafc">'
+                       + '<span style="font-weight:600;color:#0f172a">'+esc(c.titulo||'—')+'</span>'
+                       + '<span style="background:'+cor(c.status)+'20;color:'+cor(c.status)+';border-radius:8px;padding:1px 7px;font-size:10px">'+esc(c.status)+'</span>'
+                       + (c.pipeline?'<span style="color:#94a3b8;font-size:11px">'+esc(c.pipeline)+'</span>':'')
+                       + '<span style="color:#64748b;font-size:11px;margin-left:auto">'+dt(c.data)+' ▾</span>'
+                       + '</div>';
+                    h += '<div data-det="'+idx+'" style="display:none;padding:8px 12px;border-top:1px solid #f1f5f9">';
+                    (c.orcamentos||[]).forEach(function(o){
+                        h += '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #f6f7f9">'
+                           + '<span style="flex:1;min-width:0">&#x1F4CB; <strong>'+esc(o.numero_orcamento||'—')+'</strong> · '+esc(o.forma_nome||'—')+' · <span style="font-weight:600">'+moeda(o.total_orcamento)+'</span></span>'
+                           + '<button type="button" class="button button-small crm-hist-rep-orc" data-orc="'+esc(o.id)+'" style="font-size:11px;color:#16a34a;border-color:#86efac">&#x21BB; Repetir orçamento</button>'
+                           + '</div>';
+                    });
+                    (c.itens||[]).forEach(function(it){
+                        var pl = { descricao:it.descricao, quantidade:it.quantidade, preco_unitario:it.preco_unitario, desconto_tipo:it.desconto_tipo, desconto_valor:it.desconto_valor, catalogo_id:it.catalogo_id };
+                        h += '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #f6f7f9">'
+                           + '<span style="flex:1;min-width:0">'+esc(it.descricao||'—')+' · '+(parseFloat(it.quantidade)||0)+'× '+moeda(it.preco_unitario)+' = <span style="font-weight:600">'+moeda(it.total)+'</span></span>'
+                           + '<button type="button" class="button button-small crm-hist-rep-item" data-item="'+esc(JSON.stringify(pl))+'" style="font-size:11px;color:#2563eb;border-color:#93c5fd">&#x21BB; Repetir item</button>'
+                           + '</div>';
+                    });
+                    h += '</div></div>';
+                });
+                body.innerHTML = h;
+            }
+
+            body.addEventListener('click', function(e){
+                var head = e.target.closest('.crm-hist-head');
+                if (head){ var d=body.querySelector('[data-det="'+head.dataset.idx+'"]'); if(d) d.style.display = d.style.display==='none'?'block':'none'; return; }
+
+                var ro = e.target.closest('.crm-hist-rep-orc');
+                if (ro){
+                    ro.disabled=true; ro.textContent='repetindo…';
+                    var b=new URLSearchParams({ action:'tao_formula_orc_repetir', nonce: taofNonce, orc_id: ro.dataset.orc, card_id: cardId });
+                    fetch((window.taofAjaxUrl||ajaxUrl), { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:b.toString() })
+                      .then(function(r){ return r.text(); }).then(function(t){ var i=t.indexOf('{'),resp; try{ resp=JSON.parse(i>0?t.slice(i):t); }catch(e){ resp={}; }
+                        if(resp.success){ ro.textContent='✔ repetido '+((resp.data&&resp.data.numero)||''); ro.style.color='#16a34a'; if(typeof carregarFormulas==='function') carregarFormulas(); }
+                        else { ro.disabled=false; ro.textContent='↻ Repetir orçamento'; alert((resp.data&&resp.data.message)||'Erro ao repetir orçamento'); } });
+                    return;
+                }
+
+                var ri = e.target.closest('.crm-hist-rep-item');
+                if (ri){
+                    var it={}; try{ it=JSON.parse(ri.dataset.item); }catch(e){}
+                    ri.disabled=true; ri.textContent='repetindo…';
+                    if (typeof crmPost==='function'){
+                        crmPost({ action:'tao_crm_save_card_item', nonce: taoCrm.nonce, card_id: cardId,
+                                  descricao: it.descricao||'', quantidade: it.quantidade||1, preco_unitario: it.preco_unitario||0,
+                                  desconto_tipo: it.desconto_tipo||'pct', desconto_valor: it.desconto_valor||0, catalogo_id: it.catalogo_id||'' },
+                            function(r){ if(r&&r.success){ ri.textContent='✔ adicionado'; ri.style.color='#16a34a'; if(window.taoCrmItens&&taoCrmItens.carregar) taoCrmItens.carregar(); }
+                                         else { ri.disabled=false; ri.textContent='↻ Repetir item'; alert('Erro ao repetir item'); } });
+                    } else { ri.disabled=false; ri.textContent='↻ Repetir item'; }
+                    return;
+                }
             });
         })();
 

@@ -634,7 +634,45 @@ add_action( 'wp_ajax_tao_formula_get_orcamentos_card', function() {
         "total_orcamento,status,criado_em,itens,nome_paciente,desconto_pct,margem_aplicada" .
         "&order=criado_em.asc"
     );
-    wp_send_json( $r['ok'] ? [ 'success' => true,  'data' => $r['data'] ?? [] ]
+    $data = $r['ok'] ? ( $r['data'] ?? [] ) : [];
+
+    // Enriquece o custo dos itens que vieram sem custo gravado, buscando no cadastro
+    // de ativos (custo_por_unidade ?: preco_compra). Assim a análise inline da linha
+    // fica confiável (antes mostrava margem falsa quando o item não tinha custo).
+    if ( $data ) {
+        $need = [];
+        foreach ( $data as $o ) {
+            $its = is_string( $o['itens'] ?? null ) ? json_decode( $o['itens'], true ) : ( $o['itens'] ?? [] );
+            if ( ! is_array( $its ) ) continue;
+            foreach ( $its as $it ) {
+                if ( ( $it['tipo'] ?? 'mp' ) === 'mp' && (float) ( $it['custo_por_unidade'] ?? 0 ) <= 0 && ! empty( $it['ativo_id'] ) )
+                    $need[ $it['ativo_id'] ] = 1;
+            }
+        }
+        if ( $need ) {
+            $custo_map = [];
+            $ra = tao_formula_api( '/ativos?id=in.(' . implode( ',', array_keys( $need ) ) . ')&select=id,custo_por_unidade,preco_compra' );
+            foreach ( ( $ra['ok'] ? ( $ra['data'] ?? [] ) : [] ) as $a )
+                $custo_map[ $a['id'] ] = (float) ( $a['custo_por_unidade'] ?? 0 ) ?: (float) ( $a['preco_compra'] ?? 0 );
+            foreach ( $data as &$o ) {
+                $its = is_string( $o['itens'] ?? null ) ? json_decode( $o['itens'], true ) : ( $o['itens'] ?? [] );
+                if ( ! is_array( $its ) ) continue;
+                $mud = false;
+                foreach ( $its as &$it ) {
+                    if ( ( $it['tipo'] ?? 'mp' ) === 'mp' && (float) ( $it['custo_por_unidade'] ?? 0 ) <= 0
+                         && ! empty( $it['ativo_id'] ) && ! empty( $custo_map[ $it['ativo_id'] ] ) ) {
+                        $it['custo_por_unidade'] = $custo_map[ $it['ativo_id'] ];
+                        $mud = true;
+                    }
+                }
+                unset( $it );
+                if ( $mud ) $o['itens'] = $its;
+            }
+            unset( $o );
+        }
+    }
+
+    wp_send_json( $r['ok'] ? [ 'success' => true,  'data' => $data ]
                             : [ 'success' => false, 'data' => $r['raw'] ] );
 } );
 
