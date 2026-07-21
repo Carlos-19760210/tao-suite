@@ -589,18 +589,35 @@ function tao_crm_page_dashboard() {
                 <?php endif; ?>
                 <input type="hidden" name="workspace_id" value="<?php echo esc_attr( $ws_id ); ?>">
                 <label style="font-size:13px;color:#64748b">Período:</label>
-                <select name="dias" onchange="this.form.de.value='';this.form.ate.value='';this.form.periodo.value='';this.form.submit()">
-                    <?php foreach ( [ 1 => 'Hoje', 7 => '7 dias', 30 => '30 dias', 90 => '90 dias', 180 => '6 meses' ] as $v => $l ) : ?>
-                    <option value="<?php echo $v; ?>" <?php echo ( $periodo === '' && $dias == $v ) ? 'selected' : ''; ?>><?php echo $l; ?></option>
-                    <?php endforeach; ?>
+                <input type="hidden" name="dias"    value="<?php echo esc_attr( $periodo === '' ? $dias : '' ); ?>">
+                <input type="hidden" name="periodo" value="<?php echo esc_attr( $periodo === 'mes' ? 'mes' : ( $periodo === 'custom' ? 'custom' : '' ) ); ?>">
+                <?php $_sel = $periodo === 'mes' ? 'mes' : ( $periodo === 'custom' ? 'custom' : 'd' . $dias ); ?>
+                <select onchange="taoCrmPeriodo(this)" style="padding:5px 8px;border:1px solid #cbd5e1;border-radius:5px;font-size:13px">
+                    <option value="d1"   <?php selected( $_sel, 'd1' ); ?>>Hoje</option>
+                    <option value="d7"   <?php selected( $_sel, 'd7' ); ?>>7 dias</option>
+                    <option value="d30"  <?php selected( $_sel, 'd30' ); ?>>30 dias</option>
+                    <option value="d90"  <?php selected( $_sel, 'd90' ); ?>>90 dias</option>
+                    <option value="d180" <?php selected( $_sel, 'd180' ); ?>>6 meses</option>
+                    <option value="mes"  <?php selected( $_sel, 'mes' ); ?>>Mês corrente</option>
+                    <option value="custom" <?php selected( $_sel, 'custom' ); ?>>Período específico…</option>
                 </select>
-                <input type="hidden" name="periodo" value="<?php echo esc_attr( $periodo === 'mes' ? 'mes' : '' ); ?>">
-                <button type="submit" class="button<?php echo $periodo === 'mes' ? ' button-primary' : ''; ?>" style="font-size:12px"
-                        onclick="this.form.de.value='';this.form.ate.value='';this.form.periodo.value='mes'">Mês corrente</button>
-                <span style="color:#cbd5e1">|</span>
-                <input type="date" name="de"  value="<?php echo esc_attr( $de_g ); ?>"  style="padding:4px 6px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px" title="De">
-                <input type="date" name="ate" value="<?php echo esc_attr( $ate_g ); ?>" style="padding:4px 6px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px" title="Até">
-                <button type="submit" class="button<?php echo $periodo === 'custom' ? ' button-primary' : ''; ?>" style="font-size:12px" onclick="this.form.periodo.value=''">Aplicar</button>
+                <span id="crm-range" style="<?php echo $periodo === 'custom' ? '' : 'display:none'; ?>">
+                    <input type="date" name="de"  value="<?php echo esc_attr( $de_g ); ?>"  style="padding:4px 6px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px">
+                    <span style="color:#94a3b8;font-size:12px">até</span>
+                    <input type="date" name="ate" value="<?php echo esc_attr( $ate_g ); ?>" style="padding:4px 6px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px">
+                    <button type="submit" class="button" style="font-size:12px" onclick="this.form.periodo.value='custom'">Aplicar</button>
+                </span>
+                <script>
+                function taoCrmPeriodo(sel){
+                    var f=sel.form, v=sel.value, rng=document.getElementById('crm-range');
+                    if(v==='custom'){ if(rng) rng.style.display=''; return; }
+                    if(rng) rng.style.display='none';
+                    f.de.value=''; f.ate.value='';
+                    if(v==='mes'){ f.periodo.value='mes'; f.dias.value=''; }
+                    else { f.periodo.value=''; f.dias.value=v.substring(1); }
+                    f.submit();
+                }
+                </script>
                 <?php if ( count( $pipelines ) > 1 ) : ?>
                 <label style="font-size:13px;color:#64748b;margin-left:6px">Funil:</label>
                 <select name="funil" onchange="this.form.submit()">
