@@ -1928,6 +1928,13 @@ function tao_crm_page_card() {
                 anPanel.style.display = vis ? 'none' : 'block';
                 if (!vis && !anLoaded) carregarAnalise(false);
             });
+            // Análise visível por padrão quando o card tem orçamentos (negociação — 21/07).
+            // Usa o custo do backend (com fallback no cadastro de ativos), confiável;
+            // o cálculo inline da linha não tem esse fallback e pode mostrar margem falsa.
+            window.taofAbrirAnalise = function () {
+                if (anPanel.style.display === 'none') anPanel.style.display = 'block';
+                if (!anLoaded) carregarAnalise(false);
+            };
             anConc.addEventListener('input', function () {
                 renderCenario();
                 clearTimeout(anTimer);
@@ -1979,6 +1986,8 @@ function tao_crm_page_card() {
                         listDiv.innerHTML = '<span style="color:#94a3b8;font-size:12px">Nenhum orçamento.</span>';
                         return;
                     }
+                    // Tem orçamento → abre a análise de preços por padrão (visível p/ negociação)
+                    if (window.taofAbrirAnalise) window.taofAbrirAnalise();
                     var html = '<table style="width:100%;border-collapse:collapse;font-size:12px">';
                     var anyCheck = false;
                     var anyPendente = false;
