@@ -35,11 +35,10 @@ function tao_crm_page_analise() {
     $hoje    = gmdate( 'Y-m-d' );
     ?>
     <div class="wrap tao-analise">
-        <h1 style="margin-bottom:4px">&#x1F4CA; Análise
-            <small style="font-size:13px;color:#94a3b8;font-weight:400">— tabela dinâmica (OM &times; funil &times; Caixa)</small>
-        </h1>
-        <p style="margin:0 0 12px;color:#64748b;font-size:13px">Arraste as dimensões (linhas/colunas) e escolha a medida. Expanda para ir do macro ao micro (ex.: telefone &rarr; manipulação &rarr; forma de pagamento).</p>
+        <h1 style="margin-bottom:2px">&#x1F4CA; Análise</h1>
+        <p style="margin:0 0 12px;color:#64748b;font-size:13px">Cruza manipulações (OM) + funil + Caixa numa base só. Escolha um período, clique numa <b>visão pronta</b> para começar, e use a tabela para ir do resumo ao detalhe.</p>
 
+        <!-- Período -->
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px">
             <strong style="font-size:13px;color:#475569">Período:</strong>
             <input type="date" id="an-de"  value="<?php echo esc_attr( $mes_ini ); ?>" style="padding:5px 8px;border:1px solid #cbd5e1;border-radius:5px">
@@ -49,11 +48,22 @@ function tao_crm_page_analise() {
             <button type="button" class="button" data-preset="7">7 dias</button>
             <button type="button" class="button" data-preset="30">30 dias</button>
             <button type="button" class="button" data-preset="90">90 dias</button>
-            <button type="button" class="button button-primary" id="an-aplicar">Aplicar</button>
+            <button type="button" class="button button-primary" id="an-aplicar">Aplicar período</button>
             <span id="an-status" style="font-size:12px;color:#64748b;margin-left:4px"></span>
         </div>
 
-        <div id="an-pivot" style="margin-top:14px;overflow-x:auto">Carregando…</div>
+        <!-- Visões prontas -->
+        <div style="margin-top:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <strong style="font-size:12px;color:#475569">Visões prontas:</strong>
+            <button type="button" class="button button-small an-vis" data-vis="pagamento">&#x1F4B3; Faturamento por forma de pagamento</button>
+            <button type="button" class="button button-small an-vis" data-vis="forma">&#x1F48A; OMs por forma farmacêutica</button>
+            <button type="button" class="button button-small an-vis" data-vis="responsavel">&#x1F464; Valor por responsável</button>
+            <button type="button" class="button button-small an-vis" data-vis="dia">&#x1F4C5; OMs por dia</button>
+            <span style="font-size:11px;color:#94a3b8">— ou arraste os campos na tabela para montar sua própria visão</span>
+        </div>
+
+        <div id="an-msg" style="margin-top:12px;color:#64748b"></div>
+        <div id="an-pivot" style="margin-top:10px;overflow-x:auto"></div>
     </div>
 
     <script>
@@ -61,59 +71,86 @@ function tao_crm_page_analise() {
         var ajaxurl = <?php echo wp_json_encode( $ajaxurl ); ?>;
         var nonce   = <?php echo wp_json_encode( $nonce ); ?>;
         var wsId    = <?php echo wp_json_encode( $ws_id ); ?>;
-        var JQUI_CSS = 'https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.13.2/themes/base/jquery-ui.min.css';
-        var PIV_CSS  = 'https://cdnjs.cloudflare.com/ajax/libs/pivottable/2.23.0/pivot.min.css';
-        var JQ_JS    = 'https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.4/jquery.min.js';
-        var JQUI_JS  = 'https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.13.2/jquery-ui.min.js';
-        var PIV_JS   = 'https://cdnjs.cloudflare.com/ajax/libs/pivottable/2.23.0/pivot.min.js';
+        // CDN jsDelivr — o MESMO usado pelos outros painéis (Chart.js) neste portal
+        var CSS = [ 'https://cdn.jsdelivr.net/npm/jquery-ui@1.13.2/themes/base/jquery-ui.min.css',
+                    'https://cdn.jsdelivr.net/npm/pivottable@2.23.0/dist/pivot.min.css' ];
+        var JQ   = 'https://cdn.jsdelivr.net/npm/jquery@3.6.4/dist/jquery.min.js';
+        var JQUI = 'https://cdn.jsdelivr.net/npm/jquery-ui@1.13.2/dist/jquery-ui.min.js';
+        var PIV  = 'https://cdn.jsdelivr.net/npm/pivottable@2.23.0/dist/pivot.min.js';
+        var msg = document.getElementById('an-msg');
 
-        function css(href){ var l=document.createElement('link'); l.rel='stylesheet'; l.href=href; document.head.appendChild(l); }
-        function js(src, cb){ var s=document.createElement('script'); s.src=src; s.onload=cb; s.onerror=function(){ document.getElementById('an-pivot').textContent='Falha ao carregar a biblioteca de tabela dinâmica.'; }; document.head.appendChild(s); }
+        function setMsg(t, cor){ msg.textContent = t; msg.style.color = cor || '#64748b'; }
+        function css(h){ var l=document.createElement('link'); l.rel='stylesheet'; l.href=h; document.head.appendChild(l); }
+        function js(src, cb){ var s=document.createElement('script'); s.src=src;
+            s.onload=cb; s.onerror=function(){ setMsg('⚠ Não consegui carregar a biblioteca de tabela dinâmica (' + src + '). Pode ser bloqueio de rede/CDN — me avise que eu instalo uma cópia local.', '#dc2626'); };
+            document.head.appendChild(s); }
 
-        css(JQUI_CSS); css(PIV_CSS);
-        function afterJqUi(){ js(PIV_JS, iniciar); }
-        function afterJq(){ js(JQUI_JS, afterJqUi); }
-        if (window.jQuery) { afterJq(); } else { js(JQ_JS, afterJq); }
+        setMsg('Carregando biblioteca…');
+        CSS.forEach(css);
+        function step3(){ js(PIV, iniciar); }
+        function step2(){ js(JQUI, step3); }
+        if (window.jQuery) { step2(); } else { js(JQ, step2); }
+
+        var DATA = [], curVis = 'pagamento';
 
         function iniciar(){
             var $ = window.jQuery;
+            if (!$ || !$.fn || !$.fn.pivotUI) { setMsg('⚠ A biblioteca de pivot não inicializou. Me avise que eu troco a abordagem.', '#dc2626'); return; }
+
             function toISO(d){ return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
             function preset(dias){ var a=new Date(), de=new Date(); de.setDate(de.getDate()-(dias-1));
                 document.getElementById('an-de').value=toISO(de); document.getElementById('an-ate').value=toISO(a); }
-
-            document.getElementById('an-mes').onclick = function(){ var n=new Date();
+            document.getElementById('an-mes').onclick=function(){ var n=new Date();
                 document.getElementById('an-de').value=toISO(new Date(n.getFullYear(),n.getMonth(),1));
                 document.getElementById('an-ate').value=toISO(n); carregar(); };
             Array.prototype.forEach.call(document.querySelectorAll('[data-preset]'), function(b){
                 b.onclick=function(){ preset(parseInt(b.dataset.preset,10)); carregar(); }; });
-            document.getElementById('an-aplicar').onclick = carregar;
+            document.getElementById('an-aplicar').onclick=carregar;
+            Array.prototype.forEach.call(document.querySelectorAll('.an-vis'), function(b){
+                b.onclick=function(){ curVis=b.dataset.vis; render(); }; });
+
+            function aggs(){
+                var u=$.pivotUtilities, f=u.numberFormat({ thousandsSep:'.', decimalSep:',', prefix:'R$ ' });
+                return {
+                    'Contagem de OMs'      : u.aggregatorTemplates.count()(),
+                    'Soma Valor Orçado'    : u.aggregatorTemplates.sum(f)(['Valor Orcado']),
+                    'Soma Valor Pago'      : u.aggregatorTemplates.sum(f)(['Valor Pago']),
+                    'Ticket Médio (Orçado)': u.aggregatorTemplates.average(f)(['Valor Orcado'])
+                };
+            }
+            var VIS = {
+                pagamento:   { rows:['Forma Pagto'],   cols:['Mes'],    agg:'Soma Valor Pago' },
+                forma:       { rows:['Forma Farmac.'], cols:['Status'], agg:'Contagem de OMs' },
+                responsavel: { rows:['Responsavel'],   cols:['Mes'],    agg:'Soma Valor Orçado' },
+                dia:         { rows:['Data'],          cols:[],         agg:'Contagem de OMs' }
+            };
+
+            function render(){
+                if (!DATA.length) { document.getElementById('an-pivot').innerHTML=''; setMsg('Nenhuma OM no período selecionado.', '#b45309'); return; }
+                var v = VIS[curVis] || VIS.pagamento;
+                $('#an-pivot').pivotUI(DATA, {
+                    rows:v.rows, cols:v.cols, aggregators:aggs(), aggregatorName:v.agg,
+                    renderers:$.pivotUtilities.renderers, rendererName:'Table', unusedAttrsVertical:false
+                }, true);
+            }
+            window.__anRender = render;
 
             function carregar(){
                 var de=document.getElementById('an-de').value, ate=document.getElementById('an-ate').value;
-                var st=document.getElementById('an-status'); st.textContent='carregando…';
+                document.getElementById('an-status').textContent='carregando…';
+                setMsg('Buscando dados do período…');
                 $.ajax({ url:ajaxurl, type:'POST', dataType:'text',
                     data:{ action:'tao_crm_analise_dataset', nonce:nonce, workspace_id:wsId, de:de, ate:ate } })
                 .done(function(txt){
                     var i=txt.indexOf('{'), resp; try{ resp=JSON.parse(i>0?txt.slice(i):txt); }
-                    catch(e){ st.textContent='erro ao ler dados'; return; }
-                    if(!resp.success){ st.textContent=(resp.data||'erro'); return; }
-                    var rows=(resp.data && resp.data.rows) || [];
-                    st.textContent = rows.length + ' OMs no período';
-                    var util=$.pivotUtilities, fmt=util.numberFormat({ thousandsSep:'.', decimalSep:',', prefix:'R$ ' });
-                    var aggs={
-                        'Contagem de OMs'      : util.aggregatorTemplates.count()(),
-                        'Soma Valor Orçado'    : util.aggregatorTemplates.sum(fmt)(['Valor Orcado']),
-                        'Soma Valor Pago'      : util.aggregatorTemplates.sum(fmt)(['Valor Pago']),
-                        'Ticket Médio (Orçado)': util.aggregatorTemplates.average(fmt)(['Valor Orcado'])
-                    };
-                    $('#an-pivot').pivotUI(rows, {
-                        rows:['Forma Farmac.'], cols:['Mes'],
-                        aggregators: aggs, aggregatorName:'Soma Valor Orçado',
-                        renderers: util.renderers, rendererName:'Table',
-                        unusedAttrsVertical:false
-                    }, true);
+                    catch(e){ setMsg('⚠ Erro ao ler os dados (resposta inesperada). Me mande o que aparece no Console (F12).', '#dc2626'); return; }
+                    if(!resp.success){ setMsg('⚠ ' + (resp.data||'Erro ao buscar dados'), '#dc2626'); return; }
+                    DATA = (resp.data && resp.data.rows) || [];
+                    document.getElementById('an-status').textContent = DATA.length + ' OMs no período';
+                    setMsg('');
+                    render();
                 })
-                .fail(function(x){ st.textContent='erro HTTP '+x.status; });
+                .fail(function(x){ setMsg('⚠ Falha na requisição (HTTP ' + x.status + '). Me avise.', '#dc2626'); });
             }
             carregar();
         }
