@@ -5875,6 +5875,11 @@ add_action( 'wp_ajax_tao_crm_analise_dataset', function () {
     $ate = sanitize_text_field( $_POST['ate'] ?? '' );
     if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $de ) )  $de  = gmdate( 'Y-m-01' );
     if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $ate ) ) $ate = gmdate( 'Y-m-d' );
+    // Filtro-mestre por desfecho do card: aprovadas (default) | canceladas | todas.
+    $_pf = sanitize_text_field( $_POST['filtro'] ?? '' );
+    $filtro = in_array( $_pf, [ 'canceladas', 'todas' ], true ) ? $_pf : 'aprovadas';
+    // Conserta texto gravado com encoding duplo (mojibake): campos/opções e motivos.
+    $demoji = function ( $s ) { if ( $s !== '' && $s !== null && strpos( $s, 'Ã' ) !== false ) { $c = @mb_convert_encoding( $s, 'ISO-8859-1', 'UTF-8' ); if ( $c ) return $c; } return $s; };
 
     // Cubo denormalizado: 1 linha por OM × ativo (grão fino). Medidas de ativo (qtd/
     // custo/venda calculados pelo motor) somam livres; medidas de OM (preço/pago) são
@@ -5909,23 +5914,39 @@ add_action( 'wp_ajax_tao_crm_analise_dataset', function () {
         $u = get_userdata( (int) $uid ); if ( $u ) $resp_map[ $uid ] = $u->display_name;
     }
 
-    // ── Só OMs que FECHARAM (card no funil de pós-vendas) e SÓ a última versão por
-    //    requisição (numero_orcamento = prefixo-requisição-versão) — evita inflar
-    //    consumo/custo somando revisões e cotações não fechadas.
+    // ── Desfecho do card (classificação confiável pelo funil): Aprovada = card no funil
+    //    pós-vendas; Cancelada = perdido/cancelado; senão Em andamento. O filtro-mestre
+    //    seleciona quais entram. Dedupe: só a última versão por requisição.
+    $desfecho = function ( $c ) use ( $pl_ispos, $est_map ) {
+        if ( ! $c ) return 'Em andamento';
+        if ( ! empty( $pl_ispos[ $c['pipeline_id'] ?? '' ] ) ) return 'Aprovada';
+        $fase = $est_map[ $c['estagio_id'] ?? '' ] ?? '';
+        if ( ( $c['status'] ?? '' ) === 'perdido' || stripos( $fase, 'cancelad' ) !== false ) return 'Cancelada';
+        return 'Em andamento';
+    };
     $best = [];
     foreach ( $oms as $o ) {
-        $cidcard = $o['card_id'] ?? '';
-        $c = $cards[ $cidcard ] ?? null;
-        if ( ! $c || empty( $pl_ispos[ $c['pipeline_id'] ?? '' ] ) ) continue;   // não fechou
+        $c   = $cards[ $o['card_id'] ?? '' ] ?? null;
+        $des = $desfecho( $c );
+        if ( $filtro === 'aprovadas'  && $des !== 'Aprovada'  ) continue;
+        if ( $filtro === 'canceladas' && $des !== 'Cancelada' ) continue;
         $num  = (string) ( $o['numero_orcamento'] ?? '' );
         $posd = strrpos( $num, '-' );
         $base = ( $posd !== false ) ? substr( $num, 0, $posd ) : $num;
         $ver  = ( $posd !== false ) ? intval( substr( $num, $posd + 1 ) ) : 0;
+        $o['_des'] = $des;
         if ( ! isset( $best[ $base ] ) || $ver > $best[ $base ]['v'] ) $best[ $base ] = [ 'v' => $ver, 'o' => $o ];
     }
     $oms = array_map( function ( $x ) { return $x['o']; }, array_values( $best ) );
     if ( ! $oms ) wp_send_json_success( [ 'rows' => [], 'de' => $de, 'ate' => $ate ] );
     $card_ids = array_values( array_unique( array_filter( array_column( $oms, 'card_id' ) ) ) );
+
+    // Classificação Formulação (campo obrigatório) por card
+    $classif_card = [];
+    if ( $card_ids ) {
+        $rcv = tao_crm_api( "/crm_cards_valores?card_id=in.(" . implode( ',', $card_ids ) . ")&campo_id=eq.3e0bc3d0-ede2-4a1e-9d9b-7f54ffebd836&select=card_id,valor" );
+        foreach ( ( $rcv['ok'] ? ( $rcv['data'] ?? [] ) : [] ) as $v ) if ( ! empty( $v['valor'] ) ) $classif_card[ $v['card_id'] ] = $demoji( $v['valor'] );
+    }
     // Caixa: card → venda → recibo → pagamento → forma
     $venda_por_card = []; $venda_ids = [];
     if ( $card_ids ) {
@@ -6024,6 +6045,8 @@ add_action( 'wp_ajax_tao_crm_analise_dataset', function () {
             'Fase'          => $est_map[ $c['estagio_id'] ?? '' ] ?? '',
             'Responsavel'   => $resp,
             'Forma Pagto'   => $forma_pg,
+            'Desfecho'      => $o['_des'] ?? '',
+            'Classificação' => $classif_card[ $cid_card ] ?? '—',
         ];
 
         $primeiro = true; $tem_ativo = false;
@@ -6166,6 +6189,7 @@ add_action( 'wp_ajax_tao_crm_operacao_dataset', function () {
     if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $de ) )  $de  = gmdate( 'Y-m-01' );
     if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $ate ) ) $ate = gmdate( 'Y-m-d' );
     $ate_fim = $ate . 'T23:59:59';
+    $demoji = function ( $s ) { if ( $s !== '' && $s !== null && strpos( $s, 'Ã' ) !== false ) { $c = @mb_convert_encoding( $s, 'ISO-8859-1', 'UTF-8' ); if ( $c ) return $c; } return $s; };
 
     // funis + fases do workspace (pós-vendas identificado pelo nome do funil)
     $pl_map = []; $pl_ispos = [];
@@ -6268,7 +6292,85 @@ add_action( 'wp_ajax_tao_crm_operacao_dataset', function () {
             'Esperando'    => $esperando ? 1 : 0,
         ];
     }
-    wp_send_json_success( [ 'rows' => $rows, 'de' => $de, 'ate' => $ate, 'agora' => gmdate( 'c' ) ] );
+    // ── Aprovações no período por DATA DA APROVAÇÃO (evento "Proposta aprovada pelo
+    //    cliente" no histórico = card entra em Aguardando Producao). Valor = Valor Final
+    //    do card (valor_oportunidade). Tenant: filtra pelos cards do workspace. 1× por card.
+    $aprov = [];
+    $rha = tao_crm_api( "/crm_cards_historico?motivo=ilike.*aprovada*&criado_em=gte.$de&criado_em=lte.$ate_fim" .
+                        "&select=card_id,criado_em&order=criado_em.desc&limit=20000" );
+    $ap_events = ( $rha['ok'] ? ( $rha['data'] ?? [] ) : [] );
+    if ( $ap_events ) {
+        $ap_ids = array_values( array_unique( array_filter( array_column( $ap_events, 'card_id' ) ) ) );
+        $ap_cards = [];
+        foreach ( array_chunk( $ap_ids, 100 ) as $chunk ) {
+            $rac = tao_crm_api( "/crm_cards?id=in.(" . implode( ',', $chunk ) . ")&workspace_id=eq.$ws&select=id,titulo,contato_nome,responsavel_id,valor_oportunidade" );
+            foreach ( ( $rac['ok'] ? ( $rac['data'] ?? [] ) : [] ) as $c ) $ap_cards[ $c['id'] ] = $c;
+        }
+        foreach ( $ap_cards as $c ) { $uid = $c['responsavel_id'] ?? 0; if ( $uid && ! isset( $resp_map[ $uid ] ) ) { $u = get_userdata( (int) $uid ); if ( $u ) $resp_map[ $uid ] = $u->display_name; } }
+        $ap_seen = [];
+        foreach ( $ap_events as $ev ) {                       // desc = mais recente 1º; 1 aprovação por card
+            $cid2 = $ev['card_id'] ?? '';
+            if ( ! $cid2 || isset( $ap_seen[ $cid2 ] ) ) continue;
+            $c = $ap_cards[ $cid2 ] ?? null; if ( ! $c ) continue;   // card de outro workspace
+            $ap_seen[ $cid2 ] = 1;
+            $data = substr( (string) ( $ev['criado_em'] ?? '' ), 0, 10 );
+            $aprov[] = [
+                'Data'        => $data,
+                'Mes'         => substr( $data, 0, 7 ),
+                'Responsavel' => $resp_map[ $c['responsavel_id'] ?? 0 ] ?? '— sem resp —',
+                'Card'        => $c['titulo'] ?: ( $c['contato_nome'] ?? '' ),
+                'Valor'       => (float) ( $c['valor_oportunidade'] ?? 0 ),
+            ];
+        }
+    }
+
+    // ── Perdas/Cancelamentos no período por DATA DO CANCELAMENTO (transição p/ fase
+    //    "Cards Cancelados"). Detalhe: motivo, fase de onde perdeu, responsável,
+    //    classificação da formulação, valor (Valor Final do card) e tempo até cancelar.
+    $perdas = [];
+    $canc_ids = [];
+    foreach ( $est_map as $eid => $enome ) if ( stripos( $enome, 'cancelad' ) !== false ) $canc_ids[] = $eid;
+    if ( $canc_ids ) {
+        $rhp = tao_crm_api( "/crm_cards_historico?para_estagio_id=in.(" . implode( ',', $canc_ids ) . ")" .
+                            "&criado_em=gte.$de&criado_em=lte.$ate_fim&select=card_id,criado_em,de_estagio_id,motivo&order=criado_em.desc&limit=20000" );
+        $pev = ( $rhp['ok'] ? ( $rhp['data'] ?? [] ) : [] );
+        if ( $pev ) {
+            $pids = array_values( array_unique( array_filter( array_column( $pev, 'card_id' ) ) ) );
+            $pcards = [];
+            foreach ( array_chunk( $pids, 100 ) as $chunk ) {
+                $rpc = tao_crm_api( "/crm_cards?id=in.(" . implode( ',', $chunk ) . ")&workspace_id=eq.$ws&select=id,responsavel_id,valor_oportunidade,criado_em" );
+                foreach ( ( $rpc['ok'] ? ( $rpc['data'] ?? [] ) : [] ) as $c ) $pcards[ $c['id'] ] = $c;
+            }
+            foreach ( $pcards as $c ) { $uid = $c['responsavel_id'] ?? 0; if ( $uid && ! isset( $resp_map[ $uid ] ) ) { $u = get_userdata( (int) $uid ); if ( $u ) $resp_map[ $uid ] = $u->display_name; } }
+            $pclass = [];
+            foreach ( array_chunk( array_keys( $pcards ), 100 ) as $chunk ) {
+                if ( ! $chunk ) continue;
+                $rcv = tao_crm_api( "/crm_cards_valores?card_id=in.(" . implode( ',', $chunk ) . ")&campo_id=eq.3e0bc3d0-ede2-4a1e-9d9b-7f54ffebd836&select=card_id,valor" );
+                foreach ( ( $rcv['ok'] ? ( $rcv['data'] ?? [] ) : [] ) as $v ) if ( ! empty( $v['valor'] ) ) $pclass[ $v['card_id'] ] = $demoji( $v['valor'] );
+            }
+            $p_seen = [];
+            foreach ( $pev as $ev ) {                     // desc = mais recente 1º; 1 perda por card
+                $cid2 = $ev['card_id'] ?? '';
+                if ( ! $cid2 || isset( $p_seen[ $cid2 ] ) ) continue;
+                $c = $pcards[ $cid2 ] ?? null; if ( ! $c ) continue;   // card de outro workspace
+                $p_seen[ $cid2 ] = 1;
+                $data  = substr( (string) ( $ev['criado_em'] ?? '' ), 0, 10 );
+                $tcanc = ! empty( $c['criado_em'] ) ? round( max( 0, strtotime( $ev['criado_em'] ) - strtotime( $c['criado_em'] ) ) / 3600, 1 ) : null;
+                $perdas[] = [
+                    'Data'          => $data,
+                    'Mes'           => substr( $data, 0, 7 ),
+                    'Motivo'        => $demoji( $ev['motivo'] ?? '' ) ?: '(sem motivo)',
+                    'Fase'          => $est_map[ $ev['de_estagio_id'] ?? '' ] ?? '—',
+                    'Responsavel'   => $resp_map[ $c['responsavel_id'] ?? 0 ] ?? '— sem resp —',
+                    'Classificação' => $pclass[ $cid2 ] ?? '—',
+                    'Valor'         => (float) ( $c['valor_oportunidade'] ?? 0 ),
+                    'Tempo (h)'     => $tcanc,
+                ];
+            }
+        }
+    }
+
+    wp_send_json_success( [ 'rows' => $rows, 'aprovacoes' => $aprov, 'perdas' => $perdas, 'de' => $de, 'ate' => $ate, 'agora' => gmdate( 'c' ) ] );
 } );
 
 // ── Busca de contato por nome OU WhatsApp (autocomplete do Novo Card). Read-only.

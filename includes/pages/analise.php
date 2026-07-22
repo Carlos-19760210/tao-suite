@@ -78,6 +78,11 @@ function tao_crm_page_analise() {
             <button type="button" class="button button-primary" id="an-aplicar">Aplicar</button>
             <span id="an-status" style="font-size:12px;color:#64748b;margin-left:4px"></span>
         </div>
+        <div style="margin-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <strong style="font-size:12px;color:#475569">Mostrar:</strong>
+            <span class="an-mode" id="an-filtro"><button data-f="aprovadas" class="on">Aprovadas</button><button data-f="canceladas">Canceladas</button><button data-f="todas">Todas</button></span>
+            <span style="font-size:11px;color:#94a3b8">— aplica ao <b>consumo/produção</b> (cubo + perguntas de ativo). Caixa, Aprovações e Perdas são leituras próprias.</span>
+        </div>
         <div id="an-msg" style="margin-top:10px;color:#64748b"></div>
 
         <!-- ───────── MODO SIMPLES ───────── -->
@@ -192,7 +197,7 @@ function tao_crm_page_analise() {
         }
 
         // ── dados ──
-        var finData=[], opData=[], fatData={vendas:[],pagamentos:[]}, curFin='fatdia', curOp='gp';
+        var finData=[], opData=[], aprovData=[], perdasData=[], fatData={vendas:[],pagamentos:[]}, curFin='fatdia', curOp='gp', curFiltro='aprovadas';
 
         // Perguntas FINANCEIRO (dinheiro = Caixa; consumo = OMs ganhas/deduplicadas)
         function specFin(key){
@@ -230,6 +235,12 @@ function tao_crm_page_analise() {
                                {label:'Qtd (g)',data:L.map(function(l){return r2(qtd[l]||0);}),_cur:false} ],
                     sentence: t.length? ('Os 3 ativos de maior custo concentram '+pct(tot?t3/tot*100:0)+' do custo de insumos: '+t.slice(0,3).map(function(x){return x[0];}).join(', ')+'.') : 'Sem produção no período.' };
             }
+            if(key==='classif'){
+                var mc=gSum(D,'Classificação','Custo Ativo (R$)',function(r){return r['Classificação']&&r['Classificação']!=='—';}), tt=top(mc), LL=tt.map(function(x){return x[0];}), tc=sumVals(mc);
+                return { title:'🧬 Custo de insumos por classificação da formulação', defaultType:'bar', labels:LL,
+                    datasets:[{label:'Custo (R$)',data:LL.map(function(l){return r2(mc[l]);}),_cur:true}],
+                    sentence: tt.length? ('Maior custo: "'+tt[0][0]+'" ('+brl(tt[0][1])+', '+pct(tc?tt[0][1]/tc*100:0)+').') : 'Sem produção classificada no período.' };
+            }
             // custo por forma farmacêutica (consumo das fechadas)
             var m=gSum(D,'Forma Farmac.','Custo Ativo (R$)'), t=top(m), L=t.map(function(x){return x[0];}), tot=sumVals(m);
             return { title:'🧪 Custo de insumos por forma farmacêutica', defaultType:'bar', labels:L,
@@ -239,7 +250,53 @@ function tao_crm_page_analise() {
 
         // Perguntas ATENDIMENTO/OPERAÇÃO
         function specOp(key){
-            var D=opData;
+            var D=opData, A=aprovData, P=perdasData;
+            function br(d){ return d.split('-').reverse().join('/'); }
+            if(key==='motivo'){
+                var m=gCount(P,'Motivo'), t=top(m), L=t.map(function(x){return x[0];}), tot=sumVals(m);
+                return { title:'🚫 Por que perdemos (motivo do cancelamento)', defaultType:'barh', labels:L,
+                    datasets:[{label:'Cards perdidos',data:L.map(function(l){return m[l];}),_cur:false}],
+                    sentence: t.length? (tot+' perdas no período; principal motivo: "'+t[0][0]+'" ('+t[0][1]+', '+pct(tot?t[0][1]/tot*100:0)+').') : 'Nenhuma perda no período.' };
+            }
+            if(key==='ondeperde'){
+                var m=gCount(P,'Fase'), t=top(m), L=t.map(function(x){return x[0];}), tot=sumVals(m);
+                return { title:'📉 Onde perdemos (fase de onde saiu)', defaultType:'barh', labels:L,
+                    datasets:[{label:'Cards perdidos',data:L.map(function(l){return m[l];}),_cur:false}],
+                    sentence: t.length? ('Mais perdas saindo de "'+t[0][0]+'" ('+t[0][1]+') — é onde atacar o gargalo.') : 'Nenhuma perda no período.' };
+            }
+            if(key==='perdaresp'){
+                var m=gSum(P,'Responsavel','Valor'), mc=gCount(P,'Responsavel'), t=top(m), L=t.map(function(x){return x[0];});
+                return { title:'👤 Perdas por responsável (valor)', defaultType:'bar', labels:L,
+                    datasets:[{label:'Valor perdido (R$)',data:L.map(function(l){return r2(m[l]);}),_cur:true}],
+                    sentence: t.length? (t[0][0]+' concentra '+brl(t[0][1])+' em '+(mc[t[0][0]]||0)+' perdas.') : 'Nenhuma perda no período.' };
+            }
+            if(key==='perdaclass'){
+                var m=gCount(P,'Classificação'), t=top(m), L=t.map(function(x){return x[0];}), tot=sumVals(m);
+                return { title:'🧪 Perdas por classificação da formulação', defaultType:'doughnut', labels:L,
+                    datasets:[{label:'Cards perdidos',data:L.map(function(l){return m[l];}),_cur:false}],
+                    sentence: t.length? ('Classificação com mais perdas: "'+t[0][0]+'" ('+t[0][1]+', '+pct(tot?t[0][1]/tot*100:0)+').') : 'Nenhuma perda classificada no período.' };
+            }
+            if(key==='tempocanc'){
+                var m=gAvg(P,'Motivo','Tempo (h)'), t=top(m), L=t.map(function(x){return x[0];});
+                var slow=L.slice().sort(function(a,b){return m[b]-m[a];})[0];
+                var all=P.map(function(r){return r['Tempo (h)'];}).filter(function(v){return v!=null&&v!=='';}).map(parseFloat);
+                var med=all.length?all.reduce(function(a,b){return a+b;},0)/all.length:0;
+                return { title:'⏱️ Tempo até o cancelamento (por motivo)', defaultType:'bar', labels:L,
+                    datasets:[{label:'Horas até cancelar',data:L.map(function(l){return r2(m[l]);}),_cur:false}],
+                    sentence: L.length? ('Média geral: '+num(r2(med))+' h da criação até cancelar. Demora mais em "'+slow+'" ('+num(r2(m[slow]))+' h).') : 'Sem perdas com tempo medido no período.' };
+            }
+            if(key==='aprovdia'){
+                var m=gSum(A,'Data','Valor'), L=Object.keys(m).sort(), best=top(m,1)[0], tot=sumVals(m);
+                return { title:'✅ Aprovações por dia (valor final, data da aprovação)', defaultType:'line', labels:L,
+                    datasets:[{label:'Valor aprovado (R$)',data:L.map(function(l){return r2(m[l]);}),_cur:true}],
+                    sentence: A.length? (A.length+' aprovações somando '+brl(tot)+'. Melhor dia: '+(best?br(best[0])+' ('+brl(best[1])+')':'—')+'.') : 'Nenhuma aprovação no período.' };
+            }
+            if(key==='aprovresp'){
+                var mv=gSum(A,'Responsavel','Valor'), mc=gCount(A,'Responsavel'), t=top(mv), L=t.map(function(x){return x[0];}), tot=sumVals(mv);
+                return { title:'✅ Aprovações por responsável', defaultType:'bar', labels:L,
+                    datasets:[{label:'Valor aprovado (R$)',data:L.map(function(l){return r2(mv[l]);}),_cur:true}],
+                    sentence: t.length? (t[0][0]+' lidera com '+brl(t[0][1])+' em '+(mc[t[0][0]]||0)+' aprovações ('+pct(tot?t[0][1]/tot*100:0)+' do valor aprovado).') : 'Nenhuma aprovação no período.' };
+            }
             if(key==='gp'){
                 var resp={}; D.forEach(function(r){ var k=r['Responsavel']; if(!resp[k])resp[k]={g:0,p:0}; if(r['Classe']==='Ganho')resp[k].g++; else if(r['Classe']==='Perda')resp[k].p++; });
                 var L=Object.keys(resp).sort(function(a,b){return (resp[b].g+resp[b].p)-(resp[a].g+resp[a].p);});
@@ -308,15 +365,17 @@ function tao_crm_page_analise() {
         }
         function opKPIs(){
             var D=opData;
-            var g=D.filter(function(r){return r['Classe']==='Ganho';}).length, p=D.filter(function(r){return r['Classe']==='Perda';}).length;
-            var conv=(g+p)?g/(g+p)*100:0;
+            var apN=aprovData.length, apV=aprovData.reduce(function(a,r){return a+(parseFloat(r['Valor'])||0);},0);
+            var pdN=perdasData.length, pdV=perdasData.reduce(function(a,r){return a+(parseFloat(r['Valor'])||0);},0);
+            var conv=(apN+pdN)?apN/(apN+pdN)*100:0;
             var tmrs=D.map(function(r){return r['TMR (min)'];}).filter(function(v){return v!=null&&v!=='';}).map(parseFloat);
             var tmr=tmrs.length?tmrs.reduce(function(a,b){return a+b;},0)/tmrs.length:0;
             var tmas=D.map(function(r){return r['TMA (h)'];}).filter(function(v){return v!=null&&v!=='';}).map(parseFloat);
             var tma=tmas.length?tmas.reduce(function(a,b){return a+b;},0)/tmas.length:0;
             var esp=D.filter(function(r){return r['Esperando']==1;}).length;
             renderKPIs('op-kpis',[
-                {label:'Ganhos',value:num(g)},{label:'Perdas',value:num(p)},
+                {label:'Aprovados',value:num(apN)},{label:'Valor aprovado',value:brl(apV)},
+                {label:'Perdidos',value:num(pdN)},{label:'Valor perdido',value:brl(pdV)},
                 {label:'Conversão',value:pct(conv)},{label:'TMR (atendente)',value:num(r2(tmr))+' min'},
                 {label:'TMA médio',value:num(r2(tma))+' h'},{label:'Esperando agora',value:num(esp)}
             ]);
@@ -327,8 +386,8 @@ function tao_crm_page_analise() {
             Array.prototype.forEach.call(el(id).querySelectorAll('.an-qbtn'), function(b){ b.onclick=function(){
                 Array.prototype.forEach.call(el(id).querySelectorAll('.an-qbtn'),function(x){x.classList.remove('on');}); b.classList.add('on'); onpick(b.dataset.k); }; });
         }
-        var FINQ=[{key:'fatdia',label:'💰 Faturado por dia'},{key:'recdia',label:'💵 Recebido por dia'},{key:'pagto',label:'💳 Forma de pagamento'},{key:'fatresp',label:'👤 Faturado por responsável'},{key:'ativos',label:'💊 Ativos que + consomem'},{key:'custoforma',label:'🧪 Custo por forma'}];
-        var OPQ=[{key:'gp',label:'🏆 Ganhos × Perdas'},{key:'leads',label:'🚦 Onde estão os leads'},{key:'prod',label:'🏭 Produção → Entrega'},{key:'tmr',label:'⏱️ Tempo de resposta'},{key:'tma',label:'🕒 Tempo de atendimento'},{key:'espera',label:'⏳ Quem está esperando'},{key:'renov',label:'🔁 Renovações'}];
+        var FINQ=[{key:'fatdia',label:'💰 Faturado por dia'},{key:'recdia',label:'💵 Recebido por dia'},{key:'pagto',label:'💳 Forma de pagamento'},{key:'fatresp',label:'👤 Faturado por responsável'},{key:'ativos',label:'💊 Ativos que + consomem'},{key:'custoforma',label:'🧪 Custo por forma'},{key:'classif',label:'🧬 Custo por classificação'}];
+        var OPQ=[{key:'aprovdia',label:'✅ Aprovações por dia'},{key:'aprovresp',label:'✅ Aprovações por responsável'},{key:'gp',label:'🏆 Ganhos × Perdas'},{key:'motivo',label:'🚫 Por que perdemos'},{key:'ondeperde',label:'📉 Onde perdemos'},{key:'perdaresp',label:'👤 Perdas por resp.'},{key:'perdaclass',label:'🧪 Perdas por classificação'},{key:'tempocanc',label:'⏱️ Tempo até cancelar'},{key:'leads',label:'🚦 Onde estão os leads'},{key:'prod',label:'🏭 Produção → Entrega'},{key:'tmr',label:'⏱️ Tempo de resposta'},{key:'tma',label:'🕒 Tempo de atendimento'},{key:'espera',label:'⏳ Quem está esperando'},{key:'renov',label:'🔁 Renovações'}];
 
         function renderSimples(){
             finKPIs(); opKPIs();
@@ -346,7 +405,7 @@ function tao_crm_page_analise() {
             tooltips:{close:'Fechar',collapseIcon:'Recolher',column:'Coluna:',drillDown:'Detalhar',drillUp:'Agrupar',expandIcon:'Expandir',filterIcon:'Filtrar',filtered:'Filtrado',headerFit:'Duplo clique para ajustar',headerResize:'Arraste para redimensionar',row:'Linha:',sortIcon:'Ordenar',sortedAscIcon:'Ordenar'},
             months:{january:'Janeiro',february:'Fevereiro',march:'Março',april:'Abril',may:'Maio',june:'Junho',july:'Julho',august:'Agosto',september:'Setembro',october:'Outubro',november:'Novembro',december:'Dezembro'},
             monthsShort:{january:'Jan',february:'Fev',march:'Mar',april:'Abr',may:'Mai',june:'Jun',july:'Jul',august:'Ago',september:'Set',october:'Out',november:'Nov',december:'Dez'}};
-        var META={'OM':{type:'string'},'Data':{type:'date string'},'Mes':{type:'string'},'Telefone':{type:'string'},'Paciente':{type:'string'},'Forma Farmac.':{type:'string'},'Status':{type:'string'},'Funil':{type:'string'},'Fase':{type:'string'},'Responsavel':{type:'string'},'Forma Pagto':{type:'string'},'Ativo':{type:'string'},'Lote':{type:'string'},'Qtd (g)':{type:'number'},'Custo Ativo (R$)':{type:'number'},'Venda Ativo (R$)':{type:'number'},'Preço Venda OM (R$)':{type:'number'},'Valor Pago (R$)':{type:'number'}};
+        var META={'OM':{type:'string'},'Data':{type:'date string'},'Mes':{type:'string'},'Telefone':{type:'string'},'Paciente':{type:'string'},'Forma Farmac.':{type:'string'},'Status':{type:'string'},'Funil':{type:'string'},'Fase':{type:'string'},'Responsavel':{type:'string'},'Forma Pagto':{type:'string'},'Desfecho':{type:'string'},'Classificação':{type:'string'},'Ativo':{type:'string'},'Lote':{type:'string'},'Qtd (g)':{type:'number'},'Custo Ativo (R$)':{type:'number'},'Venda Ativo (R$)':{type:'number'},'Preço Venda OM (R$)':{type:'number'},'Valor Pago (R$)':{type:'number'}};
         function Mm(u,f){ return {uniqueName:u,aggregation:'sum',format:f}; }
         var VIEWS={
             ativo:{label:'💊 Ativo: qtd+custo+venda',slice:{rows:[{uniqueName:'Ativo'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Qtd (g)','qtd'),Mm('Custo Ativo (R$)','brl'),Mm('Venda Ativo (R$)','brl')]}},
@@ -401,7 +460,7 @@ function tao_crm_page_analise() {
         function toISO(d){ return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
         function post(action, cb){
             var de=el('an-de').value, ate=el('an-ate').value;
-            var body='action='+action+'&nonce='+encodeURIComponent(nonce)+'&workspace_id='+encodeURIComponent(wsId)+'&de='+encodeURIComponent(de)+'&ate='+encodeURIComponent(ate);
+            var body='action='+action+'&nonce='+encodeURIComponent(nonce)+'&workspace_id='+encodeURIComponent(wsId)+'&de='+encodeURIComponent(de)+'&ate='+encodeURIComponent(ate)+'&filtro='+encodeURIComponent(curFiltro);
             fetch(ajaxurl,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body,credentials:'same-origin'})
             .then(function(r){return r.text();}).then(function(t){ var i=t.indexOf('{'),j; try{ j=JSON.parse(i>0?t.slice(i):t); }catch(e){ cb(null); return; } cb(j&&j.success?j.data:null); })
             .catch(function(){ cb(null); });
@@ -414,7 +473,7 @@ function tao_crm_page_analise() {
                 if(wdr) wdr.updateData({data:[META].concat(finData)});
             } }
             post('tao_crm_analise_dataset',    function(d){ finData=(d&&d.rows)||[]; step(); });
-            post('tao_crm_operacao_dataset',   function(d){ opData=(d&&d.rows)||[]; step(); });
+            post('tao_crm_operacao_dataset',   function(d){ opData=(d&&d.rows)||[]; aprovData=(d&&d.aprovacoes)||[]; perdasData=(d&&d.perdas)||[]; step(); });
             post('tao_crm_financeiro_dataset', function(d){ fatData={vendas:(d&&d.vendas)||[],pagamentos:(d&&d.pagamentos)||[]}; step(); });
         }
 
@@ -423,6 +482,10 @@ function tao_crm_page_analise() {
             el('an-mes').onclick=function(){ var n=new Date(); el('an-de').value=toISO(new Date(n.getFullYear(),n.getMonth(),1)); el('an-ate').value=toISO(n); carregar(); };
             Array.prototype.forEach.call(document.querySelectorAll('[data-preset]'), function(b){ b.onclick=function(){ var n=parseInt(b.dataset.preset,10),a=new Date(),d=new Date(); d.setDate(d.getDate()-(n-1)); el('an-de').value=toISO(d); el('an-ate').value=toISO(a); carregar(); }; });
             el('an-aplicar').onclick=carregar;
+            Array.prototype.forEach.call(document.querySelectorAll('#an-filtro button'), function(b){ b.onclick=function(){
+                curFiltro=b.dataset.f;
+                Array.prototype.forEach.call(document.querySelectorAll('#an-filtro button'),function(x){ x.className=(x.dataset.f===curFiltro?'on':''); });
+                carregar(); }; });
             el('mode-s').onclick=function(){ setMode('s'); }; el('mode-a').onclick=function(){ setMode('a'); };
             gallery('fin-gallery', FINQ, curFin, function(k){ curFin=k; showSpec('fin', specFin(k)); });
             gallery('op-gallery',  OPQ,  curOp,  function(k){ curOp=k;  showSpec('op',  specOp(k)); });
