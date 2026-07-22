@@ -35,7 +35,7 @@ function tao_formula_fmt_g( $g ) {
  *
  * @return array [ 'ganho'=>[card_id=>true], 'perdido'=>[card_id=>true], 'aberto'=>[card_id=>true] ]
  */
-function tao_formula_situacao_cards( $cliente_id, $desde ) {
+function tao_formula_situacao_cards( $cliente_id, $desde, $ate_ts = null ) {
     $vazio = [ 'ganho' => [], 'perdido' => [], 'aberto' => [] ];
 
     $rw    = tao_formula_api( "/crm_workspaces?cliente_id=eq.$cliente_id&select=id&limit=1" );
@@ -72,6 +72,7 @@ function tao_formula_situacao_cards( $cliente_id, $desde ) {
         $hr = tao_formula_api(
             "/crm_cards_historico?para_estagio_id=in.(" . implode( ',', $para_in ) . ")"
             . "&criado_em=gte." . urlencode( $desde )
+            . ( $ate_ts ? "&criado_em=lte." . urlencode( $ate_ts ) : "" )
             . "&select=card_id,de_estagio_id,para_estagio_id&limit=10000"
         );
         foreach ( ( $hr['ok'] ? ( $hr['data'] ?? [] ) : [] ) as $h ) {
@@ -96,15 +97,23 @@ function tao_formula_page_dashboard() {
 
     $cliente_id = tao_formula_cliente_id();
 
-    // ── Período (espelha o filtro do dashboard do CRM) ────────────────────────
+    // ── Período: presets (dias) + Mês corrente (periodo=mes) + intervalo (de/ate) ──
     $periodos = [ 1 => 'Hoje', 7 => '7 dias', 30 => '30 dias', 90 => '90 dias', 180 => '6 meses' ];
-    $dias     = (int) ( $_GET['dias'] ?? 30 );
-    if ( ! isset( $periodos[ $dias ] ) ) $dias = 30;
-    if ( $dias === 1 ) {
-        $_d0 = new DateTime( 'now', new DateTimeZone( 'America/Sao_Paulo' ) );
-        $_d0->setTime( 0, 0, 0 );
-        $_d0->setTimezone( new DateTimeZone( 'UTC' ) );
-        $desde = $_d0->format( 'c' );
+    $_tz_sp = new DateTimeZone( 'America/Sao_Paulo' ); $_tz_utc = new DateTimeZone( 'UTC' );
+    $_brt = function ( $ymd, $hms ) use ( $_tz_sp, $_tz_utc ) { $d = DateTime::createFromFormat( 'Y-m-d H:i:s', $ymd . ' ' . $hms, $_tz_sp ); if ( ! $d ) return null; $d->setTimezone( $_tz_utc ); return $d->format( 'c' ); };
+    $de_g    = sanitize_text_field( $_GET['de']  ?? '' );
+    $ate_g   = sanitize_text_field( $_GET['ate'] ?? '' );
+    $periodo = sanitize_text_field( $_GET['periodo'] ?? '' );
+    $dias    = (int) ( $_GET['dias'] ?? 30 ); if ( ! isset( $periodos[ $dias ] ) ) $dias = 30;
+    $ate_ts  = gmdate( 'c' );
+    if ( preg_match( '/^\d{4}-\d{2}-\d{2}$/', $de_g ) && preg_match( '/^\d{4}-\d{2}-\d{2}$/', $ate_g ) ) {
+        $periodo = 'custom';
+        $desde   = $_brt( $de_g, '00:00:00' ) ?: gmdate( 'c', strtotime( '-30 days' ) );
+        $ate_ts  = $_brt( $ate_g, '23:59:59' ) ?: gmdate( 'c' );
+    } elseif ( $periodo === 'mes' ) {
+        $_i = new DateTime( 'first day of this month', $_tz_sp ); $_i->setTime( 0, 0, 0 ); $_i->setTimezone( $_tz_utc ); $desde = $_i->format( 'c' );
+    } elseif ( $dias === 1 ) {
+        $_d0 = new DateTime( 'now', $_tz_sp ); $_d0->setTime( 0, 0, 0 ); $_d0->setTimezone( $_tz_utc ); $desde = $_d0->format( 'c' );
     } else {
         $desde = gmdate( 'c', strtotime( "-{$dias} days" ) );
     }
@@ -119,7 +128,7 @@ function tao_formula_page_dashboard() {
 
     if ( $cliente_id ) {
         // Situação dos cards no padrão CRM (ganho/perdido por evento no período; aberto = agora)
-        $sit = tao_formula_situacao_cards( $cliente_id, $desde );
+        $sit = tao_formula_situacao_cards( $cliente_id, $desde, $ate_ts );
 
         // Todas as fórmulas do cliente — a classificação por card não depende da data de
         // criação do orçamento; "Fórmulas orçadas" conta separadamente as criadas no período.
@@ -131,7 +140,7 @@ function tao_formula_page_dashboard() {
         $orcs = $r['ok'] ? ( $r['data'] ?? [] ) : [];
 
         foreach ( $orcs as $o ) {
-            if ( ( $o['criado_em'] ?? '' ) >= $desde ) $orcadas++;
+            if ( ( $o['criado_em'] ?? '' ) >= $desde && ( $o['criado_em'] ?? '' ) <= $ate_ts ) $orcadas++;
 
             $cid = $o['card_id'] ?? '';
             if ( isset( $sit['ganho'][ $cid ] ) )                        $bucket = 'aprovada';
@@ -222,11 +231,29 @@ function tao_formula_page_dashboard() {
             <input type="hidden" name="page" value="tao-formula">
             <?php endif; ?>
             <label style="font-size:13px;color:#64748b">Período:</label>
-            <select name="dias" onchange="this.form.submit()">
-                <?php foreach ( $periodos as $v => $l ) : ?>
-                <option value="<?php echo $v; ?>" <?php selected( $dias, $v ); ?>><?php echo esc_html( $l ); ?></option>
-                <?php endforeach; ?>
+            <input type="hidden" name="dias"    value="<?php echo esc_attr( $periodo === '' ? $dias : '' ); ?>">
+            <input type="hidden" name="periodo" value="<?php echo esc_attr( $periodo === 'mes' ? 'mes' : ( $periodo === 'custom' ? 'custom' : '' ) ); ?>">
+            <?php $_sel = $periodo === 'mes' ? 'mes' : ( $periodo === 'custom' ? 'custom' : 'd' . $dias ); ?>
+            <select onchange="taofPeriodo(this)" style="padding:5px 8px;border:1px solid #cbd5e1;border-radius:5px;font-size:13px">
+                <option value="d1"   <?php selected( $_sel, 'd1' ); ?>>Hoje</option>
+                <option value="d7"   <?php selected( $_sel, 'd7' ); ?>>7 dias</option>
+                <option value="d30"  <?php selected( $_sel, 'd30' ); ?>>30 dias</option>
+                <option value="d90"  <?php selected( $_sel, 'd90' ); ?>>90 dias</option>
+                <option value="d180" <?php selected( $_sel, 'd180' ); ?>>6 meses</option>
+                <option value="mes"  <?php selected( $_sel, 'mes' ); ?>>Mês corrente</option>
+                <option value="custom" <?php selected( $_sel, 'custom' ); ?>>Período específico…</option>
             </select>
+            <span id="taof-range" style="<?php echo $periodo === 'custom' ? '' : 'display:none'; ?>">
+                <input type="date" name="de"  value="<?php echo esc_attr( $de_g ); ?>"  style="padding:4px 6px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px">
+                <span style="color:#94a3b8;font-size:12px">até</span>
+                <input type="date" name="ate" value="<?php echo esc_attr( $ate_g ); ?>" style="padding:4px 6px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px">
+                <button type="submit" class="button" style="font-size:12px" onclick="this.form.periodo.value='custom'">Aplicar</button>
+            </span>
+            <script>
+            function taofPeriodo(sel){ var f=sel.form,v=sel.value,r=document.getElementById('taof-range');
+                if(v==='custom'){ if(r)r.style.display=''; return; } if(r)r.style.display='none';
+                f.de.value='';f.ate.value=''; if(v==='mes'){f.periodo.value='mes';f.dias.value='';} else {f.periodo.value='';f.dias.value=v.substring(1);} f.submit(); }
+            </script>
         </form>
     </div>
 

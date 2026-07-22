@@ -8,16 +8,24 @@ function tao_caixa_page_dashboard() {
     $cid = tao_caixa_cliente_id();
     $brl = function ( $v ) { return 'R$ ' . number_format( (float) $v, 2, ',', '.' ); };
 
-    // Período (presets)
-    $p = sanitize_text_field( $_GET['p'] ?? 'mes' );
+    // Período: presets + Mês corrente + Período específico (de/ate)
+    $p      = sanitize_text_field( $_GET['p'] ?? 'mes' );
+    $de_g   = sanitize_text_field( $_GET['de']  ?? '' );
+    $ate_g  = sanitize_text_field( $_GET['ate'] ?? '' );
     $tz = new DateTimeZone( 'America/Sao_Paulo' );
     $now_sp = new DateTime( 'now', $tz );
     $hoje = $now_sp->format( 'Y-m-d' );
-    if ( $p === 'hoje' )      { $de = $hoje; $label = 'Hoje'; }
-    elseif ( $p === '7d' )    { $de = ( clone $now_sp )->modify( '-6 days' )->format( 'Y-m-d' ); $label = 'Últimos 7 dias'; }
-    else                      { $p = 'mes'; $de = $now_sp->format( 'Y-m-01' ); $label = 'Este mês'; }
-    $de_iso  = $de   . 'T00:00:00-03:00';
-    $ate_iso = $hoje . 'T23:59:59-03:00';
+    $ate_d = $hoje;
+    if ( preg_match( '/^\d{4}-\d{2}-\d{2}$/', $de_g ) && preg_match( '/^\d{4}-\d{2}-\d{2}$/', $ate_g ) ) {
+        $p = 'custom'; $de = $de_g; $ate_d = $ate_g; $label = 'Período específico';
+    }
+    elseif ( $p === 'hoje' )  { $de = $hoje; $label = 'Hoje'; }
+    elseif ( $p === '7d' )    { $de = ( clone $now_sp )->modify( '-6 days'  )->format( 'Y-m-d' ); $label = 'Últimos 7 dias'; }
+    elseif ( $p === '30d' )   { $de = ( clone $now_sp )->modify( '-29 days' )->format( 'Y-m-d' ); $label = 'Últimos 30 dias'; }
+    elseif ( $p === '90d' )   { $de = ( clone $now_sp )->modify( '-89 days' )->format( 'Y-m-d' ); $label = 'Últimos 90 dias'; }
+    else                      { $p = 'mes'; $de = $now_sp->format( 'Y-m-01' ); $label = 'Mês corrente'; }
+    $de_iso  = $de    . 'T00:00:00-03:00';
+    $ate_iso = $ate_d . 'T23:59:59-03:00';
 
     $vendas = []; $pagtos = []; $formas_map = [];
     if ( $cid ) {
@@ -60,11 +68,32 @@ function tao_caixa_page_dashboard() {
     <div class="wrap taoc-wrap">
         <div class="taoc-bar">
             <h1>&#x1F4B0; Caixa</h1>
-            <div style="display:flex;gap:6px;font-size:13px">
-                <?php foreach ( [ 'hoje' => 'Hoje', '7d' => '7 dias', 'mes' => 'Mês' ] as $pk => $pl ) : ?>
-                <a class="taoc-btn<?php echo $p === $pk ? ' taoc-btn-primary' : ''; ?>" href="<?php echo $url( $pk ); ?>"><?php echo esc_html( $pl ); ?></a>
-                <?php endforeach; ?>
+            <div style="display:flex;gap:6px;font-size:13px;align-items:center">
+                <?php $_bu = tao_caixa_url( 'caixa-dashboard' ); $_sep = ( strpos( $_bu, '?' ) !== false ) ? '&' : '?'; ?>
+                <select onchange="taocPeriodo(this)" style="padding:5px 8px;border:1px solid #cbd5e1;border-radius:5px;font-size:13px">
+                    <option value="hoje" <?php selected( $p, 'hoje' ); ?>>Hoje</option>
+                    <option value="7d"   <?php selected( $p, '7d' ); ?>>7 dias</option>
+                    <option value="30d"  <?php selected( $p, '30d' ); ?>>30 dias</option>
+                    <option value="90d"  <?php selected( $p, '90d' ); ?>>90 dias</option>
+                    <option value="mes"  <?php selected( $p, 'mes' ); ?>>Mês corrente</option>
+                    <option value="custom" <?php selected( $p, 'custom' ); ?>>Período específico…</option>
+                </select>
+                <span id="taoc-range" style="<?php echo $p === 'custom' ? '' : 'display:none'; ?>;align-items:center;gap:4px;display:<?php echo $p === 'custom' ? 'inline-flex' : 'none'; ?>">
+                    <input type="date" id="taoc-de"  value="<?php echo esc_attr( $p === 'custom' ? $de : '' ); ?>"    style="padding:4px 6px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px">
+                    <span style="color:#94a3b8;font-size:12px">até</span>
+                    <input type="date" id="taoc-ate" value="<?php echo esc_attr( $p === 'custom' ? $ate_d : '' ); ?>" style="padding:4px 6px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px">
+                    <a class="taoc-btn taoc-btn-primary" href="#" onclick="taocApply();return false">Aplicar</a>
+                </span>
                 <a class="taoc-btn" href="<?php echo esc_url( tao_caixa_url( 'caixa-vendas' ) ); ?>">Ver vendas &rarr;</a>
+                <script>
+                var TAOC_BASE = <?php echo wp_json_encode( $_bu . $_sep ); ?>;
+                function taocPeriodo(sel){ var v=sel.value,r=document.getElementById('taoc-range');
+                    if(v==='custom'){ if(r)r.style.display='inline-flex'; return; }
+                    window.location = TAOC_BASE + 'p=' + v; }
+                function taocApply(){ var de=document.getElementById('taoc-de').value, ate=document.getElementById('taoc-ate').value;
+                    if(!de||!ate){ alert('Informe as duas datas.'); return; }
+                    window.location = TAOC_BASE + 'p=custom&de=' + de + '&ate=' + ate; }
+                </script>
             </div>
         </div>
         <p style="color:#64748b;font-size:13px;margin:-6px 0 16px">Período: <strong><?php echo esc_html( $label ); ?></strong></p>
