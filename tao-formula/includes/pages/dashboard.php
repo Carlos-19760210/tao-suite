@@ -427,11 +427,18 @@ function tao_formula_page_dashboard() {
                     scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
             } );
         }
-        if ( window.Chart ) { draw(); }
+        function regDL(){ if ( window.ChartDataLabels && window.Chart && ! window.__taofDL ) { window.__taofDL = 1;
+            Chart.register( ChartDataLabels );
+            Chart.defaults.set( 'plugins.datalabels', { color:'#0f172a', font:{ size:10, weight:'700' }, anchor:'end', align:'end', clamp:true, clip:false,
+                formatter:function(v){ if(v==null||v===0) return ''; return (typeof v==='number') ? v.toLocaleString('pt-BR') : v; } } ); } }
+        function loadDL(cb){ if ( window.ChartDataLabels ) { regDL(); cb(); return; }
+            var p=document.createElement('script'); p.src='https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js';
+            p.onload=function(){ regDL(); cb(); }; p.onerror=cb; document.head.appendChild(p); }
+        if ( window.Chart ) { loadDL( draw ); }
         else {
             var s = document.createElement('script');
             s.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';
-            s.onload = draw;
+            s.onload = function(){ loadDL( draw ); };
             document.head.appendChild(s);
         }
     })();

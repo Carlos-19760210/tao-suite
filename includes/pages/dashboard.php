@@ -983,14 +983,24 @@ function tao_crm_page_dashboard() {
 
     </div><!-- .wrap -->
 
-    <!-- Chart.js -->
+    <!-- Chart.js + rótulos de valor -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
     <script>
     var taoCrmDashboard = <?php echo wp_json_encode( $dados_js ); ?>;
     (function(){
         var d = taoCrmDashboard;
         Chart.defaults.font.family = '-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
         Chart.defaults.font.size   = 12;
+        // Rótulos de valor nos gráficos
+        if ( window.ChartDataLabels ) {
+            Chart.register( ChartDataLabels );
+            Chart.defaults.set( 'plugins.datalabels', {
+                color: '#0f172a', font: { size: 10, weight: '700' },
+                anchor: 'end', align: 'end', clamp: true, clip: false,
+                formatter: function(v){ if(v==null||v===0) return ''; return (typeof v==='number') ? v.toLocaleString('pt-BR') : v; }
+            } );
+        }
 
         // Paleta de cores para estágios
         var stageColors = [
