@@ -5875,8 +5875,10 @@ add_action( 'wp_ajax_tao_crm_analise_dataset', function () {
     $ate = sanitize_text_field( $_POST['ate'] ?? '' );
     if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $de ) )  $de  = gmdate( 'Y-m-01' );
     if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $ate ) ) $ate = gmdate( 'Y-m-d' );
-    $base = ( sanitize_text_field( $_POST['base'] ?? 'om' ) === 'ativo' ) ? 'ativo' : 'om';
 
+    // Cubo denormalizado: 1 linha por OM × ativo (grão fino). Medidas de ativo (qtd/
+    // custo/venda calculados pelo motor) somam livres; medidas de OM (preço/pago) são
+    // atribuídas 1× por OM/card — convivem sem reconciliação (há custo fixo/margem no meio).
     $rw  = tao_crm_api( "/crm_workspaces?id=eq.$ws&select=cliente_id&limit=1" );
     $cli = ( $rw['ok'] && ! empty( $rw['data'] ) ) ? ( $rw['data'][0]['cliente_id'] ?? '' ) : '';
     if ( ! $cli ) wp_send_json_success( [ 'rows' => [], 'de' => $de, 'ate' => $ate ] );
@@ -5894,15 +5896,36 @@ add_action( 'wp_ajax_tao_crm_analise_dataset', function () {
         $rc = tao_crm_api( "/crm_cards?id=in.(" . implode( ',', $card_ids ) . ")&select=id,contato_whatsapp,contato_nome,pipeline_id,estagio_id,responsavel_id" );
         foreach ( ( $rc['ok'] ? ( $rc['data'] ?? [] ) : [] ) as $c ) $cards[ $c['id'] ] = $c;
     }
-    $pl_map = []; $est_map = [];
+    $pl_map = []; $est_map = []; $pl_ispos = [];
     $rp = tao_crm_api( "/crm_pipelines?workspace_id=eq.$ws&select=id,nome" );
-    foreach ( ( $rp['ok'] ? ( $rp['data'] ?? [] ) : [] ) as $p ) $pl_map[ $p['id'] ] = $p['nome'];
+    foreach ( ( $rp['ok'] ? ( $rp['data'] ?? [] ) : [] ) as $p ) {
+        $pl_map[ $p['id'] ]   = $p['nome'];
+        $pl_ispos[ $p['id'] ] = (bool) preg_match( '/p[o\x{00F3}]s.?\s*venda|pos.?\s*venda/iu', $p['nome'] );
+    }
     $re = tao_crm_api( "/crm_estagios?select=id,nome&limit=2000" );
     foreach ( ( $re['ok'] ? ( $re['data'] ?? [] ) : [] ) as $e ) $est_map[ $e['id'] ] = $e['nome'];
     $resp_map = [];
     foreach ( array_values( array_unique( array_filter( array_map( function ( $c ) { return $c['responsavel_id'] ?? 0; }, $cards ) ) ) ) as $uid ) {
         $u = get_userdata( (int) $uid ); if ( $u ) $resp_map[ $uid ] = $u->display_name;
     }
+
+    // ── Só OMs que FECHARAM (card no funil de pós-vendas) e SÓ a última versão por
+    //    requisição (numero_orcamento = prefixo-requisição-versão) — evita inflar
+    //    consumo/custo somando revisões e cotações não fechadas.
+    $best = [];
+    foreach ( $oms as $o ) {
+        $cidcard = $o['card_id'] ?? '';
+        $c = $cards[ $cidcard ] ?? null;
+        if ( ! $c || empty( $pl_ispos[ $c['pipeline_id'] ?? '' ] ) ) continue;   // não fechou
+        $num  = (string) ( $o['numero_orcamento'] ?? '' );
+        $posd = strrpos( $num, '-' );
+        $base = ( $posd !== false ) ? substr( $num, 0, $posd ) : $num;
+        $ver  = ( $posd !== false ) ? intval( substr( $num, $posd + 1 ) ) : 0;
+        if ( ! isset( $best[ $base ] ) || $ver > $best[ $base ]['v'] ) $best[ $base ] = [ 'v' => $ver, 'o' => $o ];
+    }
+    $oms = array_map( function ( $x ) { return $x['o']; }, array_values( $best ) );
+    if ( ! $oms ) wp_send_json_success( [ 'rows' => [], 'de' => $de, 'ate' => $ate ] );
+    $card_ids = array_values( array_unique( array_filter( array_column( $oms, 'card_id' ) ) ) );
     // Caixa: card → venda → recibo → pagamento → forma
     $venda_por_card = []; $venda_ids = [];
     if ( $card_ids ) {
@@ -5931,78 +5954,65 @@ add_action( 'wp_ajax_tao_crm_analise_dataset', function () {
         }
     }
 
-    // ── Custo por item (fallback no cadastro de ativos p/ itens sem custo gravado) ──
-    $need_at = [];
-    foreach ( $oms as $o ) {
-        $its = is_string( $o['itens'] ?? null ) ? json_decode( $o['itens'], true ) : ( $o['itens'] ?? [] );
-        if ( ! is_array( $its ) ) continue;
-        foreach ( $its as $it ) {
-            if ( ( $it['tipo'] ?? 'mp' ) === 'mp' && (float) ( $it['custo_por_unidade'] ?? 0 ) <= 0 && ! empty( $it['ativo_id'] ) )
-                $need_at[ $it['ativo_id'] ] = 1;
+    // ── Lote (rastreabilidade TAO Lab): OM → lab_ordens → lab_ordem_itens → lab_lotes_mp.
+    //    Tenant-safe: parte de orcamento_id IN (OMs deste cliente). Hoje 0/221 itens têm
+    //    lote gravado → coluna nasce "—" e acende sozinha quando a pesagem registrar lote.
+    $om_ids = array_values( array_unique( array_filter( array_column( $oms, 'id' ) ) ) );
+    $lote_por_om_at = [];
+    if ( $om_ids ) {
+        $rlo = tao_crm_api( "/lab_ordens?orcamento_id=in.(" . implode( ',', $om_ids ) . ")&select=id,orcamento_id" );
+        $ordem2om = [];
+        foreach ( ( $rlo['ok'] ? ( $rlo['data'] ?? [] ) : [] ) as $lo ) $ordem2om[ $lo['id'] ] = $lo['orcamento_id'];
+        if ( $ordem2om ) {
+            $rli = tao_crm_api( "/lab_ordem_itens?ordem_id=in.(" . implode( ',', array_keys( $ordem2om ) ) . ")&lote_mp_id=not.is.null&select=ordem_id,ativo_id,lote_mp_id" );
+            $lis = ( $rli['ok'] ? ( $rli['data'] ?? [] ) : [] );
+            $lote_ids = array_values( array_unique( array_filter( array_column( $lis, 'lote_mp_id' ) ) ) );
+            $lote_nr = [];
+            if ( $lote_ids ) {
+                $rll = tao_crm_api( "/lab_lotes_mp?id=in.(" . implode( ',', $lote_ids ) . ")&select=id,nr_lote,lote_interno" );
+                foreach ( ( $rll['ok'] ? ( $rll['data'] ?? [] ) : [] ) as $l ) $lote_nr[ $l['id'] ] = ( $l['nr_lote'] ?: ( $l['lote_interno'] ?: '' ) );
+            }
+            foreach ( $lis as $li ) {
+                $omid = $ordem2om[ $li['ordem_id'] ] ?? '';
+                $nr   = $lote_nr[ $li['lote_mp_id'] ] ?? '';
+                if ( $omid && ! empty( $li['ativo_id'] ) && $nr ) $lote_por_om_at[ $omid ][ $li['ativo_id'] ] = $nr;
+            }
         }
     }
-    $custo_at = [];
-    if ( $need_at ) {
-        $ra = tao_crm_api( "/ativos?id=in.(" . implode( ',', array_keys( $need_at ) ) . ")&select=id,custo_por_unidade,preco_compra" );
-        foreach ( ( $ra['ok'] ? ( $ra['data'] ?? [] ) : [] ) as $a )
-            $custo_at[ $a['id'] ] = (float) ( $a['custo_por_unidade'] ?? 0 ) ?: (float) ( $a['preco_compra'] ?? 0 );
-    }
-    $item_custo = function ( $it ) use ( $custo_at ) {
-        $cu = (float) ( $it['custo_por_unidade'] ?? 0 );
-        if ( $cu <= 0 && ! empty( $it['ativo_id'] ) ) $cu = $custo_at[ $it['ativo_id'] ] ?? 0;
-        $qg = (float) ( $it['qtd_total_g'] ?? 0 );
-        if ( $cu <= 0 || $qg <= 0 ) return 0.0;
-        return ( ( $it['unid_padrao'] ?? '' ) === 'g' ? $qg : $qg * 1000 ) * $cu;
-    };
 
+    // ── Cubo: 1 linha por OM × ativo. Medidas de ativo = valores calculados pelo motor
+    //    (subtotal = custo real c/ potes; preco_venda = venda). Medidas de OM (preço da OM
+    //    e pago) atribuídas 1× por OM/card p/ não duplicar ao explodir em ativos.
     $rows = [];
-    $card_pago_visto = [];   // valor pago = total do card, contado UMA vez (evita duplicar entre OMs do card)
+    $card_pago_visto = [];
     foreach ( $oms as $o ) {
-        $c    = $cards[ $o['card_id'] ?? '' ] ?? [];
-        $data = substr( (string) ( $o['criado_em'] ?? '' ), 0, 10 );
-        $its  = is_string( $o['itens'] ?? null ) ? json_decode( $o['itens'], true ) : ( $o['itens'] ?? [] );
+        $c     = $cards[ $o['card_id'] ?? '' ] ?? [];
+        $data  = substr( (string) ( $o['criado_em'] ?? '' ), 0, 10 );
+        $its   = is_string( $o['itens'] ?? null ) ? json_decode( $o['itens'], true ) : ( $o['itens'] ?? [] );
         if ( ! is_array( $its ) ) $its = [];
+        $omid  = $o['id'] ?? '';
         $tel   = $c['contato_whatsapp'] ?? '';
         $pac   = $o['nome_paciente'] ?: ( $c['contato_nome'] ?? '' );
         $resp  = $resp_map[ $c['responsavel_id'] ?? 0 ] ?? '';
-
-        if ( $base === 'ativo' ) {
-            foreach ( $its as $it ) {
-                if ( ( $it['tipo'] ?? 'mp' ) !== 'mp' ) continue;
-                $nome_at = $it['nome'] ?: ( $it['nome_prescricao'] ?? '' );
-                if ( ! $nome_at || strtoupper( trim( $nome_at ) ) === 'EXCIPIENTE BASE' ) continue;
-                $rows[] = [
-                    'Ativo'         => $nome_at,
-                    'OM'            => $o['numero_orcamento'] ?? '',
-                    'Data'          => $data,
-                    'Mes'           => substr( $data, 0, 7 ),
-                    'Telefone'      => $tel,
-                    'Paciente'      => $pac,
-                    'Forma Farmac.' => $o['forma_nome'] ?? '',
-                    'Status'        => $o['status'] ?? '',
-                    'Responsavel'   => $resp,
-                    'Qtd (g)'       => round( (float) ( $it['qtd_total_g'] ?? 0 ), 4 ),
-                    'Custo (R$)'    => round( $item_custo( $it ), 2 ),
-                ];
-            }
-            continue;
-        }
-
-        // base OM: custo/margem + forma de pagamento + valor pago (1x por card)
-        $custo = 0;
-        foreach ( $its as $it ) if ( ( $it['tipo'] ?? 'mp' ) === 'mp' ) $custo += $item_custo( $it );
-        $orcado   = (float) ( $o['total_orcamento'] ?? 0 );
         $cid_card = $o['card_id'] ?? '';
+
+        // forma de pagamento do card (via Caixa)
         $formas = [];
         foreach ( $venda_por_card[ $cid_card ] ?? [] as $v )
             foreach ( $recibo_por_venda[ $v['id'] ] ?? [] as $rid )
                 foreach ( array_keys( $forma_por_recibo[ $rid ] ?? [] ) as $fk ) $formas[ $fk ] = 1;
-        $vpago = 0;
+        $forma_pg = $formas ? implode( ' + ', array_keys( $formas ) ) : '—';
+
+        // medidas de OM (1× por OM / 1× por card)
+        $orcado = (float) ( $o['total_orcamento'] ?? 0 );
+        $vpago  = 0;
         if ( $cid_card && empty( $card_pago_visto[ $cid_card ] ) ) {
             foreach ( $venda_por_card[ $cid_card ] ?? [] as $v ) $vpago += (float) ( $v['valor_pago'] ?? 0 );
             $card_pago_visto[ $cid_card ] = 1;
         }
-        $rows[] = [
+
+        // dimensões da OM (repetidas em cada linha de ativo)
+        $dim = [
             'OM'            => $o['numero_orcamento'] ?? '',
             'Data'          => $data,
             'Mes'           => substr( $data, 0, 7 ),
@@ -6013,14 +6023,221 @@ add_action( 'wp_ajax_tao_crm_analise_dataset', function () {
             'Funil'         => $pl_map[ $c['pipeline_id'] ?? '' ] ?? '',
             'Fase'          => $est_map[ $c['estagio_id'] ?? '' ] ?? '',
             'Responsavel'   => $resp,
-            'Forma Pagto'   => $formas ? implode( ' + ', array_keys( $formas ) ) : '—',
-            'Valor Orcado'  => $orcado,
-            'Custo (R$)'    => round( $custo, 2 ),
-            'Margem (R$)'   => round( $orcado - $custo, 2 ),
-            'Valor Pago'    => round( $vpago, 2 ),
+            'Forma Pagto'   => $forma_pg,
+        ];
+
+        $primeiro = true; $tem_ativo = false;
+        foreach ( $its as $it ) {
+            if ( ( $it['tipo'] ?? 'mp' ) !== 'mp' ) continue;
+            $nome_at = $it['nome'] ?: ( $it['nome_prescricao'] ?? '' );
+            if ( ! $nome_at || strtoupper( trim( $nome_at ) ) === 'EXCIPIENTE BASE' ) continue;
+            $tem_ativo = true;
+            $rows[] = array_merge( $dim, [
+                'Ativo'               => $nome_at,
+                'Lote'                => $lote_por_om_at[ $omid ][ $it['ativo_id'] ?? '' ] ?? '—',
+                'Qtd (g)'             => round( (float) ( $it['qtd_total_g'] ?? 0 ), 4 ),
+                'Custo Ativo (R$)'    => round( (float) ( $it['subtotal'] ?? 0 ), 2 ),
+                'Venda Ativo (R$)'    => round( (float) ( $it['preco_venda'] ?? 0 ), 2 ),
+                'Preço Venda OM (R$)' => $primeiro ? round( $orcado, 2 ) : 0,
+                'Valor Pago (R$)'     => $primeiro ? round( $vpago, 2 ) : 0,
+            ] );
+            $primeiro = false;
+        }
+        if ( ! $tem_ativo ) {   // OM sem ativos (só embalagem/serviço): mantém a OM no cubo
+            $rows[] = array_merge( $dim, [
+                'Ativo'               => '—',
+                'Lote'                => '—',
+                'Qtd (g)'             => 0,
+                'Custo Ativo (R$)'    => 0,
+                'Venda Ativo (R$)'    => 0,
+                'Preço Venda OM (R$)' => round( $orcado, 2 ),
+                'Valor Pago (R$)'     => round( $vpago, 2 ),
+            ] );
+        }
+    }
+    wp_send_json_success( [ 'rows' => $rows, 'de' => $de, 'ate' => $ate ] );
+} );
+
+// ── Dataset FINANCEIRO (fonte: Caixa). Faturado = caixa_vendas.valor_total por data de
+//    FECHAMENTO (venda.criado_em). Recebido = caixa_pagamentos.valor_bruto por data de
+//    RECEBIMENTO (pagamento.criado_em), não estornados. Tenant-scoped, restrito a gestão.
+add_action( 'wp_ajax_tao_crm_financeiro_dataset', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    nocache_headers();
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+    $ws = sanitize_text_field( $_POST['workspace_id'] ?? '' );
+    if ( ! $ws || ! tao_crm_is_gestor( $ws ) ) wp_send_json_error( 'Acesso negado' );
+    $de  = sanitize_text_field( $_POST['de']  ?? '' );
+    $ate = sanitize_text_field( $_POST['ate'] ?? '' );
+    if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $de ) )  $de  = gmdate( 'Y-m-01' );
+    if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $ate ) ) $ate = gmdate( 'Y-m-d' );
+    $ate_fim = $ate . 'T23:59:59';
+
+    $rw  = tao_crm_api( "/crm_workspaces?id=eq.$ws&select=cliente_id&limit=1" );
+    $cli = ( $rw['ok'] && ! empty( $rw['data'] ) ) ? ( $rw['data'][0]['cliente_id'] ?? '' ) : '';
+    if ( ! $cli ) wp_send_json_success( [ 'vendas' => [], 'pagamentos' => [], 'de' => $de, 'ate' => $ate ] );
+
+    // vendas do período (por FECHAMENTO)
+    $rv = tao_crm_api( "/caixa_vendas?cliente_id=eq.$cli&criado_em=gte.$de&criado_em=lte.$ate_fim" .
+                       "&select=id,card_id,valor_total,valor_pago,status,criado_em&order=criado_em.desc&limit=20000" );
+    $vendas = ( $rv['ok'] ? ( $rv['data'] ?? [] ) : [] );
+
+    // pagamentos do período (por RECEBIMENTO), não estornados
+    $rpg = tao_crm_api( "/caixa_pagamentos?cliente_id=eq.$cli&criado_em=gte.$de&criado_em=lte.$ate_fim&estornado=eq.false" .
+                        "&select=id,recibo_id,forma_pagamento_id,bandeira,modalidade,valor_bruto,valor_liquido,criado_em&order=criado_em.desc&limit=40000" );
+    $pags = ( $rpg['ok'] ? ( $rpg['data'] ?? [] ) : [] );
+
+    $fids = array_values( array_unique( array_filter( array_column( $pags, 'forma_pagamento_id' ) ) ) );
+    $fnome = [];
+    if ( $fids ) {
+        $rf = tao_crm_api( "/caixa_formas_pagamento?id=in.(" . implode( ',', $fids ) . ")&select=id,nome" );
+        foreach ( ( $rf['ok'] ? ( $rf['data'] ?? [] ) : [] ) as $f ) $fnome[ $f['id'] ] = $f['nome'];
+    }
+
+    // responsável: card → user. Para pagamentos: recibo → venda → card.
+    $card_por_venda = []; $all_cards = [];
+    foreach ( $vendas as $v ) { $card_por_venda[ $v['id'] ] = $v['card_id'] ?? ''; if ( ! empty( $v['card_id'] ) ) $all_cards[] = $v['card_id']; }
+    $recibo_ids = array_values( array_unique( array_filter( array_column( $pags, 'recibo_id' ) ) ) );
+    $venda_por_recibo = [];
+    foreach ( array_chunk( $recibo_ids, 100 ) as $ch ) {
+        if ( ! $ch ) continue;
+        $rrv = tao_crm_api( "/caixa_recibo_vendas?recibo_id=in.(" . implode( ',', $ch ) . ")&select=recibo_id,venda_id" );
+        foreach ( ( $rrv['ok'] ? ( $rrv['data'] ?? [] ) : [] ) as $r ) $venda_por_recibo[ $r['recibo_id'] ] = $r['venda_id'];
+    }
+    $faltam = array_values( array_diff( array_values( array_unique( array_filter( array_values( $venda_por_recibo ) ) ) ), array_keys( $card_por_venda ) ) );
+    foreach ( array_chunk( $faltam, 100 ) as $ch ) {
+        if ( ! $ch ) continue;
+        $rv2 = tao_crm_api( "/caixa_vendas?id=in.(" . implode( ',', $ch ) . ")&select=id,card_id" );
+        foreach ( ( $rv2['ok'] ? ( $rv2['data'] ?? [] ) : [] ) as $v ) { $card_por_venda[ $v['id'] ] = $v['card_id'] ?? ''; if ( ! empty( $v['card_id'] ) ) $all_cards[] = $v['card_id']; }
+    }
+    $resp_por_card = [];
+    foreach ( array_chunk( array_values( array_unique( array_filter( $all_cards ) ) ), 100 ) as $ch ) {
+        if ( ! $ch ) continue;
+        $rc = tao_crm_api( "/crm_cards?id=in.(" . implode( ',', $ch ) . ")&select=id,responsavel_id" );
+        foreach ( ( $rc['ok'] ? ( $rc['data'] ?? [] ) : [] ) as $c ) $resp_por_card[ $c['id'] ] = $c['responsavel_id'] ?? 0;
+    }
+    $resp_nome = [];
+    foreach ( array_values( array_unique( array_filter( $resp_por_card ) ) ) as $uid ) { $u = get_userdata( (int) $uid ); if ( $u ) $resp_nome[ $uid ] = $u->display_name; }
+    $resp_de_card = function ( $cid ) use ( $resp_por_card, $resp_nome ) {
+        return $resp_nome[ $resp_por_card[ $cid ] ?? 0 ] ?? '— sem resp —';
+    };
+
+    $out_v = [];
+    foreach ( $vendas as $v ) {
+        $data = substr( (string) ( $v['criado_em'] ?? '' ), 0, 10 );
+        $out_v[] = [
+            'Data'        => $data,
+            'Mes'         => substr( $data, 0, 7 ),
+            'Responsavel' => $resp_de_card( $v['card_id'] ?? '' ),
+            'Status'      => $v['status'] ?? '',
+            'ValorTotal'  => (float) ( $v['valor_total'] ?? 0 ),
+            'ValorPago'   => (float) ( $v['valor_pago'] ?? 0 ),
         ];
     }
-    wp_send_json_success( [ 'rows' => $rows, 'de' => $de, 'ate' => $ate, 'base' => $base ] );
+    $out_p = [];
+    foreach ( $pags as $p ) {
+        $data  = substr( (string) ( $p['criado_em'] ?? '' ), 0, 10 );
+        $vid   = $venda_por_recibo[ $p['recibo_id'] ?? '' ] ?? '';
+        $cid   = $card_por_venda[ $vid ] ?? '';
+        $forma = trim( ( $fnome[ $p['forma_pagamento_id'] ?? '' ] ?? '' ) . ' ' . ( $p['bandeira'] ?? '' ) );
+        $out_p[] = [
+            'Data'        => $data,
+            'Mes'         => substr( $data, 0, 7 ),
+            'Forma'       => $forma !== '' ? $forma : ( $p['modalidade'] ?? '—' ),
+            'Responsavel' => $cid ? $resp_de_card( $cid ) : '— sem resp —',
+            'Bruto'       => (float) ( $p['valor_bruto'] ?? 0 ),
+            'Liquido'     => (float) ( $p['valor_liquido'] ?? 0 ),
+        ];
+    }
+    wp_send_json_success( [ 'vendas' => $out_v, 'pagamentos' => $out_p, 'de' => $de, 'ate' => $ate ] );
+} );
+
+// ── Dataset de OPERAÇÃO/ATENDIMENTO (grão do CARD): ganho×perda pelo funil, status,
+//    TMR (1ª resposta) e fila de espera via crm_mensagens. Tenant-scoped, restrito a gestão.
+//    GANHO = card no funil de Pós-vendas (mesmo card cruza os funis). PERDA = perdido/cancelado.
+add_action( 'wp_ajax_tao_crm_operacao_dataset', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    nocache_headers();
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+    $ws = sanitize_text_field( $_POST['workspace_id'] ?? '' );
+    if ( ! $ws || ! tao_crm_is_gestor( $ws ) ) wp_send_json_error( 'Acesso negado' );
+    $de  = sanitize_text_field( $_POST['de']  ?? '' );
+    $ate = sanitize_text_field( $_POST['ate'] ?? '' );
+    if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $de ) )  $de  = gmdate( 'Y-m-01' );
+    if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $ate ) ) $ate = gmdate( 'Y-m-d' );
+    $ate_fim = $ate . 'T23:59:59';
+
+    // funis + fases do workspace (pós-vendas identificado pelo nome do funil)
+    $pl_map = []; $pl_ispos = [];
+    $rp = tao_crm_api( "/crm_pipelines?workspace_id=eq.$ws&select=id,nome" );
+    foreach ( ( $rp['ok'] ? ( $rp['data'] ?? [] ) : [] ) as $p ) {
+        $pl_map[ $p['id'] ]   = $p['nome'];
+        $pl_ispos[ $p['id'] ] = (bool) preg_match( '/p[o\x{00F3}]s.?\s*venda|pos.?\s*venda/iu', $p['nome'] );
+    }
+    $est_map = [];
+    $re = tao_crm_api( "/crm_estagios?select=id,nome&limit=2000" );
+    foreach ( ( $re['ok'] ? ( $re['data'] ?? [] ) : [] ) as $e ) $est_map[ $e['id'] ] = $e['nome'];
+
+    // cards do período (coorte por criação)
+    $rc = tao_crm_api( "/crm_cards?workspace_id=eq.$ws&criado_em=gte.$de&criado_em=lte.$ate_fim" .
+                       "&select=id,titulo,contato_nome,status,fechado,pipeline_id,estagio_id,responsavel_id,valor_oportunidade,criado_em,movido_em,ultima_mensagem_em&order=criado_em.desc&limit=5000" );
+    $cards = ( $rc['ok'] ? ( $rc['data'] ?? [] ) : [] );
+    if ( ! $cards ) wp_send_json_success( [ 'rows' => [], 'de' => $de, 'ate' => $ate, 'agora' => gmdate( 'c' ) ] );
+
+    $resp_map = [];
+    foreach ( array_values( array_unique( array_filter( array_column( $cards, 'responsavel_id' ) ) ) ) as $uid ) {
+        $u = get_userdata( (int) $uid ); if ( $u ) $resp_map[ $uid ] = $u->display_name;
+    }
+
+    // mensagens em lotes → TMR (1ª entrada → 1ª saída) e espera (última msg 'in' em card aberto)
+    $card_ids = array_column( $cards, 'id' );
+    $tmr_card = []; $espera_card = [];
+    $now = time();
+    foreach ( array_chunk( $card_ids, 100 ) as $chunk ) {
+        $rm = tao_crm_api( "/crm_mensagens?card_id=in.(" . implode( ',', $chunk ) . ")&direcao=in.(in,out)" .
+                           "&select=card_id,direcao,enviado_em&order=enviado_em.asc&limit=50000" );
+        $por = [];
+        foreach ( ( $rm['ok'] ? ( $rm['data'] ?? [] ) : [] ) as $m ) $por[ $m['card_id'] ][] = $m;
+        foreach ( $por as $cid => $ms ) {
+            $t_in = null;
+            foreach ( $ms as $m ) {
+                $ts = strtotime( $m['enviado_em'] );
+                if ( $m['direcao'] === 'in' && $t_in === null ) { $t_in = $ts; }
+                elseif ( $m['direcao'] === 'out' && $t_in !== null ) { $tmr_card[ $cid ] = max( 0, $ts - $t_in ); break; }
+            }
+            $last = end( $ms );
+            if ( $last && $last['direcao'] === 'in' ) $espera_card[ $cid ] = max( 0, $now - strtotime( $last['enviado_em'] ) );
+        }
+    }
+
+    $rows = [];
+    foreach ( $cards as $c ) {
+        $pid   = $c['pipeline_id'] ?? '';
+        $ispos = $pl_ispos[ $pid ] ?? false;
+        $fase  = $est_map[ $c['estagio_id'] ?? '' ] ?? '';
+        $stat  = $c['status'] ?? '';
+        if ( $ispos ) $classe = 'Ganho';
+        elseif ( $stat === 'perdido' || stripos( $fase, 'cancelad' ) !== false ) $classe = 'Perda';
+        else $classe = 'Em andamento';
+        $data = substr( (string) ( $c['criado_em'] ?? '' ), 0, 10 );
+        $cid  = $c['id'];
+        $esperando = isset( $espera_card[ $cid ] ) && empty( $c['fechado'] );
+        $rows[] = [
+            'Card'         => $c['titulo'] ?: ( $c['contato_nome'] ?? '' ),
+            'Responsavel'  => $resp_map[ $c['responsavel_id'] ?? 0 ] ?? '— sem resp —',
+            'Funil'        => $ispos ? ( $pl_map[ $pid ] ?? 'Pós-vendas' ) : ( $pl_map[ $pid ] ?? 'Vendas' ),
+            'Fase'         => $fase,
+            'Classe'       => $classe,
+            'Status'       => $stat,
+            'Data'         => $data,
+            'Mes'          => substr( $data, 0, 7 ),
+            'Valor'        => (float) ( $c['valor_oportunidade'] ?? 0 ),
+            'TMR (min)'    => isset( $tmr_card[ $cid ] )    ? round( $tmr_card[ $cid ] / 60, 1 )    : null,
+            'Espera (min)' => $esperando                    ? round( $espera_card[ $cid ] / 60, 1 ) : null,
+            'Esperando'    => $esperando ? 1 : 0,
+        ];
+    }
+    wp_send_json_success( [ 'rows' => $rows, 'de' => $de, 'ate' => $ate, 'agora' => gmdate( 'c' ) ] );
 } );
 
 // ── Busca de contato por nome OU WhatsApp (autocomplete do Novo Card). Read-only.

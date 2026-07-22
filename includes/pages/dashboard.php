@@ -56,6 +56,21 @@ function tao_crm_page_dashboard() {
         $desde = gmdate( 'c', strtotime( "-{$dias} days" ) );
     }
 
+    // ── Caixa: Movimentado (faturado) + Recebido (bruto/líquido) no período ─────
+    //    MESMA fonte do cubo de Análise. Movimentado = valor_total emitido (data de
+    //    fechamento). Recebido = pagamentos não estornados (data de recebimento):
+    //    bruto = o que o cliente pagou; líquido = após taxa da maquininha.
+    $cx_movimentado = 0.0; $cx_receb_bruto = 0.0; $cx_receb_liq = 0.0;
+    $_rwc = tao_crm_api( "/crm_workspaces?id=eq.$ws_id&select=cliente_id&limit=1" );
+    $_cli = ( $_rwc['ok'] && ! empty( $_rwc['data'] ) ) ? ( $_rwc['data'][0]['cliente_id'] ?? '' ) : '';
+    if ( $_cli ) {
+        $_d = urlencode( $desde ); $_a = urlencode( $ate_ts );
+        $_rv = tao_crm_api( "/caixa_vendas?cliente_id=eq.$_cli&criado_em=gte.$_d&criado_em=lte.$_a&select=valor_total&limit=50000" );
+        foreach ( ( $_rv['ok'] ? ( $_rv['data'] ?? [] ) : [] ) as $v ) $cx_movimentado += (float) ( $v['valor_total'] ?? 0 );
+        $_rp = tao_crm_api( "/caixa_pagamentos?cliente_id=eq.$_cli&criado_em=gte.$_d&criado_em=lte.$_a&estornado=eq.false&select=valor_bruto,valor_liquido&limit=100000" );
+        foreach ( ( $_rp['ok'] ? ( $_rp['data'] ?? [] ) : [] ) as $p ) { $cx_receb_bruto += (float) ( $p['valor_bruto'] ?? 0 ); $cx_receb_liq += (float) ( $p['valor_liquido'] ?? 0 ); }
+    }
+
     // ── Buscar cards ──────────────────────────────────────────────────────────
     // PostgREST corta a resposta em 1000 linhas SEM erro — paginar com Range
     // (workspace Magis passou de 1000 cards em jul/2026 e o painel truncava).
@@ -679,8 +694,23 @@ function tao_crm_page_dashboard() {
                 <span class="kpi-value">R$&nbsp;<?php echo number_format( $total_oportunidades, 0, ',', '.' ); ?></span>
                 <span class="kpi-sub">oportunidades ativas</span>
             </div>
-            <div class="crm-dash-kpi-card kpi-green">
-                <span class="kpi-label">Receita gerada</span>
+            <div class="crm-dash-kpi-card kpi-green" title="Faturado: valor_total emitido no Caixa no período — o que foi movimentado (independe de já ter sido pago).">
+                <span class="kpi-label">Movimentado (Caixa)</span>
+                <span class="kpi-value">R$&nbsp;<?php echo number_format( $cx_movimentado, 0, ',', '.' ); ?></span>
+                <span class="kpi-sub">faturado no período</span>
+            </div>
+            <div class="crm-dash-kpi-card kpi-green" title="Recebido bruto: pagamentos registrados no Caixa (o que o cliente pagou), não estornados.">
+                <span class="kpi-label">Recebido (bruto)</span>
+                <span class="kpi-value">R$&nbsp;<?php echo number_format( $cx_receb_bruto, 0, ',', '.' ); ?></span>
+                <span class="kpi-sub">o que entrou</span>
+            </div>
+            <div class="crm-dash-kpi-card kpi-green" title="Recebido líquido: bruto menos a taxa da maquininha — o que efetivamente cai na conta.">
+                <span class="kpi-label">Recebido (líquido)</span>
+                <span class="kpi-value">R$&nbsp;<?php echo number_format( $cx_receb_liq, 0, ',', '.' ); ?></span>
+                <span class="kpi-sub">líquido de taxas</span>
+            </div>
+            <div class="crm-dash-kpi-card kpi-indigo" title="Valor de oportunidade dos cards ganhos no período — métrica comercial/pipeline, NÃO é faturamento.">
+                <span class="kpi-label">Valor ganho (oportunidade)</span>
                 <span class="kpi-value">R$&nbsp;<?php echo number_format( $receita_per, 0, ',', '.' ); ?></span>
                 <span class="kpi-sub"><?php echo $n_ganhos_per; ?> negócios ganhos (<?php echo $dias; ?>d)</span>
             </div>
@@ -914,7 +944,7 @@ function tao_crm_page_dashboard() {
         <div class="crm-charts-grid" style="grid-template-columns:1.6fr 1fr;margin-bottom:24px">
 
             <div class="crm-chart-box">
-                <h3>&#x1F4B0; Receita gerada &mdash; &uacute;ltimas 8 semanas</h3>
+                <h3>&#x1F4B0; Valor ganho (oportunidade) &mdash; &uacute;ltimas 8 semanas</h3>
                 <?php if ( max( $receita_data ?: [0] ) > 0 ) : ?>
                 <div style="position:relative;height:230px"><canvas id="chartReceita"></canvas></div>
                 <?php else : ?>
