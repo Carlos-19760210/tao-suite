@@ -94,6 +94,7 @@ function tao_crm_page_analise() {
 
         // visões por base: {rows, cols, agg, vals, label}
         var VIS_OM = {
+            resumo:      { rows:['Forma Farmac.'], cols:[],         agg:'Resumo (orçado · custo · margem)', vals:[], label:'📊 Resumo (orçado + custo + margem)' },
             pagamento:   { rows:['Forma Pagto'],   cols:['Mes'],    agg:'Soma (R$)', vals:['Valor Pago'],   label:'💳 Faturamento por forma de pagamento' },
             margem:      { rows:['Forma Farmac.'], cols:[],         agg:'Soma (R$)', vals:['Margem (R$)'],  label:'📈 Margem por forma farmacêutica' },
             responsavel: { rows:['Responsavel'],   cols:['Mes'],    agg:'Soma (R$)', vals:['Valor Orcado'], label:'👤 Valor por responsável' },
@@ -101,6 +102,7 @@ function tao_crm_page_analise() {
             dia:         { rows:['Data'],          cols:[],         agg:'Contagem',  vals:[],               label:'📅 OMs por dia' }
         };
         var VIS_ATIVO = {
+            resumo:   { rows:['Ativo'], cols:[],      agg:'Resumo (qtd · custo · nº OMs)', vals:[],        label:'📊 Resumo por ativo (qtd + custo + nº)' },
             consumo:  { rows:['Ativo'], cols:['Mes'], agg:'Soma (qtd)', vals:['Qtd (g)'],    label:'⚖️ Consumo (g) por ativo' },
             custo:    { rows:['Ativo'], cols:[],      agg:'Soma (R$)',  vals:['Custo (R$)'], label:'💰 Custo por ativo' },
             ativo_om: { rows:['Ativo'], cols:[],      agg:'Contagem',   vals:[],             label:'🔢 Nº de OMs por ativo' }
@@ -135,15 +137,37 @@ function tao_crm_page_analise() {
                 });
                 curVis = Object.keys(vis)[0];
             }
+            function brl(v){ return 'R$ ' + (v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+            function qtd(v){ return (v||0).toLocaleString('pt-BR',{maximumFractionDigits:2}); }
             function aggs(){
                 var u=$.pivotUtilities, f=u.numberFormat({thousandsSep:'.',decimalSep:',',prefix:'R$ '}),
                     n=u.numberFormat({thousandsSep:'.',decimalSep:','});
-                return {
+                var a = {
                     'Contagem'   : u.aggregatorTemplates.count(),
                     'Soma (R$)'  : u.aggregatorTemplates.sum(f),
                     'Soma (qtd)' : u.aggregatorTemplates.sum(n),
                     'Média (R$)' : u.aggregatorTemplates.average(f)
                 };
+                // Agregadores COMPOSTOS: mostram várias medidas juntas na mesma célula
+                if (curBase==='ativo') {
+                    a['Resumo (qtd · custo · nº OMs)'] = function(){ return function(){ return {
+                        q:0, c:0, k:0,
+                        push:function(r){ this.k++; var q=parseFloat(r['Qtd (g)']); if(!isNaN(q))this.q+=q; var c=parseFloat(r['Custo (R$)']); if(!isNaN(c))this.c+=c; },
+                        value:function(){ return this.q; },
+                        format:function(){ return qtd(this.q)+' g · '+brl(this.c)+' · '+this.k+' OM'; }
+                    }; }; };
+                } else {
+                    a['Resumo (orçado · custo · margem)'] = function(){ return function(){ return {
+                        o:0, c:0, p:0, k:0,
+                        push:function(r){ this.k++;
+                            var o=parseFloat(r['Valor Orcado']); if(!isNaN(o))this.o+=o;
+                            var c=parseFloat(r['Custo (R$)']);   if(!isNaN(c))this.c+=c;
+                            var p=parseFloat(r['Valor Pago']);   if(!isNaN(p))this.p+=p; },
+                        value:function(){ return this.o; },
+                        format:function(){ var m=this.o-this.c; return brl(this.o)+' orçado · custo '+brl(this.c)+' · margem '+brl(m)+' · pago '+brl(this.p); }
+                    }; }; };
+                }
+                return a;
             }
             function render(){
                 if(!DATA.length){ document.getElementById('an-pivot').innerHTML=''; setMsg('Nenhum registro no período selecionado.', '#b45309'); return; }
