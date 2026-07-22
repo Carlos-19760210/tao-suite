@@ -5875,6 +5875,7 @@ add_action( 'wp_ajax_tao_crm_analise_dataset', function () {
     $ate = sanitize_text_field( $_POST['ate'] ?? '' );
     if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $de ) )  $de  = gmdate( 'Y-m-01' );
     if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $ate ) ) $ate = gmdate( 'Y-m-d' );
+    $base = ( sanitize_text_field( $_POST['base'] ?? 'om' ) === 'ativo' ) ? 'ativo' : 'om';
 
     $rw  = tao_crm_api( "/crm_workspaces?id=eq.$ws&select=cliente_id&limit=1" );
     $cli = ( $rw['ok'] && ! empty( $rw['data'] ) ) ? ( $rw['data'][0]['cliente_id'] ?? '' ) : '';
@@ -5882,7 +5883,7 @@ add_action( 'wp_ajax_tao_crm_analise_dataset', function () {
 
     $ate_fim = $ate . 'T23:59:59';
     $ro = tao_crm_api( "/orcamentos?cliente_id=eq.$cli&criado_em=gte.$de&criado_em=lte.$ate_fim" .
-                       "&select=id,card_id,numero_orcamento,forma_nome,status,total_orcamento,criado_em,nome_paciente" .
+                       "&select=id,card_id,numero_orcamento,forma_nome,status,total_orcamento,criado_em,nome_paciente,itens" .
                        "&order=criado_em.desc&limit=5000" );
     $oms = ( $ro['ok'] ? ( $ro['data'] ?? [] ) : [] );
     if ( ! $oms ) wp_send_json_success( [ 'rows' => [], 'de' => $de, 'ate' => $ate ] );
@@ -5930,33 +5931,96 @@ add_action( 'wp_ajax_tao_crm_analise_dataset', function () {
         }
     }
 
-    $rows = [];
+    // ── Custo por item (fallback no cadastro de ativos p/ itens sem custo gravado) ──
+    $need_at = [];
     foreach ( $oms as $o ) {
-        $c = $cards[ $o['card_id'] ?? '' ] ?? [];
-        $vpago = 0; $formas = [];
-        foreach ( $venda_por_card[ $o['card_id'] ?? '' ] ?? [] as $v ) {
-            $vpago += (float) ( $v['valor_pago'] ?? 0 );
+        $its = is_string( $o['itens'] ?? null ) ? json_decode( $o['itens'], true ) : ( $o['itens'] ?? [] );
+        if ( ! is_array( $its ) ) continue;
+        foreach ( $its as $it ) {
+            if ( ( $it['tipo'] ?? 'mp' ) === 'mp' && (float) ( $it['custo_por_unidade'] ?? 0 ) <= 0 && ! empty( $it['ativo_id'] ) )
+                $need_at[ $it['ativo_id'] ] = 1;
+        }
+    }
+    $custo_at = [];
+    if ( $need_at ) {
+        $ra = tao_crm_api( "/ativos?id=in.(" . implode( ',', array_keys( $need_at ) ) . ")&select=id,custo_por_unidade,preco_compra" );
+        foreach ( ( $ra['ok'] ? ( $ra['data'] ?? [] ) : [] ) as $a )
+            $custo_at[ $a['id'] ] = (float) ( $a['custo_por_unidade'] ?? 0 ) ?: (float) ( $a['preco_compra'] ?? 0 );
+    }
+    $item_custo = function ( $it ) use ( $custo_at ) {
+        $cu = (float) ( $it['custo_por_unidade'] ?? 0 );
+        if ( $cu <= 0 && ! empty( $it['ativo_id'] ) ) $cu = $custo_at[ $it['ativo_id'] ] ?? 0;
+        $qg = (float) ( $it['qtd_total_g'] ?? 0 );
+        if ( $cu <= 0 || $qg <= 0 ) return 0.0;
+        return ( ( $it['unid_padrao'] ?? '' ) === 'g' ? $qg : $qg * 1000 ) * $cu;
+    };
+
+    $rows = [];
+    $card_pago_visto = [];   // valor pago = total do card, contado UMA vez (evita duplicar entre OMs do card)
+    foreach ( $oms as $o ) {
+        $c    = $cards[ $o['card_id'] ?? '' ] ?? [];
+        $data = substr( (string) ( $o['criado_em'] ?? '' ), 0, 10 );
+        $its  = is_string( $o['itens'] ?? null ) ? json_decode( $o['itens'], true ) : ( $o['itens'] ?? [] );
+        if ( ! is_array( $its ) ) $its = [];
+        $tel   = $c['contato_whatsapp'] ?? '';
+        $pac   = $o['nome_paciente'] ?: ( $c['contato_nome'] ?? '' );
+        $resp  = $resp_map[ $c['responsavel_id'] ?? 0 ] ?? '';
+
+        if ( $base === 'ativo' ) {
+            foreach ( $its as $it ) {
+                if ( ( $it['tipo'] ?? 'mp' ) !== 'mp' ) continue;
+                $nome_at = $it['nome'] ?: ( $it['nome_prescricao'] ?? '' );
+                if ( ! $nome_at || strtoupper( trim( $nome_at ) ) === 'EXCIPIENTE BASE' ) continue;
+                $rows[] = [
+                    'Ativo'         => $nome_at,
+                    'OM'            => $o['numero_orcamento'] ?? '',
+                    'Data'          => $data,
+                    'Mes'           => substr( $data, 0, 7 ),
+                    'Telefone'      => $tel,
+                    'Paciente'      => $pac,
+                    'Forma Farmac.' => $o['forma_nome'] ?? '',
+                    'Status'        => $o['status'] ?? '',
+                    'Responsavel'   => $resp,
+                    'Qtd (g)'       => round( (float) ( $it['qtd_total_g'] ?? 0 ), 4 ),
+                    'Custo (R$)'    => round( $item_custo( $it ), 2 ),
+                ];
+            }
+            continue;
+        }
+
+        // base OM: custo/margem + forma de pagamento + valor pago (1x por card)
+        $custo = 0;
+        foreach ( $its as $it ) if ( ( $it['tipo'] ?? 'mp' ) === 'mp' ) $custo += $item_custo( $it );
+        $orcado   = (float) ( $o['total_orcamento'] ?? 0 );
+        $cid_card = $o['card_id'] ?? '';
+        $formas = [];
+        foreach ( $venda_por_card[ $cid_card ] ?? [] as $v )
             foreach ( $recibo_por_venda[ $v['id'] ] ?? [] as $rid )
                 foreach ( array_keys( $forma_por_recibo[ $rid ] ?? [] ) as $fk ) $formas[ $fk ] = 1;
+        $vpago = 0;
+        if ( $cid_card && empty( $card_pago_visto[ $cid_card ] ) ) {
+            foreach ( $venda_por_card[ $cid_card ] ?? [] as $v ) $vpago += (float) ( $v['valor_pago'] ?? 0 );
+            $card_pago_visto[ $cid_card ] = 1;
         }
-        $data = substr( (string) ( $o['criado_em'] ?? '' ), 0, 10 );
         $rows[] = [
             'OM'            => $o['numero_orcamento'] ?? '',
             'Data'          => $data,
             'Mes'           => substr( $data, 0, 7 ),
-            'Telefone'      => $c['contato_whatsapp'] ?? '',
-            'Paciente'      => $o['nome_paciente'] ?: ( $c['contato_nome'] ?? '' ),
+            'Telefone'      => $tel,
+            'Paciente'      => $pac,
             'Forma Farmac.' => $o['forma_nome'] ?? '',
             'Status'        => $o['status'] ?? '',
             'Funil'         => $pl_map[ $c['pipeline_id'] ?? '' ] ?? '',
             'Fase'          => $est_map[ $c['estagio_id'] ?? '' ] ?? '',
-            'Responsavel'   => $resp_map[ $c['responsavel_id'] ?? 0 ] ?? '',
+            'Responsavel'   => $resp,
             'Forma Pagto'   => $formas ? implode( ' + ', array_keys( $formas ) ) : '—',
-            'Valor Orcado'  => (float) ( $o['total_orcamento'] ?? 0 ),
+            'Valor Orcado'  => $orcado,
+            'Custo (R$)'    => round( $custo, 2 ),
+            'Margem (R$)'   => round( $orcado - $custo, 2 ),
             'Valor Pago'    => round( $vpago, 2 ),
         ];
     }
-    wp_send_json_success( [ 'rows' => $rows, 'de' => $de, 'ate' => $ate ] );
+    wp_send_json_success( [ 'rows' => $rows, 'de' => $de, 'ate' => $ate, 'base' => $base ] );
 } );
 
 // ── Busca de contato por nome OU WhatsApp (autocomplete do Novo Card). Read-only.
