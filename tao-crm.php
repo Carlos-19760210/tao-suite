@@ -6174,9 +6174,21 @@ add_action( 'wp_ajax_tao_crm_operacao_dataset', function () {
         $pl_map[ $p['id'] ]   = $p['nome'];
         $pl_ispos[ $p['id'] ] = (bool) preg_match( '/p[o\x{00F3}]s.?\s*venda|pos.?\s*venda/iu', $p['nome'] );
     }
-    $est_map = [];
-    $re = tao_crm_api( "/crm_estagios?select=id,nome&limit=2000" );
-    foreach ( ( $re['ok'] ? ( $re['data'] ?? [] ) : [] ) as $e ) $est_map[ $e['id'] ] = $e['nome'];
+    $est_map = []; $est_ispos = [];
+    $re = tao_crm_api( "/crm_estagios?select=id,nome,pipeline_id&limit=2000" );
+    foreach ( ( $re['ok'] ? ( $re['data'] ?? [] ) : [] ) as $e ) {
+        $est_map[ $e['id'] ]   = $e['nome'];
+        $est_ispos[ $e['id'] ] = ! empty( $pl_ispos[ $e['pipeline_id'] ?? '' ] );
+    }
+    // Remetentes que NÃO são atendente humano (bot/disparo) — p/ o TMR contar só a
+    // resposta da EQUIPE. Humano = display_name do WP; bot = 'Automação'; disparo =
+    // nome/evolution_instancia da instância.
+    $inst_excl = [ 'Automação' => 1, 'Automacao' => 1 ];
+    $ri = tao_crm_api( "/crm_instancias?workspace_id=eq.$ws&select=nome,evolution_instancia" );
+    foreach ( ( $ri['ok'] ? ( $ri['data'] ?? [] ) : [] ) as $i ) {
+        if ( ! empty( $i['evolution_instancia'] ) ) $inst_excl[ $i['evolution_instancia'] ] = 1;
+        if ( ! empty( $i['nome'] ) )                 $inst_excl[ $i['nome'] ] = 1;
+    }
 
     // cards do período (coorte por criação)
     $rc = tao_crm_api( "/crm_cards?workspace_id=eq.$ws&criado_em=gte.$de&criado_em=lte.$ate_fim" .
@@ -6189,13 +6201,13 @@ add_action( 'wp_ajax_tao_crm_operacao_dataset', function () {
         $u = get_userdata( (int) $uid ); if ( $u ) $resp_map[ $uid ] = $u->display_name;
     }
 
-    // mensagens em lotes → TMR (1ª entrada → 1ª saída) e espera (última msg 'in' em card aberto)
+    // mensagens em lotes → TMR (1ª entrada → 1ª resposta do ATENDENTE humano) e espera
     $card_ids = array_column( $cards, 'id' );
     $tmr_card = []; $espera_card = [];
     $now = time();
     foreach ( array_chunk( $card_ids, 100 ) as $chunk ) {
         $rm = tao_crm_api( "/crm_mensagens?card_id=in.(" . implode( ',', $chunk ) . ")&direcao=in.(in,out)" .
-                           "&select=card_id,direcao,enviado_em&order=enviado_em.asc&limit=50000" );
+                           "&select=card_id,direcao,enviado_em,remetente_nome&order=enviado_em.asc&limit=50000" );
         $por = [];
         foreach ( ( $rm['ok'] ? ( $rm['data'] ?? [] ) : [] ) as $m ) $por[ $m['card_id'] ][] = $m;
         foreach ( $por as $cid => $ms ) {
@@ -6203,10 +6215,26 @@ add_action( 'wp_ajax_tao_crm_operacao_dataset', function () {
             foreach ( $ms as $m ) {
                 $ts = strtotime( $m['enviado_em'] );
                 if ( $m['direcao'] === 'in' && $t_in === null ) { $t_in = $ts; }
-                elseif ( $m['direcao'] === 'out' && $t_in !== null ) { $tmr_card[ $cid ] = max( 0, $ts - $t_in ); break; }
+                elseif ( $m['direcao'] === 'out' && $t_in !== null && empty( $inst_excl[ $m['remetente_nome'] ?? '' ] ) ) {
+                    $tmr_card[ $cid ] = max( 0, $ts - $t_in ); break;   // só conta resposta humana
+                }
             }
             $last = end( $ms );
             if ( $last && $last['direcao'] === 'in' ) $espera_card[ $cid ] = max( 0, $now - strtotime( $last['enviado_em'] ) );
+        }
+    }
+
+    // TMA exato via histórico: criação → 1ª transição de RESOLUÇÃO (entrou em pós-vendas
+    // = ganho, ou foi cancelado = perda). Sem migration; funciona retroativo.
+    $resol_card = [];
+    foreach ( array_chunk( $card_ids, 100 ) as $chunk ) {
+        $rh = tao_crm_api( "/crm_cards_historico?card_id=in.(" . implode( ',', $chunk ) . ")" .
+                           "&select=card_id,para_estagio_id,criado_em&order=criado_em.asc&limit=50000" );
+        foreach ( ( $rh['ok'] ? ( $rh['data'] ?? [] ) : [] ) as $h ) {
+            $cid = $h['card_id']; if ( isset( $resol_card[ $cid ] ) ) continue;
+            $pe  = $h['para_estagio_id'] ?? '';
+            if ( ! empty( $est_ispos[ $pe ] ) || stripos( $est_map[ $pe ] ?? '', 'cancelad' ) !== false )
+                $resol_card[ $cid ] = strtotime( $h['criado_em'] );
         }
     }
 
@@ -6222,6 +6250,8 @@ add_action( 'wp_ajax_tao_crm_operacao_dataset', function () {
         $data = substr( (string) ( $c['criado_em'] ?? '' ), 0, 10 );
         $cid  = $c['id'];
         $esperando = isset( $espera_card[ $cid ] ) && empty( $c['fechado'] );
+        $tma_h = ( isset( $resol_card[ $cid ] ) && ! empty( $c['criado_em'] ) )
+            ? round( max( 0, $resol_card[ $cid ] - strtotime( $c['criado_em'] ) ) / 3600, 1 ) : null;
         $rows[] = [
             'Card'         => $c['titulo'] ?: ( $c['contato_nome'] ?? '' ),
             'Responsavel'  => $resp_map[ $c['responsavel_id'] ?? 0 ] ?? '— sem resp —',
@@ -6233,6 +6263,7 @@ add_action( 'wp_ajax_tao_crm_operacao_dataset', function () {
             'Mes'          => substr( $data, 0, 7 ),
             'Valor'        => (float) ( $c['valor_oportunidade'] ?? 0 ),
             'TMR (min)'    => isset( $tmr_card[ $cid ] )    ? round( $tmr_card[ $cid ] / 60, 1 )    : null,
+            'TMA (h)'      => $tma_h,
             'Espera (min)' => $esperando                    ? round( $espera_card[ $cid ] / 60, 1 ) : null,
             'Esperando'    => $esperando ? 1 : 0,
         ];

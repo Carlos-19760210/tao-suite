@@ -268,7 +268,14 @@ function tao_crm_page_analise() {
                 var fast=L.slice().sort(function(a,b){return m[a]-m[b];})[0];
                 return { title:'⏱️ Tempo de resposta (TMR) por responsável', defaultType:'bar', labels:L,
                     datasets:[{label:'TMR (min)',data:L.map(function(l){return r2(m[l]);}),_cur:false}],
-                    sentence: L.length? ('Resposta mais rápida: '+fast+' ('+num(r2(m[fast]))+' min). ⚠️ respostas automáticas do bot podem influenciar.') : 'Sem mensagens para medir TMR no período.' };
+                    sentence: L.length? ('Só a resposta do atendente (bot/disparo excluídos). Mais rápido: '+fast+' ('+num(r2(m[fast]))+' min).') : 'Sem resposta humana para medir TMR no período.' };
+            }
+            if(key==='tma'){
+                var m=gAvg(D,'Responsavel','TMA (h)'), t=top(m), L=t.map(function(x){return x[0];});
+                var fast=L.slice().sort(function(a,b){return m[a]-m[b];})[0];
+                return { title:'🕒 Tempo de atendimento (TMA) por responsável', defaultType:'bar', labels:L,
+                    datasets:[{label:'TMA (h)',data:L.map(function(l){return r2(m[l]);}),_cur:false}],
+                    sentence: L.length? ('Da criação até o fechamento (ganho ou perda). Mais ágil: '+fast+' ('+num(r2(m[fast]))+' h).') : 'Sem cards resolvidos no período.' };
             }
             if(key==='espera'){
                 var m=gCount(D,'Responsavel',function(r){return r['Esperando']==1;}), t=top(m), L=t.map(function(x){return x[0];}), tot=sumVals(m);
@@ -305,11 +312,13 @@ function tao_crm_page_analise() {
             var conv=(g+p)?g/(g+p)*100:0;
             var tmrs=D.map(function(r){return r['TMR (min)'];}).filter(function(v){return v!=null&&v!=='';}).map(parseFloat);
             var tmr=tmrs.length?tmrs.reduce(function(a,b){return a+b;},0)/tmrs.length:0;
+            var tmas=D.map(function(r){return r['TMA (h)'];}).filter(function(v){return v!=null&&v!=='';}).map(parseFloat);
+            var tma=tmas.length?tmas.reduce(function(a,b){return a+b;},0)/tmas.length:0;
             var esp=D.filter(function(r){return r['Esperando']==1;}).length;
             renderKPIs('op-kpis',[
                 {label:'Ganhos',value:num(g)},{label:'Perdas',value:num(p)},
-                {label:'Conversão',value:pct(conv)},{label:'TMR médio',value:num(r2(tmr))+' min'},
-                {label:'Esperando agora',value:num(esp)}
+                {label:'Conversão',value:pct(conv)},{label:'TMR (atendente)',value:num(r2(tmr))+' min'},
+                {label:'TMA médio',value:num(r2(tma))+' h'},{label:'Esperando agora',value:num(esp)}
             ]);
         }
 
@@ -319,7 +328,7 @@ function tao_crm_page_analise() {
                 Array.prototype.forEach.call(el(id).querySelectorAll('.an-qbtn'),function(x){x.classList.remove('on');}); b.classList.add('on'); onpick(b.dataset.k); }; });
         }
         var FINQ=[{key:'fatdia',label:'💰 Faturado por dia'},{key:'recdia',label:'💵 Recebido por dia'},{key:'pagto',label:'💳 Forma de pagamento'},{key:'fatresp',label:'👤 Faturado por responsável'},{key:'ativos',label:'💊 Ativos que + consomem'},{key:'custoforma',label:'🧪 Custo por forma'}];
-        var OPQ=[{key:'gp',label:'🏆 Ganhos × Perdas'},{key:'leads',label:'🚦 Onde estão os leads'},{key:'prod',label:'🏭 Produção → Entrega'},{key:'tmr',label:'⏱️ Tempo de resposta'},{key:'espera',label:'⏳ Quem está esperando'},{key:'renov',label:'🔁 Renovações'}];
+        var OPQ=[{key:'gp',label:'🏆 Ganhos × Perdas'},{key:'leads',label:'🚦 Onde estão os leads'},{key:'prod',label:'🏭 Produção → Entrega'},{key:'tmr',label:'⏱️ Tempo de resposta'},{key:'tma',label:'🕒 Tempo de atendimento'},{key:'espera',label:'⏳ Quem está esperando'},{key:'renov',label:'🔁 Renovações'}];
 
         function renderSimples(){
             finKPIs(); opKPIs();
