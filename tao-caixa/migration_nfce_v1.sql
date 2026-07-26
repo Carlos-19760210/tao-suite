@@ -16,6 +16,12 @@ create table if not exists caixa_emitente_fiscal (
   serie            text default '1',
   ambiente         text default 'homologacao',-- 'homologacao' | 'producao'
   ativo            boolean default false,     -- só emite quando ligado
+  -- defaults fiscais (o contador preenche; usados quando o produto não tem override)
+  ncm_manipulado   text,                      -- NCM do produto final manipulado (ex.: 30049099)
+  cfop_venda       text default '5102',
+  csosn_padrao     text,                      -- Simples (ex.: 102/500)
+  cst_padrao       text,                      -- Normal (ex.: 00/60)
+  origem_padrao    text default '0',
   atualizado_em    timestamptz default now(),
   unique (cliente_id)
 );
