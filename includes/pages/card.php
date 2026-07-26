@@ -142,6 +142,21 @@ function tao_crm_page_card() {
         }
     }
 
+    // ── Número Requisição: DERIVADO do orçamento (segmento do meio, sem o sequencial).
+    //    Garante o valor a partir do orçamento e mantém sincronizado o gravado (o Kanban
+    //    busca por ele). Campo fica read-only quando há orçamento (não é mais input manual).
+    $req_campo_id = tao_crm_campo_requisicao_id();
+    if ( $req_campo_id ) {
+        $req_deriv = tao_crm_requisicao_orcamento( $card_id );
+        if ( $req_deriv !== '' ) {
+            if ( ( $valores[ $req_campo_id ] ?? '' ) !== $req_deriv )
+                tao_crm_salvar_campos_card( $card_id, [ $req_campo_id => $req_deriv ] );   // upsert correto
+            $valores[ $req_campo_id ] = $req_deriv;
+            if ( isset( $campos_def[ $req_campo_id ] ) )        $campos_def[ $req_campo_id ]['_readonly'] = true;
+            if ( isset( $campos_outros_def[ $req_campo_id ] ) ) $campos_outros_def[ $req_campo_id ]['_readonly'] = true;
+        }
+    }
+
     // Instância de origem do card
     $instancia_origem = null;
     if ( ! empty( $card['instancia_id'] ) ) {
@@ -2822,9 +2837,10 @@ function tao_crm_render_campo_input( $def, $val, $card_id, $bool_radio = false )
     $tipo  = $def['tipo'] ?? 'text';
     $val_e = esc_attr( $val );
     $attrs = "class='campo-input' data-campo-id='$id' data-card-id='" . esc_attr( $card_id ) . "'";
+    $ro    = ! empty( $def['_readonly'] ) ? " readonly title='Derivado do número do orçamento'" : '';
 
     if ( $tipo === 'textarea' ) {
-        return "<textarea $attrs rows='3'>" . esc_textarea( $val ) . "</textarea>";
+        return "<textarea $attrs$ro rows='3'>" . esc_textarea( $val ) . "</textarea>";
     }
     if ( $tipo === 'boolean' ) {
         // Aceita os DOIS formatos gravados no sistema: '1'/'0' (ficha) e 'Sim'/'Não' (modais)
@@ -2890,7 +2906,7 @@ function tao_crm_render_campo_input( $def, $val, $card_id, $bool_radio = false )
     $type_map = [ 'number' => 'number', 'date' => 'date', 'phone' => 'tel', 'email' => 'email' ];
     $input_type = $type_map[ $tipo ] ?? 'text';
     $step = ( $input_type === 'number' ) ? " step='any'" : '';
-    return "<input type='$input_type'$step $attrs value='$val_e'>";
+    return "<input type='$input_type'$step $attrs$ro value='$val_e'>";
 }
 
 // ─── RENDER MESSAGE ───────────────────────────────────────────────────────────

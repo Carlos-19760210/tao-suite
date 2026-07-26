@@ -450,8 +450,10 @@ function tao_crm_page_kanban() {
                          data-tem-lembrete="<?php echo $card_tem_lembrete ? '1' : '0'; ?>"
                          <?php
                              $_card_campos_vals = $cards_campos_values[ $card['id'] ] ?? [];
-                             $_req_num = $req_num_campo_id ? ( $_card_campos_vals[ $req_num_campo_id ] ?? '' ) : '';
-                             if ( $_req_num === '' || $_req_num === null ) $_req_num = $req_orc_map[ $card['id'] ] ?? '';
+                             // Requisição = orçamento (fonte de verdade) tem precedência; cai no
+                             // valor gravado só se o card não tiver orçamento (manual).
+                             $_req_num = $req_orc_map[ $card['id'] ] ?? '';
+                             if ( $_req_num === '' || $_req_num === null ) $_req_num = $req_num_campo_id ? ( $_card_campos_vals[ $req_num_campo_id ] ?? '' ) : '';
                              $_campos_txt = implode( ' ', $_card_campos_vals );
                              // Inclui o Nº da Requisição na busca — inclusive o DERIVADO do orçamento
                              // (quando o campo não foi digitado à mão). Sem isso, o card mostra o

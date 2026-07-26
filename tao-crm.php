@@ -1642,13 +1642,18 @@ function tao_crm_ajax_save_valor() {
     $valor    = sanitize_textarea_field( $_POST['valor'] ?? '' );
     if ( ! $card_id || ! $campo_id ) wp_send_json_error( 'Dados inválidos' );
 
-    $r = tao_crm_api( '/crm_cards_valores', 'POST', [
-        'card_id'      => $card_id,
-        'campo_id'     => $campo_id,
-        'valor'        => $valor,
-        'atualizado_em'=> gmdate( 'c' ),
-    ], [ 'Prefer' => 'resolution=merge-duplicates,return=minimal' ] );
-
+    // UPSERT correto: PATCH se já existe, POST se não. O POST cru com
+    // resolution=merge-duplicates SEM on_conflict batia na constraint única
+    // (card_id, campo_id) e retornava 23505 — por isso nenhuma edição manual
+    // de campo já preenchido persistia (afetava TODOS os campos).
+    $ex = tao_crm_api( "/crm_cards_valores?card_id=eq.$card_id&campo_id=eq.$campo_id&limit=1&select=id" );
+    if ( $ex['ok'] && ! empty( $ex['data'] ) ) {
+        $r = tao_crm_api( "/crm_cards_valores?card_id=eq.$card_id&campo_id=eq.$campo_id", 'PATCH',
+                          [ 'valor' => $valor, 'atualizado_em' => gmdate( 'c' ) ] );
+    } else {
+        $r = tao_crm_api( '/crm_cards_valores', 'POST',
+                          [ 'card_id' => $card_id, 'campo_id' => $campo_id, 'valor' => $valor, 'atualizado_em' => gmdate( 'c' ) ] );
+    }
     if ( ! $r['ok'] ) wp_send_json_error( $r['error'] );
     wp_send_json_success();
 }
@@ -1858,6 +1863,31 @@ function tao_crm_salvar_campos_card( $card_id, $valores ) {
             tao_crm_api( '/crm_cards_valores', 'POST', [ 'card_id' => $card_id, 'campo_id' => $campo_id, 'valor' => $valor ] );
         }
     }
+}
+
+// Resolve o campo "Número Requisição" (mesma regra do Kanban: nome contém "Requisi",
+// exclui perguntas com "?"). Cacheado por request.
+function tao_crm_campo_requisicao_id() {
+    static $cache = null;
+    if ( $cache !== null ) return $cache;
+    $cache = '';
+    $r = tao_crm_api( '/crm_campos_definicao?nome=ilike.*Requisi*&select=id,nome&limit=10' );
+    foreach ( ( $r['ok'] ? ( $r['data'] ?? [] ) : [] ) as $c ) {
+        $n = $c['nome'] ?? '';
+        if ( mb_strpos( $n, '?' ) !== false ) continue;
+        if ( mb_stripos( $n, 'Requisi' ) !== false ) { $cache = $c['id']; break; }
+    }
+    return $cache;
+}
+
+// Requisição = segmento do meio do numero_orcamento do orçamento mais recente do card
+// (sem o prefixo nem o sequencial da versão). Ex.: "0001-047358-0" -> "047358".
+function tao_crm_requisicao_orcamento( $card_id ) {
+    $r = tao_crm_api( "/orcamentos?card_id=eq.$card_id&select=numero_orcamento&order=criado_em.desc&limit=1" );
+    $num = ( $r['ok'] && ! empty( $r['data'] ) ) ? (string) ( $r['data'][0]['numero_orcamento'] ?? '' ) : '';
+    if ( $num === '' ) return '';
+    $p = explode( '-', preg_replace( '/^ORC:?\s*/i', '', $num ) );
+    return ( count( $p ) >= 2 && $p[1] !== '' ) ? $p[1] : '';
 }
 
 // ─── AJAX: SALVAR CAMPOS OBRIGATÓRIOS (enforcement Pós-vendas ao abrir o card) ─
