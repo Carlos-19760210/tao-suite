@@ -1,0 +1,29 @@
+{
+  "tenant": "exemplo-farmacia",
+  "cliente_id": "00000000-0000-0000-0000-000000000000",
+  "workspace_id": "00000000-0000-0000-0000-000000000000",
+  "cnpj_emitente": "00000000000000",
+  "supabase": {
+    "url": "https://SEU-PROJETO.supabase.co",
+    "key": "SEU_SERVICE_KEY_AQUI"
+  },
+  "source": {
+    "tipo": "fcerta",
+    "fcerta": {
+      "gbak": "C:\\caminho\\FB\\FB64\\25\\64\\gbak.exe",
+      "fb_lib": "C:\\caminho\\fb25\\fbembed.dll",
+      "ibk": "C:\\caminho\\backup.ibk",
+      "ib": "C:\\caminho\\restaurado.ib"
+    },
+    "arquivos": {
+      "produtos_csv": "C:\\caminho\\produtos.csv",
+      "sep": ";",
+      "map": {
+        "codigo": "CODIGO", "descricao": "DESCRICAO", "grupo": "GRUPO",
+        "ncm": "NCM", "cest": "CEST", "gtin": "EAN",
+        "cst_pis": "CST_PIS", "cst_cofins": "CST_COFINS",
+        "ind_iss": "ISS", "icms_cod": "ICMS"
+      }
+    }
+  }
+}

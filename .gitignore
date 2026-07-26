@@ -2,6 +2,7 @@
 *.html
 *.py
 !tao-lab/*.py
+!_tools/**/*.py
 *.txt
 persistent-cookies.txt
 

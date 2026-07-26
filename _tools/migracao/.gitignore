@@ -1,0 +1,10 @@
+# Segredos e dados de tenant — NUNCA comitar
+config.json
+config.*.json
+!config.exemplo.json
+*.ib
+*.ibk
+*.fdb
+*.xml
+*.xlsx
+*.csv
