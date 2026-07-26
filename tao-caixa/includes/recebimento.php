@@ -147,3 +147,84 @@ add_action( 'wp_ajax_tao_caixa_receb_depara_save', function () {
     }
     $r['ok'] ? wp_send_json_success() : wp_send_json_error( $r['error'] ?? 'Falha ao salvar.' );
 } );
+
+// AJAX — CONFIRMAR o recebimento (Fase 2b): grava lote + contas a pagar + base de venda.
+// Idempotente por chave. SNGPC entrada dos controlados fica p/ o módulo SNGPC (pendente).
+add_action( 'wp_ajax_tao_caixa_receb_confirmar', function () {
+    tao_caixa_ajax_guard();
+    $cid = tao_caixa_cliente_id();
+    $uid = get_current_user_id();
+    $dados = json_decode( wp_unslash( $_POST['dados'] ?? '' ), true );
+    if ( ! is_array( $dados ) ) wp_send_json_error( 'Dados inválidos.' );
+    $nota = $dados['nota'] ?? []; $itens = $dados['itens'] ?? []; $dups = $dados['duplicatas'] ?? [];
+    $chave = preg_replace( '/\D/', '', (string) ( $nota['chave'] ?? '' ) );
+
+    foreach ( $itens as $it ) {
+        if ( empty( $it['ignorar'] ) && empty( $it['ativo_id'] ) )
+            wp_send_json_error( 'Há itens sem ativo associado (associe ou marque como ignorar).' );
+    }
+    if ( $chave ) {
+        $ex = tao_caixa_api( "/recebimento_nf?cliente_id=eq.$cid&chave=eq.$chave&limit=1&select=id" );
+        if ( $ex['ok'] && ! empty( $ex['data'] ) ) wp_send_json_error( 'Esta NF já foi processada.' );
+    }
+    // Fornecedor (cadastro único): busca por CNPJ; cria se não existir.
+    $cnpj = preg_replace( '/\D/', '', (string) ( $nota['fornecedor_cnpj'] ?? '' ) );
+    $forn_id = null;
+    if ( $cnpj ) {
+        $rf = tao_caixa_api( "/fornecedores?cnpj=eq.$cnpj&limit=1&select=id" );
+        if ( $rf['ok'] && ! empty( $rf['data'] ) ) $forn_id = $rf['data'][0]['id'];
+        else {
+            $cf = tao_caixa_api( '/fornecedores', 'POST', [ 'cnpj' => $cnpj, 'nome' => $nota['fornecedor_nome'] ?? $cnpj ], [ 'Prefer' => 'return=representation' ] );
+            if ( $cf['ok'] && ! empty( $cf['data'] ) ) $forn_id = $cf['data'][0]['id'];
+        }
+    }
+    // Cabeçalho
+    $rh = tao_caixa_api( '/recebimento_nf', 'POST', [
+        'cliente_id' => $cid, 'fornecedor_cnpj' => $cnpj, 'fornecedor_nome' => $nota['fornecedor_nome'] ?? '',
+        'numero' => $nota['numero'] ?? '', 'serie' => $nota['serie'] ?? '', 'chave' => $chave ?: null,
+        'emissao' => $nota['emissao'] ?: null, 'valor_produtos' => $nota['valor_produtos'] ?? null,
+        'valor_frete' => $nota['valor_frete'] ?? null, 'valor_total' => $nota['valor_total'] ?? null, 'criado_por' => $uid,
+    ], [ 'Prefer' => 'return=representation' ] );
+    if ( ! $rh['ok'] || empty( $rh['data'] ) ) wp_send_json_error( 'Falha ao criar recebimento: ' . ( $rh['error'] ?? '' ) );
+    $rid = $rh['data'][0]['id'];
+
+    $n_lotes = 0; $n_ativos = 0;
+    foreach ( $itens as $it ) {
+        if ( ! empty( $it['ignorar'] ) || empty( $it['ativo_id'] ) ) continue;
+        $ativo = $it['ativo_id'];
+        $custo = (float) ( $it['valor_custo'] ?? 0 );
+        $compra= (float) ( $it['valor_compra'] ?? 0 );
+        $frete = (float) ( $it['frete_rateado'] ?? 0 );
+        $cf    = round( $compra + $frete, 4 );
+        tao_caixa_api( '/recebimento_nf_itens', 'POST', [
+            'recebimento_id' => $rid, 'cliente_id' => $cid, 'ativo_id' => $ativo, 'cprod' => $it['cprod'] ?? '',
+            'descricao' => $it['desc'] ?? '', 'ncm' => $it['ncm'] ?? '', 'quantidade' => $it['qcom'] ?? null,
+            'unidade' => $it['ucom'] ?? '', 'valor_custo' => $custo, 'valor_compra' => $compra,
+            'frete_rateado' => $frete, 'valor_compra_frete' => $cf,
+        ] );
+        $lotes = ! empty( $it['lotes'] ) ? $it['lotes'] : [ [ 'lote' => '', 'qtd' => $it['qcom'] ?? 0, 'validade' => '' ] ];
+        foreach ( $lotes as $l ) {
+            tao_caixa_api( '/lab_lotes_mp', 'POST', [
+                'cliente_id' => $cid, 'ativo_id' => $ativo, 'nr_lote' => ( $l['lote'] ?? '' ) ?: null,
+                'dt_validade' => ( $l['validade'] ?? '' ) ?: null, 'qtd_inicial' => $l['qtd'] ?? null, 'qtd_atual' => $l['qtd'] ?? null,
+                'fornecedor_id' => $forn_id, 'nf_chave' => $chave ?: null, 'nf_numero' => $nota['numero'] ?? null,
+                'origem' => 'compra', 'unidade' => $it['ucom'] ?? null,
+            ] );
+            $n_lotes++;
+        }
+        tao_caixa_api( "/ativos?id=eq.$ativo", 'PATCH', [
+            'custo_com_frete' => $cf, 'custo_com_frete_em' => gmdate( 'c' ), 'preco_custo' => $custo, 'preco_compra' => $compra,
+        ] );
+        $n_ativos++;
+    }
+    $n_cap = 0;
+    foreach ( $dups as $dp ) {
+        tao_caixa_api( '/contas_a_pagar', 'POST', [
+            'cliente_id' => $cid, 'fornecedor_cnpj' => $cnpj, 'fornecedor_nome' => $nota['fornecedor_nome'] ?? '',
+            'recebimento_id' => $rid, 'origem' => 'nf_entrada', 'parcela' => $dp['numero'] ?? '',
+            'vencimento' => ( $dp['venc'] ?? '' ) ?: null, 'valor' => $dp['valor'] ?? null, 'status' => 'aberto',
+        ] );
+        $n_cap++;
+    }
+    wp_send_json_success( [ 'recebimento_id' => $rid, 'lotes' => $n_lotes, 'ativos' => $n_ativos, 'contas' => $n_cap ] );
+} );

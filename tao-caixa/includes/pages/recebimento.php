@@ -40,7 +40,7 @@ function tao_caixa_page_recebimento() {
     (function(){
         var ajax=<?php echo wp_json_encode( $ajax ); ?>, nonce=<?php echo wp_json_encode( $nonce ); ?>;
         var $file=document.getElementById('nfe-file'), $msg=document.getElementById('nfe-msg'), $prev=document.getElementById('nfe-preview');
-        var CNPJ='';
+        var CNPJ='', PARSED=null;
         function post(action,params){ var b='action='+action+'&nonce='+encodeURIComponent(nonce); for(var k in params) b+='&'+k+'='+encodeURIComponent(params[k]); return fetch(ajax,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:b,credentials:'same-origin'}).then(function(r){return r.json();}); }
         function brl(v){ return 'R$ '+(Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
         function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
@@ -55,7 +55,7 @@ function tao_caixa_page_recebimento() {
         };
         function render(r){
             if(!r.success){ $msg.textContent='⚠ '+(r.data||'erro'); $prev.innerHTML=''; return; }
-            $msg.textContent=''; var d=r.data; CNPJ=d.emitente.cnpj;
+            $msg.textContent=''; var d=r.data; CNPJ=d.emitente.cnpj; PARSED=d;
             var h='<div style="border:1px solid #e2e8f0;border-radius:8px;padding:12px">';
             h+='<div style="font-size:13px;margin-bottom:10px"><b>'+esc(d.emitente.nome)+'</b> · CNPJ '+esc(d.emitente.cnpj)+' · NF-e '+esc(d.nota.numero)+'/'+esc(d.nota.serie)+' · '+br(d.nota.emissao)+' · Frete '+brl(d.nota.valor_frete)+' · Total '+brl(d.total.nota)+'</div>';
             h+='<table class="widefat"><thead><tr><th>Item do fornecedor</th><th>Ativo TAO Neo</th><th>Situação</th><th>Custo (mercado)</th><th>Compra (pago)</th><th>Compra c/ frete</th></tr></thead><tbody>';
@@ -76,7 +76,8 @@ function tao_caixa_page_recebimento() {
                 d.duplicatas.forEach(function(p){ h+='<tr><td>'+esc(p.numero)+'</td><td>'+br(p.venc)+'</td><td>'+brl(p.valor)+'</td></tr>'; });
                 h+='</tbody></table>';
             }
-            h+='<p style="margin-top:12px;color:#64748b;font-size:12px">Associe os itens "novos" e valide os valores. As associações são <b>aprendidas</b> (na próxima NF do mesmo fornecedor casam sozinhas). A gravação (estoque + contas a pagar) entra na <b>Fase 2b</b>.</p>';
+            h+='<p style="margin-top:12px;color:#64748b;font-size:12px">Associe os itens "novos" e valide os valores. As associações são <b>aprendidas</b> (na próxima NF do mesmo fornecedor casam sozinhas).</p>';
+            h+='<div style="margin-top:10px"><button class="button button-primary" id="rec-confirmar">&#x2705; Confirmar recebimento (gravar estoque + contas a pagar)</button> <span id="rec-conf-msg" style="margin-left:10px;font-size:12px;color:#64748b"></span></div>';
             h+='</div>';
             $prev.innerHTML=h;
         }
@@ -100,6 +101,30 @@ function tao_caixa_page_recebimento() {
             }
         });
         $prev.addEventListener('click',function(e){
+            if(e.target.id==='rec-confirmar'){
+                if(!PARSED) return;
+                var itens=[], faltando=0;
+                PARSED.itens.forEach(function(it,i){
+                    var tr=$prev.querySelector('tr[data-i="'+i+'"]'); if(!tr) return;
+                    var aid=tr.querySelector('.rec-ativo').dataset.ativoId||'';
+                    if(!aid) faltando++;
+                    itens.push({ cprod:it.cprod, desc:it.desc, ncm:it.ncm, ucom:it.ucom, qcom:it.qcom, lotes:it.lotes,
+                        frete_rateado:it.frete_rateado, ativo_id:aid,
+                        valor_custo:parseFloat(tr.querySelector('.rec-custo').value)||0,
+                        valor_compra:parseFloat(tr.querySelector('.rec-compra').value)||0, ignorar:aid?0:1 });
+                });
+                if(faltando && !confirm(faltando+' item(ns) sem ativo serão IGNORADOS (não entram no estoque). Continuar?')) return;
+                var payload={ nota:{ fornecedor_cnpj:PARSED.emitente.cnpj, fornecedor_nome:PARSED.emitente.nome,
+                    numero:PARSED.nota.numero, serie:PARSED.nota.serie, chave:PARSED.nota.chave, emissao:PARSED.nota.emissao,
+                    valor_produtos:PARSED.total.produtos, valor_frete:PARSED.nota.valor_frete, valor_total:PARSED.total.nota },
+                    itens:itens, duplicatas:PARSED.duplicatas };
+                var btn=e.target, m=document.getElementById('rec-conf-msg'); btn.disabled=true; m.textContent='Gravando…';
+                post('tao_caixa_receb_confirmar',{dados:JSON.stringify(payload)}).then(function(r){
+                    if(r.success){ m.innerHTML='<b style="color:#166534">✔ Gravado: '+r.data.lotes+' lote(s), '+r.data.ativos+' ativo(s) atualizado(s), '+r.data.contas+' conta(s) a pagar.</b>'; }
+                    else { m.innerHTML='<b style="color:#991b1b">⚠ '+(r.data||'erro')+'</b>'; btn.disabled=false; }
+                });
+                return;
+            }
             var opt=e.target.closest('.rec-drop div');
             if(opt && opt.dataset.id){
                 var drop=opt.parentNode, cel=drop.parentNode, tr=cel.closest('tr');
