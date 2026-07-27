@@ -279,6 +279,9 @@ function tao_crm_page_dashboard() {
 
     // ── Derivar listas ────────────────────────────────────────────────────────
     $abertos  = array_values( array_filter( $all, fn( $c ) => empty( $c['fechado'] ) ) );
+    // "Em aberto" (oportunidades vivas) = só o funil de VENDAS; cards já no Pós-vendas
+    // não são oportunidade em aberto (já foram ganhos → contam em "receita gerada").
+    $abertos_vendas = array_values( array_filter( $abertos, fn( $c ) => empty( $pos_set[ $c['estagio_id'] ?? '' ] ) ) );
     $fechados = array_values( array_filter( $all, fn( $c ) => ! empty( $c['fechado'] ) ) );
     $ganhos   = array_values( array_filter( $all, fn( $c ) => ! empty( $c['fechado'] ) && ( $estagios[ $c['estagio_id'] ]['tipo'] ?? '' ) === 'ganho' ) );
     $perdidos = array_values( array_filter( $all, fn( $c ) => ! empty( $c['fechado'] ) && ( $estagios[ $c['estagio_id'] ]['tipo'] ?? '' ) === 'perdido' ) );
@@ -292,8 +295,8 @@ function tao_crm_page_dashboard() {
     $total_fechados = count( $fechados );
     $taxa = $total_fechados > 0 ? round( count( $ganhos ) / $total_fechados * 100 ) : 0;
 
-    // Total em oportunidades (cards abertos) e receita gerada (ganhos)
-    $total_oportunidades = array_sum( array_column( $abertos,  'valor_oportunidade' ) );
+    // Total em oportunidades (cards abertos NO FUNIL DE VENDAS) e receita gerada (ganhos)
+    $total_oportunidades = array_sum( array_column( $abertos_vendas, 'valor_oportunidade' ) );
     $receita_gerada      = array_sum( array_column( $ganhos,   'valor_oportunidade' ) );
     $valor_perdidos      = array_sum( array_column( $perdidos, 'valor_oportunidade' ) );
 
@@ -689,10 +692,10 @@ function tao_crm_page_dashboard() {
                 <span class="kpi-value"><?php echo $taxa_per; ?>%</span>
                 <span class="kpi-sub"><?php echo $n_ganhos_per; ?> ganhos / <?php echo ( $n_ganhos_per + $n_perdidos_per ); ?> decididos (<?php echo $dias; ?>d)</span>
             </div>
-            <div class="crm-dash-kpi-card kpi-amber">
+            <div class="crm-dash-kpi-card kpi-amber" title="Soma do valor dos cards abertos no funil de Vendas. Cards já no Pós-vendas não entram (foram ganhos).">
                 <span class="kpi-label">Em aberto</span>
                 <span class="kpi-value">R$&nbsp;<?php echo number_format( $total_oportunidades, 0, ',', '.' ); ?></span>
-                <span class="kpi-sub">oportunidades ativas</span>
+                <span class="kpi-sub">oportunidades ativas (funil de Vendas)</span>
             </div>
             <div class="crm-dash-kpi-card kpi-green" title="Faturado: valor_total emitido no Caixa no período — o que foi movimentado (independe de já ter sido pago).">
                 <span class="kpi-label">Movimentado (Caixa)</span>
