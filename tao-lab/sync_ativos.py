@@ -17,7 +17,7 @@ Idempotente. Uso:
   python sync_ativos.py                  # executa
   python sync_ativos.py --db-file "D:\\outro.ib"
 """
-import fdb, json, urllib.request, urllib.parse, argparse, re, sys, datetime
+import fdb, json, urllib.request, urllib.parse, urllib.error, argparse, re, sys, datetime
 
 DB_PADRAO = r"C:\Users\carlo\FCertaSync\fcerta_atual.ib"
 FB_DLL    = r"C:\Users\carlo\FCertaSync\fb25\fbembed.dll"
@@ -37,6 +37,8 @@ CAMPOS_UPDATE = ["nome","unidade","unidade_padrao","estoque_atual","em_estoque",
                  "preco_compra","preco_custo","custo_por_unidade","preco_venda","categoria",
                  "principio_ativo","densidade","fator_correcao","diluicao","teor","dcb",
                  "dose_min","uni_dose_min","dose_max","uni_dose_max","observacoes","concentracao"]
+# Fiscais: vêm do FCerta mas só PREENCHEM VAZIOS no TAO (não sobrescrevem o que o contador revisou).
+CAMPOS_FISCAIS = ["ncm","cst_pis","cst_cofins","icms_cod_fcerta","cest","gtin"]
 
 def sb_req(path, method="GET", body=None, headers=None):
     h = {"apikey": KEY, "Authorization": "Bearer " + KEY, "Content-Type": "application/json",
@@ -102,7 +104,10 @@ def main():
                                COALESCE(TRIM(p.CATEGORIA),''), COALESCE(TRIM(p.PRINCIPIOATIVO),''),
                                p.DENSIDADE, p.FATOR, COALESCE(TRIM(p.CDDCB),''),
                                p.DOMIN, COALESCE(TRIM(p.UNIDMIN),''), p.DOMAX, COALESCE(TRIM(p.UNIDM),''),
-                               COALESCE(TRIM(p.OBSCOMPO),''), p.DILUICAO, p.TEOR
+                               COALESCE(TRIM(p.OBSCOMPO),''), p.DILUICAO, p.TEOR,
+                               COALESCE(TRIM(p.CLFISC),''), COALESCE(TRIM(p.CDSITPIS),''),
+                               COALESCE(TRIM(p.CDSITCOFINS),''), COALESCE(TRIM(p.INDTRIBISS),''),
+                               COALESCE(TRIM(p.CDICM),''), COALESCE(TRIM(p.CDCEST),''), COALESCE(TRIM(p.CDGTIN),'')
                         FROM FC03000 p JOIN FC03100 e ON e.CDPRO=p.CDPRO AND e.CDFIL=1
                         WHERE p.SITUA='A' AND p.GRUPO='{grupo}'""")
         return cur.fetchall()
@@ -132,6 +137,10 @@ def main():
             "dose_min": num(r[13]), "uni_dose_min": dec(r[14]) or None,
             "dose_max": num(r[15]), "uni_dose_max": dec(r[16]) or None,
             "observacoes": dec(r[17]), "concentracao": conc_map.get(cdpro),
+            # fiscal (do FCerta) → atributo do ativo; só preenche vazios no PATCH (não sobrescreve contador)
+            "ncm": dec(r[20]) or None, "cst_pis": dec(r[21]) or None, "cst_cofins": dec(r[22]) or None,
+            "ind_iss": (dec(r[23]).upper() == "S"), "icms_cod_fcerta": dec(r[24]) or None,
+            "cest": dec(r[25]) or None, "gtin": dec(r[26]) or None,
             "ativo": True, "sincronizado_em": agora, "atualizado_em": agora,
         }
 
@@ -140,8 +149,20 @@ def main():
     print(f"FCerta: {len(fc_rows)} produtos ativos (M+E) extraídos")
 
     # ── estado atual no TAO ──────────────────────────────────────────────────
-    sel = "id,codigo_fc,ativo," + ",".join(CAMPOS_UPDATE)
-    tao = sb_all(f"/ativos?cliente_id=eq.{CID}&select={sel}&order=id.asc")
+    # Detecta se a migration fiscal (colunas em ativos) já rodou; se não, sincroniza sem o fiscal.
+    fiscal_ok = True
+    try:
+        sel = "id,codigo_fc,ativo," + ",".join(CAMPOS_UPDATE + CAMPOS_FISCAIS)
+        tao = sb_all(f"/ativos?cliente_id=eq.{CID}&select={sel}&order=id.asc")
+    except urllib.error.HTTPError as e:
+        if e.code != 400: raise
+        fiscal_ok = False
+        print("AVISO: colunas fiscais ausentes em `ativos` — rode migration_ativo_fiscal_v1.sql. Sync fiscal PULADO.")
+        sel = "id,codigo_fc,ativo," + ",".join(CAMPOS_UPDATE)
+        tao = sb_all(f"/ativos?cliente_id=eq.{CID}&select={sel}&order=id.asc")
+    if not fiscal_ok:  # remove os campos fiscais dos payloads (insert e patch)
+        for a in fc_por_cod.values():
+            for c in CAMPOS_FISCAIS + ["ind_iss"]: a.pop(c, None)
     tao_por_cod = {str(a["codigo_fc"]).strip(): a for a in tao if a.get("codigo_fc")}
     print(f"TAO   : {len(tao)} ativos ({len(tao_por_cod)} com codigo_fc)")
 
@@ -170,6 +191,12 @@ def main():
         for c in CAMPOS_UPDATE:
             if mudou(novo.get(c), atual.get(c)):
                 upd[c] = novo.get(c)
+        # fiscais: só preenche o que está VAZIO no TAO (preserva revisão do contador)
+        if fiscal_ok:
+            for c in CAMPOS_FISCAIS:
+                nv = novo.get(c)
+                if nv not in (None, "") and str(atual.get(c) or "").strip() == "":
+                    upd[c] = nv
         if atual.get("ativo") is False:
             upd["ativo"] = True; reativar += 1
         if upd:
