@@ -26,10 +26,8 @@ require_once TAOC_PLUGIN_DIR . 'includes/pages/taxas.php';
 require_once TAOC_PLUGIN_DIR . 'includes/pages/formas-pagamento.php';
 require_once TAOC_PLUGIN_DIR . 'includes/fiscal.php';
 require_once TAOC_PLUGIN_DIR . 'includes/pages/fiscal.php';
-require_once TAOC_PLUGIN_DIR . 'includes/recebimento.php';
-require_once TAOC_PLUGIN_DIR . 'includes/pages/recebimento.php';
-require_once TAOC_PLUGIN_DIR . 'includes/sngpc.php';
-require_once TAOC_PLUGIN_DIR . 'includes/pages/sngpc.php';
+// Entrada de NF e SNGPC ficam no tao-formula (Estoque → Entrada de NF; Controlados/SNGPC) —
+// são atributos do ativo/estoque. O Caixa cuida só de PDV, recebíveis e NFC-e de saída.
 
 // Ao ativar: concede a permissão de operar caixa para Admin e Gestor
 register_activation_hook( __FILE__, 'tao_caixa_on_activate' );
@@ -51,6 +49,4 @@ add_action( 'admin_menu', function() {
     add_submenu_page( 'tao-caixa', 'Taxas',              'Taxas (MDR)',         'read', 'tao-caixa-taxas',       'tao_caixa_page_taxas' );
     add_submenu_page( 'tao-caixa', 'Formas de Pagamento','Formas de Pagamento', 'read', 'tao-caixa-formas',      'tao_caixa_page_formas_pgto' );
     add_submenu_page( 'tao-caixa', 'Fiscal (NFC-e)',     'Fiscal (NFC-e)',      'read', 'tao-caixa-fiscal',      'tao_caixa_page_fiscal' );
-    add_submenu_page( 'tao-caixa', 'Recebimento de NF',  'Recebimento de NF',   'read', 'tao-caixa-recebimento', 'tao_caixa_page_recebimento' );
-    add_submenu_page( 'tao-caixa', 'SNGPC (Controlados)','SNGPC (Controlados)', 'read', 'tao-caixa-sngpc',       'tao_caixa_page_sngpc' );
 } );

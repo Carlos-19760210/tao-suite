@@ -65,9 +65,8 @@ function tao_formula_page_estoque_nf() {
         function linhaItem(it,i){
             var assoc = it.ativo_id ? '<span class="taof-nf-pill ok">'+esc(it.ativo? it.ativo.nome : 'associado')+'</span>'
                                     : '<input type="text" class="taof-nf-search taof-nf-assoc" data-i="'+i+'" placeholder="buscar ativo..." style="width:150px;padding:4px 6px;border:1px solid #d1d5db;border-radius:4px"><div class="taof-nf-dd" data-i="'+i+'" style="display:none;position:absolute;z-index:50;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.12);max-height:220px;overflow:auto;min-width:260px"></div>';
-            var dv=it.destino_valor||'compra';
-            var sel='<select class="taof-nf-dv" data-i="'+i+'" style="padding:3px 4px;font-size:12px">'+
-                ['compra','custo','ambos'].map(function(o){return '<option value="'+o+'"'+(dv===o?' selected':'')+'>'+o+'</option>';}).join('')+'</select>';
+            var base='<strong>'+money(it.valor_compra_frete)+'</strong>'+
+                (it.frete_rateado>0?'<br><small style="color:#94a3b8">compra '+money(it.valor_compra)+' + frete '+money(it.frete_rateado)+'</small>':'');
             return '<tr data-i="'+i+'">'+
                 '<td style="font-family:monospace;color:#94a3b8">'+esc(it.cod_fornecedor)+'</td>'+
                 '<td>'+esc(it.descr_xml)+'</td>'+
@@ -75,7 +74,7 @@ function tao_formula_page_estoque_nf() {
                 '<td style="text-align:right">'+parseFloat(it.quantidade)+' '+esc(it.unidade)+'</td>'+
                 '<td style="text-align:right">'+money(it.preco_unit)+'</td>'+
                 '<td>'+(it.lote?esc(it.lote)+(it.dt_val?' <small style="color:#94a3b8">val '+fdata(it.dt_val)+'</small>':''):'—')+'</td>'+
-                '<td>'+sel+'</td></tr>';
+                '<td style="text-align:right">'+base+'</td></tr>';
         }
         function renderConf(){
             var f=NF.fornecedor;
@@ -86,7 +85,8 @@ function tao_formula_page_estoque_nf() {
             var head='<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px;margin:10px 0">'+
                 '<strong>NF '+esc(NF.numero)+'/'+esc(NF.serie)+'</strong> · '+fdata(NF.dt_emissao)+' · '+money(NF.valor_total)+'<br>'+
                 'Fornecedor: '+fornLinha+
-                ' · '+NF.itens.length+' itens · '+ (NF.duplicatas.length)+' duplicata(s)</div>';
+                ' · '+NF.itens.length+' itens · '+ (NF.duplicatas.length)+' duplicata(s)'+
+                (NF.valor_frete>0?' · frete '+money(NF.valor_frete)+' <small style="color:#94a3b8">(rateado por valor na base de venda)</small>':'')+'</div>';
             // banner de alertas de conformidade do fornecedor (RDC 67)
             var al=(NF.forn_alertas||[]);
             if(al.length){
@@ -97,7 +97,7 @@ function tao_formula_page_estoque_nf() {
                     al.map(function(a){return '<li>'+esc(a.msg)+'</li>';}).join('')+'</ul></div>';
             }
             var rows=NF.itens.map(linhaItem).join('');
-            var tbl='<div class="taof-nf-twrap"><table class="taof-nf-tb"><tr><th>Cód. forn.</th><th>Descrição (XML)</th><th>Ativo TAO</th><th>Qtd</th><th>Preço un.</th><th>Lote</th><th>Valor→</th></tr>'+rows+'</table></div>';
+            var tbl='<div class="taof-nf-twrap"><table class="taof-nf-tb"><tr><th>Cód. forn.</th><th>Descrição (XML)</th><th>Ativo TAO</th><th>Qtd</th><th>Preço un.</th><th>Lote</th><th style="text-align:right">Base venda (c/ frete)</th></tr>'+rows+'</table></div>';
             var pend=NF.itens.filter(function(x){return !x.ativo_id;}).length;
             var btn='<p style="margin:12px 0"><button type="button" class="button button-primary" id="taof-nf-efetivar" '+(f?'':'disabled')+'>✔ Efetivar entrada</button> '+
                 '<span id="taof-nf-efmsg" style="font-size:12px;margin-left:8px">'+(pend?('⚠ '+pend+' item(ns) sem ativo — associe todos'):'')+'</span></p>';
@@ -126,7 +126,6 @@ function tao_formula_page_estoque_nf() {
             },260));
         });
         $(document).on('blur','.taof-nf-search',function(){var i=$(this).data('i');setTimeout(function(){$('.taof-nf-dd[data-i="'+i+'"]').hide();},180);});
-        $(document).on('change','.taof-nf-dv',function(){NF.itens[$(this).data('i')].destino_valor=this.value;});
 
         // ── Cadastro rápido do fornecedor a partir do XML ──
         $(document).on('click','#taof-nf-cadforn',function(){

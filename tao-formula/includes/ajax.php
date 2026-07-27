@@ -3372,7 +3372,7 @@ add_action( 'wp_ajax_tao_formula_contato_anonimizar', function () {
 
 // Parse do XML da NFe: emitente + itens (com grupo K rastreab.) + duplicatas.
 function tao_formula_parse_nfe( $xml_raw ) {
-    $xml_raw = preg_replace( '/xmlns(:\w+)?="[^"]*"/', '', $xml_raw, 1 ); // solta o namespace raiz
+    $xml_raw = preg_replace( '/xmlns(:\w+)?="[^"]*"/', '', $xml_raw ); // solta TODOS os namespaces (nfeProc>NFe tem 2)
     $x = @simplexml_load_string( $xml_raw );
     if ( ! $x ) return null;
     // localiza infNFe em qualquer envelope (nfeProc/NFe)
@@ -3390,6 +3390,8 @@ function tao_formula_parse_nfe( $xml_raw ) {
         'serie'         => (string) $inf->ide->serie,
         'dt_emissao'    => substr( (string) $inf->ide->dhEmi, 0, 10 ),
         'valor_total'   => (float) $inf->total->ICMSTot->vNF,
+        'valor_frete'   => (float) $inf->total->ICMSTot->vFrete,
+        'valor_produtos'=> (float) $inf->total->ICMSTot->vProd,
         // dados do emitente p/ pré-preencher o cadastro de fornecedor (RDC 67 / casamento da NF)
         'emitente'      => [
             'cnpj'           => preg_replace( '/\D/', '', (string) $emit->CNPJ ),
@@ -3417,6 +3419,7 @@ function tao_formula_parse_nfe( $xml_raw ) {
             'quantidade'     => (float) $p->qCom,
             'unidade'        => (string) $p->uCom,
             'preco_unit'     => (float) $p->vUnCom,
+            'valor_prod'     => (float) $p->vProd,          // valor bruto do item (p/ rateio de frete)
             'desconto'       => (float) ( $p->vDesc ?? 0 ),
             'lote'           => '', 'dt_fab' => '', 'dt_val' => '',
         ];
@@ -3496,14 +3499,29 @@ add_action( 'wp_ajax_tao_formula_nf_upload', function () {
     $ativo_ids = array_values( array_unique( array_filter( array_values( $depara ) ) ) );
     $ativos = [];
     if ( $ativo_ids ) {
-        $ra = tao_formula_api( "/ativos?cliente_id=eq.$cliente_id&id=in.(" . implode( ',', $ativo_ids ) . ")&select=id,codigo_fc,nome,unidade_padrao,preco_compra,custo_por_unidade&limit=" . count( $ativo_ids ) );
+        $ra = tao_formula_api( "/ativos?cliente_id=eq.$cliente_id&id=in.(" . implode( ',', $ativo_ids ) . ")&select=id,codigo_fc,nome,unidade_padrao,preco_compra,preco_custo,custo_por_unidade&limit=" . count( $ativo_ids ) );
         foreach ( ( $ra['ok'] ? $ra['data'] : [] ) as $a ) $ativos[ $a['id'] ] = $a;
     }
+    // Rateio do frete por valor + os 3 valores do ativo (regra Carlos):
+    //   compra = pago s/ frete (líq. desconto) · frete rateado por valor · compra c/ frete = base de venda.
+    $frete = (float) ( $nfe['valor_frete'] ?? 0 );
+    $tprod = (float) ( $nfe['valor_produtos'] ?? 0 ) ?: 1;
     foreach ( $nfe['itens'] as &$it ) {
         $aid = $depara[ $it['cod_fornecedor'] ] ?? null;
         $it['ativo_id'] = $aid;
         $it['ativo']    = $aid ? ( $ativos[ $aid ] ?? null ) : null;
-        $it['destino_valor'] = 'compra';  // default (Carlos)
+
+        $q      = (float) ( $it['quantidade'] ?? 0 ) ?: 1;
+        $vprod  = (float) ( $it['valor_prod'] ?? 0 );
+        $vdesc  = (float) ( $it['desconto'] ?? 0 );
+        $compra = round( ( $vprod - $vdesc ) / $q, 4 );                  // pago s/ frete (unit)
+        $frt    = round( ( ( $vprod / $tprod ) * $frete ) / $q, 4 );     // rateio por valor (unit)
+        $it['valor_compra']       = $compra;
+        $it['frete_rateado']      = $frt;
+        $it['valor_compra_frete'] = round( $compra + $frt, 4 );          // BASE de venda
+        // custo (mercado): do cadastro do ativo; sem referência, custo = compra
+        $pc = $aid ? (float) ( $ativos[ $aid ]['preco_custo'] ?? 0 ) : 0;
+        $it['valor_custo'] = $pc > 0 ? $pc : $compra;
     }
     unset( $it );
 
@@ -3599,6 +3617,12 @@ add_action( 'wp_ajax_tao_formula_nf_efetivar', function () {
         $aid = $it['ativo_id'];
         $qtd = (float) ( $it['quantidade'] ?? 0 );
 
+        // 3 valores do ativo (regra Carlos): compra (pago s/ frete) · +frete rateado · compra c/ frete (base venda)
+        $v_compra = (float) ( $it['valor_compra'] ?? ( $it['preco_unit'] ?? 0 ) );
+        $v_frete  = (float) ( $it['frete_rateado'] ?? 0 );
+        $v_cf     = (float) ( $it['valor_compra_frete'] ?? ( $v_compra + $v_frete ) );
+        $v_custo  = (float) ( $it['valor_custo'] ?? $v_compra );
+
         // item da NF
         tao_formula_api( '/estoque_entradas_nf_itens', 'POST', [
             'entrada_id'     => $entrada_id, 'ativo_id' => $aid,
@@ -3607,7 +3631,8 @@ add_action( 'wp_ajax_tao_formula_nf_efetivar', function () {
             'preco_unit'     => (float) ( $it['preco_unit'] ?? 0 ), 'desconto' => (float) ( $it['desconto'] ?? 0 ),
             'lote'           => $it['lote'] ?: null, 'dt_fab' => $it['dt_fab'] ?: null, 'dt_val' => $it['dt_val'] ?: null,
             'teor'           => $it['teor'] ?? null, 'densidade' => $it['densidade'] ?? null, 'diluicao' => $it['diluicao'] ?? null,
-            'destino_valor'  => in_array( $it['destino_valor'] ?? 'compra', [ 'custo', 'compra', 'ambos' ], true ) ? $it['destino_valor'] : 'compra',
+            'valor_compra'       => $v_compra, 'frete_rateado' => $v_frete,
+            'valor_compra_frete' => $v_cf,     'valor_custo'   => $v_custo,
         ] );
 
         // aprende o de-para (1x por fornecedor+código)
@@ -3643,20 +3668,23 @@ add_action( 'wp_ajax_tao_formula_nf_efetivar', function () {
         ] );
         $mov++;
 
-        // atualiza preço do ativo conforme destino do valor
-        $preco = (float) ( $it['preco_unit'] ?? 0 );
-        if ( $preco > 0 ) {
-            $dv = $it['destino_valor'] ?? 'compra';
-            $upd = [];
-            if ( $dv === 'compra' || $dv === 'ambos' ) $upd['preco_compra'] = $preco;
-            if ( $dv === 'custo'  || $dv === 'ambos' ) $upd['custo_por_unidade'] = $preco;
-            if ( $upd ) {
-                tao_formula_api( "/ativos?id=eq.$aid&cliente_id=eq.$cliente_id", 'PATCH', $upd );
-                tao_formula_registrar_preco_hist( $cliente_id, $aid, [
-                    'preco_compra'  => $upd['preco_compra'] ?? null,
-                    'custo_unidade' => $upd['custo_por_unidade'] ?? null,
-                ], 'nf', [ 'fornecedor_id' => $forn_id, 'nf_numero' => $payload['numero'] ?? null ] );
-            }
+        // atualiza os valores do ativo: compra (pago), custo (mercado; = compra se não houver ref.),
+        // e compra c/ frete (BASE do preço de venda). Não sobrescreve custo de mercado já cadastrado.
+        if ( $v_compra > 0 ) {
+            $upd = [
+                'preco_compra'       => $v_compra,
+                'custo_com_frete'    => $v_cf,
+                'custo_com_frete_em' => gmdate( 'c' ),
+                'preco_custo'        => $v_custo,
+            ];
+            $r_upd = tao_formula_api( "/ativos?id=eq.$aid&cliente_id=eq.$cliente_id", 'PATCH', $upd );
+            // fallback se a migration_ativo_fiscal_v1 (custo_com_frete/preco_custo) ainda não rodou
+            if ( ! $r_upd['ok'] && strpos( (string) ( $r_upd['raw'] ?? '' ), 'column' ) !== false )
+                tao_formula_api( "/ativos?id=eq.$aid&cliente_id=eq.$cliente_id", 'PATCH', [ 'preco_compra' => $v_compra ] );
+            tao_formula_registrar_preco_hist( $cliente_id, $aid, [
+                'preco_compra'  => $v_compra,
+                'custo_unidade' => $v_cf,
+            ], 'nf', [ 'fornecedor_id' => $forn_id, 'nf_numero' => $payload['numero'] ?? null ] );
         }
     }
 
