@@ -1,5 +1,5 @@
 # Confronto FCerta × TAO Neo — Cargas do Pacote 1 (Motor Farmacotécnico)
-Gerado automaticamente em 2026-07-16. Fonte FCerta: backup restaurado em C:\Users\carlo\FCertaSync\fcerta_atual.ib.
+Gerado automaticamente em 2026-07-27. Fonte FCerta: backup restaurado em C:\Users\carlo\FCertaSync\fcerta_atual.ib.
 
 ## Carga 1 — Dados técnicos dos ativos (FC03000 → ativos)
 | Campo | Conferem | Total FCerta | % |
@@ -35,19 +35,18 @@ Sinônimos com fator≠1 no TAO: 40
 ## Carga 3 — Fórmulas padrão (FC05000/FC05100 → lab_formulas_padrao)
 | Lado | Fórmulas | Itens |
 |---|---|---|
-| FCerta | 736 | 2930 |
+| FCerta | 737 | 2932 |
 | TAO | 734 | 2921 |
 - "KIT POTE 1000ML VEDAPACK": itens FCerta=3 × TAO=3 ✓
 - "AGUA BORICADA 3%  100 ml": itens FCerta=2 × TAO=2 ✓
 - "EXCIPIENTE BASE": itens FCerta=3 × TAO=3 ✓
 
 ## Carga 4 — Lotes vivos (FC03140 → lab_lotes_mp)
-FCerta (estoque>0, validade≥07/07/2026): **1217** | TAO: **1275** (19 sem ativo no TAO, não migrados)
-Amostra conferida (400 mais recentes): **395/398** batem em lote+validade+estoque (99%)
+FCerta (estoque>0, validade≥07/07/2026): **1212** | TAO: **1280** (19 sem ativo no TAO, não migrados)
+Amostra conferida (400 mais recentes): **396/398** batem em lote+validade+estoque (99%)
 Divergências da amostra:
 - CAP ENTERICA 1 INCOLOR lote C25080151: FCerta val=2028-08-17 est=2000.0 × TAO=presente
-- CAP GELAT 0 ROSA/BRANCA lote 2510840RA: FCerta val=2030-07-03 est=3860.0 × TAO=presente
-- CAP ENTERICA 00-INCOLOR lote C25080116: FCerta val=2028-08-15 est=150.0 × TAO=presente
+- CAP GELAT 0 ROSA/BRANCA lote 2510840RA: FCerta val=2030-07-03 est=3800.0 × TAO=presente
 
 ## Carga 5 — Lista de bloqueio GLP-1
 Nenhuma substância GLP-1 no catálogo Magis (esperado — não manipula). Trava preventiva fica na regra do motor (por DCB/nome no orçamento).
