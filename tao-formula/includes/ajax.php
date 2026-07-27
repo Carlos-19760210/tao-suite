@@ -107,17 +107,17 @@ add_action( 'wp_ajax_tao_formula_get_ativo', function() {
     $cliente_id = tao_formula_cliente_id();
     if ( ! $id || ! $cliente_id ) wp_send_json_error( 'Parâmetros inválidos', 400 );
 
-    $r = tao_formula_api(
-        "/ativos?id=eq.$id&cliente_id=eq.$cliente_id" .
-        "&select=id,codigo_fc,nome,grupo,unidade,unidade_padrao,estoque_atual,preco_compra,preco_custo," .
+    $sel_base = "id,codigo_fc,nome,grupo,unidade,unidade_padrao,estoque_atual,preco_compra,preco_custo," .
         "custo_por_unidade,preco_venda,fator_correcao,fator_perda,densidade,dcb,dose_min,uni_dose_min," .
         "dose_max,uni_dose_max,categoria,classe_terapeutica,principio_ativo,observacoes,sincronizado_em," .
         "diluicao,teor,concentracao,markup_preco,restricao,ativo,controlado,classe_sngpc,registro_ms," .
         "ft_nome_quimico,ft_formula_molecular,ft_peso_molecular,ft_caracteres,ft_ponto_fusao,ft_solubilidade," .
-        "ft_ph,ft_grau_pureza,ft_conservacao,ft_referencias,ft_revisao," .
-        "excipiente_id,bloqueado,bloqueado_motivo" .
-        "&limit=1"
-    );
+        "ft_ph,ft_grau_pureza,ft_conservacao,ft_referencias,ft_revisao,excipiente_id,bloqueado,bloqueado_motivo";
+    // Campos da migration_ativo_fiscal_v1 (fiscal + compra c/ frete) — separados p/ retry defensivo.
+    $sel_fiscal = "custo_com_frete,ncm,cest,gtin,cst_pis,cst_cofins,cst_icms,csosn,cfop_venda,aliquota_icms,icms_origem,ind_iss,fiscal_revisado,fiscal_obs";
+    $r = tao_formula_api( "/ativos?id=eq.$id&cliente_id=eq.$cliente_id&select=$sel_base,$sel_fiscal&limit=1" );
+    if ( ! $r['ok'] && strpos( (string) ( $r['raw'] ?? '' ), 'column' ) !== false )   // migration ainda não rodada
+        $r = tao_formula_api( "/ativos?id=eq.$id&cliente_id=eq.$cliente_id&select=$sel_base&limit=1" );
 
     if ( $r['ok'] && ! empty( $r['data'] ) ) {
         $ativo = $r['data'][0];
@@ -190,10 +190,27 @@ add_action( 'wp_ajax_tao_formula_salvar_ativo', function() {
         'registro_ms'       => $txt( 'registro_ms' ),
         'unidade'           => $txt( 'unidade', true ),
         'unidade_padrao'    => $txt( 'unidade_padrao' ),
+        // 3 valores do ativo: custo (mercado) · compra (pago s/ frete) · compra c/ frete (base de venda)
+        'preco_custo'       => $num( 'preco_custo' ),
         'preco_compra'      => $num( 'preco_compra' ),
+        'custo_com_frete'   => $num( 'custo_com_frete' ),
         'custo_por_unidade' => $num( 'custo_por_unidade' ),
         'preco_venda'       => $num( 'preco_venda' ),
         'markup_preco'      => $num( 'markup_preco' ),
+        // Fiscal (atributo do ativo) — consolidado de fiscal_produtos
+        'ncm'               => $txt( 'ncm' ),
+        'cest'              => $txt( 'cest' ),
+        'gtin'              => $txt( 'gtin' ),
+        'cst_pis'           => $txt( 'cst_pis' ),
+        'cst_cofins'        => $txt( 'cst_cofins' ),
+        'cst_icms'          => $txt( 'cst_icms' ),
+        'csosn'             => $txt( 'csosn' ),
+        'cfop_venda'        => $txt( 'cfop_venda' ),
+        'aliquota_icms'     => $num( 'aliquota_icms' ),
+        'icms_origem'       => $txt( 'icms_origem' ),
+        'ind_iss'           => ( $_POST['ind_iss'] ?? '' ) === '1',
+        'fiscal_revisado'   => ( $_POST['fiscal_revisado'] ?? '' ) === '1',
+        'fiscal_obs'        => $txt( 'fiscal_obs' ),
         'dcb'               => $txt( 'dcb', true ),
         'fator_correcao'    => $num( 'fator_correcao' ),
         'fator_perda'       => $num( 'fator_perda' ),
@@ -246,6 +263,10 @@ add_action( 'wp_ajax_tao_formula_salvar_ativo', function() {
         unset( $payload['controlado'], $payload['classe_sngpc'], $payload['registro_ms'] );
         foreach ( array_keys( $payload ) as $k ) if ( strpos( $k, 'ft_' ) === 0 ) unset( $payload[ $k ] );
         unset( $payload['excipiente_id'], $payload['bloqueado'], $payload['bloqueado_motivo'] );
+        // fiscal + valores novos (migration_ativo_fiscal_v1 ainda não rodada)
+        unset( $payload['preco_custo'], $payload['custo_com_frete'], $payload['ncm'], $payload['cest'], $payload['gtin'],
+               $payload['cst_pis'], $payload['cst_cofins'], $payload['cst_icms'], $payload['csosn'], $payload['cfop_venda'],
+               $payload['aliquota_icms'], $payload['icms_origem'], $payload['ind_iss'], $payload['fiscal_revisado'], $payload['fiscal_obs'] );
         $r = $gravar( $payload );
     }
     if ( ! $r['ok'] ) wp_send_json_error( [ 'message' => 'Erro ao salvar: ' . mb_substr( (string) $r['raw'], 0, 300 ) ] );

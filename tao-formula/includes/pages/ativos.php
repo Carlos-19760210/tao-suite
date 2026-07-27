@@ -453,8 +453,16 @@ function tao_formula_page_ativos() {
                     inp('Unidade padr&atilde;o (venda)','unidade_padrao',a.unidade_padrao,{ph:'g / mg / ml / un'}),
                     inp('Categoria','categoria',a.categoria)
                 ]);
-                html += fgrid(4,[
-                    inp('Pre&ccedil;o compra (R$)','preco_compra',a.preco_compra),
+                // Os 3 valores do ativo (definição Carlos): custo=mercado · compra=pago s/ frete · compra c/ frete=base de venda
+                html += '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:8px 12px;margin-bottom:10px">'+
+                    '<p style="font-size:11px;color:#166534;margin:0 0 6px;font-weight:700;text-transform:uppercase;letter-spacing:.4px">Custos do ativo</p>'+
+                    fgrid(3,[
+                        inp('Valor de custo — mercado (R$)','preco_custo',a.preco_custo),
+                        inp('Valor de compra — pago s/ frete (R$)','preco_compra',a.preco_compra),
+                        inp('Compra c/ frete — base de venda (R$)','custo_com_frete',a.custo_com_frete)
+                    ])+
+                    '<p style="font-size:11px;color:#64748b;margin:2px 0 0">A compra c/ frete é atualizada automaticamente a cada Recebimento de NF e serve de base para o preço de venda.</p></div>';
+                html += fgrid(3,[
                     inp('Custo/unid (R$)','custo_por_unidade',a.custo_por_unidade),
                     inp('Markup (&times;)','markup_preco',a.markup_preco,{ph:'ex: 3'}),
                     inp('Pre&ccedil;o venda (R$) — calc.','preco_venda',a.preco_venda)
@@ -516,6 +524,33 @@ function tao_formula_page_ativos() {
                     inp('Refer&ecirc;ncias (farmacopeia)','ft_referencias',a.ft_referencias,{ph:'FB 6, USP...'}),
                     inp('Revis&atilde;o da ficha','ft_revisao',a.ft_revisao)
                 ]);
+                html += '</div></details>';
+                // Fiscal (atributo do ativo) — NCM, CST, ICMS. Base da NFC-e de saída.
+                var _iss=a.ind_iss?' checked':'', _rev=a.fiscal_revisado?' checked':'';
+                html += '<details'+((a.ncm||a.cst_icms||a.csosn)?' open':'')+' style="margin-bottom:12px;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;background:#fafafa">'+
+                    '<summary style="cursor:pointer;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#475569">&#x1F9FE; Fiscal (NCM / CST / ICMS)</summary>'+
+                    '<div style="margin-top:10px">';
+                html += fgrid(3,[
+                    inp('NCM','ncm',a.ncm,{ph:'30049099'}),
+                    inp('CEST','cest',a.cest),
+                    inp('GTIN / EAN','gtin',a.gtin)
+                ]);
+                html += fgrid(4,[
+                    inp('CST PIS','cst_pis',a.cst_pis,{ph:'99'}),
+                    inp('CST COFINS','cst_cofins',a.cst_cofins,{ph:'99'}),
+                    inp('CST ICMS (normal)','cst_icms',a.cst_icms),
+                    inp('CSOSN (Simples)','csosn',a.csosn,{ph:'102'})
+                ]);
+                html += fgrid(4,[
+                    inp('CFOP venda','cfop_venda',a.cfop_venda,{ph:'5102'}),
+                    inp('Al&iacute;quota ICMS (%)','aliquota_icms',a.aliquota_icms),
+                    inp('Origem (0-8)','icms_origem',a.icms_origem,{ph:'0'}),
+                    '<div><label style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:2px">Tributa&ccedil;&atilde;o</label>'+
+                    '<label style="font-size:13px;display:inline-flex;align-items:center;gap:6px;margin-top:4px"><input type="checkbox" name="ind_iss" value="1"'+_iss+'> Servi&ccedil;o (ISS)</label></div>'
+                ]);
+                html += '<div style="display:flex;align-items:center;gap:16px;margin-top:4px">'+
+                    '<label style="font-size:13px;display:inline-flex;align-items:center;gap:6px"><input type="checkbox" name="fiscal_revisado" value="1"'+_rev+'> <strong>Revisado pelo contador</strong></label>'+
+                    '<div style="flex:1">'+inp('Observa&ccedil;&atilde;o fiscal','fiscal_obs',a.fiscal_obs)+'</div></div>';
                 html += '</div></details>';
                 html += '<p style="margin:6px 0 0">' +
                         '<button type="submit" class="button button-primary">&#x1F4BE; Salvar</button> ' +
