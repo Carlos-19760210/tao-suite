@@ -1957,11 +1957,19 @@ function tao_formula_parse_descricao_itens( $descr, $cliente_id ) {
     $header = substr( $descr, 0, $pipe );
     $resto  = substr( $descr, $pipe + 3 );
 
-    // Parse vol/unidade do cabeçalho: "...FORMA: 180CAP" ou "...FORMA: 30G"
-    if ( preg_match( '/:\s*([\d.,]+)\s*(caps?|cap|g|ml|mcg)\b/i', $header, $hm ) ) {
+    // Parse vol/unidade do cabeçalho: "...FORMA: 180CAP", "...FORMA: 30G", "...FORMA: 30ENV", "...FORMA: 30".
+    // O número de unidades da forma vem SEMPRE após os dois-pontos, independente da unidade — se
+    // o regex só reconhecesse cap/g/ml/mcg, formas como envelope/sachê ficavam com forma_vol nulo
+    // e o cálculo multiplicava por 1 (pesava o de 1 unidade em vez do total). A unidade abaixo é só
+    // para classificar (caps/ml/g/un); o multiplicador é o número.
+    if ( preg_match( '/:\s*([\d.,]+)/', $header, $hm ) ) {
         $forma_vol = (float) str_replace( ',', '.', $hm[1] );
-        $u = strtolower( $hm[2] );
-        $forma_unidade = in_array( $u, ['cap','caps'] ) ? 'caps' : ( $u === 'ml' ? 'ml' : 'g' );
+        if ( preg_match( '/[\d.,]\s*(caps?|g|ml|mcg)\b/i', $header, $um ) ) {
+            $u = strtolower( $um[1] );
+            $forma_unidade = in_array( $u, ['cap','caps'] ) ? 'caps' : ( $u === 'ml' ? 'ml' : 'g' );
+        } else {
+            $forma_unidade = 'un';  // envelope / sachê / unidade de contagem
+        }
     }
 
     // Ingredientes separados por "; "
