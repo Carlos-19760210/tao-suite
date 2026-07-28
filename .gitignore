@@ -43,3 +43,4 @@ __pycache__/
 
 # Logs e cache temporário de extração PubChem (regeneráveis pelo script)
 pubchem_*
+tao-lab/CONFRONTO_DIARIO_*.md
