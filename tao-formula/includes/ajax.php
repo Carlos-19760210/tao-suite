@@ -2347,13 +2347,19 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
         $qtde_potes = 1;
 
         // ── 2. Busca forma farmacêutica por nome ─────────────────────────────────────
+        // Mapeamento FCerta→TAO: a forma 9 "Comprimido" do FCerta = forma sublingual/orodispersível
+        // do TAO (base orotab por volume). Busca por tipo='sublingual' em vez de por nome.
         $forma    = null;
         $forma_id = null;
-        if ( $forma_nome_raw ) {
+        $sel_forma = 'id,nome,tipo,custo_fixo,custo_fixo_tipo,margem_pct,valor_minimo,n_capsulas,volume,unidade_volume,ftenchcap';
+        if ( $forma_nome_raw && preg_match( '/comprimid/i', $forma_nome_raw ) ) {
+            $rf = tao_formula_api( "/formas_farmaceuticas?cliente_id=eq.{$cliente_id}&tipo=eq.sublingual&ativo=eq.true&select={$sel_forma}&limit=1" );
+            if ( $rf['ok'] && ! empty( $rf['data'] ) ) { $forma = $rf['data'][0]; $forma_id = $forma['id']; }
+        }
+        if ( ! $forma && $forma_nome_raw ) {
             $enc_f = rawurlencode( $forma_nome_raw );
             $rf = tao_formula_api(
-                "/formas_farmaceuticas?cliente_id=eq.{$cliente_id}&nome=ilike.*{$enc_f}*&ativo=eq.true" .
-                "&select=id,nome,tipo,custo_fixo,custo_fixo_tipo,margem_pct,valor_minimo,n_capsulas,volume,unidade_volume,ftenchcap&limit=1"
+                "/formas_farmaceuticas?cliente_id=eq.{$cliente_id}&nome=ilike.*{$enc_f}*&ativo=eq.true&select={$sel_forma}&limit=1"
             );
             if ( $rf['ok'] && ! empty( $rf['data'] ) ) {
                 $forma    = $rf['data'][0];
