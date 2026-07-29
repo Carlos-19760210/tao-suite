@@ -1860,9 +1860,14 @@ Ativos: ' . $lista_json;
  * Sugere embalagem para a forma importada e retorna item pronto com preço do banco.
  * Retorna array de item 'emb' ou null se não houver sugestão.
  */
-function tao_formula_sugerir_embalagem_import( $forma_tipo, $forma_vol, $cliente_id ) {
+function tao_formula_sugerir_embalagem_import( $forma_tipo, $forma_vol, $cliente_id, $peso_por_dose = 0 ) {
     // Tabela estática: [tipo → opções ordenadas por volume crescente]
     $table = [
+        // envelope/sachê: 1 sachê por DOSE (quantidade = nº de doses); tamanho por peso da dose
+        'envelope' => [
+            ['c'=>31873,'n'=>'SACHE LAMINADO 5GRS',  'v'=>5],
+            ['c'=>10689,'n'=>'SACHE LAMINADO 15GRS', 'v'=>15],
+        ],
         'creme'   => [
             ['c'=>62921,'n'=>'BISNAGA PLASTICA 30G',           'v'=>30],
             ['c'=>62661,'n'=>'BISNAGA PLASTICA 60G',           'v'=>60],
@@ -1919,6 +1924,11 @@ function tao_formula_sugerir_embalagem_import( $forma_tipo, $forma_vol, $cliente
         foreach ( $opts as $o ) {
             if ( ( $o['nc'] ?? 0 ) >= $vol ) { $selected = $o; break; }
         }
+    } elseif ( $tipo === 'envelope' ) {
+        // escolhe o sachê pelo PESO de cada dose (a quantidade será o nº de doses)
+        foreach ( $opts as $o ) {
+            if ( $o['v'] >= (float) $peso_por_dose ) { $selected = $o; break; }
+        }
     } else {
         foreach ( $opts as $o ) {
             if ( $o['v'] >= $vol ) { $selected = $o; break; }
@@ -1941,13 +1951,15 @@ function tao_formula_sugerir_embalagem_import( $forma_tipo, $forma_vol, $cliente
         $preco_custo = (float)( $ra['data'][0]['custo_por_unidade'] ?? 0 );
     }
 
+    // Envelope: 1 sachê por dose → quantidade = nº de doses (vol/qtde). Demais formas: 1 embalagem.
+    $qtd_emb = ( $tipo === 'envelope' ) ? max( 1, (int) round( (float) $forma_vol ) ) : 1;
     return [
         'tipo'              => 'emb',
         'ativo_id'          => $ativo_id,
         'nome'              => $selected['n'],
-        'quantidade'        => 1,
+        'quantidade'        => $qtd_emb,
         'custo_por_unidade' => $preco_custo ?: $preco_venda,
-        'subtotal'          => round( $preco_venda, 2 ),
+        'subtotal'          => round( $preco_venda * $qtd_emb, 2 ),
     ];
 }
 
@@ -2453,6 +2465,7 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
         $excip_subtotal = $excip_subtotal ?? 0.0;
         $motor_on_calc  = get_option( 'tao_formula_motor_v2' ) === '1';
         $total_insumos = 0.0;
+        $peso_total_g  = 0.0;   // soma das massas (p/ escolher o tamanho do sachê no envelope)
         foreach ( $itens_mp as &$item ) {
             if ( $item['tipo'] !== 'mp' || $item['is_qsp'] ) continue;
             $dose      = (float)( $item['dose'] ?? 0 );
@@ -2497,6 +2510,7 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
             $item['multiplicador'] = $mult;
             $item['subtotal']      = $subtotal;
             $total_insumos        += $subtotal;
+            $peso_total_g         += $qtd_total_g;
         }
         unset( $item );
 
@@ -2507,7 +2521,8 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
         $itens_emb = [];
         $total_emb = 0.0;
         if ( $forma ) {
-            $emb = tao_formula_sugerir_embalagem_import( $forma['tipo'], $forma_vol, $cliente_id );
+            $peso_por_dose = ( $forma_vol > 0 ) ? ( $peso_total_g / $forma_vol ) : $peso_total_g;
+            $emb = tao_formula_sugerir_embalagem_import( $forma['tipo'], $forma_vol, $cliente_id, $peso_por_dose );
             if ( $emb ) {
                 $itens_emb[] = $emb;
                 $total_emb   = $emb['subtotal'];
