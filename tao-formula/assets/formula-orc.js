@@ -565,6 +565,7 @@
                       fmt(_subInfo.tam, 2) + (_subInfo.auto ? ' (automático)' : '') +
                       ' · <strong>' + totComp + '</strong> comprimidos no total');
             $wrap.css('display', 'block');
+            atualizarBlisterQtd();   // linha dinâmica do blister (9/blister) acompanha o total
         } else {
             $wrap.hide();
         }
@@ -745,10 +746,11 @@
                 $('#taof-card-capsulas').hide();
                 $('#taof-caps-por-dose').removeData('manual').val(1);
             }
-            // Fora do sublingual: esconde o seletor de comprimido e restaura o título
+            // Fora do sublingual: esconde o seletor de comprimido, remove o blister e restaura o título
             if (!formaAtual || formaAtual.tipo !== 'sublingual') {
                 $('#taof-sub-comp-wrap').hide();
                 $('#taof-emb-hdr').text('Embalagem');
+                $('#taof-emb-body .taof-emb-row[data-sub-blister]').remove();
                 _subInfo = null;
             }
 
@@ -777,7 +779,7 @@
         }
 
         if (!_loadingEdit) $('#taof-itens-body .taof-item-row').each(function () { calcularLinha($(this)); });
-        if (!_loadingEdit) setTimeout(garantirExcipienteEnvelope, 120); setTimeout(garantirBaseSublingual, 120);   // envelope: garante base efervescente
+        if (!_loadingEdit) setTimeout(garantirExcipienteEnvelope, 120); setTimeout(garantirBaseSublingual, 120); setTimeout(garantirBlisterSublingual, 140);   // envelope: garante base efervescente; sublingual: base + blister
     });
 
     // Recalcula quando atendente altera Vol/Qtde, Tipo Capsula, Unidade, Potes ou Vol/dose
@@ -1038,9 +1040,10 @@
                 if (upd.teor !== undefined || upd.densidade !== undefined || upd.diluicao !== undefined) calcularLinha($row);
             });
         }
-        // Envelope: ao associar um ativo (não-QSP), garante o excipiente base efervescente
-        if (!$row.hasClass('taof-row-qsp') && formaAtual && formaAtual.tipo === 'envelope') {
-            setTimeout(garantirExcipienteEnvelope, 120); setTimeout(garantirBaseSublingual, 120);
+        // Ao associar um ativo (não-QSP): envelope garante excipiente base; sublingual garante base + blister
+        if (!$row.hasClass('taof-row-qsp') && formaAtual &&
+            (formaAtual.tipo === 'envelope' || formaAtual.tipo === 'sublingual')) {
+            setTimeout(garantirExcipienteEnvelope, 120); setTimeout(garantirBaseSublingual, 120); setTimeout(garantirBlisterSublingual, 140);
         }
     }
 
@@ -1324,6 +1327,67 @@
             if (!ativo && lista.length) ativo = lista[0];
             _baseSub = ativo;
             aplicar(ativo);
+        });
+    }
+
+    // Sublingual: LINHA DINÂMICA do blister BLISTER OROTAB - 9 (11313) — 9 sublinguais/blister.
+    // Quantidade = ceil(total_comprimidos / 9), recalculada a cada mudança de dose/tamanho/potes.
+    var _blisterSub = null;
+    function _marcarBlisterRow($row, a) {
+        $row.attr('data-sub-blister', '1').data({ 'auto-emb': true, 'sub-blister': true });
+        if (a) {
+            var custo = a.custo_por_unidade || a.preco_venda || 0;
+            $row.data({ 'emb-id': a.id, 'emb-nome': a.nome, 'custo-unit': custo });
+            $row.find('.taof-emb-search').val(a.nome);
+            $row.find('.taof-emb-id').val(a.id);
+            $row.find('.taof-emb-custo-label').text('R$ ' + fmt(custo, 4) + '/un');
+        }
+        $row.find('.taof-emb-search').prop('readonly', true);
+        $row.find('.taof-emb-qty').prop('readonly', true)
+            .attr('title', '9 sublinguais por blister — quantidade automática');
+    }
+    // Só ajusta a quantidade/subtotal (chamada DENTRO de calcularTotais, sem recursão).
+    function atualizarBlisterQtd() {
+        if (_loadingEdit) return;
+        var $row = $('#taof-emb-body .taof-emb-row[data-sub-blister]').first();
+        if (!$row.length || !_subInfo || !(_subInfo.n > 0)) return;
+        var totComp  = _subInfo.n * getVol() * getPotes();
+        var nBlister = Math.max(1, Math.ceil(totComp / 9));
+        var custo    = parseFloat($row.data('custo-unit')) || 0;
+        var subtotal = nBlister * custo;
+        $row.find('.taof-emb-qty').val(nBlister);                 // .val() não dispara input → sem recursão
+        $row.find('.taof-emb-subtotal').text('R$ ' + fmt(subtotal));
+        $row.data('subtotal-emb', subtotal);
+    }
+    function garantirBlisterSublingual() {
+        if (_loadingEdit) return;
+        if (!formaAtual || formaAtual.tipo !== 'sublingual') return;
+        if (!$('#taof-itens-body .taof-item-row:not(.taof-row-qsp)').length) return;   // sem ativos ainda
+        // Já existe (criada agora ou carregada do salvo)? marca como dinâmica e atualiza.
+        var $existe = $('#taof-emb-body .taof-emb-row[data-sub-blister]');
+        if (!$existe.length) {
+            $('#taof-emb-body .taof-emb-row').each(function () {
+                var nome = String($(this).data('emb-nome') || $(this).find('.taof-emb-search').val() || '');
+                if (/blister\s*orotab/i.test(nome)) { _marcarBlisterRow($(this), null); $existe = $(this); }
+            });
+        }
+        if ($existe.length) { atualizarBlisterQtd(); calcularTotais(); return; }
+        var criar = function (a) {
+            if (!a) return;
+            $('#taof-btn-add-emb').trigger('click');
+            var $row = $('#taof-emb-body .taof-emb-row').last();
+            $row.data('subtotal-emb', 0);
+            _marcarBlisterRow($row, a);
+            calcularTotais();   // dispara atualizarPorDose → atualizarBlisterQtd
+        };
+        if (_blisterSub) { criar(_blisterSub); return; }
+        $.getJSON(ajaxUrl, { action: 'tao_formula_search_ativos', nonce: nonce, q: '11313', grupo: 'E' }, function (resp) {
+            var lista = (resp && Array.isArray(resp.data)) ? resp.data : [];
+            var a = null;
+            for (var i = 0; i < lista.length; i++) { if (String(lista[i].codigo_fc) === '11313') { a = lista[i]; break; } }
+            if (!a && lista.length) a = lista[0];
+            _blisterSub = a;
+            criar(a);
         });
     }
 
@@ -2133,8 +2197,8 @@
                 calcularTotais();
             }
             _loadingEdit = false;
-            // Envelope: garante o excipiente base efervescente na linha QSP (auto-associa se faltar)
-            setTimeout(garantirExcipienteEnvelope, 150); setTimeout(garantirBaseSublingual, 150);
+            // Envelope: excipiente base na QSP; sublingual: base + blister (marca a linha carregada como dinâmica)
+            setTimeout(garantirExcipienteEnvelope, 150); setTimeout(garantirBaseSublingual, 150); setTimeout(garantirBlisterSublingual, 170);
             // Foca no 1º ativo não associado (ativo_id vazio mas tem nome)
             var $primeiro = $('#taof-itens-body .taof-item-row').filter(function() {
                 return !$(this).find('.taof-orc-ativo-id').val() &&
