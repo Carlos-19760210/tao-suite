@@ -6,6 +6,7 @@
     var formasMap   = window.taofOrcFormasMap || {};
     var capsulas    = window.taofCapsulas || [];
     var formaAtual  = null;
+    var _subInfo    = null;   // sublingual: {n: comprimidos/dose, tam: tamanho escolhido}
     var ajaxUrl     = (typeof taoFormula !== 'undefined') ? taoFormula.ajaxUrl : '/wp-admin/admin-ajax.php';
     var nonce       = (typeof taoFormula !== 'undefined') ? taoFormula.nonce   : '';
     // Motor farmacotécnico v2 (option tao_formula_motor_v2): equivalência do sinônimo,
@@ -70,6 +71,13 @@
         });
     }
 
+    // ── Coluna "Tipo" do Sublingual: apenas identifica a forma (o TAMANHO do comprimido
+    //    vive na área de embalagem, em #taof-sub-tam). ─────────────────────────────
+    function popularTipoSublingual() {
+        var $sel = $('#taof-forma-tipo');
+        $sel.empty().append($('<option>').val('sublingual').text('Sublingual'));
+    }
+
     // ── Popula Unidade conforme a forma ──────────────────────────────
     function popularUnidade(formaTipo) {
         var $sel = $('#taof-forma-unidade');
@@ -80,6 +88,8 @@
             opts = [{ val: 'caps', lbl: 'caps.' }];
         } else if (formaTipo === 'envelope') {
             opts = [{ val: 'env', lbl: 'Env' }, { val: 'un', lbl: 'Unidade' }];
+        } else if (formaTipo === 'sublingual') {
+            opts = [{ val: 'un', lbl: 'doses' }];
         } else if (formaTipo === 'un') {
             opts = [{ val: 'un', lbl: 'un.' }];
         } else if (['gel', 'creme', 'outro'].indexOf(formaTipo) !== -1) {
@@ -253,9 +263,46 @@
             _qspCapsula($qspRow);
         } else if (formaAtual.tipo === 'envelope') {
             _qspEnvelope($qspRow);
+        } else if (formaAtual.tipo === 'sublingual') {
+            _qspSublingual($qspRow);
         } else {
             _qspForma($qspRow);
         }
+    }
+
+    // QSP do Sublingual/Orodispersível: base OROTAB por VOLUME. Ativos ocupam <=25% do volume
+    // do comprimido; a base preenche o resto. Tamanho automático (menor nº de comprimidos/dose)
+    // salvo se o usuário forçar no campo "Tamanho". Base = (nComp*tam − volAtivos/dose) × doses × densidade.
+    function _qspSublingual($row) {
+        var ndoses = getVol() * getPotes();   // getVol() = nº de doses
+        var volAtivos = 0;
+        $('#taof-itens-body .taof-item-row:not(.taof-row-qsp)').each(function () {
+            var g = parseFloat($(this).data('qtd-total-g')) || 0;
+            var d = parseFloat($(this).data('densidade')) || 1;
+            volAtivos += d > 0 ? g / d : g;
+        });
+        var vd = ndoses > 0 ? volAtivos / ndoses : volAtivos;   // volume de ativo por dose
+        var tamSel = parseFloat($('#taof-sub-tam').val()) || 0;   // seletor na área de embalagem; vazio = automático
+        var best = null;
+        (tamSel > 0 ? [tamSel] : [0.21, 0.8]).forEach(function (tam) {
+            var n = Math.max(1, Math.ceil(vd / (0.25 * tam)));
+            var vt = n * tam;
+            if (!best || n < best.n || (n === best.n && vt < best.vt)) best = { tam: tam, n: n, vt: vt };
+        });
+        var volBaseTotal = Math.max(0, best.n * best.tam - vd) * ndoses;
+        var qspDens = parseFloat($row.data('densidade')) || 0.64;
+        var qspG = volBaseTotal * qspDens;
+        var vendaUnit  = parseFloat($row.data('venda-unit')) || 0;
+        var unidPadrao = $row.data('unid-padrao') || 'g';
+        var qtdEmUnid  = unidPadrao === 'mg' ? qspG * 1000 : qspG;
+        var subtotal   = qtdEmUnid * vendaUnit;
+        $row.find('.taof-orc-qtd-total').text(fmt(qspG, 3) + ' g · comp ' + fmt(best.tam, 2) + ' × ' + best.n + '/dose');
+        $row.find('.taof-orc-subtotal').text('R$ ' + fmt(subtotal));
+        $row.data({ subtotal: subtotal, 'qtd-total-g': qspG, 'volapa-ul': 0 });
+        _subInfo = { n: best.n, tam: best.tam, auto: !(tamSel > 0) };
+        $('#taof-sub-comp-info').text(
+            'comp. ' + fmt(best.tam, 2) + (tamSel > 0 ? '' : ' (automático)') + ' · ' + best.n + '/dose'
+        );
     }
 
     function _qspForma($row) {
@@ -502,6 +549,27 @@
     }
 
     // ── Totais ────────────────────────────────────────────────────────
+    // ── Informativo "N por dose" (antes dos totais) ───────────────────
+    // Cápsula: nº de cápsulas/dose (da sugestão de cápsula). Sublingual: nº de comprimidos/dose.
+    function atualizarPorDose(r) {
+        var isCap = formaAtual && (formaAtual.tipo === 'cap' || formaAtual.tipo === 'duo_cap');
+        var isSub = formaAtual && formaAtual.tipo === 'sublingual';
+        var $wrap = $('#taof-npd-wrap'), $txt = $('#taof-npd-txt');
+        if (isCap && r && r.nPerDose > 0) {
+            var totCaps = getVol() * getPotes() * r.nPerDose;
+            $txt.html('💊 <strong>' + r.nPerDose + '</strong> cápsula(s) por dose · <strong>' + totCaps + '</strong> cápsulas no total');
+            $wrap.css('display', 'block');
+        } else if (isSub && _subInfo && _subInfo.n > 0) {
+            var totComp = getVol() * getPotes() * _subInfo.n;
+            $txt.html('💊 <strong>' + _subInfo.n + '</strong> comprimido(s) sublingual(is) por dose · comp. ' +
+                      fmt(_subInfo.tam, 2) + (_subInfo.auto ? ' (automático)' : '') +
+                      ' · <strong>' + totComp + '</strong> comprimidos no total');
+            $wrap.css('display', 'block');
+        } else {
+            $wrap.hide();
+        }
+    }
+
     function calcularTotais() {
         // 1. Sugestao de capsula primeiro: atualiza #taof-caps-por-dose em modo auto
         //    antes de atualizarQSPRow (que usa nPerDose para calcular QSP)
@@ -509,6 +577,9 @@
 
         // 2. Atualiza linha QSP (usa caps-por-dose ja atualizado acima)
         atualizarQSPRow();
+
+        // 2b. Informativo de unidades por dose (cápsula / comprimido sublingual)
+        atualizarPorDose(r);
 
         // 3. Soma todas as linhas (incluindo QSP ja atualizada)
         var calculado = 0;
@@ -659,11 +730,26 @@
                 $colTipo.show();
                 $('#taof-card-capsulas').hide();
                 $('#taof-caps-por-dose').removeData('manual').val(1);
+            } else if (formaAtual.tipo === 'sublingual') {
+                $('#taof-col-tipo-label').text('Tipo');
+                popularTipoSublingual();
+                $colTipo.show();
+                $('#taof-forma-vol').attr('placeholder', 'No. doses');
+                $('#taof-card-capsulas').hide();
+                $('#taof-caps-por-dose').removeData('manual').val(1);
+                $('#taof-emb-hdr').text('Embalagem / Comprimido');       // área acomoda o comprimido
+                $('#taof-sub-comp-wrap').css('display', 'flex');          // tamanho do comprimido
             } else {
                 $('#taof-forma-tipo').empty();
                 $colTipo.hide();
                 $('#taof-card-capsulas').hide();
                 $('#taof-caps-por-dose').removeData('manual').val(1);
+            }
+            // Fora do sublingual: esconde o seletor de comprimido e restaura o título
+            if (!formaAtual || formaAtual.tipo !== 'sublingual') {
+                $('#taof-sub-comp-wrap').hide();
+                $('#taof-emb-hdr').text('Embalagem');
+                _subInfo = null;
             }
 
             // Unidade
@@ -691,11 +777,11 @@
         }
 
         if (!_loadingEdit) $('#taof-itens-body .taof-item-row').each(function () { calcularLinha($(this)); });
-        if (!_loadingEdit) setTimeout(garantirExcipienteEnvelope, 120);   // envelope: garante base efervescente
+        if (!_loadingEdit) setTimeout(garantirExcipienteEnvelope, 120); setTimeout(garantirBaseSublingual, 120);   // envelope: garante base efervescente
     });
 
     // Recalcula quando atendente altera Vol/Qtde, Tipo Capsula, Unidade, Potes ou Vol/dose
-    $('#taof-forma-vol, #taof-forma-tipo, #taof-forma-unidade, #taof-qtde-potes, #taof-vol-dose').on('input change', function () {
+    $('#taof-forma-vol, #taof-forma-tipo, #taof-forma-unidade, #taof-qtde-potes, #taof-vol-dose, #taof-sub-tam').on('input change', function () {
         if (!_loadingEdit) $('#taof-itens-body .taof-item-row').each(function () { calcularLinha($(this)); });
     });
     // Acréscimo: % recalcula valor; valor direto marca manual
@@ -954,7 +1040,7 @@
         }
         // Envelope: ao associar um ativo (não-QSP), garante o excipiente base efervescente
         if (!$row.hasClass('taof-row-qsp') && formaAtual && formaAtual.tipo === 'envelope') {
-            setTimeout(garantirExcipienteEnvelope, 120);
+            setTimeout(garantirExcipienteEnvelope, 120); setTimeout(garantirBaseSublingual, 120);
         }
     }
 
@@ -1210,6 +1296,33 @@
             for (var i = 0; i < lista.length; i++) { if (String(lista[i].codigo_fc) === '10577') { ativo = lista[i]; break; } }
             if (!ativo && lista.length) ativo = lista[0];
             _excipienteEnv = ativo;
+            aplicar(ativo);
+        });
+    }
+
+    // Sublingual/Orodispersível: garante a BASE OROTAB (11166) como QSP (por volume). Igual ao envelope.
+    var _baseSub = null;
+    function garantirBaseSublingual() {
+        if (_loadingEdit) return;
+        if (!formaAtual || formaAtual.tipo !== 'sublingual') return;
+        if (!$('#taof-itens-body .taof-item-row:not(.taof-row-qsp)').length) return;   // ainda sem ativos
+        var $qsp = $('#taof-itens-body .taof-item-row.taof-row-qsp').first();
+        if ($qsp.length && $qsp.find('.taof-orc-ativo-id').val()) return;              // já associada
+        var aplicar = function (ativo) {
+            if (!ativo) return;
+            var $row = $('#taof-itens-body .taof-item-row.taof-row-qsp').first();
+            if (!$row.length) $row = adicionarLinha();
+            if (!$row.hasClass('taof-row-qsp')) toggleQSP($row, true);
+            selecionarAtivo($row, ativo, 'BASE OROTAB');
+            calcularTotais();
+        };
+        if (_baseSub) { aplicar(_baseSub); return; }
+        $.getJSON(ajaxUrl, { action: 'tao_formula_search_ativos', nonce: nonce, q: '11166', grupo: '' }, function (resp) {
+            var lista = (resp && Array.isArray(resp.data)) ? resp.data : [];
+            var ativo = null;
+            for (var i = 0; i < lista.length; i++) { if (String(lista[i].codigo_fc) === '11166') { ativo = lista[i]; break; } }
+            if (!ativo && lista.length) ativo = lista[0];
+            _baseSub = ativo;
             aplicar(ativo);
         });
     }
@@ -1604,7 +1717,10 @@
             forma_id:        $('#taof-forma-sel').val() || '',
             forma_nome:      formaAtual ? formaAtual.nome : (EDIT_DATA ? (EDIT_DATA.forma_nome || '') : ''),
             forma_vol:       getVol(),
-            forma_tipo:      $('#taof-forma-tipo').val(),
+            // Sublingual: forma_tipo carrega o TAMANHO forçado do comprimido (vazio = automático)
+            forma_tipo:      (formaAtual && formaAtual.tipo === 'sublingual')
+                                 ? ($('#taof-sub-tam').val() || '')
+                                 : $('#taof-forma-tipo').val(),
             forma_unidade:   getUnidade(),
             qtde_potes:      getPotes(),
             custo_fixo:      custoFixo,
@@ -1865,7 +1981,12 @@
             // Aguarda o change popular unidade, então define os valores
             setTimeout(function () {
                 if (data.forma_vol)      $('#taof-forma-vol').val(data.forma_vol).trigger('input');
-                if (data.forma_tipo)     $('#taof-forma-tipo').val(data.forma_tipo);   // restaura Tipo Cápsula / Capacidade do Envelope
+                // Sublingual: forma_tipo guarda o TAMANHO forçado do comprimido (ou vazio = auto) → vai no seletor da embalagem
+                if (formaAtual && formaAtual.tipo === 'sublingual') {
+                    $('#taof-sub-tam').val(data.forma_tipo || '');
+                } else if (data.forma_tipo) {
+                    $('#taof-forma-tipo').val(data.forma_tipo);   // restaura Tipo Cápsula / Capacidade do Envelope
+                }
                 if (data.forma_unidade)  $('#taof-forma-unidade').val(data.forma_unidade);
                 if (data.qtde_potes)     $('#taof-qtde-potes').val(data.qtde_potes).trigger('input');
             }, 50);
@@ -2013,7 +2134,7 @@
             }
             _loadingEdit = false;
             // Envelope: garante o excipiente base efervescente na linha QSP (auto-associa se faltar)
-            setTimeout(garantirExcipienteEnvelope, 150);
+            setTimeout(garantirExcipienteEnvelope, 150); setTimeout(garantirBaseSublingual, 150);
             // Foca no 1º ativo não associado (ativo_id vazio mas tem nome)
             var $primeiro = $('#taof-itens-body .taof-item-row').filter(function() {
                 return !$(this).find('.taof-orc-ativo-id').val() &&

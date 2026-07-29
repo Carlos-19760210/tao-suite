@@ -2604,7 +2604,26 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
         // ── 4. Sugere embalagem ───────────────────────────────────────────────────────
         $itens_emb = [];
         $total_emb = 0.0;
-        if ( $forma ) {
+        if ( $forma && $forma['tipo'] === 'sublingual' && $orotab_info ) {
+            // Embalagem física do sublingual: BLISTER OROTAB - 9 (11313), 9 comprimidos por blister.
+            $total_comp = max( 1, (int) round( $orotab_info['comp_por_dose'] * $orotab_info['doses'] ) );
+            $n_blister  = max( 1, (int) ceil( $total_comp / 9 ) );
+            $rbl = tao_formula_api( "/ativos?cliente_id=eq.{$cliente_id}&codigo_fc=eq.11313&select=id,nome,preco_venda,custo_por_unidade&limit=1" );
+            $bl  = ( ! empty( $rbl['data'] ) && is_array( $rbl['data'] ) ) ? $rbl['data'][0] : null;
+            if ( $bl ) {
+                $pv = (float) ( $bl['preco_venda'] ?? 0 );
+                $pc = (float) ( $bl['custo_por_unidade'] ?? 0 );
+                $itens_emb[] = [
+                    'tipo'              => 'emb',
+                    'ativo_id'          => $bl['id'] ?? '',
+                    'nome'              => strtoupper( (string) ( $bl['nome'] ?? 'BLISTER OROTAB - 9' ) ),
+                    'quantidade'        => $n_blister,
+                    'custo_por_unidade' => $pc ?: $pv,
+                    'subtotal'          => round( $pv * $n_blister, 2 ),
+                ];
+                $total_emb = $itens_emb[ count( $itens_emb ) - 1 ]['subtotal'];
+            }
+        } elseif ( $forma ) {
             $peso_por_dose = ( $forma_vol > 0 ) ? ( $peso_total_g / $forma_vol ) : $peso_total_g;
             $emb = tao_formula_sugerir_embalagem_import( $forma['tipo'], $forma_vol, $cliente_id, $peso_por_dose );
             if ( $emb ) {

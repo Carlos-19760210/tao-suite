@@ -429,7 +429,19 @@ function tao_formula_page_orcamento_novo() {
 
     <!-- ══ DETAIL — Embalagem ═════════════════════════════════════════ -->
     <div class="taof-orc-card">
-        <div class="taof-card-hdr"><h3>Embalagem</h3></div>
+        <div class="taof-card-hdr"><h3 id="taof-emb-hdr">Embalagem</h3></div>
+        <!-- Comprimido sublingual/orodispersível: tamanho fica aqui (é o que "embala" a dose) -->
+        <div id="taof-sub-comp-wrap" style="display:none;align-items:center;gap:12px;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid #e5e7eb;background:#f8fafc">
+            <strong style="font-size:13px;color:#0f172a">Comprimido sublingual</strong>
+            <label style="font-size:12px;color:#475569">Tamanho:
+                <select id="taof-sub-tam" style="margin-left:4px">
+                    <option value="">Automático (menor nº)</option>
+                    <option value="0.21">Pequeno · 0,21</option>
+                    <option value="0.8">Grande · 0,80</option>
+                </select>
+            </label>
+            <span id="taof-sub-comp-info" style="font-size:12px;color:#0369a1;font-weight:600"></span>
+        </div>
         <div class="taof-table-scroll">
         <table class="wp-list-table widefat taof-detail-table">
             <thead>
@@ -447,6 +459,11 @@ function tao_formula_page_orcamento_novo() {
         <div class="taof-table-footer">
             <button type="button" class="button" id="taof-btn-add-emb">+ Adicionar Embalagem</button>
         </div>
+    </div>
+
+    <!-- ══ Unidades por dose (cápsula / comprimido sublingual) ════════ -->
+    <div id="taof-npd-wrap" class="taof-orc-card" style="display:none;background:#f0f9ff;border:1px solid #bae6fd;padding:8px 14px">
+        <span id="taof-npd-txt" style="font-size:13px;color:#0c4a6e"></span>
     </div>
 
     <!-- ══ TOTAIS ═════════════════════════════════════════════════════ -->
