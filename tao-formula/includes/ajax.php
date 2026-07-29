@@ -2325,6 +2325,7 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
 
     foreach ( $orcs as $orc ) {
         $qsp_origem = 'texto'; $qsp_opcoes = []; $exc = null;   // origem do excipiente desta fórmula
+        $orotab_info = null;                                     // comprimido sublingual/orodispersível
         $numero = sanitize_text_field( $orc['numero'] ?? '' );
         $descr  = sanitize_text_field( $orc['descricao'] ?? '' );
         $valor  = (float) ( $orc['valor'] ?? 0 );                       // valor FINAL (com desconto)
@@ -2445,7 +2446,7 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
             $cap_calc       = tao_formula_calc_capsula_import( $itens_mp, $forma, $forma_vol, $qtde_potes, $cliente_id );
             $custo_capsula  = $cap_calc['custo_capsula'];
             $excip_subtotal = $cap_calc['excipiente_subtotal'];
-        } elseif ( $forma && ! in_array( $forma_tipo, [ 'cap', 'duo_cap', 'envelope' ] ) ) {
+        } elseif ( $forma && ! in_array( $forma_tipo, [ 'cap', 'duo_cap', 'envelope', 'sublingual' ] ) ) {
             // Formas líquidas/semissólidas (creme, gel, loção, solução, xarope…):
             // o ÚLTIMO ingrediente é o QSP (veículo/base). Garante 1 único QSP = o último.
             $last_idx = null;
@@ -2466,6 +2467,7 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
         $motor_on_calc  = get_option( 'tao_formula_motor_v2' ) === '1';
         $total_insumos = 0.0;
         $peso_total_g  = 0.0;   // soma das massas (p/ escolher o tamanho do sachê no envelope)
+        $vol_ativos_g  = 0.0;   // soma dos volumes aparentes dos ativos (p/ comprimido sublingual/orotab)
         foreach ( $itens_mp as &$item ) {
             if ( $item['tipo'] !== 'mp' || $item['is_qsp'] ) continue;
             $dose      = (float)( $item['dose'] ?? 0 );
@@ -2511,11 +2513,49 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
             $item['subtotal']      = $subtotal;
             $total_insumos        += $subtotal;
             $peso_total_g         += $qtd_total_g;
+            $dens_i = (float)( $item['densidade'] ?? 1 ) ?: 1.0;
+            $vol_ativos_g += $qtd_total_g / $dens_i;   // volume aparente = massa ÷ densidade
         }
         unset( $item );
 
         // Excipiente (QSP) entra como insumo
         $total_insumos += $excip_subtotal;
+
+        // ── 3b. Comprimido SUBLINGUAL / Orodispersível: base OROTAB por VOLUME ─────────
+        // Ativos ocupam no máx. 25% do volume do comprimido; a base orotab (11166) completa o
+        // restante (piso 75%). Escolhe o tamanho que dá o MENOR nº de comprimidos por dose
+        // (desempate = menor volume total). Atendente pode forçar o tamanho (nº recalcula).
+        if ( $forma && $forma_tipo === 'sublingual' ) {
+            $TAMANHOS = [ 0.21, 0.8 ];                                            // volumes dos comprimidos
+            $ndoses   = ( $forma_vol && $forma_vol > 0 ) ? (float) $forma_vol : 1.0;
+            $vol_dose = $ndoses > 0 ? ( $vol_ativos_g / $ndoses ) : $vol_ativos_g; // volume de ativo por dose
+            $forcar   = ( ! empty( $orc['orotab_tam'] ) && in_array( (float) $orc['orotab_tam'], $TAMANHOS, true ) ) ? (float) $orc['orotab_tam'] : null;
+            $best = null;
+            foreach ( ( $forcar ? [ $forcar ] : $TAMANHOS ) as $tam ) {
+                $cap   = 0.25 * $tam;                                            // 25% do comprimido p/ ativo
+                $ncomp = max( 1, (int) ceil( $vol_dose / max( 1e-9, $cap ) ) );
+                $vtot  = $ncomp * $tam;
+                if ( $best === null || $ncomp < $best['ncomp'] || ( $ncomp === $best['ncomp'] && $vtot < $best['vtot'] ) )
+                    $best = [ 'tam' => $tam, 'ncomp' => $ncomp, 'vtot' => $vtot ];
+            }
+            $vol_base_total = max( 0, ( $best['ncomp'] * $best['tam'] - $vol_dose ) ) * $ndoses;   // volume de base (total)
+            $rob = tao_formula_api( "/ativos?cliente_id=eq.{$cliente_id}&codigo_fc=eq.11166&select=id,nome,codigo_fc,preco_venda,custo_por_unidade,densidade&limit=1" );
+            $ob  = ( $rob['ok'] && ! empty( $rob['data'] ) ) ? $rob['data'][0] : null;
+            $dens_ob   = (float) ( $ob['densidade'] ?? 0.64 ) ?: 0.64;
+            $massa_base = round( $vol_base_total * $dens_ob, 4 );                 // massa de base orotab (g, total)
+            $preco_ob   = (float) ( $ob['preco_venda'] ?? 0 );
+            $itens_mp[] = [
+                'tipo' => 'mp', 'ativo_id' => $ob['id'] ?? '', 'nome' => strtoupper( $ob['nome'] ?? 'BASE OROTAB LIMAO' ),
+                'nome_prescricao' => 'BASE OROTAB', 'codigo_fc' => '11166', 'is_qsp' => true,
+                'dose' => null, 'dose_unit' => 'g', 'multiplicador' => $ndoses, 'qtde_potes' => 1, 'n_caps_por_dose' => 1,
+                'capsula_tipo' => null, 'capsula_numero' => null, 'diluicao' => 1.0, 'teor' => 100.0, 'fp' => 1.0,
+                'densidade' => $dens_ob, 'concentracao' => 0.0, 'qtd_total_g' => $massa_base, 'volapa_ul' => 0.0,
+                'custo_por_unidade' => (float) ( $ob['custo_por_unidade'] ?? 0 ), 'preco_venda' => $preco_ob,
+                'unid_padrao' => 'g', 'subtotal' => round( $massa_base * $preco_ob, 4 ),
+            ];
+            $total_insumos += round( $massa_base * $preco_ob, 4 );
+            $orotab_info = [ 'tamanho' => $best['tam'], 'comp_por_dose' => $best['ncomp'], 'doses' => (int) $ndoses, 'base_g' => $massa_base ];
+        }
 
         // ── 4. Sugere embalagem ───────────────────────────────────────────────────────
         $itens_emb = [];
@@ -2615,6 +2655,14 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
                     'msg'        => $qsp_origem === 'conflito'
                         ? "ORC:{$numero}: os ativos têm excipientes diferentes — usei {$exc_nome} como QSP. Revise se necessário."
                         : "ORC:{$numero}: sem excipiente associado — usei {$exc_nome} (padrão) como QSP. Altere se necessário.",
+                ];
+            }
+            // Aviso do comprimido sublingual: tamanho e nº de comprimidos por dose escolhidos.
+            if ( $orotab_info ) {
+                $avisos[] = [
+                    'numero' => $numero, 'origem' => 'orotab', 'orotab' => $orotab_info,
+                    'msg'    => "ORC:{$numero}: sublingual — comprimido " . number_format( $orotab_info['tamanho'], 2, ',', '.' ) .
+                                " · {$orotab_info['comp_por_dose']} comp./dose · base orotab " . number_format( $orotab_info['base_g'], 2, ',', '.' ) . " g. Troque o tamanho se quiser.",
                 ];
             }
             if ( $card_id ) {
