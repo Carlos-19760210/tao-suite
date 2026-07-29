@@ -4240,6 +4240,26 @@ add_action( 'wp_ajax_tao_formula_prod_gerar_om', function () {
     wp_send_json_success( [ 'ordem_id' => $res['ordem_id'], 'itens' => $res['itens'] ] );
 } );
 
+// Excluir/desfazer OM manualmente — necessário quando a geração automática (OM no ganho) está
+// desligada: o usuário gera a OM à mão e precisa poder desfazer para refazer/excluir o orçamento.
+// Remove itens + ordem. Bloqueia OM em produção avançada (concluída/dispensada/entregue).
+add_action( 'wp_ajax_tao_formula_prod_excluir_om', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $om_id = sanitize_text_field( $_POST['om_id'] ?? '' );
+    if ( ! $cliente_id || ! $om_id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+    $rom = tao_formula_api( "/lab_ordens?id=eq.$om_id&cliente_id=eq.$cliente_id&select=status,numero&limit=1" );
+    if ( ! $rom['ok'] || empty( $rom['data'] ) ) wp_send_json_error( [ 'message' => 'OM não encontrada' ] );
+    $st = (string) ( $rom['data'][0]['status'] ?? '' );
+    if ( in_array( $st, [ 'concluida', 'dispensada', 'entregue', 'finalizada' ], true ) )
+        wp_send_json_error( [ 'message' => "OM em '$st' não pode ser excluída (produção avançada)." ], 409 );
+    tao_formula_api( "/lab_ordem_itens?ordem_id=eq.$om_id", 'DELETE' );
+    $r = tao_formula_api( "/lab_ordens?id=eq.$om_id&cliente_id=eq.$cliente_id", 'DELETE' );
+    $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => 'Erro ao excluir OM: ' . mb_substr( (string) $r['raw'], 0, 200 ) ] );
+} );
+
 /**
  * Cria a OM a partir de um orçamento. REUSÁVEL: tela Produção (handler acima) e gatilho do
  * ganho (card-ganho.php). Idempotente por orçamento (não cria 2 OMs).

@@ -85,6 +85,7 @@ add_action( 'tao_crm_card_paineis', function ( $card ) {
 				h+='<span>🧪 OM <strong>'+esc(om.numero||'')+'</strong> · '+esc(om.itens)+' itens'+(om.status==='concluida'?' · <span style="color:#166534">concluída</span>':'')+'</span>';
 				h+='<button type="button" class="button button-small taof-om-ficha" data-om="'+esc(om.id)+'">🖨 Ficha</button>';
 				h+='<button type="button" class="button button-small taof-om-rotulo" data-om="'+esc(om.id)+'">🏷 Rótulo</button>';
+				if(om.status!=='concluida'&&om.status!=='dispensada') h+='<button type="button" class="button button-small taof-om-excluir" data-om="'+esc(om.id)+'" style="color:#dc2626;border-color:#fca5a5">🗑 Excluir OM</button>';
 				h+='</div>';
 			});
 			h+='<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">';
@@ -99,6 +100,7 @@ add_action( 'tao_crm_card_paineis', function ( $card ) {
 			jQuery('#taof-om-estornar').on('click',function(){ acao('tao_formula_card_estornar',{card_id:card}); });
 			jQuery('.taof-om-ficha').on('click',function(){ abrirFicha(jQuery(this).data('om')); });
 			jQuery('.taof-om-rotulo').on('click',function(){ abrirRotulo(jQuery(this).data('om')); });
+			jQuery('.taof-om-excluir').on('click',function(){ if(confirm('Excluir esta OM? Use para desfazer quando a geração automática está desligada. O orçamento é mantido.')) acao('tao_formula_prod_excluir_om',{om_id:jQuery(this).data('om')}); });
 		}
 		function fdata(s){ if(!s)return '—'; var p=(''+s).substr(0,10).split('-'); return p.length===3?(p[2]+'/'+p[1]+'/'+p[0]):s; }
 		// CSS de impressão robusto — A4 em qualquer impressora (Epson jato/laser). Margens no @page,
