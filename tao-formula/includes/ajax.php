@@ -1431,6 +1431,16 @@ add_action( 'wp_ajax_tao_formula_excluir_orcamento', function () {
     if ( in_array( $del_status, [ 'aprovado_farma', 'aceito_paciente' ], true ) ) {
         wp_send_json_error( [ 'message' => 'Orçamento aprovado não pode ser excluído. Estorne a aprovação (no card) primeiro.' ], 409 );
     }
+    // OM vinculada (FK lab_ordens_orcamento_id_fkey): remove a OM CANCELADA antes; se houver OM
+    // ativa/em produção, bloqueia (cancele a OM primeiro) — evita apagar produção em andamento.
+    $rom = tao_formula_api( "/lab_ordens?orcamento_id=eq.$orc_id&cliente_id=eq.$cliente_id&select=id,status,numero" );
+    foreach ( ( $rom['ok'] ? ( $rom['data'] ?? [] ) : [] ) as $om ) {
+        if ( (string) ( $om['status'] ?? '' ) !== 'cancelada' ) {
+            wp_send_json_error( [ 'message' => 'Este orçamento tem uma Ordem de Manipulação (' . ( $om['status'] ?? '?' ) . '). Cancele a OM antes de excluir o orçamento.' ], 409 );
+        }
+        tao_formula_api( "/lab_ordem_itens?ordem_id=eq.{$om['id']}", 'DELETE' );
+        tao_formula_api( "/lab_ordens?id=eq.{$om['id']}&cliente_id=eq.$cliente_id", 'DELETE' );
+    }
     $r = tao_formula_api( "/orcamentos?id=eq.$orc_id&cliente_id=eq.$cliente_id", 'DELETE' );
     if ( $r['ok'] ) {
         if ( $del_card_id && function_exists( 'tao_crm_sync_valor_oportunidade' ) ) tao_crm_sync_valor_oportunidade( $del_card_id );
