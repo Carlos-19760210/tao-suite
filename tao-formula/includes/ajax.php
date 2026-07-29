@@ -2232,6 +2232,44 @@ function tao_formula_calc_capsula_import( array &$itens_mp, $forma, $forma_vol, 
     return $out;
 }
 
+// Análise de excipiente por orçamento — alimenta a TELA DE ESCOLHA antes de importar.
+// Retorna, por orçamento: origem (texto|associado|conflito|padrao), o excipiente predominante e as
+// opções (excipientes associados aos ativos) + a lista de excipientes p/ o seletor.
+add_action( 'wp_ajax_tao_formula_orc_excip_analise', function() {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( 'Cliente não identificado' );
+    $orcs = json_decode( wp_unslash( $_POST['orcs'] ?? '' ), true );
+    if ( ! is_array( $orcs ) ) wp_send_json_error( 'Dados inválidos' );
+
+    $rex = tao_formula_api( "/ativos?cliente_id=eq.{$cliente_id}&nome=ilike.*EXCIPIENTE*&select=id,nome,codigo_fc&order=nome.asc&limit=60" );
+    $lista_exc = array_map( function( $a ) { return [ 'id' => $a['id'], 'nome' => strtoupper( $a['nome'] ) ]; }, ( $rex['ok'] ? ( $rex['data'] ?? [] ) : [] ) );
+
+    $out = [];
+    foreach ( $orcs as $orc ) {
+        $numero = sanitize_text_field( $orc['numero'] ?? '' );
+        $descr  = sanitize_text_field( $orc['descricao'] ?? '' );
+        list( $fv, $fu, $itens ) = tao_formula_parse_descricao_itens( $descr, $cliente_id );
+        $has_qsp = false;
+        foreach ( $itens as $it ) if ( ! empty( $it['is_qsp'] ) ) { $has_qsp = true; break; }
+        if ( $has_qsp ) { $out[] = [ 'numero' => $numero, 'origem' => 'texto' ]; continue; }
+        $votos = [];
+        foreach ( $itens as $it ) if ( ! empty( $it['excipiente_id'] ) ) $votos[ $it['excipiente_id'] ] = ( $votos[ $it['excipiente_id'] ] ?? 0 ) + 1;
+        arsort( $votos );
+        $ids = array_keys( $votos );
+        $origem = $ids ? ( count( $ids ) > 1 ? 'conflito' : 'associado' ) : 'padrao';
+        $opcoes = [];
+        if ( $ids ) {
+            $ra = tao_formula_api( "/ativos?id=in.(" . implode( ',', $ids ) . ")&select=id,nome" );
+            foreach ( ( $ra['ok'] ? ( $ra['data'] ?? [] ) : [] ) as $a ) $opcoes[] = [ 'id' => $a['id'], 'nome' => strtoupper( $a['nome'] ) ];
+        }
+        $out[] = [ 'numero' => $numero, 'origem' => $origem, 'escolhido' => $ids[0] ?? null, 'opcoes' => $opcoes, 'excipientes' => $lista_exc ];
+    }
+    wp_send_json_success( $out );
+} );
+
 add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
     while ( ob_get_level() > 0 ) ob_end_clean();
     check_ajax_referer( 'tao_formula_nonce', 'nonce' );
@@ -2244,6 +2282,9 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
     $orcs_json = wp_unslash( $_POST['orcs'] ?? '' );
     $orcs      = json_decode( $orcs_json, true );
     if ( empty( $orcs ) || ! is_array( $orcs ) ) wp_send_json_error( 'Nenhum orçamento para importar' );
+    // Escolha do usuário na tela de conflito de excipiente (map numero_orçamento -> excipiente_id).
+    $exc_overrides = json_decode( wp_unslash( $_POST['exc_overrides'] ?? '{}' ), true );
+    if ( ! is_array( $exc_overrides ) ) $exc_overrides = [];
 
     // Dados do card (nome do paciente e WhatsApp) — busca única para o lote
     $nome_paciente = '';
@@ -2343,6 +2384,8 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
                 $exc_id     = $exc_votos ? array_key_first( $exc_votos ) : null;
                 $qsp_origem = $exc_id ? ( count( $exc_votos ) > 1 ? 'conflito' : 'associado' ) : 'padrao';
                 $qsp_opcoes = array_keys( $exc_votos );
+                // Escolha explícita do usuário (tela de conflito) tem prioridade sobre o predominante.
+                if ( ! empty( $exc_overrides[ $numero ] ) ) { $exc_id = $exc_overrides[ $numero ]; $qsp_origem = 'escolhido'; }
                 $sel_exc = 'id,nome,codigo_fc,preco_venda,custo_por_unidade,unidade_padrao,fator_perda,diluicao,teor,densidade';
                 $rexc = $exc_id
                     ? tao_formula_api( "/ativos?id=eq.{$exc_id}&cliente_id=eq.{$cliente_id}&select={$sel_exc}&limit=1" )

@@ -2422,35 +2422,68 @@ function tao_crm_page_card() {
             });
         }
 
+        function _importFazer(overrides) {
+            importarConfirmar.disabled = true;
+            importarConfirmar.textContent = 'Importando...';
+            var body = new URLSearchParams({ action: 'tao_formula_importar_orc_texto', nonce: taofNonce, card_id: cardId, orcs: JSON.stringify(_parsedOrcs), exc_overrides: JSON.stringify(overrides || {}) });
+            fetch(ajaxUrl, { method: 'POST', body: body })
+                .then(function(r){ return r.json(); })
+                .then(function(resp) {
+                    importarConfirmar.disabled = false;
+                    importarConfirmar.textContent = '✓ Importar';
+                    if (resp.success) {
+                        var d = resp.data || {};
+                        var msg = (d.criados || 0) + ' importado(s).';
+                        if (d.avisos && d.avisos.length) msg += '\n\n⚠ Excipiente (QSP):\n' + d.avisos.map(function(a){ return '• ' + a.msg; }).join('\n');
+                        if (d.erros && d.erros.length) msg += '\n\nAvisos:\n' + d.erros.join('\n');
+                        alert(msg);
+                        fecharImportarModal();
+                        carregarFormulas();
+                    } else {
+                        alert('Erro: ' + (resp.data || 'desconhecido'));
+                    }
+                })
+                .catch(function() {
+                    importarConfirmar.disabled = false;
+                    importarConfirmar.textContent = '✓ Importar';
+                    alert('Falha de comunicação.');
+                });
+        }
+        // Tela de escolha: quando os ativos da fórmula têm excipientes diferentes, o usuário define o QSP.
+        function _importEscolherExcip(conflitos) {
+            var h = '<div style="border:1px solid #fde68a;background:#fffbeb;border-radius:8px;padding:10px 12px">' +
+                '<p style="margin:0 0 8px;font-weight:600;color:#92400e">&#x26A0; Excipientes diferentes entre os ativos &mdash; escolha o QSP de cada f&oacute;rmula:</p>';
+            conflitos.forEach(function(c){
+                var lista = (c.excipientes && c.excipientes.length) ? c.excipientes : (c.opcoes || []);
+                var opts = lista.map(function(e){ return '<option value="'+e.id+'"'+(e.id===c.escolhido?' selected':'')+'>'+e.nome+'</option>'; }).join('');
+                h += '<div style="margin:6px 0"><label style="font-size:13px">ORC '+c.numero+': <select data-num="'+c.numero+'" class="taof-exc-sel" style="padding:3px 6px;min-width:220px">'+opts+'</select></label></div>';
+            });
+            h += '<button type="button" class="button button-primary" id="taof-exc-confirm" style="margin-top:8px">&#x2713; Confirmar excipientes e importar</button></div>';
+            importarPreview.innerHTML = h; importarPreview.style.display = 'block';
+            importarConfirmar.style.display = 'none';
+            document.getElementById('taof-exc-confirm').addEventListener('click', function(){
+                var ov = {};
+                importarPreview.querySelectorAll('.taof-exc-sel').forEach(function(s){ ov[s.getAttribute('data-num')] = s.value; });
+                importarConfirmar.style.display = 'inline-block';
+                _importFazer(ov);
+            });
+        }
         if (importarConfirmar) {
             importarConfirmar.addEventListener('click', function() {
                 if (!_parsedOrcs.length) return;
                 importarConfirmar.disabled = true;
-                importarConfirmar.textContent = 'Importando...';
-
-                var body = new URLSearchParams({ action: 'tao_formula_importar_orc_texto', nonce: taofNonce, card_id: cardId, orcs: JSON.stringify(_parsedOrcs) });
-                fetch(ajaxUrl, { method: 'POST', body: body })
+                importarConfirmar.textContent = 'Analisando...';
+                var abody = new URLSearchParams({ action: 'tao_formula_orc_excip_analise', nonce: taofNonce, orcs: JSON.stringify(_parsedOrcs) });
+                fetch(ajaxUrl, { method: 'POST', body: abody })
                     .then(function(r){ return r.json(); })
-                    .then(function(resp) {
+                    .then(function(resp){
                         importarConfirmar.disabled = false;
                         importarConfirmar.textContent = '✓ Importar';
-                        if (resp.success) {
-                            var d = resp.data || {};
-                            var msg = (d.criados || 0) + ' importado(s).';
-                            if (d.avisos && d.avisos.length) msg += '\n\n⚠ Excipiente (QSP):\n' + d.avisos.map(function(a){ return '• ' + a.msg; }).join('\n');
-                            if (d.erros && d.erros.length) msg += '\n\nAvisos:\n' + d.erros.join('\n');
-                            alert(msg);
-                            fecharImportarModal();
-                            carregarFormulas();
-                        } else {
-                            alert('Erro: ' + (resp.data || 'desconhecido'));
-                        }
+                        var conflitos = (resp.success ? (resp.data || []) : []).filter(function(o){ return o.origem === 'conflito'; });
+                        if (conflitos.length) _importEscolherExcip(conflitos);
+                        else _importFazer({});
                     })
-                    .catch(function() {
-                        importarConfirmar.disabled = false;
-                        importarConfirmar.textContent = '✓ Importar';
-                        alert('Falha de comunicação.');
-                    });
+                    .catch(function(){ _importFazer({}); });   // se a análise falhar, importa com a escolha automática
             });
         }
 
