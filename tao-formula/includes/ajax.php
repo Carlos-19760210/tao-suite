@@ -2012,7 +2012,7 @@ function tao_formula_parse_descricao_itens( $descr, $cliente_id ) {
         // "NAC" caía em *NAC* e casava com aceclofeNACo; substring agora é o ÚLTIMO recurso
         // e só para nomes com 5+ caracteres (sigla curta não faz substring).
         $nome_enc = rawurlencode( $nome );
-        $sel_ativo = 'id,nome,codigo_fc,preco_venda,custo_por_unidade,unidade_padrao,fator_perda,diluicao,teor,densidade,concentracao';
+        $sel_ativo = 'id,nome,codigo_fc,preco_venda,custo_por_unidade,unidade_padrao,fator_perda,diluicao,teor,densidade,concentracao,excipiente_id';
 
         // 1) nome EXATO (case-insensitive)
         $ra = tao_formula_api( "/ativos?cliente_id=eq.{$cliente_id}&nome=ilike.{$nome_enc}&select={$sel_ativo}&limit=1" );
@@ -2082,6 +2082,7 @@ function tao_formula_parse_descricao_itens( $descr, $cliente_id ) {
             'nome'              => $nome_db,          // nome canônico do banco (para cálculos)
             'nome_prescricao'   => $nome_prescricao,  // nome original da prescrição (para mensagens)
             'codigo_fc'         => $codigo_fc,
+            'excipiente_id'     => ( $ra['ok'] && ! empty( $ra['data'] ) ) ? ( $ra['data'][0]['excipiente_id'] ?? null ) : null,
             'is_qsp'            => $is_qsp,
             'dose'              => $dose,
             'dose_unit'         => $dose_unit,
@@ -2257,8 +2258,10 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
 
     $criados = 0;
     $erros   = [];
+    $avisos  = [];   // aviso de QSP por orçamento (excipiente padrão/conflito) → UI
 
     foreach ( $orcs as $orc ) {
+        $qsp_origem = 'texto'; $qsp_opcoes = []; $exc = null;   // origem do excipiente desta fórmula
         $numero = sanitize_text_field( $orc['numero'] ?? '' );
         $descr  = sanitize_text_field( $orc['descricao'] ?? '' );
         $valor  = (float) ( $orc['valor'] ?? 0 );                       // valor FINAL (com desconto)
@@ -2327,17 +2330,30 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
                 if ( ( $item['tipo'] ?? 'mp' ) === 'mp' && ! empty( $item['is_qsp'] ) ) { $has_qsp = true; break; }
             }
             if ( ! $has_qsp ) {
-                $rexc = tao_formula_api(
-                    "/ativos?cliente_id=eq.{$cliente_id}&codigo_fc=eq.10577" .
-                    "&select=id,nome,codigo_fc,preco_venda,custo_por_unidade,unidade_padrao,fator_perda,diluicao,teor,densidade&limit=1"
-                );
+                // Escolhe o excipiente (QSP) pelo que está ASSOCIADO aos ativos da fórmula
+                // (regra do FCerta — FC99999/EXCEP replicada em ativos.excipiente_id). Usa o
+                // predominante; se os ativos apontam para excipientes DIFERENTES marca 'conflito'
+                // (a UI abre a escolha); sem associação usa o EXCIPIENTE BASE (10577) e marca 'padrao'.
+                $exc_votos = [];
+                foreach ( $itens_mp as $it ) {
+                    if ( ( $it['tipo'] ?? 'mp' ) === 'mp' && ! empty( $it['excipiente_id'] ) )
+                        $exc_votos[ $it['excipiente_id'] ] = ( $exc_votos[ $it['excipiente_id'] ] ?? 0 ) + 1;
+                }
+                arsort( $exc_votos );
+                $exc_id     = $exc_votos ? array_key_first( $exc_votos ) : null;
+                $qsp_origem = $exc_id ? ( count( $exc_votos ) > 1 ? 'conflito' : 'associado' ) : 'padrao';
+                $qsp_opcoes = array_keys( $exc_votos );
+                $sel_exc = 'id,nome,codigo_fc,preco_venda,custo_por_unidade,unidade_padrao,fator_perda,diluicao,teor,densidade';
+                $rexc = $exc_id
+                    ? tao_formula_api( "/ativos?id=eq.{$exc_id}&cliente_id=eq.{$cliente_id}&select={$sel_exc}&limit=1" )
+                    : tao_formula_api( "/ativos?cliente_id=eq.{$cliente_id}&codigo_fc=eq.10577&select={$sel_exc}&limit=1" );
                 $exc = ( $rexc['ok'] && ! empty( $rexc['data'] ) ) ? $rexc['data'][0] : null;
                 $itens_mp[] = [
                     'tipo'              => 'mp',
                     'ativo_id'          => $exc['id'] ?? '',
                     'nome'              => strtoupper( $exc['nome'] ?? 'EXCIPIENTE BASE' ),
-                    'nome_prescricao'   => 'EXCIPIENTE BASE',
-                    'codigo_fc'         => '10577',
+                    'nome_prescricao'   => strtoupper( $exc['nome'] ?? 'EXCIPIENTE BASE' ),
+                    'codigo_fc'         => (string) ( $exc['codigo_fc'] ?? '10577' ),
                     'is_qsp'            => true,
                     'dose'              => null,
                     'dose_unit'         => 'mg',
@@ -2519,6 +2535,20 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
 
         if ( $r['ok'] ) {
             $criados++;
+            // Aviso de QSP: excipiente escolhido pela associação do ativo (regra FCerta).
+            // 'conflito' = ativos com excipientes diferentes → UI abre escolha; 'padrao' = sem
+            // associação, usou EXCIPIENTE BASE → UI avisa que pode alterar.
+            if ( in_array( $qsp_origem, [ 'padrao', 'conflito' ], true ) ) {
+                $exc_nome = strtoupper( $exc['nome'] ?? 'EXCIPIENTE BASE' );
+                $avisos[] = [
+                    'numero'     => $numero,
+                    'origem'     => $qsp_origem,
+                    'excipiente' => $exc_nome,
+                    'msg'        => $qsp_origem === 'conflito'
+                        ? "ORC:{$numero}: os ativos têm excipientes diferentes — usei {$exc_nome} como QSP. Revise se necessário."
+                        : "ORC:{$numero}: sem excipiente associado — usei {$exc_nome} (padrão) como QSP. Altere se necessário.",
+                ];
+            }
             if ( $card_id ) {
                 $n_mp  = count( $itens_mp );
                 $n_emb = count( $itens_emb );
@@ -2542,7 +2572,7 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
     }
 
     if ( $card_id && function_exists( 'tao_crm_sync_valor_oportunidade' ) ) tao_crm_sync_valor_oportunidade( $card_id );
-    wp_send_json_success( [ 'criados' => $criados, 'erros' => $erros ] );
+    wp_send_json_success( [ 'criados' => $criados, 'erros' => $erros, 'avisos' => $avisos ] );
 } );
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -2437,7 +2437,8 @@ function tao_crm_page_card() {
                         if (resp.success) {
                             var d = resp.data || {};
                             var msg = (d.criados || 0) + ' importado(s).';
-                            if (d.erros && d.erros.length) msg += '\nAvisos:\n' + d.erros.join('\n');
+                            if (d.avisos && d.avisos.length) msg += '\n\n⚠ Excipiente (QSP):\n' + d.avisos.map(function(a){ return '• ' + a.msg; }).join('\n');
+                            if (d.erros && d.erros.length) msg += '\n\nAvisos:\n' + d.erros.join('\n');
                             alert(msg);
                             fecharImportarModal();
                             carregarFormulas();
