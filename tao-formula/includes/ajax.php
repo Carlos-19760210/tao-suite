@@ -2400,7 +2400,9 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
                 // Especiais (ex.: Vitamina D em UI): massa = dose ÷ concentração (UI|UFC por g) — port do isSpecial do JS
                 $conc         = (float) ( $item['concentracao'] ?? 0 );
                 $dose_ufc     = $unit_up === 'BLH' ? $dose * 1e9 : $dose;
-                $qtd_total_g  = $conc > 0 ? ( $dose_ufc / $conc ) * $mult : 0.0;
+                // aplica diluição/teor/perda igual aos demais ramos (concentração é da substância PURA;
+                // p/ ativo diluído — ex.: VIT D3 1:100 — sem isto a pesagem sai ÷diluição)
+                $qtd_total_g  = $conc > 0 ? ( $dose_ufc / $conc ) * $equiv * $diluicao / max( 0.001, $teor / 100 ) * $fp * $mult : 0.0;
                 $qtd_total_mg = $qtd_total_g * 1000;
                 if     ( $unid_pad === 'g' )                       $qtd_em_padrao = $qtd_total_g;
                 elseif ( $unid_pad === 'mg' )                      $qtd_em_padrao = $qtd_total_mg;

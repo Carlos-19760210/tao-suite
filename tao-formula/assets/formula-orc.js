@@ -165,7 +165,9 @@
             // BLH: dose em bilhoes — converte para UFC antes de dividir pela concentracao (UFC/g)
             var dose_ufc       = (doseUnit === 'BLH') ? dose * 1e9 : dose;
             var qtd_g_per_dose = concentracao > 0 ? dose_ufc / concentracao : 0;
-            var qtd_total_g    = qtd_g_per_dose * mult;
+            // aplica diluição/teor/perda igual aos demais ramos (a concentração é da substância PURA;
+            // p/ ativo diluído — ex.: VIT D3 1:100 — sem isto a pesagem sai ÷diluição)
+            var qtd_total_g    = qtd_g_per_dose * equiv * diluicao / (teor / 100) * fp * mult;
             var qtd_total_mg   = qtd_total_g * 1000;
             var qtd_esp_total  = dose * mult; // total na unidade original (BLH ou UFC/UI)
 
