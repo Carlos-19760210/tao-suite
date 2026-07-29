@@ -2214,7 +2214,8 @@ function tao_crm_page_card() {
                             fd.append('orc_id',  id);
                             fetch(ajaxUrl, { method:'POST', body:fd })
                                 .then(function(r){ return r.json(); })
-                                .then(function(r){ if (r.success) carregarFormulas(); });
+                                .then(function(r){ if (r.success) carregarFormulas(); else alert((r.data && r.data.message) || 'Não foi possível excluir o orçamento.'); })
+                                .catch(function(){ alert('Falha de comunicação ao excluir.'); });
                         });
                     });
 
