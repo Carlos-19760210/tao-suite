@@ -2254,6 +2254,44 @@ function tao_formula_calc_capsula_import( array &$itens_mp, $forma, $forma_vol, 
     return $out;
 }
 
+// Trocar o TAMANHO do comprimido sublingual num orçamento já salvo → recalcula nº de
+// comprimidos por dose e a massa da base orotab (não altera o valor do orçamento, que é o do FC).
+add_action( 'wp_ajax_tao_formula_orc_orotab_tamanho', function() {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $orc_id = sanitize_text_field( $_POST['orc_id'] ?? '' );
+    $tam    = (float) str_replace( ',', '.', (string) ( $_POST['tamanho'] ?? '' ) );
+    if ( ! $orc_id || ! in_array( $tam, [ 0.21, 0.8 ], true ) ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+    $ro = tao_formula_api( "/orcamentos?id=eq.$orc_id&cliente_id=eq.$cliente_id&select=itens,forma_vol&limit=1" );
+    if ( ! $ro['ok'] || empty( $ro['data'] ) ) wp_send_json_error( [ 'message' => 'Orçamento não encontrado' ] );
+    $itens  = $ro['data'][0]['itens'] ?? [];
+    $ndoses = (float) ( $ro['data'][0]['forma_vol'] ?? 1 ) ?: 1;
+    $vol = 0.0;
+    foreach ( $itens as $it ) {
+        if ( ! empty( $it['is_qsp'] ) || ( $it['tipo'] ?? '' ) === 'emb' ) continue;
+        $d = (float) ( $it['densidade'] ?? 1 ) ?: 1;
+        $vol += (float) ( $it['qtd_total_g'] ?? 0 ) / $d;
+    }
+    $vd    = $ndoses > 0 ? $vol / $ndoses : $vol;
+    $ncomp = max( 1, (int) ceil( $vd / max( 1e-9, 0.25 * $tam ) ) );
+    $vol_base_total = max( 0, ( $ncomp * $tam - $vd ) ) * $ndoses;
+    $massa = 0.0;
+    foreach ( $itens as &$it ) {
+        if ( (string) ( $it['codigo_fc'] ?? '' ) === '11166' ) {
+            $dens_ob = (float) ( $it['densidade'] ?? 0.64 ) ?: 0.64;
+            $massa = round( $vol_base_total * $dens_ob, 4 );
+            $it['qtd_total_g'] = $massa;
+            $it['subtotal']    = round( $massa * (float) ( $it['preco_venda'] ?? 0 ), 4 );
+        }
+    }
+    unset( $it );
+    $r = tao_formula_api( "/orcamentos?id=eq.$orc_id&cliente_id=eq.$cliente_id", 'PATCH', [ 'itens' => $itens ] );
+    $r['ok'] ? wp_send_json_success( [ 'tamanho' => $tam, 'comp_por_dose' => $ncomp, 'base_g' => $massa ] )
+             : wp_send_json_error( [ 'message' => 'Erro ao recalcular: ' . mb_substr( (string) $r['raw'], 0, 200 ) ] );
+} );
+
 // Análise de excipiente por orçamento — alimenta a TELA DE ESCOLHA antes de importar.
 // Retorna, por orçamento: origem (texto|associado|conflito|padrao), o excipiente predominante e as
 // opções (excipientes associados aos ativos) + a lista de excipientes p/ o seletor.
@@ -2663,12 +2701,12 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
                         : "ORC:{$numero}: sem excipiente associado — usei {$exc_nome} (padrão) como QSP. Altere se necessário.",
                 ];
             }
-            // Aviso do comprimido sublingual: tamanho e nº de comprimidos por dose escolhidos.
+            // Info do comprimido sublingual (só informativo — a troca de tamanho é no seletor do card).
             if ( $orotab_info ) {
                 $avisos[] = [
                     'numero' => $numero, 'origem' => 'orotab', 'orotab' => $orotab_info,
                     'msg'    => "ORC:{$numero}: sublingual — comprimido " . number_format( $orotab_info['tamanho'], 2, ',', '.' ) .
-                                " · {$orotab_info['comp_por_dose']} comp./dose · base orotab " . number_format( $orotab_info['base_g'], 2, ',', '.' ) . " g. Troque o tamanho se quiser.",
+                                " · {$orotab_info['comp_por_dose']} comp./dose · base orotab " . number_format( $orotab_info['base_g'], 2, ',', '.' ) . " g.",
                 ];
             }
             if ( $card_id ) {
