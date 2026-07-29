@@ -2145,9 +2145,6 @@ function tao_crm_page_card() {
                               + ' · <span style="color:' + mCor + ';font-weight:600">' + margemX.toFixed(1) + 'x</span>'
                             : '<span style="color:#cbd5e1">—</span>';
                         var descOrc = (o.forma_nome || '—') + (priAtivo ? ' — ' + priAtivo : '');
-                        // comprimido sublingual: seletor discreto de tamanho (recalcula a base orotab)
-                        var ehSub = /sublingual|orodisp/i.test(o.forma_nome || '');
-                        var selTam = ehSub ? ' <select class="taof-orc-tam" data-id="' + o.id + '" title="Tamanho do comprimido — recalcula a base orotab" style="font-size:10px;padding:0 2px;border:1px solid #cbd5e1;border-radius:4px;background:#fff;color:#475569;vertical-align:middle;cursor:pointer"><option value="">tam.</option><option value="0.21">0,21</option><option value="0.8">0,8</option></select>' : '';
                         var editUrl = baseUrl
                             + '&modal=1'
                             + '&orc_id='  + encodeURIComponent(o.id)
@@ -2157,7 +2154,7 @@ function tao_crm_page_card() {
                             + (canSend ? '<input type="checkbox" class="taof-orc-check" value="' + o.id + '" style="cursor:pointer">' : '')
                             + '</td>'
                             + '<td style="padding:5px 4px;font-weight:600;color:#0f172a">' + (o.numero_orcamento || '—') + '</td>'
-                            + '<td style="padding:5px 4px;color:#475569;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + descOrc.replace(/"/g,'&quot;') + '">' + descOrc + selTam + '</td>'
+                            + '<td style="padding:5px 4px;color:#475569;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + descOrc.replace(/"/g,'&quot;') + '">' + descOrc + '</td>'
                             + '<td style="padding:5px 4px;text-align:right;font-weight:700;color:#0f172a;white-space:nowrap">' + tot + '</td>'
                             + '<td style="padding:5px 4px;text-align:right;font-size:11px;color:#64748b;white-space:nowrap" title="Custo dos insumos e margem sobre o custo">' + custoHtml + '</td>'
                             + '<td style="padding:5px 4px">'
@@ -2206,26 +2203,6 @@ function tao_crm_page_card() {
                     });
 
                     // Botões excluir
-                    // Seletor de tamanho do comprimido sublingual → recalcula a base orotab
-                    listDiv.querySelectorAll('.taof-orc-tam').forEach(function (sel) {
-                        sel.addEventListener('change', function () {
-                            if (!this.value) return;
-                            var id = this.dataset.id, tam = this.value, s = this;
-                            s.disabled = true;
-                            var fd = new FormData();
-                            fd.append('action', 'tao_formula_orc_orotab_tamanho');
-                            fd.append('nonce', taofNonce);
-                            fd.append('orc_id', id);
-                            fd.append('tamanho', tam);
-                            fetch(ajaxUrl, { method:'POST', body:fd })
-                                .then(function(r){ return r.json(); })
-                                .then(function(r){
-                                    if (r.success) { carregarFormulas(); }
-                                    else { s.disabled = false; alert((r.data && r.data.message) || 'Erro ao recalcular'); }
-                                })
-                                .catch(function(){ s.disabled = false; alert('Falha de comunicação.'); });
-                        });
-                    });
                     listDiv.querySelectorAll('.taof-orc-excluir').forEach(function (btn) {
                         btn.addEventListener('click', function () {
                             var num = this.dataset.num || 'este orçamento';
