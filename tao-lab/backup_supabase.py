@@ -16,7 +16,18 @@ Chave: usa env SUPABASE_KEY se existir; senão a constante (fallback atual).
 import os, json, gzip, urllib.request, urllib.error, datetime, sys, shutil
 
 SB   = "https://gclayesytzzpzkjvgede.supabase.co/rest/v1"
-KEY  = os.environ.get("SUPABASE_KEY", "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo")
+# Chave: env SUPABASE_KEY → arquivo de credencial local (Task Scheduler nem sempre herda a env) → fallback.
+def _supabase_key():
+    v = os.environ.get("SUPABASE_KEY")
+    if v: return v
+    try:
+        with open(r"C:\Users\carlo\FCertaSync\supabase_key.txt", encoding="utf-8") as fh:
+            k = fh.read().strip()
+            if k: return k
+    except OSError:
+        pass
+    return "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo"
+KEY  = _supabase_key()
 DEST = r"C:\Users\carlo\Backups\supabase"
 RETER_DIAS = 30
 PAGE = 1000
