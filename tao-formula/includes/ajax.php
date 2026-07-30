@@ -3793,8 +3793,10 @@ add_action( 'wp_ajax_tao_formula_nf_upload', function () {
 
         $vprod  = (float) ( $it['valor_prod'] ?? 0 );
         $vdesc  = (float) ( $it['desconto'] ?? 0 );
+        $frt_total = ( $vprod / $tprod ) * $frete;                           // frete total do item (fixo, por valor)
         $compra = round( ( $vprod - $vdesc ) / $q_compra, 6 );               // pago s/ frete, por unid. de COMPRA
-        $frt    = round( ( ( $vprod / $tprod ) * $frete ) / $q_compra, 6 );  // rateio por valor, por unid. de compra
+        $frt    = round( $frt_total / $q_compra, 6 );                        // frete por unid. de compra
+        $it['frete_item']         = round( $frt_total, 6 );                  // p/ recálculo no front se editar a qtd
         $it['valor_compra']       = $compra;
         $it['frete_rateado']      = $frt;
         $it['valor_compra_frete'] = round( $compra + $frt, 6 );              // BASE de venda (por unid. de compra)
@@ -3872,6 +3874,18 @@ add_action( 'wp_ajax_tao_formula_nf_efetivar', function () {
     }
 
     $forn_id = $payload['fornecedor_id'] ?? null;
+    if ( ! $forn_id )
+        wp_send_json_error( [ 'message' => 'Selecione/cadastre o fornecedor da NF antes de efetivar.' ] );
+
+    // Fornecedor OBRIGATÓRIO e deve casar com o EMITENTE da NF (RDC 67 / integridade): CNPJ igual.
+    $cnpj_nf = preg_replace( '/\D/', '', (string) ( $payload['cnpj_emitente'] ?? '' ) );
+    $rfv = tao_formula_api( "/fornecedores?id=eq.$forn_id&cliente_id=eq.$cliente_id&select=id,cnpj,nome&limit=1" );
+    $forn_cad = ( $rfv['ok'] && ! empty( $rfv['data'] ) ) ? $rfv['data'][0] : null;
+    if ( ! $forn_cad )
+        wp_send_json_error( [ 'message' => 'Fornecedor selecionado não encontrado no cadastro.' ] );
+    $cnpj_cad = preg_replace( '/\D/', '', (string) ( $forn_cad['cnpj'] ?? '' ) );
+    if ( $cnpj_nf && $cnpj_cad && $cnpj_nf !== $cnpj_cad )
+        wp_send_json_error( [ 'message' => 'O CNPJ do fornecedor selecionado (' . $cnpj_cad . ') não confere com o emitente da NF (' . $cnpj_nf . ').' ] );
 
     // 1. cabeçalho
     $cab = tao_formula_api( '/estoque_entradas_nf', 'POST', [
@@ -3882,6 +3896,7 @@ add_action( 'wp_ajax_tao_formula_nf_efetivar', function () {
         'numero'        => $payload['numero'] ?? null,
         'serie'         => $payload['serie'] ?? null,
         'dt_emissao'    => $payload['dt_emissao'] ?: null,
+        'dt_entrada'    => $payload['dt_entrada'] ?: gmdate( 'Y-m-d' ),
         'valor_total'   => $payload['valor_total'] ?? null,
         'status'        => 'efetivada',
         'efetivada_em'  => gmdate( 'c' ),

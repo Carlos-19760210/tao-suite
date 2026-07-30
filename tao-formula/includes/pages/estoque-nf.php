@@ -82,23 +82,28 @@ function tao_formula_page_estoque_nf() {
                 '<td style="font-family:monospace;color:#94a3b8">'+esc(it.cod_fornecedor)+'</td>'+
                 '<td>'+esc(it.descr_xml)+'</td>'+
                 '<td style="position:relative">'+assoc+'</td>'+
-                '<td style="text-align:right">'+parseFloat(it.quantidade)+' '+esc(it.unidade)
-                    + ((it.qtd_compra!=null && (esc(it.unidade_compra)!=esc(it.unidade) || parseFloat(it.qtd_compra)!=parseFloat(it.quantidade)))
-                        ? ' <small style="color:#94a3b8">→ '+parseFloat(it.qtd_compra)+' '+esc(it.unidade_compra)+'</small>' : '')
-                    + '</td>'+
-                '<td style="text-align:right"><strong>'+money(it.valor_compra)+'</strong><small style="color:#94a3b8">/'+esc(uc)+'</small></td>'+
-                '<td>'+(it.lote?esc(it.lote)+(it.dt_val?' <small style="color:#94a3b8">val '+fdata(it.dt_val)+'</small>':''):'—')+'</td>'+
+                '<td style="text-align:right;white-space:nowrap"><small style="color:#94a3b8">'+parseFloat(it.quantidade)+' '+esc(it.unidade)+' →</small><br>'+
+                    '<input type="number" step="any" class="taof-nf-edit" data-i="'+i+'" data-campo="qtd_compra" value="'+parseFloat(it.qtd_compra!=null?it.qtd_compra:it.quantidade)+'" style="width:76px;text-align:right;padding:2px 4px"> '+esc(uc)+'</td>'+
+                '<td style="text-align:right;white-space:nowrap"><input type="number" step="any" class="taof-nf-edit" data-i="'+i+'" data-campo="valor_compra" value="'+parseFloat(it.valor_compra||0)+'" style="width:88px;text-align:right;padding:2px 4px"><small style="color:#94a3b8">/'+esc(uc)+'</small></td>'+
+                '<td style="white-space:nowrap"><input type="text" class="taof-nf-edit" data-i="'+i+'" data-campo="lote" value="'+esc(it.lote||'')+'" placeholder="lote" style="width:104px;padding:2px 4px"><br>'+
+                    '<input type="date" class="taof-nf-edit" data-i="'+i+'" data-campo="dt_val" value="'+esc((it.dt_val||'').substring(0,10))+'" style="padding:1px 4px;font-size:11px" title="validade"></td>'+
                 '<td style="text-align:right;white-space:nowrap">'+base+'<br>'+sel+'</td></tr>';
         }
         function renderConf(){
             var f=NF.fornecedor;
-            var fornLinha = f
-                ? '<strong>'+esc(f.nome)+'</strong>'
-                : '<span style="color:#dc2626">CNPJ '+esc(NF.cnpj_emitente)+' não cadastrado</span> '+
+            var cnpjNF=esc(NF.cnpj_emitente||'');
+            // Fornecedor é OBRIGATÓRIO e deve casar com o emitente da NF (achado por CNPJ → confere por construção)
+            var fornBlock = f
+                ? '<span class="taof-nf-pill ok">✓ '+esc(f.nome)+'</span> <small style="color:#16a34a">CNPJ confere com a NF</small>'
+                : '<span style="color:#dc2626;font-weight:600">⛔ CNPJ '+cnpjNF+' não cadastrado como fornecedor</span> '+
                   '<button type="button" class="button button-small" id="taof-nf-cadforn">➕ Cadastrar fornecedor com os dados da NF</button>';
-            var head='<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px;margin:10px 0">'+
-                '<strong>NF '+esc(NF.numero)+'/'+esc(NF.serie)+'</strong> · '+fdata(NF.dt_emissao)+' · '+money(NF.valor_total)+'<br>'+
-                'Fornecedor: '+fornLinha+
+            var hoje=new Date().toISOString().slice(0,10);
+            if(NF._dt_entrada==null) NF._dt_entrada=hoje;
+            var head='<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px;margin:10px 0;line-height:1.9">'+
+                '<strong>NF '+esc(NF.numero)+'/'+esc(NF.serie)+'</strong> · emissão '+fdata(NF.dt_emissao)+' · '+money(NF.valor_total)+'<br>'+
+                'Emitente: <strong>'+esc(NF.razao||'')+'</strong> <small style="color:#64748b">CNPJ '+cnpjNF+'</small><br>'+
+                'Fornecedor (TAO): '+fornBlock+'<br>'+
+                '<label style="font-size:13px;font-weight:600">Data de entrada: <input type="date" id="taof-nf-dtentrada" value="'+esc(NF._dt_entrada)+'" style="padding:3px 6px;font-weight:400"></label>'+
                 ' · '+NF.itens.length+' itens · '+ (NF.duplicatas.length)+' duplicata(s)'+
                 (NF.valor_frete>0?' · frete '+money(NF.valor_frete)+' <small style="color:#94a3b8">(rateado por valor na base de venda)</small>':'')+'</div>';
             // banner de alertas de conformidade do fornecedor (RDC 67)
@@ -113,8 +118,10 @@ function tao_formula_page_estoque_nf() {
             var rows=NF.itens.map(linhaItem).join('');
             var tbl='<div class="taof-nf-twrap"><table class="taof-nf-tb"><tr><th>Cód. forn.</th><th>Descrição (XML)</th><th>Ativo TAO</th><th>Qtd</th><th style="text-align:right">Pago/un. compra</th><th>Lote</th><th style="text-align:right">Base venda (c/ frete) → destino</th></tr>'+rows+'</table></div>';
             var pend=NF.itens.filter(function(x){return !x.ativo_id;}).length;
-            var btn='<p style="margin:12px 0"><button type="button" class="button button-primary" id="taof-nf-efetivar" '+(f?'':'disabled')+'>✔ Efetivar entrada</button> '+
-                '<span id="taof-nf-efmsg" style="font-size:12px;margin-left:8px">'+(pend?('⚠ '+pend+' item(ns) sem ativo — associe todos'):'')+'</span></p>';
+            var podeEf = f && pend===0;
+            var msg = !f ? '⛔ selecione/cadastre o fornecedor da NF para continuar' : (pend?('⚠ '+pend+' item(ns) sem ativo — associe ou troque'):'');
+            var btn='<p style="margin:12px 0"><button type="button" class="button button-primary" id="taof-nf-efetivar" '+(podeEf?'':'disabled')+'>✔ Efetivar entrada</button> '+
+                '<span id="taof-nf-efmsg" style="font-size:12px;margin-left:8px;color:#b45309">'+msg+'</span></p>';
             $('#taof-nf-conf').html('<h2>Conferência</h2>'+head+tbl+btn).show();
         }
 
@@ -141,6 +148,24 @@ function tao_formula_page_estoque_nf() {
         });
         $(document).on('blur','.taof-nf-search',function(){var i=$(this).data('i');setTimeout(function(){$('.taof-nf-dd[data-i="'+i+'"]').hide();},180);});
         $(document).on('change','.taof-nf-dv',function(){NF.itens[$(this).data('i')].destino_valor=this.value;});
+        $(document).on('change','#taof-nf-dtentrada',function(){NF._dt_entrada=this.value;});
+        // edição inline de item antes de efetivar (qtd de compra / valor pago / lote / validade)
+        $(document).on('change','.taof-nf-edit',function(){
+            var i=$(this).data('i'), campo=$(this).data('campo'), v=this.value, it=NF.itens[i];
+            if(campo==='qtd_compra'){ it.qtd_compra=Math.max(0,parseFloat(v)||0); recalcItem(it); }
+            else if(campo==='valor_compra'){ it.valor_compra=Math.max(0,parseFloat(v)||0); it._valor_manual=true; recalcItem(it); }
+            else if(campo==='lote'){ it.lote=v; }
+            else if(campo==='dt_val'){ it.dt_val=v; }
+            renderConf();
+        });
+        // recalcula frete rateado + base de venda quando o atendente muda qtd ou valor do item
+        function recalcItem(it){
+            var q=parseFloat(it.qtd_compra)||1;
+            if(!it._valor_manual){ var vp=parseFloat(it.valor_prod)||0, vd=parseFloat(it.desconto)||0; it.valor_compra=Math.round((vp-vd)/q*1e6)/1e6; }
+            var ft=parseFloat(it.frete_item)||0;
+            it.frete_rateado=Math.round(ft/q*1e6)/1e6;                 // frete por unidade acompanha a qtd editada
+            it.valor_compra_frete=Math.round((parseFloat(it.valor_compra)+it.frete_rateado)*1e6)/1e6;
+        }
         // trocar o ativo associado (auto-match do de-para pode estar errado) → reabre a busca
         $(document).on('click','.taof-nf-trocar',function(e){e.preventDefault();var i=$(this).data('i');NF.itens[i].ativo_id=null;NF.itens[i].ativo=null;renderConf();
             setTimeout(function(){$('.taof-nf-search[data-i="'+i+'"]').focus();},30);});
@@ -159,7 +184,8 @@ function tao_formula_page_estoque_nf() {
             var pend=NF.itens.filter(function(x){return !x.ativo_id;});
             if(pend.length){alert('Associe todos os itens antes de efetivar.');return;}
             var $b=$(this).prop('disabled',true), $m=$('#taof-nf-efmsg').css('color','#64748b').text('Efetivando…');
-            var payload={cnpj_emitente:NF.cnpj_emitente,chave_nfe:NF.chave_nfe,numero:NF.numero,serie:NF.serie,dt_emissao:NF.dt_emissao,valor_total:NF.valor_total,fornecedor_id:NF.fornecedor?NF.fornecedor.id:null,itens:NF.itens,duplicatas:NF.duplicatas};
+            if(!NF.fornecedor){alert('Selecione/cadastre o fornecedor da NF antes de efetivar.');return;}
+            var payload={cnpj_emitente:NF.cnpj_emitente,chave_nfe:NF.chave_nfe,numero:NF.numero,serie:NF.serie,dt_emissao:NF.dt_emissao,dt_entrada:NF._dt_entrada,valor_total:NF.valor_total,fornecedor_id:NF.fornecedor?NF.fornecedor.id:null,itens:NF.itens,duplicatas:NF.duplicatas};
             $.post(ajaxUrl,{action:'tao_formula_nf_efetivar',nonce:nonce,payload:JSON.stringify(payload)},function(r){
                 if(r.success){
                     $('#taof-nf-conf').hide().empty();
