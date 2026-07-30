@@ -3693,6 +3693,29 @@ function tao_formula_parse_nfe( $xml_raw ) {
 }
 
 // Upload do XML + pré-conferência (associação por de-para já aprendido)
+/**
+ * Converte uma quantidade da unidade COMERCIAL da NF (uCom) para a unidade de COMPRA do
+ * cadastro (ex.: KG→G, MIL→CAP/UN, L→ML). Retorna null se as unidades forem de dimensões
+ * diferentes/desconhecidas (aí o chamador mantém a unidade da NF, sem converter).
+ */
+function tao_formula_conv_unid( $qtd, $de, $para ) {
+    $de   = strtoupper( trim( (string) $de ) );
+    $para = strtoupper( trim( (string) $para ) );
+    if ( $de === '' || $para === '' ) return null;
+    if ( $de === $para ) return (float) $qtd;
+    // fator para a base de cada dimensão
+    $dims = [
+        [ 'KG'=>1000.0, 'G'=>1.0, 'GR'=>1.0, 'MG'=>0.001, 'MCG'=>0.000001 ],   // massa (base g)
+        [ 'L'=>1000.0, 'LT'=>1000.0, 'ML'=>1.0 ],                               // volume (base ml)
+        [ 'MIL'=>1000.0, 'MILHEIRO'=>1000.0, 'UN'=>1.0, 'UND'=>1.0, 'UNID'=>1.0,
+          'CAP'=>1.0, 'CPR'=>1.0, 'COMP'=>1.0, 'PC'=>1.0 ],                     // contagem (base unidade)
+    ];
+    foreach ( $dims as $d ) {
+        if ( isset( $d[$de], $d[$para] ) ) return (float) $qtd * ( $d[$de] / $d[$para] );
+    }
+    return null;   // dimensões incompatíveis (ex.: CX/FR/PT sem fração conhecida)
+}
+
 add_action( 'wp_ajax_tao_formula_nf_upload', function () {
     while ( ob_get_level() > 0 ) ob_end_clean();
     check_ajax_referer( 'tao_formula_nonce', 'nonce' );
@@ -3759,14 +3782,22 @@ add_action( 'wp_ajax_tao_formula_nf_upload', function () {
         $it['ativo_id'] = $aid;
         $it['ativo']    = $aid ? ( $ativos[ $aid ] ?? null ) : null;
 
-        $q      = (float) ( $it['quantidade'] ?? 0 ) ?: 1;
+        // Converte a qtd da NF (uCom, ex.: KG/MIL) para a unidade de COMPRA do cadastro (ex.: G/CAP).
+        $q_nf     = (float) ( $it['quantidade'] ?? 0 ) ?: 1;
+        $u_nf     = (string) ( $it['unidade'] ?? '' );
+        $u_compra = ( $aid && ! empty( $ativos[ $aid ]['unidade'] ) ) ? (string) $ativos[ $aid ]['unidade'] : $u_nf;
+        $q_compra = tao_formula_conv_unid( $q_nf, $u_nf, $u_compra );
+        if ( $q_compra === null || $q_compra <= 0 ) { $q_compra = $q_nf; $u_compra = $u_nf; }  // sem conversão possível
+        $it['qtd_compra']     = round( $q_compra, 4 );
+        $it['unidade_compra'] = $u_compra;
+
         $vprod  = (float) ( $it['valor_prod'] ?? 0 );
         $vdesc  = (float) ( $it['desconto'] ?? 0 );
-        $compra = round( ( $vprod - $vdesc ) / $q, 4 );                  // pago s/ frete (unit)
-        $frt    = round( ( ( $vprod / $tprod ) * $frete ) / $q, 4 );     // rateio por valor (unit)
+        $compra = round( ( $vprod - $vdesc ) / $q_compra, 6 );               // pago s/ frete, por unid. de COMPRA
+        $frt    = round( ( ( $vprod / $tprod ) * $frete ) / $q_compra, 6 );  // rateio por valor, por unid. de compra
         $it['valor_compra']       = $compra;
         $it['frete_rateado']      = $frt;
-        $it['valor_compra_frete'] = round( $compra + $frt, 4 );          // BASE de venda
+        $it['valor_compra_frete'] = round( $compra + $frt, 6 );              // BASE de venda (por unid. de compra)
         // custo (mercado): do cadastro do ativo; sem referência, custo = compra
         $pc = $aid ? (float) ( $ativos[ $aid ]['preco_custo'] ?? 0 ) : 0;
         $it['valor_custo'] = $pc > 0 ? $pc : $compra;
@@ -3870,7 +3901,9 @@ add_action( 'wp_ajax_tao_formula_nf_efetivar', function () {
     }
     foreach ( $itens as $it ) {
         $aid = $it['ativo_id'];
-        $qtd = (float) ( $it['quantidade'] ?? 0 );
+        $qtd = (float) ( $it['quantidade'] ?? 0 );                        // qtd da NF (uCom) — registro fiel no item
+        $qtd_c = (float) ( $it['qtd_compra'] ?? $qtd );                   // qtd na unidade de COMPRA — vai p/ estoque/lote
+        $unid_c = (string) ( $it['unidade_compra'] ?? ( $it['unidade'] ?? 'g' ) );
 
         // 3 valores do ativo (regra Carlos): compra (pago s/ frete) · +frete rateado · compra c/ frete (base venda)
         $v_compra = (float) ( $it['valor_compra'] ?? ( $it['preco_unit'] ?? 0 ) );
@@ -3908,7 +3941,7 @@ add_action( 'wp_ajax_tao_formula_nf_efetivar', function () {
                 'origem' => 'fornecedor', 'fornecedor_id' => $forn_id,
                 'nf_numero' => $payload['numero'] ?? null, 'nf_chave' => $payload['chave_nfe'] ?? null,
                 'dt_fabricacao' => $it['dt_fab'] ?: null, 'dt_validade' => $it['dt_val'] ?: gmdate( 'Y-m-d', strtotime( '+2 years' ) ),
-                'qtd_inicial' => $qtd, 'qtd_atual' => $qtd, 'unidade' => $it['unidade'] ?? 'g',
+                'qtd_inicial' => $qtd_c, 'qtd_atual' => $qtd_c, 'unidade' => $unid_c,
                 'teor_pct' => $it['teor'] ?? null, 'densidade' => $it['densidade'] ?? null, 'fator_diluicao' => $it['diluicao'] ?? null,
                 'status' => 'quarentena',
             ] );
@@ -3918,7 +3951,7 @@ add_action( 'wp_ajax_tao_formula_nf_efetivar', function () {
         // movimento de entrada (kardex)
         tao_formula_api( '/estoque_movimentos', 'POST', [
             'cliente_id' => $cliente_id, 'ativo_id' => $aid, 'lote_id' => $lote_id,
-            'tipo' => 'entrada', 'quantidade' => $qtd, 'origem' => 'nf', 'ref_id' => $entrada_id,
+            'tipo' => 'entrada', 'quantidade' => $qtd_c, 'origem' => 'nf', 'ref_id' => $entrada_id,
             'usuario_id' => get_current_user_id(),
         ] );
         $mov++;
@@ -3932,7 +3965,7 @@ add_action( 'wp_ajax_tao_formula_nf_efetivar', function () {
                 'classe_sngpc'    => $ca['classe_sngpc'] ?? null,
                 'registro_ms'     => $ca['registro_ms'] ?? null,
                 'nr_lote'         => $it['lote'] ?: null,
-                'quantidade'      => $qtd, 'unidade' => $it['unidade'] ?? 'g',
+                'quantidade'      => $qtd_c, 'unidade' => $unid_c,
                 'dt_movimento'    => $payload['dt_emissao'] ?: gmdate( 'Y-m-d' ),
                 'fornecedor_cnpj' => $payload['cnpj_emitente'] ?? null,
                 'nf_numero'       => $payload['numero'] ?? null,

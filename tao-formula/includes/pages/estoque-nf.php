@@ -64,7 +64,7 @@ function tao_formula_page_estoque_nf() {
         // ── Conferência ──
         function linhaItem(it,i){
             var a=it.ativo||{};
-            var uc = a.unidade || it.unidade || 'un';   // unidade de COMPRA (cadastro FCerta; fallback = unid. da NF)
+            var uc = it.unidade_compra || a.unidade || it.unidade || 'un';   // unidade de COMPRA (cadastro FCerta)
             // referência do cadastro: unidade de compra + última compra (venda NÃO é exibida aqui) + trocar ativo
             var gran = (it.ativo_id && it.ativo)
                 ? '<br><small style="color:#64748b">compra <b>'+esc(uc)+'</b>'
@@ -82,7 +82,10 @@ function tao_formula_page_estoque_nf() {
                 '<td style="font-family:monospace;color:#94a3b8">'+esc(it.cod_fornecedor)+'</td>'+
                 '<td>'+esc(it.descr_xml)+'</td>'+
                 '<td style="position:relative">'+assoc+'</td>'+
-                '<td style="text-align:right">'+parseFloat(it.quantidade)+' '+esc(it.unidade)+'</td>'+
+                '<td style="text-align:right">'+parseFloat(it.quantidade)+' '+esc(it.unidade)
+                    + ((it.qtd_compra!=null && (esc(it.unidade_compra)!=esc(it.unidade) || parseFloat(it.qtd_compra)!=parseFloat(it.quantidade)))
+                        ? ' <small style="color:#94a3b8">→ '+parseFloat(it.qtd_compra)+' '+esc(it.unidade_compra)+'</small>' : '')
+                    + '</td>'+
                 '<td style="text-align:right"><strong>'+money(it.valor_compra)+'</strong><small style="color:#94a3b8">/'+esc(uc)+'</small></td>'+
                 '<td>'+(it.lote?esc(it.lote)+(it.dt_val?' <small style="color:#94a3b8">val '+fdata(it.dt_val)+'</small>':''):'—')+'</td>'+
                 '<td style="text-align:right;white-space:nowrap">'+base+'<br>'+sel+'</td></tr>';
