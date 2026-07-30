@@ -3729,9 +3729,9 @@ add_action( 'wp_ajax_tao_formula_nf_upload', function () {
     $nfe = tao_formula_parse_nfe( $raw );
     if ( ! $nfe ) wp_send_json_error( [ 'message' => 'XML inválido ou não é uma NF-e' ] );
 
-    // NF já importada?
+    // NF já importada? (entrada ESTORNADA não conta — permite reimportar)
     if ( $nfe['chave_nfe'] ) {
-        $dup = tao_formula_api( "/estoque_entradas_nf?cliente_id=eq.$cliente_id&chave_nfe=eq.{$nfe['chave_nfe']}&select=id,status&limit=1" );
+        $dup = tao_formula_api( "/estoque_entradas_nf?cliente_id=eq.$cliente_id&chave_nfe=eq.{$nfe['chave_nfe']}&status=neq.estornada&select=id,status&limit=1" );
         if ( $dup['ok'] && ! empty( $dup['data'] ) )
             wp_send_json_error( [ 'message' => 'Esta NF-e já foi importada (' . $dup['data'][0]['status'] . ').' ] );
     }
