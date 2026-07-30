@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+import os
 """
 SYNC DE-PARA FORNECEDOR — importa do FCerta a associação (fornecedor + código do produto
 no fornecedor) → produto, para o TAO Neo pré-associar itens na Entrada de NF.
@@ -11,7 +12,7 @@ Uso:  python sync_depara_fornecedor.py --db "C:\\...\\fcerta_29.ib" [--commit]
 """
 import fdb, json, urllib.request, urllib.error, argparse, re
 FB=r"C:\Users\carlo\FCertaSync\fb25\fbembed.dll"
-SB="https://gclayesytzzpzkjvgede.supabase.co/rest/v1"; KEY="sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo"
+SB="https://gclayesytzzpzkjvgede.supabase.co/rest/v1"; KEY=os.environ.get("SUPABASE_KEY", "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo")
 CID="62f98634-77ff-42f4-acaf-8561d56583da"
 
 def s(v): return str(v).strip() if v is not None else ""

@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
+import os
 # CARGA FORNECEDORES — FC02000 (só os com NF de entrada) -> fornecedores (TAO)
 # Match por nome com os já cadastrados (cotações): enriquece em vez de duplicar.
 import fdb, json, urllib.request, re
 
 BASE = r"C:\Users\carlo\FCertaSync"
 SB   = "https://gclayesytzzpzkjvgede.supabase.co/rest/v1"
-KEY  = "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo"
+KEY  = os.environ.get("SUPABASE_KEY", "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo")
 CID  = "62f98634-77ff-42f4-acaf-8561d56583da"
 
 def sb_req(path, method="GET", body=None):

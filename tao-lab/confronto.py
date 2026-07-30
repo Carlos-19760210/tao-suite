@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 # CONFRONTO FCerta × TAO Neo — validação final das cargas do Pacote 1
 # Compara campo a campo, dos dois lados, e gera tao-lab/CONFRONTO_CARGAS.md
 import fdb, json, urllib.request, random, unicodedata, re, datetime
@@ -6,7 +7,7 @@ HOJE = datetime.date.today().isoformat()
 
 BASE = r"C:\Users\carlo\FCertaSync"
 SB="https://gclayesytzzpzkjvgede.supabase.co/rest/v1"
-KEY="sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo"
+KEY=os.environ.get("SUPABASE_KEY", "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo")
 CID="62f98634-77ff-42f4-acaf-8561d56583da"
 OUT=r"C:\Users\carlo\tao-crm\tao-lab\CONFRONTO_CARGAS.md"
 random.seed(42)

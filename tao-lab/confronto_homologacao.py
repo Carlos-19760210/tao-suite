@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+import os
 """
 CONFRONTO DE HOMOLOGAÇÃO — FCerta × TAO Neo, req a req (Momento 2 da validação).
 Compara, para as requisições aprovadas no dia:
@@ -15,7 +16,7 @@ import fdb, json, urllib.request, argparse, datetime, unicodedata, re
 
 FB_DLL = r"C:\Users\carlo\FCertaSync\fb25\fbembed.dll"
 SB  = "https://gclayesytzzpzkjvgede.supabase.co/rest/v1"
-KEY = "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo"
+KEY = os.environ.get("SUPABASE_KEY", "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo")
 CID = "62f98634-77ff-42f4-acaf-8561d56583da"
 
 def dec(v): return v.decode("latin-1","replace").strip() if isinstance(v,(bytes,bytearray)) else (v.strip() if isinstance(v,str) else v)

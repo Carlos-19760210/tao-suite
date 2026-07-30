@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import os
 # FASE 1 (paralela) — fórmula + peso molecular via PubChem. Mesma lógica do carga_pubchem.py,
 # com 4 workers + throttle global (<=4,5 req/s, dentro do limite do PubChem).
 # Idempotente: só processa MP sem ft_peso_molecular. Uso: python carga_pubchem_par.py [--commit]
@@ -6,7 +7,7 @@ import json, urllib.request, urllib.parse, re, time, sys, threading
 from concurrent.futures import ThreadPoolExecutor
 
 SB="https://gclayesytzzpzkjvgede.supabase.co/rest/v1"
-KEY="sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo"
+KEY=os.environ.get("SUPABASE_KEY", "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo")
 CID="62f98634-77ff-42f4-acaf-8561d56583da"
 DRY="--commit" not in sys.argv
 WORKERS=2

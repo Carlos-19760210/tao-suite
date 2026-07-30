@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+import os
 """
 SYNC HISTÓRICO FCerta → TAO Neo (hist_clientes / hist_formulas / hist_formulas_itens)
 
@@ -35,7 +36,7 @@ WORK_DIR      = r"C:\Users\carlo\FCertaSync"
 FB_DLL        = os.path.join(WORK_DIR, "fb25", "fbembed.dll")
 
 SB  = "https://gclayesytzzpzkjvgede.supabase.co/rest/v1"
-KEY = "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo"
+KEY = os.environ.get("SUPABASE_KEY", "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo")
 CID = "62f98634-77ff-42f4-acaf-8561d56583da"   # tenant Magis-TAO
 
 JANELA_DIAS = 30      # margem da janela incremental sobre a última dt_cadastro

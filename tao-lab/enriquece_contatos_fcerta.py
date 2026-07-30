@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+import os
 """
 ENRIQUECE CONTATOS com dados do FCerta (documento CPF+RG, sexo, nascimento, e-mail, endereço).
 Regra (Carlos 07/07):
@@ -13,7 +14,7 @@ Uso: python enriquece_contatos_fcerta.py [--dry-run]
 import json, urllib.request, urllib.error, re, time, argparse, os
 
 SB  = "https://gclayesytzzpzkjvgede.supabase.co/rest/v1"
-KEY = "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo"
+KEY = os.environ.get("SUPABASE_KEY", "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo")
 CID = "62f98634-77ff-42f4-acaf-8561d56583da"
 WS  = "7c4cae7f-7591-4955-8d7a-c8c5e19cf62d"
 FB  = r"C:\Users\carlo\FCertaSync\fb25\fbembed.dll"

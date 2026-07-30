@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
+import os
 # DRY-RUN Carga 1 — dados técnicos FC03000 -> ativos (TAO). SOMENTE LEITURA.
 import fdb, json, urllib.request, re, csv
 
 BASE = r"C:\Users\carlo\FCertaSync"
 SB   = "https://gclayesytzzpzkjvgede.supabase.co/rest/v1"
-KEY  = "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo"
+KEY  = os.environ.get("SUPABASE_KEY", "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo")
 CID  = "62f98634-77ff-42f4-acaf-8561d56583da"   # Magis
 
 def sb(path, rng=None):

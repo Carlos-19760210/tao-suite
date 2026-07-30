@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
+import os
 # CARGA 1 — grava dados técnicos FC03000 -> ativos (TAO). Aprovada pelo Carlos.
 import fdb, json, urllib.request, re
 
 BASE = r"C:\Users\carlo\FCertaSync"
 SB   = "https://gclayesytzzpzkjvgede.supabase.co/rest/v1"
-KEY  = "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo"
+KEY  = os.environ.get("SUPABASE_KEY", "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo")
 CID  = "62f98634-77ff-42f4-acaf-8561d56583da"
 
 def sb(path, method="GET", body=None, rng=None):

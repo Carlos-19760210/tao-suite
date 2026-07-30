@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+import os
 """
 CARGA LOTES — FC03140 (filial 1) → lab_lotes_mp. Rodada RECORRENTE de equalização.
 Regras (nada destrutivo):
@@ -17,7 +18,7 @@ import fdb, json, urllib.request, sys, datetime
 DB     = r"C:\Users\carlo\FCertaSync\fcerta_atual.ib"
 FB_DLL = r"C:\Users\carlo\FCertaSync\fb25\fbembed.dll"
 SB     = "https://gclayesytzzpzkjvgede.supabase.co/rest/v1"
-KEY    = "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo"
+KEY    = os.environ.get("SUPABASE_KEY", "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo")
 CID    = "62f98634-77ff-42f4-acaf-8561d56583da"
 DRY    = "--commit" not in sys.argv
 

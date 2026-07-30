@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
+import os
 # FASE 1b — Equivalência sal<->base LIMPA: recalcula os 40 fatores (fator_equiv<>1) pelos
 # pesos moleculares do PubChem (fonte pública), validando contra o valor herdado da Zanini.
 # Descobre a convenção do sistema (qual razão bate com a maioria) e grava a calculada.
 # Uso: python carga_equivalencia.py [--commit]
 import json, urllib.request, urllib.parse, re, time, sys
 SB="https://gclayesytzzpzkjvgede.supabase.co/rest/v1"
-KEY="sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo"; CID="62f98634-77ff-42f4-acaf-8561d56583da"
+KEY=os.environ.get("SUPABASE_KEY", "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo"); CID="62f98634-77ff-42f4-acaf-8561d56583da"
 DRY="--commit" not in sys.argv
 def sbq(p): return json.loads(urllib.request.urlopen(urllib.request.Request(SB+p,headers={"apikey":KEY,"Authorization":"Bearer "+KEY})).read())
 def sb_patch(sid,body):

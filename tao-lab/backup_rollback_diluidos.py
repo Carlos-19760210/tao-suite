@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+import os
 """
 BACKUP + ROLLBACK das correções de pesagem de diluídos (30/07).
 Lê a planilha CORRECAO_DILUIDOS_2026-07-30.xlsx (que tem os valores ANTIGOS na coluna
@@ -11,7 +12,7 @@ Lê a planilha CORRECAO_DILUIDOS_2026-07-30.xlsx (que tem os valores ANTIGOS na 
 import json, urllib.request, urllib.error, argparse, re, os
 import openpyxl
 
-SB="https://gclayesytzzpzkjvgede.supabase.co/rest/v1"; KEY="sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo"
+SB="https://gclayesytzzpzkjvgede.supabase.co/rest/v1"; KEY=os.environ.get("SUPABASE_KEY", "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo")
 CID="62f98634-77ff-42f4-acaf-8561d56583da"
 XLSX=r"C:\Users\carlo\Downloads\CORRECAO_DILUIDOS_2026-07-30.xlsx"
 BK=r"C:\Users\carlo\Downloads\backup_diluidos_2026-07-30.json"

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import os
 # CARGA CONTROLADOS — FC03000.INDSNGPC='S' -> ativos.controlado=true + classe_sngpc(=PORTA) + registro_ms
 # Universo: matéria-prima (GRUPO='M') presente na filial 1 => 49 ativos controlados no TAO.
 # Idempotente: PATCH direto (reexecutar não duplica). Match por ativos.codigo_fc = FC03000.CDPRO.
@@ -7,7 +8,7 @@ import fdb, json, urllib.request, sys
 
 BASE = r"C:\Users\carlo\FCertaSync"
 SB   = "https://gclayesytzzpzkjvgede.supabase.co/rest/v1"
-KEY  = "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo"
+KEY  = os.environ.get("SUPABASE_KEY", "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo")
 CID  = "62f98634-77ff-42f4-acaf-8561d56583da"
 DRY  = "--commit" not in sys.argv   # padrão = simulação; --commit para gravar
 

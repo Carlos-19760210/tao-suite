@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+import os
 """
 SYNC ATIVOS — FCerta (FC03000/FC03100/FC15110) → Supabase `ativos` + `tipos_capsula`.
 Sucessor SEGURO do sincronizar_tao.ps1 para rodadas RECORRENTES de equalização:
@@ -22,7 +23,7 @@ import fdb, json, urllib.request, urllib.parse, urllib.error, argparse, re, sys,
 DB_PADRAO = r"C:\Users\carlo\FCertaSync\fcerta_atual.ib"
 FB_DLL    = r"C:\Users\carlo\FCertaSync\fb25\fbembed.dll"
 SB        = "https://gclayesytzzpzkjvgede.supabase.co/rest/v1"
-KEY       = "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo"
+KEY       = os.environ.get("SUPABASE_KEY", "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo")
 CID       = "62f98634-77ff-42f4-acaf-8561d56583da"
 
 UNID_MP  = {"G":"g","GR":"g","KG":"g","L":"g","MG":"mg","MEQ":"mg","MCG":"mcg","UG":"mcg",

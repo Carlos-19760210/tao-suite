@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import os
 # CARGA ZANINI DOSE MÁXIMA — FC71600.Z_DOSEMAXIMA (XOR 0x8A) -> ativos.dose_max_dia/unidade
 # Match FC03000.Z_CDFARM. Só grava dose_max_dia numérico p/ doses ABSOLUTAS por dia
 # (mg/g/mcg/dia); mg/kg/dia e afins não são absolutas → não entram no alerta numérico.
@@ -6,7 +7,7 @@ import fdb, json, urllib.request, re, time
 
 BASE = r"C:\Users\carlo\FCertaSync"
 SB   = "https://gclayesytzzpzkjvgede.supabase.co/rest/v1"
-KEY  = "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo"
+KEY  = os.environ.get("SUPABASE_KEY", "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo")
 CID  = "62f98634-77ff-42f4-acaf-8561d56583da"
 
 def sb_req(path, method="GET", body=None):

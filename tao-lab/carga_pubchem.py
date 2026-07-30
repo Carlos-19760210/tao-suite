@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import os
 # FASE 1 — BASE PRÓPRIA: fórmula molecular + peso molecular via PubChem (open data NIH).
 # Fonte LIMPA (domínio público) p/ substituir a base Zanini herdada (ver memória
 # project_base_propria_comercializacao). Preenche ativos.ft_formula_molecular/ft_peso_molecular.
@@ -9,7 +10,7 @@
 import json, urllib.request, urllib.parse, re, time, sys
 
 SB   = "https://gclayesytzzpzkjvgede.supabase.co/rest/v1"
-KEY  = "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo"
+KEY  = os.environ.get("SUPABASE_KEY", "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo")
 CID  = "62f98634-77ff-42f4-acaf-8561d56583da"
 DRY  = "--commit" not in sys.argv
 LIMIT = None

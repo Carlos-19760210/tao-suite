@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import os
 # CARGA CATÁLOGO CID-10 — FC99311 -> cid10 (codigo = CAPITDOE+CATEGDOE[.SUBCATDOE])
 # CID-10 é público (OMS/Datasus) — base limpa p/ comercializar. ~12,4 mil códigos.
 # Idempotente: upsert por codigo (on_conflict). Carga leve (referência estática).
@@ -7,7 +8,7 @@ import fdb, json, urllib.request, sys, unicodedata
 
 BASE = r"C:\Users\carlo\FCertaSync"
 SB   = "https://gclayesytzzpzkjvgede.supabase.co/rest/v1"
-KEY  = "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo"
+KEY  = os.environ.get("SUPABASE_KEY", "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo")
 DRY  = "--commit" not in sys.argv
 
 def s(v): return v.strip() if isinstance(v, str) else v

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+import os
 """
 SYNC EXCIPIENTES — replica a associação ativo->excipiente do FCerta para o TAO.
 Fonte: FC99999 WHERE ARGUMENTO='EXCEP'  (SUBARGUM=produto, PARAMETRO=excipiente).
@@ -14,7 +15,7 @@ import fdb, json, urllib.request, urllib.error, argparse
 FB_DLL = r"C:\Users\carlo\FCertaSync\fb25\fbembed.dll"
 DB_PADRAO = r"C:\Users\carlo\FCertaSync\fcerta_28.ib"
 SB  = "https://gclayesytzzpzkjvgede.supabase.co/rest/v1"
-KEY = "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo"
+KEY = os.environ.get("SUPABASE_KEY", "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo")
 CID = "62f98634-77ff-42f4-acaf-8561d56583da"
 
 def s(v): return str(v).strip() if v is not None else ""

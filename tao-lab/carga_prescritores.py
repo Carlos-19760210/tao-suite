@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
+import os
 # CARGA PRESCRITORES — FC04000 (+FC04400 endereço) -> prescritores (TAO)
 # Idempotente: pula codigo_fc já carregado. Requer migration_v3.
 import fdb, json, urllib.request, time
 
 BASE = r"C:\Users\carlo\FCertaSync"
 SB   = "https://gclayesytzzpzkjvgede.supabase.co/rest/v1"
-KEY  = "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo"
+KEY  = os.environ.get("SUPABASE_KEY", "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo")
 CID  = "62f98634-77ff-42f4-acaf-8561d56583da"
 
 def sb_req(path, method="GET", body=None, rng=None):

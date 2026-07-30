@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+import os
 """
 JUNÇÃO DE CONTATOS FCerta → base ÚNICA do CRM (crm_contatos)
 Chave: CELULAR (FC07200.NRFAX+NRDDDFAX) normalizado p/ whatsapp 55DDD9XXXXXXXX.
@@ -23,7 +24,7 @@ Uso:  python juncao_contatos_fcerta.py --dry-run   (só conta, não grava)
 import json, urllib.request, re, time, argparse, os
 
 SB  = "https://gclayesytzzpzkjvgede.supabase.co/rest/v1"
-KEY = "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo"
+KEY = os.environ.get("SUPABASE_KEY", "sb_secret_HpoqM6ujk2yD6la7KM3cuQ_pdWBK8jo")
 CID = "62f98634-77ff-42f4-acaf-8561d56583da"
 WS  = "7c4cae7f-7591-4955-8d7a-c8c5e19cf62d"   # workspace Magis-TAO
 FB  = r"C:\Users\carlo\FCertaSync\fb25\fbembed.dll"
