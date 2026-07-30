@@ -415,7 +415,7 @@ window.cbpm = {
   ajax_url:     "<?php echo esc_js( admin_url( 'admin-ajax.php' ) ); ?>",
   nonce:        "<?php echo esc_js( wp_create_nonce( 'cbpm_nonce' ) ); ?>",
   supabase_url: "<?php echo esc_js( $supabase_url ); ?>",
-  supabase_key: "<?php echo esc_js( $supabase_key ); ?>"
+  supabase_key: ""  /* removido do frontend por segurança (server-side only) */
 };
 </script>
 <script src="<?php echo esc_url( CBPM_PLUGIN_URL . 'assets/script.js' ); ?>?v=<?php echo CBPM_VERSION; ?>"></script>
@@ -426,7 +426,7 @@ window.taoCrm = {
   ajax_url:     "<?php echo esc_js( admin_url('admin-ajax.php') ); ?>",
   nonce:        "<?php echo esc_js( wp_create_nonce('tao_crm_nonce') ); ?>",
   supabase_url: "<?php echo esc_js( $supabase_url ); ?>",
-  supabase_key: "<?php echo esc_js( $supabase_key ); ?>",
+  supabase_key: "",  /* removido do frontend por segurança (server-side only) */
   card_base_url:"<?php echo esc_js( function_exists('cbpm_url') ? cbpm_url('crm-kanban', ['action'=>'card','id'=>'']) : '' ); ?>"
 };
 </script>

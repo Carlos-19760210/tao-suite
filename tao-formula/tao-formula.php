@@ -78,7 +78,7 @@ add_action( 'admin_enqueue_scripts', function( $hook ) {
         'ajaxUrl'     => admin_url( 'admin-ajax.php' ),
         'nonce'       => wp_create_nonce( 'tao_formula_nonce' ),
         'supabaseUrl' => tao_formula_supabase_url(),
-        'supabaseKey' => tao_formula_supabase_key(),
+        'supabaseKey' => '',   // removido do frontend por segurança (server-side only)
         'motorOn'     => get_option( 'tao_formula_motor_v2' ) === '1',
     ] );
     // JS extra somente na página de novo orçamento

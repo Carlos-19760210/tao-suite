@@ -696,7 +696,7 @@ window.cbpm = {
     ajax_url:     "<?php echo esc_js( admin_url('admin-ajax.php') ); ?>",
     nonce:        "<?php echo esc_js( wp_create_nonce('cbpm_nonce') ); ?>",
     supabase_url: "<?php echo esc_js( $supabase_url ); ?>",
-    supabase_key: "<?php echo esc_js( $supabase_key ); ?>"
+    supabase_key: ""  /* removido do frontend por segurança — acesso ao Supabase é server-side */
 };
 // ── Accordion ──
 (function(){
@@ -773,7 +773,7 @@ window.taoFormula = <?php echo wp_json_encode( [
     'ajaxUrl'     => admin_url( 'admin-ajax.php' ),
     'nonce'       => wp_create_nonce( 'tao_formula_nonce' ),
     'supabaseUrl' => tao_formula_supabase_url(),
-    'supabaseKey' => tao_formula_supabase_key(),
+    'supabaseKey' => '',   // removido do frontend por segurança (server-side only)
 ] ); ?>;
 </script>
 <script src="<?php echo esc_url( TAOF_PLUGIN_URL . 'assets/formula-script.js' ); ?>?v=<?php echo TAOF_VERSION; ?>"></script>
@@ -787,7 +787,7 @@ window.taoCrm = <?php echo wp_json_encode( [
     'ajax_url'     => admin_url( 'admin-ajax.php' ),
     'nonce'        => wp_create_nonce( 'tao_crm_nonce' ),
     'supabase_url' => function_exists( 'cbpm_supabase_url' ) ? cbpm_supabase_url() : get_option( 'cbpm_supabase_url', '' ),
-    'supabase_key' => function_exists( 'cbpm_supabase_key' ) ? cbpm_supabase_key() : get_option( 'cbpm_supabase_key', '' ),
+    'supabase_key' => '',   // removido do frontend por segurança (server-side only)
     'card_base_url'=> cbpm_url( 'crm-kanban', [ 'action' => 'card', 'id' => '' ] ),
     'adminUrl'     => admin_url(),
 ] ); ?>;
