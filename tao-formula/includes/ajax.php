@@ -3916,23 +3916,32 @@ add_action( 'wp_ajax_tao_formula_nf_efetivar', function () {
         ] );
         $mov++;
 
-        // atualiza os valores do ativo: compra (pago), custo (mercado; = compra se não houver ref.),
-        // e compra c/ frete (BASE do preço de venda). Não sobrescreve custo de mercado já cadastrado.
+        // atualiza os valores do ativo conforme o DESTINO escolhido no item (regra Carlos):
+        //   compra → preço de compra (pago) + base de venda (c/ frete); custo de mercado FICA.
+        //   custo  → custo de mercado (preco_custo) = valor pago c/ frete; compra/base FICAM.
+        //   ambos  → atualiza os dois.
+        $destino = in_array( $it['destino_valor'] ?? 'compra', [ 'compra', 'custo', 'ambos' ], true )
+                 ? $it['destino_valor'] : 'compra';
         if ( $v_compra > 0 ) {
-            $upd = [
-                'preco_compra'       => $v_compra,
-                'custo_com_frete'    => $v_cf,
-                'custo_com_frete_em' => gmdate( 'c' ),
-                'preco_custo'        => $v_custo,
-            ];
-            $r_upd = tao_formula_api( "/ativos?id=eq.$aid&cliente_id=eq.$cliente_id", 'PATCH', $upd );
-            // fallback se a migration_ativo_fiscal_v1 (custo_com_frete/preco_custo) ainda não rodou
-            if ( ! $r_upd['ok'] && strpos( (string) ( $r_upd['raw'] ?? '' ), 'column' ) !== false )
-                tao_formula_api( "/ativos?id=eq.$aid&cliente_id=eq.$cliente_id", 'PATCH', [ 'preco_compra' => $v_compra ] );
-            tao_formula_registrar_preco_hist( $cliente_id, $aid, [
-                'preco_compra'  => $v_compra,
-                'custo_unidade' => $v_cf,
-            ], 'nf', [ 'fornecedor_id' => $forn_id, 'nf_numero' => $payload['numero'] ?? null ] );
+            $upd = [];
+            if ( $destino === 'compra' || $destino === 'ambos' ) {
+                $upd['preco_compra']       = $v_compra;
+                $upd['custo_com_frete']    = $v_cf;
+                $upd['custo_com_frete_em'] = gmdate( 'c' );
+            }
+            if ( $destino === 'custo' || $destino === 'ambos' ) {
+                $upd['preco_custo'] = $v_cf;   // valor pago (c/ frete) vira o custo de mercado
+            }
+            if ( $upd ) {
+                $r_upd = tao_formula_api( "/ativos?id=eq.$aid&cliente_id=eq.$cliente_id", 'PATCH', $upd );
+                // fallback se a migration_ativo_fiscal_v1 (custo_com_frete/preco_custo) ainda não rodou
+                if ( ! $r_upd['ok'] && strpos( (string) ( $r_upd['raw'] ?? '' ), 'column' ) !== false && isset( $upd['preco_compra'] ) )
+                    tao_formula_api( "/ativos?id=eq.$aid&cliente_id=eq.$cliente_id", 'PATCH', [ 'preco_compra' => $v_compra ] );
+                tao_formula_registrar_preco_hist( $cliente_id, $aid, [
+                    'preco_compra'  => $v_compra,
+                    'custo_unidade' => $v_cf,
+                ], 'nf', [ 'fornecedor_id' => $forn_id, 'nf_numero' => $payload['numero'] ?? null, 'destino_valor' => $destino ] );
+            }
         }
     }
 
