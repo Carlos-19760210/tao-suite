@@ -150,7 +150,7 @@ function tao_formula_page_estoque_nf() {
                 if(r.success){
                     $('#taof-nf-conf').hide().empty();
                     $('#taof-nf-file').val('');
-                    $('#taof-nf-upmsg').css('color','#16a34a').text('✓ NF efetivada: '+r.data.itens+' itens, '+r.data.lotes+' lote(s), '+r.data.contas_pagar+' conta(s) a pagar, '+r.data.depara_aprendidos+' associação(ões) aprendida(s)');
+                    $('#taof-nf-upmsg').css('color','#16a34a').text('✓ NF efetivada: '+r.data.itens+' itens, '+r.data.lotes+' lote(s), '+r.data.contas_pagar+' conta(s) a pagar, '+r.data.depara_aprendidos+' associação(ões) aprendida(s)'+((r.data.sngpc_entradas>0)?', '+r.data.sngpc_entradas+' entrada(s) SNGPC':''));
                     carregarLista(true);
                 } else { $b.prop('disabled',false); $m.css('color','#dc2626').text((r.data&&r.data.message)||'Erro'); }
             }).fail(function(){$b.prop('disabled',false);$m.css('color','#dc2626').text('Falha na requisição');});

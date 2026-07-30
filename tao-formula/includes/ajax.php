@@ -3860,7 +3860,14 @@ add_action( 'wp_ajax_tao_formula_nf_efetivar', function () {
         wp_send_json_error( [ 'message' => 'Erro ao gravar a NF: ' . mb_substr( (string) $cab['raw'], 0, 200 ) ] );
     $entrada_id = $cab['data'][0]['id'];
 
-    $lotes_criados = 0; $mov = 0; $depara_novos = 0;
+    $lotes_criados = 0; $mov = 0; $depara_novos = 0; $sngpc_ent = 0;
+    // dados de controle (SNGPC) dos ativos — entrada de MP controlada gera movimento no livro
+    $ctrl = [];
+    $aids = array_values( array_unique( array_filter( array_map( fn( $x ) => $x['ativo_id'] ?? null, $itens ) ) ) );
+    if ( $aids ) {
+        $rc = tao_formula_api( "/ativos?id=in.(" . implode( ',', $aids ) . ")&cliente_id=eq.$cliente_id&select=id,controlado,classe_sngpc,dcb,registro_ms" );
+        if ( $rc['ok'] ) foreach ( (array) $rc['data'] as $a ) $ctrl[ $a['id'] ] = $a;
+    }
     foreach ( $itens as $it ) {
         $aid = $it['ativo_id'];
         $qtd = (float) ( $it['quantidade'] ?? 0 );
@@ -3916,6 +3923,25 @@ add_action( 'wp_ajax_tao_formula_nf_efetivar', function () {
         ] );
         $mov++;
 
+        // entrada SNGPC (controlados): registra o movimento de ENTRADA da compra (FC99S21)
+        $ca = $ctrl[ $aid ] ?? null;
+        if ( $ca && ! empty( $ca['controlado'] ) ) {
+            $rs = tao_formula_api( '/sngpc_movimentos', 'POST', [
+                'cliente_id'      => $cliente_id, 'tipo' => 'entrada', 'ativo_id' => $aid,
+                'dcb'             => trim( (string) ( $ca['dcb'] ?? '' ) ) ?: null,
+                'classe_sngpc'    => $ca['classe_sngpc'] ?? null,
+                'registro_ms'     => $ca['registro_ms'] ?? null,
+                'nr_lote'         => $it['lote'] ?: null,
+                'quantidade'      => $qtd, 'unidade' => $it['unidade'] ?? 'g',
+                'dt_movimento'    => $payload['dt_emissao'] ?: gmdate( 'Y-m-d' ),
+                'fornecedor_cnpj' => $payload['cnpj_emitente'] ?? null,
+                'nf_numero'       => $payload['numero'] ?? null,
+                'origem'          => 'nf', 'ref_id' => $entrada_id,
+                'transmitido'     => false, 'criado_por' => get_current_user_id(),
+            ] );
+            if ( $rs['ok'] ) $sngpc_ent++;
+        }
+
         // atualiza os valores do ativo conforme o DESTINO escolhido no item (regra Carlos):
         //   compra → preço de compra (pago) + base de venda (c/ frete); custo de mercado FICA.
         //   custo  → custo de mercado (preco_custo) = valor pago c/ frete; compra/base FICAM.
@@ -3958,7 +3984,7 @@ add_action( 'wp_ajax_tao_formula_nf_efetivar', function () {
 
     wp_send_json_success( [
         'entrada_id' => $entrada_id, 'itens' => count( $itens ),
-        'lotes' => $lotes_criados, 'movimentos' => $mov, 'depara_aprendidos' => $depara_novos, 'contas_pagar' => $cp,
+        'lotes' => $lotes_criados, 'movimentos' => $mov, 'depara_aprendidos' => $depara_novos, 'contas_pagar' => $cp, 'sngpc_entradas' => $sngpc_ent,
     ] );
 } );
 
