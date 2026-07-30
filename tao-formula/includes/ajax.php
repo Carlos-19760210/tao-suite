@@ -4415,7 +4415,41 @@ add_action( 'wp_ajax_tao_formula_lote_laudo_upload', function () {
     ] );
 } );
 
-// LAUDOS EM LOTE por NF: 1 PDF com vários laudos → extrai todos e casa com cada lote da entrada.
+// Sobe um PDF p/ a OpenAI Files API (reutilizável em várias perguntas). Retorna file_id|null.
+function tao_formula_openai_upload_pdf( $tmp_path ) {
+    $key = get_option( 'tao_formula_openai_key', '' );
+    if ( ! $key ) return null;
+    $boundary = 'WPB' . bin2hex( random_bytes( 6 ) );
+    $raw  = file_get_contents( $tmp_path );
+    $body = "--{$boundary}\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nuser_data\r\n"
+          . "--{$boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"laudo.pdf\"\r\nContent-Type: application/pdf\r\n\r\n"
+          . $raw . "\r\n--{$boundary}--\r\n";
+    $up = wp_remote_post( 'https://api.openai.com/v1/files', [
+        'headers' => [ 'Authorization' => 'Bearer ' . $key, 'Content-Type' => "multipart/form-data; boundary={$boundary}" ],
+        'body' => $body, 'timeout' => 60,
+    ] );
+    if ( is_wp_error( $up ) ) return null;
+    return json_decode( wp_remote_retrieve_body( $up ), true )['id'] ?? null;
+}
+function tao_formula_openai_delete_file( $file_id ) {
+    $key = get_option( 'tao_formula_openai_key', '' );
+    if ( $key && $file_id ) wp_remote_request( 'https://api.openai.com/v1/files/' . $file_id, [ 'method' => 'DELETE', 'headers' => [ 'Authorization' => 'Bearer ' . $key ], 'timeout' => 10 ] );
+}
+// Pergunta à IA com um content_block já pronto (input_file/input_image) + prompt → texto.
+function tao_formula_openai_ask( $content_block, $prompt, $max_tokens = 2500 ) {
+    $key = get_option( 'tao_formula_openai_key', '' );
+    if ( ! $key ) return '';
+    $resp = wp_remote_post( 'https://api.openai.com/v1/responses', [
+        'headers' => [ 'Authorization' => 'Bearer ' . $key, 'Content-Type' => 'application/json' ],
+        'body' => wp_json_encode( [ 'model' => 'gpt-4o', 'max_output_tokens' => $max_tokens,
+            'input' => [ [ 'role' => 'user', 'content' => [ $content_block, [ 'type' => 'input_text', 'text' => $prompt ] ] ] ] ] ),
+        'timeout' => 90,
+    ] );
+    if ( is_wp_error( $resp ) ) return '';
+    return (string) ( json_decode( wp_remote_retrieve_body( $resp ), true )['output'][0]['content'][0]['text'] ?? '' );
+}
+
+// LAUDOS EM LOTE por NF: sobe o PDF 1x e pergunta 1 laudo por lote (não trunca com muitos laudos).
 add_action( 'wp_ajax_tao_formula_nf_laudos_batch', function () {
     while ( ob_get_level() > 0 ) ob_end_clean();
     @ignore_user_abort( true );   // se o atendente sair da página, o servidor TERMINA de aplicar os laudos
@@ -4438,29 +4472,43 @@ add_action( 'wp_ajax_tao_formula_nf_laudos_batch', function () {
     if ( isset( $up['error'] ) ) wp_send_json_error( [ 'message' => 'Falha no upload: ' . $up['error'] ] );
     $laudo_url = $up['url'];
 
-    $ia = tao_formula_laudos_extrair_todos( $up['file'], $tipo );
-    if ( ! $ia['ok'] ) wp_send_json_error( [ 'message' => 'IA não extraiu os laudos: ' . ( $ia['erro'] ?? '' ) ] );
-    $norm = function ( $s ) { return strtoupper( preg_replace( '/\s+/', '', (string) $s ) ); };
-    $por_lote = [];
-    foreach ( (array) $ia['data'] as $L ) { $k = $norm( $L['lote'] ?? '' ); if ( $k ) $por_lote[ $k ] = $L; }
-
     // lotes desta entrada (pela chave da NF)
     $rc = tao_formula_api( "/estoque_entradas_nf?id=eq.$entrada_id&cliente_id=eq.$cliente_id&select=chave_nfe&limit=1" );
     $chave = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? (string) ( $rc['data'][0]['chave_nfe'] ?? '' ) : '';
     if ( ! $chave ) wp_send_json_error( [ 'message' => 'Entrada sem chave da NF (estornada?).' ] );
     $rl = tao_formula_api( "/lab_lotes_mp?cliente_id=eq.$cliente_id&nf_chave=eq." . rawurlencode( $chave ) . "&select=id,nr_lote" );
     $lotes = $rl['ok'] ? ( $rl['data'] ?? [] ) : [];
+    if ( ! $lotes ) wp_send_json_success( [ 'aplicados' => 0, 'total_lotes' => 0, 'laudos_no_pdf' => 0, 'fora' => 0, 'sem_laudo' => [] ] );
+
+    // Sobe o PDF UMA vez; pergunta 1 laudo por lote (cada resposta é pequena → não trunca).
+    if ( $tipo === 'application/pdf' ) {
+        $file_id = tao_formula_openai_upload_pdf( $up['file'] );
+        if ( ! $file_id ) wp_send_json_error( [ 'message' => 'OpenAI não aceitou o PDF' ] );
+        $content = [ 'type' => 'input_file', 'file_id' => $file_id ];
+    } else {
+        $file_id = null;
+        $content = [ 'type' => 'input_image', 'image_url' => 'data:' . $tipo . ';base64,' . base64_encode( file_get_contents( $up['file'] ) ) ];
+    }
 
     $aplicados = 0; $fora = 0; $sem_laudo = [];
     foreach ( $lotes as $lt ) {
-        $L = $por_lote[ $norm( $lt['nr_lote'] ?? '' ) ] ?? null;
-        if ( ! $L ) { $sem_laudo[] = $lt['nr_lote']; continue; }
+        $nrl = (string) ( $lt['nr_lote'] ?? '' );
+        $prompt = "Localize no documento o Certificado de Análise cujo LOTE (LOTE PN / lote da farmácia) seja \"{$nrl}\". "
+            . "Se esse lote NÃO existir no documento, responda apenas {\"nao_encontrado\":true}. Se existir, responda APENAS um JSON no formato: "
+            . tao_formula_laudo_campos_prompt() . ". Datas AAAA-MM-DD; teor_pct em % (número/null); densidade g/mL (número/null); conforme por ensaio (true/false/null); conforme_geral.";
+        $txt = tao_formula_openai_ask( $content, $prompt, 2500 );
+        if ( preg_match( '/\{.*\}/s', $txt, $m ) ) $txt = $m[0];
+        $L = json_decode( $txt, true );
+        $vazio = ! is_array( $L ) || ! empty( $L['nao_encontrado'] )
+               || ( empty( $L['fabricante'] ) && empty( $L['ensaios'] ) && ( ! isset( $L['teor_pct'] ) || $L['teor_pct'] === null ) && empty( $L['dt_validade'] ) );
+        if ( $vazio ) { $sem_laudo[] = $nrl; continue; }
         $conf = tao_formula_laudo_aplicar_ao_lote( $cliente_id, $lt['id'], $laudo_url, $L );
         $aplicados++;
         if ( $conf === false ) $fora++;
     }
+    if ( $file_id ) tao_formula_openai_delete_file( $file_id );
     wp_send_json_success( [
-        'aplicados' => $aplicados, 'total_lotes' => count( $lotes ), 'laudos_no_pdf' => count( $por_lote ),
+        'aplicados' => $aplicados, 'total_lotes' => count( $lotes ), 'laudos_no_pdf' => $aplicados,
         'fora' => $fora, 'sem_laudo' => $sem_laudo,
     ] );
 } );
