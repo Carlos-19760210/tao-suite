@@ -1298,13 +1298,25 @@ add_action( 'wp_ajax_tao_formula_reprocessar_orc', function () {
             $at         = null;
             $equiv      = 1.0;   // equivalência sal↔base via sinônimo (motor v2)
 
+            // 0) Diluído "1:N": prefere a variante cujo diluicao == N (mesma regra do importador;
+            //    evita casar o cadastro dil=1 de mesmo nome). Padrão tolerante a espaçamento.
+            if ( preg_match( '/(?<!\d)1:(\d{1,4})(?!\d)/', $nome_busca, $dm ) ) {
+                $dilN = (int) $dm[1];
+                $toks = array_filter( preg_split( '/\s+/', trim( $nome_busca ) ) );
+                $wild = '*' . implode( '*', array_map( 'rawurlencode', $toks ) ) . '*';
+                $rp   = tao_formula_api( '/ativos?cliente_id=eq.' . $cliente_id . '&nome=ilike.' . $wild . '&diluicao=eq.' . $dilN . '&select=' . $sel_at . '&order=unidade_padrao.asc,nome.asc&limit=1' );
+                if ( $rp['ok'] && ! empty( $rp['data'] ) ) $at = $rp['data'][0];
+            }
+
             // 1) ILIKE direto no nome/codigo_fc
-            $ra = tao_formula_api(
-                '/ativos?cliente_id=eq.' . $cliente_id .
-                '&or=(nome.ilike.*' . $nome_enc . '*,codigo_fc.ilike.*' . $nome_enc . '*)' .
-                '&select=' . $sel_at . '&limit=1'
-            );
-            if ( $ra['ok'] && ! empty( $ra['data'] ) ) $at = $ra['data'][0];
+            if ( ! $at ) {
+                $ra = tao_formula_api(
+                    '/ativos?cliente_id=eq.' . $cliente_id .
+                    '&or=(nome.ilike.*' . $nome_enc . '*,codigo_fc.ilike.*' . $nome_enc . '*)' .
+                    '&select=' . $sel_at . '&limit=1'
+                );
+                if ( $ra['ok'] && ! empty( $ra['data'] ) ) $at = $ra['data'][0];
+            }
 
             // 2) Sinônimo — correspondência exata (case-insensitive)
             if ( ! $at ) {
@@ -2036,8 +2048,25 @@ function tao_formula_parse_descricao_itens( $descr, $cliente_id ) {
         $nome_enc = rawurlencode( $nome );
         $sel_ativo = 'id,nome,codigo_fc,preco_venda,custo_por_unidade,unidade_padrao,fator_perda,diluicao,teor,densidade,concentracao,excipiente_id';
 
+        // 0) Ativo DILUÍDO "1:N": a convenção FCerta codifica a diluição no próprio nome, então
+        //    ela deve mandar no match. Prefere a variante cujo `diluicao == N` — evita casar um
+        //    cadastro anômalo/duplicado de mesmo nome porém `diluicao=1` (ex.: "PICOLINATO DE
+        //    CROMO 1:100" existe com dil=1/mg E com dil=100/g; sem isto a pesagem sai ÷N).
+        //    Padrão TOLERANTE a espaçamento (tokens separados por wildcard), porque o texto do
+        //    FCerta traz espaços múltiplos que só casariam o cadastro errado. Desempata por
+        //    unidade_padrao (g antes de mg) e nome.
+        $ra = [ 'ok' => false, 'data' => [] ];
+        if ( preg_match( '/(?<!\d)1:(\d{1,4})(?!\d)/', $nome, $dm ) ) {
+            $dilN  = (int) $dm[1];
+            $toks  = array_filter( preg_split( '/\s+/', trim( $nome ) ) );
+            $wild  = '*' . implode( '*', array_map( 'rawurlencode', $toks ) ) . '*';
+            $ra    = tao_formula_api( "/ativos?cliente_id=eq.{$cliente_id}&nome=ilike.{$wild}&diluicao=eq.{$dilN}&select={$sel_ativo}&order=unidade_padrao.asc,nome.asc&limit=1" );
+        }
+
         // 1) nome EXATO (case-insensitive)
-        $ra = tao_formula_api( "/ativos?cliente_id=eq.{$cliente_id}&nome=ilike.{$nome_enc}&select={$sel_ativo}&limit=1" );
+        if ( ! ( $ra['ok'] && ! empty( $ra['data'] ) ) ) {
+            $ra = tao_formula_api( "/ativos?cliente_id=eq.{$cliente_id}&nome=ilike.{$nome_enc}&select={$sel_ativo}&limit=1" );
+        }
 
         // 2) sinônimo EXATO cadastrado
         if ( ! ( $ra['ok'] && ! empty( $ra['data'] ) ) ) {
