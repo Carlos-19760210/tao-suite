@@ -99,7 +99,7 @@ function tao_formula_render_ficha_html( $cliente_id, $ordem_id ) {
 			if ( is_string( $its ) ) $its = json_decode( $its, true ) ?: [];
 			foreach ( (array) $its as $it ) {
 				if ( in_array( ( $it['tipo'] ?? 'mp' ), [ 'emb', 'embalagem' ], true ) ) {
-					$embs[] = [ 'nome' => $it['nome'] ?? $it['nome_prescricao'] ?? 'Embalagem', 'qtd' => $it['qtd'] ?? $it['qtd_total_g'] ?? 1 ];
+					$embs[] = [ 'nome' => $it['nome'] ?? $it['nome_prescricao'] ?? 'Embalagem', 'qtd' => $it['quantidade'] ?? $it['qtd'] ?? $it['qtd_total_g'] ?? 1 ];
 				}
 			}
 		}
