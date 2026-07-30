@@ -4250,25 +4250,11 @@ add_action( 'wp_ajax_tao_formula_estq_lote_status', function () {
 } );
 
 // Laudo/certificado de análise por lote (RDC 67): upload do PDF + nº do laudo.
-/**
- * Extrai um Certificado de Análise (laudo) via IA (OpenAI, mesmo padrão da receita).
- * O arquivo pode ter VÁRIOS laudos → localiza o do lote $nr_lote. Robusto ao layout do fornecedor.
- * Retorna [ 'ok'=>bool, 'data'=>{...}|null, 'erro'=>string ].
- */
-function tao_formula_laudo_extrair_ia( $tmp_path, $mime, $nr_lote ) {
+// Laudo (RDC 67): extração por IA (OpenAI, mesmo padrão da receita).
+// Chamada CORE: arquivo (PDF via Files API / imagem base64) + prompt → texto de resposta.
+function tao_formula_laudo_openai_call( $tmp_path, $mime, $prompt, $max_tokens = 3000 ) {
     $openai_key = get_option( 'tao_formula_openai_key', '' );
     if ( ! $openai_key ) return [ 'ok' => false, 'erro' => 'Chave OpenAI não configurada' ];
-
-    $prompt = "Você é farmacêutico lendo um Certificado de Análise (laudo) de matéria-prima. "
-        . "O documento pode conter VÁRIOS laudos; localize o cujo LOTE (LOTE PN / lote da farmácia) seja \"{$nr_lote}\" "
-        . "(se houver apenas um, use-o). Responda APENAS um JSON válido, sem markdown, no formato exato: "
-        . '{"lote":"","nr_laudo":"","fabricante":"","origem":"","dt_fabricacao":"AAAA-MM-DD","dt_validade":"AAAA-MM-DD",'
-        . '"teor_pct":null,"densidade":null,"condicoes_armazenagem":"",'
-        . '"ensaios":[{"teste":"","especificacao":"","resultado":"","conforme":true}],"conforme_geral":true}. '
-        . "Datas em AAAA-MM-DD. teor_pct = teor/pureza/assay em % como número (null se não houver). "
-        . "densidade = número em g/mL (null se não houver). Em cada ensaio: conforme=true se o resultado atende a especificação, "
-        . "false se não atende, null se não for possível julgar. conforme_geral=false se algum ensaio essencial não atende.";
-
     $file_id = null;
     if ( $mime === 'application/pdf' ) {
         $boundary = 'WPB' . bin2hex( random_bytes( 6 ) );
@@ -4290,17 +4276,73 @@ function tao_formula_laudo_extrair_ia( $tmp_path, $mime, $nr_lote ) {
     }
     $resp = wp_remote_post( 'https://api.openai.com/v1/responses', [
         'headers' => [ 'Authorization' => 'Bearer ' . $openai_key, 'Content-Type' => 'application/json' ],
-        'body' => wp_json_encode( [ 'model' => 'gpt-4o', 'max_output_tokens' => 3000,
+        'body' => wp_json_encode( [ 'model' => 'gpt-4o', 'max_output_tokens' => $max_tokens,
             'input' => [ [ 'role' => 'user', 'content' => [ $content, [ 'type' => 'input_text', 'text' => $prompt ] ] ] ] ] ),
-        'timeout' => 120,
+        'timeout' => 180,
     ] );
     if ( $file_id ) wp_remote_request( 'https://api.openai.com/v1/files/' . $file_id, [ 'method' => 'DELETE', 'headers' => [ 'Authorization' => 'Bearer ' . $openai_key ], 'timeout' => 10 ] );
     if ( is_wp_error( $resp ) ) return [ 'ok' => false, 'erro' => 'IA falhou: ' . $resp->get_error_message() ];
     $txt = json_decode( wp_remote_retrieve_body( $resp ), true )['output'][0]['content'][0]['text'] ?? '';
+    return [ 'ok' => true, 'texto' => (string) $txt ];
+}
+function tao_formula_laudo_campos_prompt() {
+    return '{"lote":"","nr_laudo":"","fabricante":"","origem":"","dt_fabricacao":"AAAA-MM-DD","dt_validade":"AAAA-MM-DD",'
+        . '"teor_pct":null,"densidade":null,"condicoes_armazenagem":"","ensaios":[{"teste":"","especificacao":"","resultado":"","conforme":true}],"conforme_geral":true}';
+}
+// Extrai UM laudo (o do lote $nr_lote) → [ok, data(objeto)].
+function tao_formula_laudo_extrair_ia( $tmp_path, $mime, $nr_lote ) {
+    $prompt = "Você é farmacêutico lendo Certificados de Análise de matéria-prima. O documento pode ter VÁRIOS laudos; "
+        . "localize o cujo LOTE (LOTE PN / lote da farmácia) seja \"{$nr_lote}\" (se houver só um, use-o). "
+        . "Responda APENAS um JSON válido, sem markdown, no formato: " . tao_formula_laudo_campos_prompt() . ". "
+        . "Datas AAAA-MM-DD. teor_pct=teor/pureza/assay em % (número, null se não houver). densidade=g/mL (null se não houver). "
+        . "conforme=true se atende a especificação, false se não, null se não julgável. conforme_geral=false se algum essencial não atende.";
+    $r = tao_formula_laudo_openai_call( $tmp_path, $mime, $prompt );
+    if ( ! $r['ok'] ) return $r;
+    $txt = $r['texto'];
     if ( preg_match( '/\{.*\}/s', $txt, $m ) ) $txt = $m[0];
     $data = json_decode( $txt, true );
-    if ( ! is_array( $data ) ) return [ 'ok' => false, 'erro' => 'IA não retornou JSON válido' ];
-    return [ 'ok' => true, 'data' => $data ];
+    return is_array( $data ) ? [ 'ok' => true, 'data' => $data ] : [ 'ok' => false, 'erro' => 'IA não retornou JSON válido' ];
+}
+// Extrai TODOS os laudos do documento (1 chamada) → [ok, data(array de laudos)].
+function tao_formula_laudos_extrair_todos( $tmp_path, $mime ) {
+    $prompt = "Você é farmacêutico lendo Certificados de Análise de matéria-prima. O documento contém UM OU MAIS laudos "
+        . "(um por insumo/lote). Extraia TODOS. Responda APENAS um JSON ARRAY válido, sem markdown, cada item no formato: "
+        . tao_formula_laudo_campos_prompt() . ". O campo \"lote\" = LOTE PN / lote da farmácia (usado para casar). "
+        . "Datas AAAA-MM-DD. teor_pct em % (número, null). densidade g/mL (null). conforme=true/false/null; conforme_geral=false se algum essencial não atende.";
+    $r = tao_formula_laudo_openai_call( $tmp_path, $mime, $prompt, 8000 );
+    if ( ! $r['ok'] ) return $r;
+    $txt = $r['texto'];
+    if ( preg_match( '/\[.*\]/s', $txt, $m ) ) $txt = $m[0];
+    $data = json_decode( $txt, true );
+    return is_array( $data ) ? [ 'ok' => true, 'data' => $data ] : [ 'ok' => false, 'erro' => 'IA não retornou JSON array válido' ];
+}
+// Aplica os dados de um laudo (objeto) a um lote: preenche propriedades + grava ensaios. Retorna a mensagem de QC.
+function tao_formula_laudo_aplicar_ao_lote( $cliente_id, $lote_id, $laudo_url, $d ) {
+    $patch = [];
+    if ( $laudo_url ) $patch['laudo_url'] = $laudo_url;
+    if ( ! empty( $d['nr_laudo'] ) )      $patch['nr_laudo']      = mb_substr( (string) $d['nr_laudo'], 0, 120 );
+    if ( ! empty( $d['fabricante'] ) )    $patch['fabricante']    = $d['fabricante'];
+    if ( ! empty( $d['dt_validade'] ) )   $patch['dt_validade']   = $d['dt_validade'];
+    if ( ! empty( $d['dt_fabricacao'] ) ) $patch['dt_fabricacao'] = $d['dt_fabricacao'];
+    if ( isset( $d['teor_pct'] )  && (float) $d['teor_pct']  > 0 ) $patch['teor_pct']  = (float) $d['teor_pct'];
+    if ( isset( $d['densidade'] ) && (float) $d['densidade'] > 0 ) $patch['densidade'] = (float) $d['densidade'];
+    $conf = $d['conforme_geral'] ?? null;
+    $patch['qc_resultado'] = $conf === false ? '⚠ Laudo com ensaio(s) FORA da especificação — revisar antes de liberar'
+                           : ( $conf === true ? 'Laudo conforme (extraído por IA)' : 'Laudo importado (IA) — revisar' );
+    tao_formula_api( "/lab_lotes_mp?id=eq.$lote_id&cliente_id=eq.$cliente_id", 'PATCH', $patch );
+    if ( ! empty( $d['ensaios'] ) && is_array( $d['ensaios'] ) ) {
+        tao_formula_api( "/lab_laudo_ensaios?lote_id=eq.$lote_id", 'DELETE' );
+        $rows = [];
+        foreach ( $d['ensaios'] as $e ) $rows[] = [
+            'cliente_id' => $cliente_id, 'lote_id' => $lote_id,
+            'teste' => mb_substr( (string) ( $e['teste'] ?? '' ), 0, 200 ),
+            'especificacao' => mb_substr( (string) ( $e['especificacao'] ?? '' ), 0, 300 ),
+            'resultado' => mb_substr( (string) ( $e['resultado'] ?? '' ), 0, 300 ),
+            'conforme' => array_key_exists( 'conforme', $e ) ? $e['conforme'] : null,
+        ];
+        if ( $rows ) tao_formula_api( '/lab_laudo_ensaios', 'POST', $rows );
+    }
+    return $conf;
 }
 
 add_action( 'wp_ajax_tao_formula_lote_laudo_upload', function () {
@@ -4372,6 +4414,55 @@ add_action( 'wp_ajax_tao_formula_lote_laudo_upload', function () {
         'ia' => $laudo_ia ?? null, 'ia_erro' => $ia_erro ?? null,
     ] );
 } );
+
+// LAUDOS EM LOTE por NF: 1 PDF com vários laudos → extrai todos e casa com cada lote da entrada.
+add_action( 'wp_ajax_tao_formula_nf_laudos_batch', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $entrada_id = sanitize_text_field( $_POST['entrada_id'] ?? '' );
+    if ( ! $cliente_id || ! $entrada_id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+    if ( empty( $_FILES['laudo'] ) || $_FILES['laudo']['error'] !== UPLOAD_ERR_OK )
+        wp_send_json_error( [ 'message' => 'Envie o PDF com os laudos da NF.' ] );
+    $tipo = mime_content_type( $_FILES['laudo']['tmp_name'] );
+    if ( ! in_array( $tipo, [ 'application/pdf', 'image/jpeg', 'image/png' ], true ) )
+        wp_send_json_error( [ 'message' => 'Envie o laudo em PDF, JPG ou PNG.' ] );
+
+    require_once ABSPATH . 'wp-admin/includes/file.php';
+    add_filter( 'upload_dir', 'tao_formula_laudo_dir' );
+    $up = wp_handle_upload( $_FILES['laudo'], [ 'test_form' => false ] );
+    remove_filter( 'upload_dir', 'tao_formula_laudo_dir' );
+    if ( isset( $up['error'] ) ) wp_send_json_error( [ 'message' => 'Falha no upload: ' . $up['error'] ] );
+    $laudo_url = $up['url'];
+
+    $ia = tao_formula_laudos_extrair_todos( $up['file'], $tipo );
+    if ( ! $ia['ok'] ) wp_send_json_error( [ 'message' => 'IA não extraiu os laudos: ' . ( $ia['erro'] ?? '' ) ] );
+    $norm = function ( $s ) { return strtoupper( preg_replace( '/\s+/', '', (string) $s ) ); };
+    $por_lote = [];
+    foreach ( (array) $ia['data'] as $L ) { $k = $norm( $L['lote'] ?? '' ); if ( $k ) $por_lote[ $k ] = $L; }
+
+    // lotes desta entrada (pela chave da NF)
+    $rc = tao_formula_api( "/estoque_entradas_nf?id=eq.$entrada_id&cliente_id=eq.$cliente_id&select=chave_nfe&limit=1" );
+    $chave = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? (string) ( $rc['data'][0]['chave_nfe'] ?? '' ) : '';
+    if ( ! $chave ) wp_send_json_error( [ 'message' => 'Entrada sem chave da NF (estornada?).' ] );
+    $rl = tao_formula_api( "/lab_lotes_mp?cliente_id=eq.$cliente_id&nf_chave=eq." . rawurlencode( $chave ) . "&select=id,nr_lote" );
+    $lotes = $rl['ok'] ? ( $rl['data'] ?? [] ) : [];
+
+    $aplicados = 0; $fora = 0; $sem_laudo = [];
+    foreach ( $lotes as $lt ) {
+        $L = $por_lote[ $norm( $lt['nr_lote'] ?? '' ) ] ?? null;
+        if ( ! $L ) { $sem_laudo[] = $lt['nr_lote']; continue; }
+        $conf = tao_formula_laudo_aplicar_ao_lote( $cliente_id, $lt['id'], $laudo_url, $L );
+        $aplicados++;
+        if ( $conf === false ) $fora++;
+    }
+    wp_send_json_success( [
+        'aplicados' => $aplicados, 'total_lotes' => count( $lotes ), 'laudos_no_pdf' => count( $por_lote ),
+        'fora' => $fora, 'sem_laudo' => $sem_laudo,
+    ] );
+} );
+
 // subdiretório dedicado p/ laudos (organiza os uploads)
 function tao_formula_laudo_dir( $dirs ) {
     $dirs['subdir'] = '/laudos-mp' . $dirs['subdir'];
