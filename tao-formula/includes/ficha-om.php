@@ -92,9 +92,11 @@ function tao_formula_render_ficha_html( $cliente_id, $ordem_id ) {
 
 	// ── embalagem (itens 'emb' do orçamento) ──
 	$embs = [];
+	$orc_forma_tipo = '';   // sublingual: guarda o TAMANHO do comprimido (vazio = automático)
 	if ( ! empty( $o['orcamento_id'] ) ) {
-		$roc = tao_formula_api( "/orcamentos?id=eq.{$o['orcamento_id']}&select=itens&limit=1" );
+		$roc = tao_formula_api( "/orcamentos?id=eq.{$o['orcamento_id']}&select=itens,forma_tipo&limit=1" );
 		if ( $roc['ok'] && ! empty( $roc['data'] ) ) {
+			$orc_forma_tipo = $roc['data'][0]['forma_tipo'] ?? '';
 			$its = $roc['data'][0]['itens'] ?? [];
 			if ( is_string( $its ) ) $its = json_decode( $its, true ) ?: [];
 			foreach ( (array) $its as $it ) {
@@ -136,6 +138,35 @@ function tao_formula_render_ficha_html( $cliente_id, $ordem_id ) {
 	if ( preg_match( '/(\d+)/', (string) $o['volume'], $m ) ) $n_unid = (int) $m[1];
 	if ( $n_unid <= 0 ) $n_unid = max( 1, (int) ( $o['qtd_unidades'] ?? 1 ) );
 	$peso_medio = $n_unid > 0 ? $peso_total / $n_unid : 0;
+
+	// ── Sublingual/Orodispersível: nº de comprimidos por DOSE (informativo na ficha) ──
+	// Cada dose pode ter >1 comprimido: ativos ocupam ≤25% do volume; a base orotab preenche o resto.
+	$sub_info  = null;
+	$forma_low = mb_strtolower( (string) ( $o['forma_farmac'] ?? '' ) );
+	$is_sub    = ( strpos( $forma_low, 'sub' ) !== false && strpos( $forma_low, 'lingu' ) !== false )
+	          || strpos( $forma_low, 'orodisper' ) !== false;
+	if ( ! $is_sub ) foreach ( $itens as $it ) {
+		if ( stripos( (string) ( $it['descricao'] ?? '' ), 'OROTAB' ) !== false ) { $is_sub = true; break; }
+	}
+	if ( $is_sub && $n_unid > 0 ) {
+		$vol_at = 0.0;   // volume aparente dos ATIVOS (exclui a base orotab, que é QSP)
+		foreach ( $itens as $it ) {
+			if ( ! empty( $it['eh_qsp'] ) ) continue;
+			$g = (float) ( $it['qtd_pesar'] ?? 0 );
+			$d = (float) ( $ativos[ $it['ativo_id'] ?? '' ]['densidade'] ?? 1 ) ?: 1.0;
+			$vol_at += $d > 0 ? $g / $d : $g;
+		}
+		$vd   = $vol_at / $n_unid;                 // volume de ativo por dose
+		$tf   = (float) $orc_forma_tipo;           // tamanho forçado (0.21/0.8) ou 0 = automático
+		$best = null;
+		foreach ( ( $tf > 0 ? [ $tf ] : [ 0.21, 0.8 ] ) as $tam ) {
+			$nn = max( 1, (int) ceil( $vd / ( 0.25 * $tam ) ) );
+			$vt = $nn * $tam;
+			if ( $best === null || $nn < $best['n'] || ( $nn === $best['n'] && $vt < $best['vt'] ) )
+				$best = [ 'n' => $nn, 'tam' => $tam, 'vt' => $vt ];
+		}
+		$sub_info = [ 'n' => $best['n'], 'tam' => $best['tam'], 'total' => $best['n'] * $n_unid ];
+	}
 
 	// ── uso ──
 	$uso = strtolower( (string) ( $o['tp_uso'] ?? '' ) );
@@ -231,9 +262,12 @@ function tao_formula_render_ficha_html( $cliente_id, $ordem_id ) {
 				<div class="row"><span class="k">Forma</span><span class="v"><?php echo $e( $o['forma_farmac'] ?? '—' ); ?></span></div>
 				<div class="row"><span class="k">Volume</span><span class="v"><?php echo $e( trim( ( $o['volume'] ?? '' ) . ' ' . ( $o['unidade_vol'] ?? '' ) ) ?: '—' ); ?></span></div>
 				<div class="row"><span class="k">Quantidade</span><span class="v"><?php echo $e( ( $o['qtd_unidades'] ?? 1 ) . ' un' ); ?></span></div>
+				<?php if ( ! empty( $sub_info ) ) : ?>
+				<div class="row"><span class="k">Composição da dose</span><span class="v"><?php echo $e( $sub_info['n'] . ' comprimido(s) de ' . tao_formula_nb( $sub_info['tam'], 2 ) . ' · ' . $sub_info['total'] . ' comprimidos no total' ); ?></span></div>
+				<?php endif; ?>
 			</div>
 			<div>
-				<div class="row"><span class="k">Embalagem</span><span class="v"><?php echo $embs ? $e( implode( '; ', array_map( fn( $x ) => $x['nome'], $embs ) ) ) : '—'; ?></span></div>
+				<div class="row"><span class="k">Embalagem</span><span class="v"><?php echo $embs ? $e( implode( '; ', array_map( fn( $x ) => $x['nome'] . ' (' . (int) $x['qtd'] . ' un)', $embs ) ) ) : '—'; ?></span></div>
 				<div class="row"><span class="k">Posologia</span><span class="v"><?php echo $e( $o['posologia'] ?? '—' ); ?></span></div>
 			</div>
 		</div>
