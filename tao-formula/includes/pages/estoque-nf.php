@@ -301,21 +301,25 @@ function tao_formula_page_estoque_nf() {
         // Importar laudos da NF EM LOTE: 1 PDF com vários laudos → IA distribui por lote
         $(document).on('click','.taof-nf-laudos',function(){
             var id=$(this).data('id');
-            var $f=$('<input type="file" accept=".pdf,image/*" style="display:none">').appendTo('body');
-            $f.on('change',function(){
-                if(!this.files[0]){$f.remove();return;}
-                var fd=new FormData(); fd.append('action','tao_formula_nf_laudos_batch'); fd.append('nonce',nonce); fd.append('entrada_id',id); fd.append('laudo',this.files[0]);
-                var $msg=$('<p style="color:#64748b;margin-top:8px">📎 Extraindo laudos com IA e distribuindo por lote… (pode levar alguns segundos)</p>').appendTo('#taof-nf-detalhe');
-                $.ajax({url:ajaxUrl,method:'POST',data:fd,processData:false,contentType:false}).done(function(r){
-                    $msg.remove();
-                    if(!r.success){alert((r.data&&r.data.message)||'Erro');return;}
-                    var d=r.data, txt='✓ Laudos aplicados: '+d.aplicados+' de '+d.total_lotes+' lote(s)  ('+d.laudos_no_pdf+' laudos no PDF)';
-                    if(d.fora>0) txt+='\n⚠ '+d.fora+' lote(s) com ensaio FORA da especificação — revisar antes de liberar.';
-                    if(d.sem_laudo&&d.sem_laudo.length) txt+='\nLote(s) sem laudo casado: '+d.sem_laudo.join(', ');
-                    alert(txt);
-                }).fail(function(){$msg.remove();alert('Falha no envio do PDF');}).always(function(){$f.remove();});
-            });
-            $f.trigger('click');
+            if($('#taof-nf-laudos-box').length){$('#taof-nf-laudos-box').remove();return;}
+            $('#taof-nf-detalhe').append(
+                '<div id="taof-nf-laudos-box" data-id="'+esc(id)+'" style="margin-top:12px;padding:12px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc">'+
+                '<strong>📎 Importar laudos da NF</strong> <small style="color:#64748b">— 1 PDF com todos os laudos; a IA distribui por lote</small><br>'+
+                '<input type="file" id="taof-nf-laudos-file" accept=".pdf,image/*" style="margin:8px 0"><br>'+
+                '<button type="button" class="button button-primary" id="taof-nf-laudos-go">▶ Processar laudos</button> '+
+                '<span id="taof-nf-laudos-msg" style="font-size:12px;margin-left:6px"></span></div>');
+        });
+        $(document).on('click','#taof-nf-laudos-go',function(){
+            var id=$('#taof-nf-laudos-box').data('id'), f=$('#taof-nf-laudos-file')[0].files[0];
+            if(!f){$('#taof-nf-laudos-msg').css('color','#dc2626').text('Selecione o PDF dos laudos.');return;}
+            var $b=$(this).prop('disabled',true), $m=$('#taof-nf-laudos-msg').css('color','#64748b').text('Extraindo com IA e distribuindo por lote… (alguns segundos)');
+            var fd=new FormData(); fd.append('action','tao_formula_nf_laudos_batch'); fd.append('nonce',nonce); fd.append('entrada_id',id); fd.append('laudo',f);
+            $.ajax({url:ajaxUrl,method:'POST',data:fd,processData:false,contentType:false}).done(function(r){
+                $b.prop('disabled',false);
+                if(!r.success){$m.css('color','#dc2626').text((r.data&&r.data.message)||'Erro');return;}
+                var d=r.data, txt='✓ '+d.aplicados+' de '+d.total_lotes+' lote(s) · '+d.laudos_no_pdf+' laudos no PDF'+(d.fora>0?' · ⚠ '+d.fora+' fora da especificação':'')+(d.sem_laudo&&d.sem_laudo.length?' · sem laudo: '+d.sem_laudo.join(', '):'');
+                $m.css('color','#16a34a').text(txt);
+            }).fail(function(){$b.prop('disabled',false);$m.css('color','#dc2626').text('Falha no envio do PDF');});
         });
         carregarLista(true);
     });
