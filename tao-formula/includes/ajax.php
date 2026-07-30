@@ -4418,6 +4418,8 @@ add_action( 'wp_ajax_tao_formula_lote_laudo_upload', function () {
 // LAUDOS EM LOTE por NF: 1 PDF com vários laudos → extrai todos e casa com cada lote da entrada.
 add_action( 'wp_ajax_tao_formula_nf_laudos_batch', function () {
     while ( ob_get_level() > 0 ) ob_end_clean();
+    @ignore_user_abort( true );   // se o atendente sair da página, o servidor TERMINA de aplicar os laudos
+    @set_time_limit( 300 );
     check_ajax_referer( 'tao_formula_nonce', 'nonce' );
     if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
     $cliente_id = tao_formula_cliente_id();
