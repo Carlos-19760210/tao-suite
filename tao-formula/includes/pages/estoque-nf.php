@@ -64,11 +64,12 @@ function tao_formula_page_estoque_nf() {
         // ── Conferência ──
         function linhaItem(it,i){
             var a=it.ativo||{};
-            // granularidade do CADASTRO: unidade de compra x venda + última compra (referência)
+            var uc = a.unidade || it.unidade || 'un';   // unidade de COMPRA (cadastro FCerta; fallback = unid. da NF)
+            // referência do cadastro: unidade de compra + última compra (venda NÃO é exibida aqui) + trocar ativo
             var gran = (it.ativo_id && it.ativo)
-                ? '<br><small style="color:#64748b">compra <b>'+esc(a.unidade||'?')+'</b> · venda <b>'+esc(a.unidade_padrao||'?')+'</b>'
-                  + (parseFloat(a.preco_compra)>0 ? ' · últ. compra '+money(a.preco_compra)+'/'+esc(a.unidade||'un') : ' · sem compra ant.')
-                  + '</small>'
+                ? '<br><small style="color:#64748b">compra <b>'+esc(uc)+'</b>'
+                  + (parseFloat(a.preco_compra)>0 ? ' · últ. compra '+money(a.preco_compra)+'/'+esc(uc) : ' · sem compra ant.')
+                  + ' · <a href="#" class="taof-nf-trocar" data-i="'+i+'" style="color:#2563eb;text-decoration:none">✎ trocar</a></small>'
                 : '';
             var assoc = it.ativo_id ? '<span class="taof-nf-pill ok">'+esc(it.ativo? it.ativo.nome : 'associado')+'</span>'+gran
                                     : '<input type="text" class="taof-nf-search taof-nf-assoc" data-i="'+i+'" placeholder="buscar ativo..." style="width:150px;padding:4px 6px;border:1px solid #d1d5db;border-radius:4px"><div class="taof-nf-dd" data-i="'+i+'" style="display:none;position:absolute;z-index:50;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.12);max-height:220px;overflow:auto;min-width:260px"></div>';
@@ -82,7 +83,7 @@ function tao_formula_page_estoque_nf() {
                 '<td>'+esc(it.descr_xml)+'</td>'+
                 '<td style="position:relative">'+assoc+'</td>'+
                 '<td style="text-align:right">'+parseFloat(it.quantidade)+' '+esc(it.unidade)+'</td>'+
-                '<td style="text-align:right">'+money(it.preco_unit)+'</td>'+
+                '<td style="text-align:right"><strong>'+money(it.valor_compra)+'</strong><small style="color:#94a3b8">/'+esc(uc)+'</small></td>'+
                 '<td>'+(it.lote?esc(it.lote)+(it.dt_val?' <small style="color:#94a3b8">val '+fdata(it.dt_val)+'</small>':''):'—')+'</td>'+
                 '<td style="text-align:right;white-space:nowrap">'+base+'<br>'+sel+'</td></tr>';
         }
@@ -107,7 +108,7 @@ function tao_formula_page_estoque_nf() {
                     al.map(function(a){return '<li>'+esc(a.msg)+'</li>';}).join('')+'</ul></div>';
             }
             var rows=NF.itens.map(linhaItem).join('');
-            var tbl='<div class="taof-nf-twrap"><table class="taof-nf-tb"><tr><th>Cód. forn.</th><th>Descrição (XML)</th><th>Ativo TAO</th><th>Qtd</th><th>Preço un.</th><th>Lote</th><th style="text-align:right">Base venda (c/ frete) → destino</th></tr>'+rows+'</table></div>';
+            var tbl='<div class="taof-nf-twrap"><table class="taof-nf-tb"><tr><th>Cód. forn.</th><th>Descrição (XML)</th><th>Ativo TAO</th><th>Qtd</th><th style="text-align:right">Pago/un. compra</th><th>Lote</th><th style="text-align:right">Base venda (c/ frete) → destino</th></tr>'+rows+'</table></div>';
             var pend=NF.itens.filter(function(x){return !x.ativo_id;}).length;
             var btn='<p style="margin:12px 0"><button type="button" class="button button-primary" id="taof-nf-efetivar" '+(f?'':'disabled')+'>✔ Efetivar entrada</button> '+
                 '<span id="taof-nf-efmsg" style="font-size:12px;margin-left:8px">'+(pend?('⚠ '+pend+' item(ns) sem ativo — associe todos'):'')+'</span></p>';
@@ -137,6 +138,9 @@ function tao_formula_page_estoque_nf() {
         });
         $(document).on('blur','.taof-nf-search',function(){var i=$(this).data('i');setTimeout(function(){$('.taof-nf-dd[data-i="'+i+'"]').hide();},180);});
         $(document).on('change','.taof-nf-dv',function(){NF.itens[$(this).data('i')].destino_valor=this.value;});
+        // trocar o ativo associado (auto-match do de-para pode estar errado) → reabre a busca
+        $(document).on('click','.taof-nf-trocar',function(e){e.preventDefault();var i=$(this).data('i');NF.itens[i].ativo_id=null;NF.itens[i].ativo=null;renderConf();
+            setTimeout(function(){$('.taof-nf-search[data-i="'+i+'"]').focus();},30);});
 
         // ── Cadastro rápido do fornecedor a partir do XML ──
         $(document).on('click','#taof-nf-cadforn',function(){
