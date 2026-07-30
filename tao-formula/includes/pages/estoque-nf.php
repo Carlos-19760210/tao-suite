@@ -63,7 +63,14 @@ function tao_formula_page_estoque_nf() {
 
         // ── Conferência ──
         function linhaItem(it,i){
-            var assoc = it.ativo_id ? '<span class="taof-nf-pill ok">'+esc(it.ativo? it.ativo.nome : 'associado')+'</span>'
+            var a=it.ativo||{};
+            // granularidade do CADASTRO: unidade de compra x venda + última compra (referência)
+            var gran = (it.ativo_id && it.ativo)
+                ? '<br><small style="color:#64748b">compra <b>'+esc(a.unidade||'?')+'</b> · venda <b>'+esc(a.unidade_padrao||'?')+'</b>'
+                  + (parseFloat(a.preco_compra)>0 ? ' · últ. compra '+money(a.preco_compra)+'/'+esc(a.unidade||'un') : ' · sem compra ant.')
+                  + '</small>'
+                : '';
+            var assoc = it.ativo_id ? '<span class="taof-nf-pill ok">'+esc(it.ativo? it.ativo.nome : 'associado')+'</span>'+gran
                                     : '<input type="text" class="taof-nf-search taof-nf-assoc" data-i="'+i+'" placeholder="buscar ativo..." style="width:150px;padding:4px 6px;border:1px solid #d1d5db;border-radius:4px"><div class="taof-nf-dd" data-i="'+i+'" style="display:none;position:absolute;z-index:50;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.12);max-height:220px;overflow:auto;min-width:260px"></div>';
             var dv=it.destino_valor||'compra';
             var sel='<select class="taof-nf-dv" data-i="'+i+'" style="padding:3px 4px;font-size:12px" title="Onde o valor pago atualiza no ativo">'+

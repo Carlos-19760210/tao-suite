@@ -3747,7 +3747,7 @@ add_action( 'wp_ajax_tao_formula_nf_upload', function () {
     $ativo_ids = array_values( array_unique( array_filter( array_values( $depara ) ) ) );
     $ativos = [];
     if ( $ativo_ids ) {
-        $ra = tao_formula_api( "/ativos?cliente_id=eq.$cliente_id&id=in.(" . implode( ',', $ativo_ids ) . ")&select=id,codigo_fc,nome,unidade_padrao,preco_compra,preco_custo,custo_por_unidade&limit=" . count( $ativo_ids ) );
+        $ra = tao_formula_api( "/ativos?cliente_id=eq.$cliente_id&id=in.(" . implode( ',', $ativo_ids ) . ")&select=id,codigo_fc,nome,unidade,unidade_padrao,preco_compra,preco_custo,custo_por_unidade&limit=" . count( $ativo_ids ) );
         foreach ( ( $ra['ok'] ? $ra['data'] : [] ) as $a ) $ativos[ $a['id'] ] = $a;
     }
     // Rateio do frete por valor + os 3 valores do ativo (regra Carlos):
