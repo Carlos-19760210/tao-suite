@@ -4036,7 +4036,7 @@ add_action( 'wp_ajax_tao_formula_nf_efetivar', function () {
     ] );
 } );
 
-// Lista de entradas de NF
+// Lista de entradas de NF — com filtro por FORNECEDOR e nome do fornecedor.
 add_action( 'wp_ajax_tao_formula_nf_lista', function () {
     while ( ob_get_level() > 0 ) ob_end_clean();
     check_ajax_referer( 'tao_formula_nonce', 'nonce' );
@@ -4045,10 +4045,124 @@ add_action( 'wp_ajax_tao_formula_nf_lista', function () {
     if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
     $size   = in_array( intval( $_GET['size'] ?? 30 ), [ 20, 30, 50 ], true ) ? intval( $_GET['size'] ) : 30;
     $offset = max( 0, intval( $_GET['offset'] ?? 0 ) );
+    $forn   = sanitize_text_field( $_GET['fornecedor_id'] ?? '' );
+    $filtro = $forn ? '&fornecedor_id=eq.' . rawurlencode( $forn ) : '';
     $r = tao_formula_api(
-        "/estoque_entradas_nf?cliente_id=eq.$cliente_id&select=id,numero,serie,cnpj_emitente,dt_entrada,valor_total,status,fornecedor_id&order=dt_entrada.desc,criado_em.desc&limit=$size&offset=$offset", 'GET', null, true
+        "/estoque_entradas_nf?cliente_id=eq.$cliente_id$filtro&select=id,numero,serie,cnpj_emitente,dt_emissao,dt_entrada,valor_total,status,fornecedor_id&order=dt_entrada.desc,criado_em.desc&limit=$size&offset=$offset", 'GET', null, true
     );
-    wp_send_json_success( [ 'items' => $r['ok'] ? ( $r['data'] ?? [] ) : [], 'total' => $r['ok'] ? (int) $r['total'] : 0 ] );
+    $items = $r['ok'] ? ( $r['data'] ?? [] ) : [];
+    // nome do fornecedor (join no PHP)
+    $fids = array_values( array_unique( array_filter( array_column( $items, 'fornecedor_id' ) ) ) );
+    $fnome = [];
+    if ( $fids ) {
+        $rf = tao_formula_api( "/fornecedores?cliente_id=eq.$cliente_id&id=in.(" . implode( ',', $fids ) . ")&select=id,nome" );
+        foreach ( ( $rf['ok'] ? $rf['data'] : [] ) as $f ) $fnome[ $f['id'] ] = $f['nome'];
+    }
+    foreach ( $items as &$it ) $it['fornecedor_nome'] = $fnome[ $it['fornecedor_id'] ?? '' ] ?? '—';
+    unset( $it );
+    // fornecedores com entradas (p/ o filtro) — só na 1ª página
+    $forns = [];
+    if ( $offset === 0 ) {
+        $rf2 = tao_formula_api( "/fornecedores?cliente_id=eq.$cliente_id&select=id,nome&order=nome.asc&limit=500" );
+        $forns = $rf2['ok'] ? ( $rf2['data'] ?? [] ) : [];
+    }
+    wp_send_json_success( [ 'items' => $items, 'total' => $r['ok'] ? (int) $r['total'] : 0, 'fornecedores' => $forns ] );
+} );
+
+// Detalhe de uma entrada de NF: cabeçalho + itens + lotes gerados + contas a pagar.
+add_action( 'wp_ajax_tao_formula_nf_detalhe', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $id = sanitize_text_field( $_GET['id'] ?? '' );
+    if ( ! $cliente_id || ! $id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+
+    $rc = tao_formula_api( "/estoque_entradas_nf?id=eq.$id&cliente_id=eq.$cliente_id&select=*&limit=1" );
+    $cab = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? $rc['data'][0] : null;
+    if ( ! $cab ) wp_send_json_error( [ 'message' => 'Entrada não encontrada' ] );
+
+    $ri = tao_formula_api( "/estoque_entradas_nf_itens?entrada_id=eq.$id&select=*" );
+    $itens = $ri['ok'] ? ( $ri['data'] ?? [] ) : [];
+    // nome dos ativos
+    $aids = array_values( array_unique( array_filter( array_column( $itens, 'ativo_id' ) ) ) );
+    $anome = [];
+    if ( $aids ) {
+        $ra = tao_formula_api( "/ativos?cliente_id=eq.$cliente_id&id=in.(" . implode( ',', $aids ) . ")&select=id,nome,codigo_fc,unidade" );
+        foreach ( ( $ra['ok'] ? $ra['data'] : [] ) as $a ) $anome[ $a['id'] ] = $a;
+    }
+    foreach ( $itens as &$it ) $it['ativo'] = $anome[ $it['ativo_id'] ?? '' ] ?? null;
+    unset( $it );
+
+    $rl = tao_formula_api( "/lab_lotes_mp?cliente_id=eq.$cliente_id&nf_chave=eq." . rawurlencode( (string) ( $cab['chave_nfe'] ?? '' ) ) . "&select=id,ativo_id,nr_lote,qtd_inicial,qtd_atual,unidade,dt_validade,status" );
+    $lotes = ( $rc['ok'] && $cab['chave_nfe'] ) ? ( $rl['ok'] ? $rl['data'] : [] ) : [];
+    $rp = tao_formula_api( "/contas_pagar?entrada_nf_id=eq.$id&select=id,numero_dup,vencimento,valor,status" );
+    $contas = $rp['ok'] ? ( $rp['data'] ?? [] ) : [];
+
+    $fn = '';
+    if ( ! empty( $cab['fornecedor_id'] ) ) {
+        $rf = tao_formula_api( "/fornecedores?id=eq.{$cab['fornecedor_id']}&select=nome&limit=1" );
+        $fn = ( $rf['ok'] && ! empty( $rf['data'] ) ) ? $rf['data'][0]['nome'] : '';
+    }
+    $cab['fornecedor_nome'] = $fn;
+    wp_send_json_success( [ 'cabecalho' => $cab, 'itens' => $itens, 'lotes' => $lotes, 'contas' => $contas ] );
+} );
+
+// Estorno de uma entrada de NF — reverte lote/kardex/contas/SNGPC. Trava se algo já foi consumido/pago/transmitido.
+add_action( 'wp_ajax_tao_formula_nf_estornar', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $id = sanitize_text_field( $_POST['id'] ?? '' );
+    if ( ! $cliente_id || ! $id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+
+    $rc = tao_formula_api( "/estoque_entradas_nf?id=eq.$id&cliente_id=eq.$cliente_id&select=id,status,chave_nfe,numero&limit=1" );
+    $cab = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? $rc['data'][0] : null;
+    if ( ! $cab ) wp_send_json_error( [ 'message' => 'Entrada não encontrada' ] );
+    if ( ( $cab['status'] ?? '' ) === 'estornada' ) wp_send_json_error( [ 'message' => 'Esta entrada já está estornada.' ] );
+
+    $chave = (string) ( $cab['chave_nfe'] ?? '' );
+    // 1) TRAVAS: lote consumido? conta paga? sngpc transmitido?
+    $lotes = [];
+    if ( $chave ) {
+        $rl = tao_formula_api( "/lab_lotes_mp?cliente_id=eq.$cliente_id&nf_chave=eq." . rawurlencode( $chave ) . "&select=id,nr_lote,qtd_inicial,qtd_atual" );
+        $lotes = $rl['ok'] ? ( $rl['data'] ?? [] ) : [];
+        foreach ( $lotes as $l ) {
+            if ( (float) ( $l['qtd_atual'] ?? 0 ) < (float) ( $l['qtd_inicial'] ?? 0 ) - 0.0001 )
+                wp_send_json_error( [ 'message' => 'Não é possível estornar: o lote ' . $l['nr_lote'] . ' já foi parcialmente consumido.' ] );
+        }
+    }
+    $rp = tao_formula_api( "/contas_pagar?entrada_nf_id=eq.$id&select=id,status" );
+    $contas = $rp['ok'] ? ( $rp['data'] ?? [] ) : [];
+    foreach ( $contas as $c ) if ( in_array( (string) ( $c['status'] ?? '' ), [ 'pago', 'paga', 'quitado' ], true ) )
+        wp_send_json_error( [ 'message' => 'Não é possível estornar: há conta a pagar já quitada. Estorne a baixa primeiro.' ] );
+    $rs = tao_formula_api( "/sngpc_movimentos?cliente_id=eq.$cliente_id&origem=eq.nf&ref_id=eq.$id&select=id,transmitido" );
+    $sngpc = $rs['ok'] ? ( $rs['data'] ?? [] ) : [];
+    foreach ( $sngpc as $s ) if ( ! empty( $s['transmitido'] ) )
+        wp_send_json_error( [ 'message' => 'Não é possível estornar: há entrada SNGPC já transmitida à ANVISA.' ] );
+
+    // 2) REVERSÃO
+    $rem_lotes = 0;
+    foreach ( $lotes as $l ) { if ( tao_formula_api( "/lab_lotes_mp?id=eq.{$l['id']}", 'DELETE' )['ok'] ) $rem_lotes++; }
+    foreach ( $contas as $c ) tao_formula_api( "/contas_pagar?id=eq.{$c['id']}", 'PATCH', [ 'status' => 'cancelado' ] );
+    foreach ( $sngpc as $s ) tao_formula_api( "/sngpc_movimentos?id=eq.{$s['id']}", 'DELETE' );
+    // kardex: movimento de estorno (saída) espelhando as entradas
+    $rm = tao_formula_api( "/estoque_movimentos?cliente_id=eq.$cliente_id&origem=eq.nf&ref_id=eq.$id&tipo=eq.entrada&select=ativo_id,lote_id,quantidade" );
+    foreach ( ( $rm['ok'] ? $rm['data'] : [] ) as $m ) {
+        tao_formula_api( '/estoque_movimentos', 'POST', [
+            'cliente_id' => $cliente_id, 'ativo_id' => $m['ativo_id'], 'lote_id' => $m['lote_id'] ?? null,
+            'tipo' => 'estorno_entrada', 'quantidade' => $m['quantidade'], 'origem' => 'estorno_nf', 'ref_id' => $id,
+            'usuario_id' => get_current_user_id(),
+        ] );
+    }
+    tao_formula_api( "/estoque_entradas_nf?id=eq.$id", 'PATCH', [
+        'status' => 'estornada',
+        'obs'    => 'Estornada em ' . gmdate( 'Y-m-d H:i' ) . ' UTC por user#' . get_current_user_id(),
+    ] );
+    wp_send_json_success( [ 'message' => 'Entrada estornada.', 'lotes_removidos' => $rem_lotes,
+        'contas_canceladas' => count( $contas ), 'sngpc_removidos' => count( $sngpc ),
+        'obs' => 'Preços do ativo (compra/custo) NÃO são revertidos — refletem a última compra; o de-para aprendido é mantido.' ] );
 } );
 
 // ═══════════════════════════════════════════════════════════════════════════

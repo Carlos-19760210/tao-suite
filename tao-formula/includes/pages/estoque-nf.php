@@ -20,8 +20,14 @@ function tao_formula_page_estoque_nf() {
 
     <div id="taof-nf-conf" style="display:none"></div>
 
-    <h2 style="margin-top:22px">Entradas recentes</h2>
+    <h2 style="margin-top:22px">Entradas de NF</h2>
+    <div style="margin:8px 0;font-size:13px">
+        <label>Fornecedor:
+            <select id="taof-nf-forn-filtro" style="padding:3px 6px;min-width:220px"><option value="">Todos</option></select>
+        </label>
+    </div>
     <div id="taof-nf-lista"><p style="color:#94a3b8">Carregando…</p></div>
+    <div id="taof-nf-detalhe" style="display:none;margin:12px 0;padding:14px;border:1px solid #cbd5e1;border-radius:10px;background:#fff"></div>
     <div style="display:flex;gap:10px;align-items:center;justify-content:center;margin:12px 0;font-size:13px;flex-wrap:wrap">
         <label>Itens por página:
             <select id="taof-nf-size" style="padding:3px 6px"><option value="20">20</option><option value="30" selected>30</option><option value="50">50</option></select>
@@ -204,24 +210,71 @@ function tao_formula_page_estoque_nf() {
             $('#taof-nf-prev').prop('disabled',pg<=0);
             $('#taof-nf-next').prop('disabled',pg>=paginas-1);
         }
+        var fornCarregado=false;
         function carregarLista(reset){
             if(reset){pg=0;}
-            $.getJSON(ajaxUrl,{action:'tao_formula_nf_lista',nonce:nonce,size:sz,offset:pg*sz},function(r){
+            var fid=$('#taof-nf-forn-filtro').val()||'';
+            $.getJSON(ajaxUrl,{action:'tao_formula_nf_lista',nonce:nonce,size:sz,offset:pg*sz,fornecedor_id:fid},function(r){
                 var l=(r&&r.success&&r.data&&r.data.items)?r.data.items:[]; total=(r&&r.data&&r.data.total)||0;
-                if(!l.length){$('#taof-nf-lista').html('<p style="color:#94a3b8">Nenhuma entrada ainda.</p>');pager();return;}
+                // popula o filtro de fornecedores (1x)
+                if(!fornCarregado && r.data && r.data.fornecedores){
+                    var opt='<option value="">Todos</option>'+r.data.fornecedores.map(function(f){return '<option value="'+esc(f.id)+'">'+esc(f.nome)+'</option>';}).join('');
+                    $('#taof-nf-forn-filtro').html(opt); fornCarregado=true;
+                }
+                if(!l.length){$('#taof-nf-lista').html('<p style="color:#94a3b8">Nenhuma entrada.</p>');pager();return;}
                 var rows=l.map(function(e){
-                    return '<tr><td>'+fdata(e.dt_entrada)+'</td><td>'+esc(e.numero||'')+'/'+esc(e.serie||'')+'</td>'+
-                        '<td style="font-family:monospace;font-size:12px">'+esc(e.cnpj_emitente||'')+'</td>'+
+                    var est=e.status==='estornada';
+                    return '<tr'+(est?' style="opacity:.55"':'')+'><td>'+fdata(e.dt_entrada)+'</td><td>'+esc(e.numero||'')+'/'+esc(e.serie||'')+'</td>'+
+                        '<td>'+esc(e.fornecedor_nome||'—')+'</td>'+
                         '<td style="text-align:right">'+money(e.valor_total)+'</td>'+
-                        '<td><span class="taof-nf-pill '+(e.status==='efetivada'?'ok':'pend')+'">'+esc(e.status)+'</span></td></tr>';
+                        '<td><span class="taof-nf-pill '+(est?'pend':(e.status==='efetivada'?'ok':'pend'))+'">'+esc(e.status)+'</span></td>'+
+                        '<td><a href="#" class="taof-nf-ver" data-id="'+esc(e.id)+'" style="color:#2563eb;text-decoration:none">🔎 detalhe</a></td></tr>';
                 }).join('');
-                $('#taof-nf-lista').html('<div class="taof-nf-twrap"><table class="taof-nf-tb"><tr><th>Entrada</th><th>NF</th><th>CNPJ emitente</th><th>Valor</th><th>Status</th></tr>'+rows+'</table></div>');
+                $('#taof-nf-lista').html('<div class="taof-nf-twrap"><table class="taof-nf-tb"><tr><th>Entrada</th><th>NF</th><th>Fornecedor</th><th>Valor</th><th>Status</th><th></th></tr>'+rows+'</table></div>');
                 pager();
             });
         }
         $('#taof-nf-size').on('change',function(){sz=parseInt(this.value,10)||30;carregarLista(true);});
+        $('#taof-nf-forn-filtro').on('change',function(){carregarLista(true);$('#taof-nf-detalhe').hide().empty();});
         $('#taof-nf-prev').on('click',function(){if(pg>0){pg--;carregarLista(false);}});
         $('#taof-nf-next').on('click',function(){pg++;carregarLista(false);});
+
+        // ── Detalhe da entrada (drill-down) ──
+        $(document).on('click','.taof-nf-ver',function(e){e.preventDefault();
+            var id=$(this).data('id'), $d=$('#taof-nf-detalhe').html('<p style="color:#64748b">Carregando detalhe…</p>').show();
+            $.getJSON(ajaxUrl,{action:'tao_formula_nf_detalhe',nonce:nonce,id:id},function(r){
+                if(!r.success){$d.html('<p style="color:#dc2626">'+((r.data&&r.data.message)||'Erro')+'</p>');return;}
+                var c=r.data.cabecalho, its=r.data.itens||[], lotes=r.data.lotes||[], contas=r.data.contas||[];
+                var estor=c.status==='estornada';
+                var h='<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">'+
+                    '<div><strong>NF '+esc(c.numero||'')+'/'+esc(c.serie||'')+'</strong> · '+esc(c.fornecedor_nome||'')+
+                    ' <small style="color:#64748b">CNPJ '+esc(c.cnpj_emitente||'')+'</small><br>'+
+                    '<small style="color:#64748b">emissão '+fdata(c.dt_emissao)+' · entrada '+fdata(c.dt_entrada)+' · '+money(c.valor_total)+' · <b>'+esc(c.status)+'</b></small></div>'+
+                    '<div>'+(estor?'<span class="taof-nf-pill pend">estornada</span>':'<button type="button" class="button button-small taof-nf-estornar" data-id="'+esc(c.id)+'">↩ Estornar entrada</button>')+
+                    ' <button type="button" class="button button-small taof-nf-fechar-det">✕ Fechar</button></div></div>';
+                var ir=its.map(function(x){var a=x.ativo||{};return '<tr><td>'+esc(a.nome||x.descr_xml||'')+' <small style="color:#94a3b8">'+esc(a.codigo_fc||'')+'</small></td>'+
+                    '<td style="text-align:right">'+parseFloat(x.quantidade)+' '+esc(x.unidade||'')+'</td>'+
+                    '<td style="text-align:right">'+money(x.valor_compra_frete||x.valor_compra)+'/'+esc(a.unidade||'un')+'</td>'+
+                    '<td>'+esc(x.lote||'—')+(x.dt_val?' <small style="color:#94a3b8">val '+fdata(x.dt_val)+'</small>':'')+'</td></tr>';}).join('');
+                h+='<div class="taof-nf-twrap" style="margin-top:10px"><table class="taof-nf-tb"><tr><th>Item</th><th>Qtd</th><th>Base venda</th><th>Lote</th></tr>'+ir+'</table></div>';
+                if(lotes.length){var lr=lotes.map(function(l){return '<tr><td>'+esc(l.nr_lote)+'</td><td style="text-align:right">'+parseFloat(l.qtd_atual)+'/'+parseFloat(l.qtd_inicial)+' '+esc(l.unidade||'')+'</td><td>'+fdata(l.dt_validade)+'</td><td>'+esc(l.status)+'</td></tr>';}).join('');
+                    h+='<p style="margin:10px 0 4px;font-weight:600">Lotes gerados</p><div class="taof-nf-twrap"><table class="taof-nf-tb"><tr><th>Lote</th><th>Saldo</th><th>Validade</th><th>Status</th></tr>'+lr+'</table></div>';}
+                if(contas.length){var cr=contas.map(function(x){return '<tr><td>'+esc(x.numero_dup||'')+'</td><td>'+fdata(x.vencimento)+'</td><td style="text-align:right">'+money(x.valor)+'</td><td>'+esc(x.status)+'</td></tr>';}).join('');
+                    h+='<p style="margin:10px 0 4px;font-weight:600">Contas a pagar</p><div class="taof-nf-twrap"><table class="taof-nf-tb"><tr><th>Dup.</th><th>Venc.</th><th>Valor</th><th>Status</th></tr>'+cr+'</table></div>';}
+                $d.html(h);
+            });
+        });
+        $(document).on('click','.taof-nf-fechar-det',function(){$('#taof-nf-detalhe').hide().empty();});
+        $(document).on('click','.taof-nf-estornar',function(){
+            var id=$(this).data('id');
+            if(!confirm('Estornar esta entrada? Remove os lotes gerados, cancela as contas a pagar e as entradas SNGPC. Bloqueia se algo já foi consumido/pago/transmitido. Os preços do ativo NÃO são revertidos.'))return;
+            var $b=$(this).prop('disabled',true).text('Estornando…');
+            $.post(ajaxUrl,{action:'tao_formula_nf_estornar',nonce:nonce,id:id},function(r){
+                if(r.success){alert('✓ '+r.data.message+' ('+r.data.lotes_removidos+' lote(s), '+r.data.contas_canceladas+' conta(s), '+r.data.sngpc_removidos+' SNGPC).\n\n'+r.data.obs);
+                    $('#taof-nf-detalhe').hide().empty();carregarLista(false);}
+                else{$b.prop('disabled',false).text('↩ Estornar entrada');alert((r.data&&r.data.message)||'Erro ao estornar');}
+            }).fail(function(){$b.prop('disabled',false).text('↩ Estornar entrada');alert('Falha na requisição');});
+        });
         carregarLista(true);
     });
     </script>
