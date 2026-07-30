@@ -84,6 +84,7 @@ function tao_formula_page_estoque_nf() {
                 '<td style="position:relative">'+assoc+'</td>'+
                 '<td style="text-align:right;white-space:nowrap"><small style="color:#94a3b8">'+parseFloat(it.quantidade)+' '+esc(it.unidade)+' →</small><br>'+
                     '<input type="number" step="any" class="taof-nf-edit" data-i="'+i+'" data-campo="qtd_compra" value="'+parseFloat(it.qtd_compra!=null?it.qtd_compra:it.quantidade)+'" style="width:76px;text-align:right;padding:2px 4px"> '+esc(uc)+'</td>'+
+                '<td style="text-align:right;white-space:nowrap"><strong>'+money(it.valor_prod)+'</strong>'+(parseFloat(it.desconto)>0?'<br><small style="color:#94a3b8">− desc '+money(it.desconto)+'</small>':'')+'</td>'+
                 '<td style="text-align:right;white-space:nowrap"><input type="number" step="any" class="taof-nf-edit" data-i="'+i+'" data-campo="valor_compra" value="'+parseFloat(it.valor_compra||0)+'" style="width:88px;text-align:right;padding:2px 4px"><small style="color:#94a3b8">/'+esc(uc)+'</small></td>'+
                 '<td style="white-space:nowrap"><input type="text" class="taof-nf-edit" data-i="'+i+'" data-campo="lote" value="'+esc(it.lote||'')+'" placeholder="lote" style="width:104px;padding:2px 4px"><br>'+
                     '<input type="date" class="taof-nf-edit" data-i="'+i+'" data-campo="dt_val" value="'+esc((it.dt_val||'').substring(0,10))+'" style="padding:1px 4px;font-size:11px" title="validade"></td>'+
@@ -116,7 +117,7 @@ function tao_formula_page_estoque_nf() {
                     al.map(function(a){return '<li>'+esc(a.msg)+'</li>';}).join('')+'</ul></div>';
             }
             var rows=NF.itens.map(linhaItem).join('');
-            var tbl='<div class="taof-nf-twrap"><table class="taof-nf-tb"><tr><th>Cód. forn.</th><th>Descrição (XML)</th><th>Ativo TAO</th><th>Qtd</th><th style="text-align:right">Pago/un. compra</th><th>Lote</th><th style="text-align:right">Base venda (c/ frete) → destino</th></tr>'+rows+'</table></div>';
+            var tbl='<div class="taof-nf-twrap"><table class="taof-nf-tb"><tr><th>Cód. forn.</th><th>Descrição (XML)</th><th>Ativo TAO</th><th>Qtd</th><th style="text-align:right">Valor item (NF)</th><th style="text-align:right">Pago/un. compra</th><th>Lote</th><th style="text-align:right">Base venda (c/ frete) → destino</th></tr>'+rows+'</table></div>';
             var pend=NF.itens.filter(function(x){return !x.ativo_id;}).length;
             var podeEf = f && pend===0;
             var msg = !f ? '⛔ selecione/cadastre o fornecedor da NF para continuar' : (pend?('⚠ '+pend+' item(ns) sem ativo — associe ou troque'):'');
