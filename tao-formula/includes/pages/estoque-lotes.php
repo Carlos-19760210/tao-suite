@@ -15,8 +15,8 @@ function tao_formula_page_estoque_lotes() {
         <select id="taof-lt-status" style="padding:6px 10px">
             <option value="">Todos os status</option>
             <option value="quarentena">Quarentena (aguardando CQ)</option>
-            <option value="aprovado">Aprovado</option>
-            <option value="reprovado">Reprovado</option>
+            <option value="aprovado">Liberado</option>
+            <option value="reprovado">Bloqueado</option>
             <option value="vencido">Vencido</option>
             <option value="esgotado">Esgotado</option>
         </select>
@@ -74,7 +74,8 @@ function tao_formula_page_estoque_lotes() {
                 var rows=l.map(function(x){
                     var venc=venceProx(x.dt_validade)&&x.status==='aprovado'?' style="color:#dc2626;font-weight:600"':'';
                     var acoes='';
-                    if(x.status==='quarentena') acoes='<button class="button button-small taof-lt-aprovar" data-id="'+x.id+'">✔ Aprovar</button> <button class="button button-small taof-lt-reprovar" data-id="'+x.id+'">✖</button>';
+                    if(x.status==='quarentena') acoes='<button class="button button-small taof-lt-aprovar" data-id="'+x.id+'">✔ Liberar</button> <button class="button button-small taof-lt-reprovar" data-id="'+x.id+'">🚫 Bloquear</button>';
+                    else acoes='<button class="button button-small taof-lt-status" data-id="'+x.id+'" data-st="'+esc(x.status)+'">↺ status</button>';
                     acoes+=' <button class="button button-small taof-lt-ajuste" data-id="'+x.id+'" data-qt="'+x.qtd_atual+'" title="Inventário">⚖</button>';
                     acoes+=' <button class="button button-small taof-lt-laudo" data-id="'+x.id+'" data-nome="'+esc(x.ativo_nome)+'" data-lote="'+esc(x.nr_lote)+'" data-url="'+esc(x.laudo_url||'')+'" data-nl="'+esc(x.nr_laudo||'')+'" title="Laudo de análise (RDC 67)">'+(x.laudo_url?'📄':'📎')+'</button>';
                     acoes+=' <button class="button button-small taof-lt-kardex" data-aid="'+x.ativo_id+'" data-nome="'+esc(x.ativo_nome)+'">↔</button>';
@@ -83,7 +84,7 @@ function tao_formula_page_estoque_lotes() {
                         '<td'+venc+'>'+fdata(x.dt_validade)+'</td>'+
                         '<td style="text-align:right">'+parseFloat(x.qtd_atual||0).toLocaleString('pt-BR')+' '+esc(x.unidade||'')+'</td>'+
                         '<td>'+(x.teor_pct?parseFloat(x.teor_pct)+'%':'—')+'</td>'+
-                        '<td><span class="taof-lt-pill st-'+esc(x.status)+'">'+esc(x.status)+'</span></td>'+
+                        '<td><span class="taof-lt-pill st-'+esc(x.status)+'">'+esc(stLabel(x.status))+'</span></td>'+
                         '<td style="white-space:nowrap">'+acoes+'</td></tr>';
                 }).join('');
                 $('#taof-lt-lista').html('<div class="taof-lt-twrap"><table class="taof-lt-tb"><tr><th>Ativo</th><th>Lote</th><th>Validade</th><th>Saldo</th><th>Teor</th><th>Status</th><th></th></tr>'+rows+'</table></div>');
@@ -105,9 +106,21 @@ function tao_formula_page_estoque_lotes() {
             });
         });
         $(document).on('click','.taof-lt-reprovar',function(){
-            var res=prompt('Motivo da REPROVAÇÃO do lote:');
+            var res=prompt('Motivo do BLOQUEIO do lote:');
             if(!res)return;
             $.post(ajaxUrl,{action:'tao_formula_estq_lote_cq',nonce:nonce,lote_id:$(this).data('id'),acao:'reprovar',resultado:res},function(r){
+                if(r.success)carregar();else alert((r.data&&r.data.message)||'Erro');
+            });
+        });
+        function stLabel(s){return ({quarentena:'Quarentena',aprovado:'Liberado',reprovado:'Bloqueado',vencido:'Vencido',esgotado:'Esgotado'})[s]||s;}
+        // muda o status de um lote já processado (Quarentena / Liberado / Bloqueado)
+        $(document).on('click','.taof-lt-status',function(){
+            var id=$(this).data('id');
+            var op=prompt('Novo status — digite: L = Liberado · B = Bloqueado · Q = Quarentena','');
+            if(!op)return; var map={L:'aprovado',B:'reprovado',Q:'quarentena'}; op=map[op.trim().toUpperCase()];
+            if(!op){alert('Opção inválida.');return;}
+            var motivo=prompt('Observação/motivo (opcional):','')||'';
+            $.post(ajaxUrl,{action:'tao_formula_estq_lote_status',nonce:nonce,lote_id:id,status:op,motivo:motivo},function(r){
                 if(r.success)carregar();else alert((r.data&&r.data.message)||'Erro');
             });
         });
@@ -150,18 +163,37 @@ function tao_formula_page_estoque_lotes() {
                '<label style="font-size:11px;color:#64748b;text-transform:uppercase;display:block;margin-bottom:2px">Nº do laudo / certificado</label>'+
                '<input type="text" name="nr_laudo" value="'+esc(nl)+'" style="width:100%;padding:6px 9px;border:1px solid #d1d5db;border-radius:5px;margin-bottom:12px">'+
                '<label style="font-size:11px;color:#64748b;text-transform:uppercase;display:block;margin-bottom:2px">Arquivo do laudo (PDF/JPG/PNG)</label>'+
-               '<input type="file" name="laudo" accept=".pdf,image/*" style="margin-bottom:14px">'+
+               '<input type="file" name="laudo" accept=".pdf,image/*" style="margin-bottom:8px">'+
+               '<label style="display:block;margin-bottom:12px;font-size:13px"><input type="checkbox" id="taof-lt-ia" checked> Extrair dados do laudo com IA (teor, densidade, validade, ensaios)</label>'+
                '<p><button type="submit" class="button button-primary">💾 Salvar laudo</button> '+
                '<button type="button" class="button" id="taof-lt-laudo-cancel">Fechar</button> <span id="taof-lt-laudo-msg" style="font-size:12px;margin-left:6px"></span></p></form>';
             $('#taof-lt-body').html(h); $('#taof-lt-modal').show();
             $('#taof-lt-laudo-cancel').on('click',function(){$('#taof-lt-modal').hide();});
             $('#taof-lt-laudo-form').on('submit',function(e){
                 e.preventDefault();
-                var fd=new FormData(this); fd.append('action','tao_formula_lote_laudo_upload'); fd.append('nonce',nonce); fd.append('lote_id',id);
-                var $m=$('#taof-lt-laudo-msg').css('color','#64748b').text('Salvando…');
+                var comIA=$('#taof-lt-ia').is(':checked');
+                var fd=new FormData(this); fd.append('action','tao_formula_lote_laudo_upload'); fd.append('nonce',nonce); fd.append('lote_id',id); fd.append('ia',comIA?'1':'0');
+                var $m=$('#taof-lt-laudo-msg').css('color','#64748b').text(comIA?'Salvando e extraindo com IA… (alguns segundos)':'Salvando…');
                 $.ajax({url:ajaxUrl,method:'POST',data:fd,processData:false,contentType:false}).done(function(r){
-                    if(r.success){$('#taof-lt-modal').hide();carregar();}
-                    else $m.css('color','#dc2626').text((r.data&&r.data.message)||'Erro');
+                    if(!r.success){$m.css('color','#dc2626').text((r.data&&r.data.message)||'Erro');return;}
+                    var d=r.data.ia;
+                    if(d){
+                        var en=(d.ensaios||[]); var okn=en.filter(function(x){return x.conforme===true;}).length, fora=en.filter(function(x){return x.conforme===false;}).length;
+                        var h2='<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px;font-size:13px;margin-top:12px">'+
+                            '<strong>✓ Laudo extraído pela IA</strong><br>'+
+                            (d.fabricante?'Fabricante: '+esc(d.fabricante)+'<br>':'')+
+                            (d.dt_validade?'Validade: '+fdata(d.dt_validade)+'<br>':'')+
+                            (d.teor_pct!=null?'Teor: '+esc(d.teor_pct)+'%<br>':'')+
+                            (d.densidade!=null?'Densidade: '+esc(d.densidade)+'<br>':'')+
+                            'Ensaios: '+en.length+' ('+okn+' conformes'+(fora>0?', <span style="color:#dc2626">'+fora+' FORA</span>':'')+')<br>'+
+                            (d.conforme_geral===false?'<strong style="color:#dc2626">⚠ Ensaio(s) fora da especificação — a farmacêutica decide Liberar/Bloquear.</strong>':(d.conforme_geral===true?'<span style="color:#16a34a">Conforme.</span>':''))+
+                            '</div>';
+                        $m.text(''); $('#taof-lt-body').append(h2+'<p style="margin-top:10px"><button type="button" class="button button-primary" id="taof-lt-laudo-ok">OK</button></p>');
+                        $('#taof-lt-laudo-ok').on('click',function(){$('#taof-lt-modal').hide();carregar();});
+                    } else {
+                        if(r.data.ia_erro){$m.css('color','#b45309').text('Laudo salvo. IA não extraiu: '+r.data.ia_erro);setTimeout(function(){$('#taof-lt-modal').hide();carregar();},2500);}
+                        else {$('#taof-lt-modal').hide();carregar();}
+                    }
                 }).fail(function(){$m.css('color','#dc2626').text('Falha no upload');});
             });
         });
