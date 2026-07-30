@@ -142,16 +142,39 @@ function tao_formula_page_estoque_nf() {
                     var lista=(resp&&resp.success&&resp.data)?resp.data:[]; $dd.empty();
                     if(!lista.length){$dd.html('<div style="padding:6px 10px;color:#94a3b8;font-size:12px">nada</div>').show();return;}
                     lista.forEach(function(a){
-                        $('<div style="padding:6px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #f1f5f9">')
+                        $('<div class="taof-nf-ac-item" style="padding:6px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #f1f5f9">')
                           .html(esc(a.nome)+' <small style="color:#94a3b8">['+esc(a.codigo_fc||'')+']</small>')
-                          .on('mousedown',function(e){e.preventDefault();
-                              NF.itens[i].ativo_id=a.id; NF.itens[i].ativo={nome:a.nome,codigo_fc:a.codigo_fc};
-                              renderConf();
-                          }).appendTo($dd);
+                          .data('ativo',a)
+                          .on('mousedown',function(e){e.preventDefault();selAtivo(i,a);})
+                          .appendTo($dd);
                     });
                     $dd.show();
                 });
             },260));
+        });
+        // associa o ativo escolhido ao item (guarda unidade/última compra p/ a granularidade)
+        function selAtivo(i,a){
+            NF.itens[i].ativo_id=a.id;
+            NF.itens[i].ativo={nome:a.nome,codigo_fc:a.codigo_fc,unidade:a.unidade,unidade_padrao:a.unidade_padrao,preco_compra:a.preco_compra};
+            // recalcula a conversão de unidade p/ a unidade de compra do novo ativo
+            var it=NF.itens[i], uc=a.unidade||it.unidade;
+            if(uc && uc!==it.unidade){ /* conversão feita no back ao efetivar; aqui só marca a unidade de compra */ it.unidade_compra=uc; }
+            renderConf();
+        }
+        // navegação por teclado no autocomplete (↑ ↓ Enter Esc)
+        $(document).on('keydown','.taof-nf-search',function(e){
+            var i=$(this).data('i'), $dd=$('.taof-nf-dd[data-i="'+i+'"]');
+            if(!$dd.is(':visible'))return;
+            var $items=$dd.find('.taof-nf-ac-item'); if(!$items.length)return;
+            var idx=$items.index($items.filter('.hl'));
+            if(e.key==='ArrowDown'){e.preventDefault();idx=Math.min(idx+1,$items.length-1);}
+            else if(e.key==='ArrowUp'){e.preventDefault();idx=Math.max(idx-1,0);}
+            else if(e.key==='Enter'){e.preventDefault();var $c=$items.filter('.hl');if($c.length)selAtivo(i,$c.data('ativo'));return;}
+            else if(e.key==='Escape'){$dd.hide();return;}
+            else return;
+            $items.removeClass('hl').css('background','');
+            var $sel=$items.eq(idx<0?0:idx).addClass('hl').css('background','#e0e7ff');
+            if($sel.length&&$sel[0].scrollIntoView)$sel[0].scrollIntoView({block:'nearest'});
         });
         $(document).on('blur','.taof-nf-search',function(){var i=$(this).data('i');setTimeout(function(){$('.taof-nf-dd[data-i="'+i+'"]').hide();},180);});
         $(document).on('change','.taof-nf-dv',function(){NF.itens[$(this).data('i')].destino_valor=this.value;});

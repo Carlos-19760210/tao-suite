@@ -4157,8 +4157,9 @@ add_action( 'wp_ajax_tao_formula_nf_estornar', function () {
         ] );
     }
     tao_formula_api( "/estoque_entradas_nf?id=eq.$id", 'PATCH', [
-        'status' => 'estornada',
-        'obs'    => 'Estornada em ' . gmdate( 'Y-m-d H:i' ) . ' UTC por user#' . get_current_user_id(),
+        'status'    => 'estornada',
+        'chave_nfe' => null,   // libera a chave (UNIQUE cliente+chave) p/ a NF poder ser reprocessada
+        'obs'       => 'Estornada em ' . gmdate( 'Y-m-d H:i' ) . ' UTC por user#' . get_current_user_id() . ( $chave ? ' · chave orig ' . $chave : '' ),
     ] );
     wp_send_json_success( [ 'message' => 'Entrada estornada.', 'lotes_removidos' => $rem_lotes,
         'contas_canceladas' => count( $contas ), 'sngpc_removidos' => count( $sngpc ),
