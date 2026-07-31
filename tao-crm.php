@@ -6085,12 +6085,15 @@ add_action( 'wp_ajax_tao_crm_analise_dataset', function () {
             $nome_at = $it['nome'] ?: ( $it['nome_prescricao'] ?? '' );
             if ( ! $nome_at || strtoupper( trim( $nome_at ) ) === 'EXCIPIENTE BASE' ) continue;
             $tem_ativo = true;
+            // Campos do item (motor) são POR GRAMA: custo_por_unidade e preco_venda; já o
+            // subtotal = preco_venda × qtd = VENDA TOTAL do ativo. Custo total = custo/g × qtd.
+            $q_g = (float) ( $it['qtd_total_g'] ?? 0 );
             $rows[] = array_merge( $dim, [
                 'Ativo'               => $nome_at,
                 'Lote'                => $lote_por_om_at[ $omid ][ $it['ativo_id'] ?? '' ] ?? '—',
-                'Qtd (g)'             => round( (float) ( $it['qtd_total_g'] ?? 0 ), 4 ),
-                'Custo Ativo (R$)'    => round( (float) ( $it['subtotal'] ?? 0 ), 2 ),
-                'Venda Ativo (R$)'    => round( (float) ( $it['preco_venda'] ?? 0 ), 2 ),
+                'Qtd (g)'             => round( $q_g, 4 ),
+                'Custo Ativo (R$)'    => round( (float) ( $it['custo_por_unidade'] ?? 0 ) * $q_g, 2 ),  // custo total real
+                'Venda Ativo (R$)'    => round( (float) ( $it['subtotal'] ?? 0 ), 2 ),                    // venda total
                 'Preço Venda OM (R$)' => $primeiro ? round( $orcado, 2 ) : 0,
                 'Valor Pago (R$)'     => $primeiro ? round( $vpago, 2 ) : 0,
             ] );
