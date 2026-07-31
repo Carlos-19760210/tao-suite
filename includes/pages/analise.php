@@ -119,7 +119,7 @@ function tao_crm_page_analise() {
         <div id="an-avancado" style="display:none">
             <div style="margin:6px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
                 <strong style="font-size:12px;color:#475569">Dados:</strong>
-                <span class="an-mode" id="an-cube-ds"><button data-ds="consumo" class="on">Consumo (ganhas)</button><button data-ds="perdas">Perdas</button></span>
+                <span class="an-mode" id="an-cube-ds"><button data-ds="consumo" class="on">Consumo (ganhas)</button><button data-ds="leads">Leads</button><button data-ds="perdas">Perdas</button></span>
                 <strong style="font-size:12px;color:#475569;margin-left:6px">Visões prontas:</strong>
                 <span id="an-vis-btns"></span>
                 <button type="button" class="button" id="an-fields-toggle" style="margin-left:4px">&#x1F9F2; Painel de campos</button>
@@ -225,7 +225,7 @@ function tao_crm_page_analise() {
         // ── dimensões trocáveis + drill (visões simples) ──
         var PERDA_DIMS=[['Motivo Base','Motivo'],['Insumo/Medic.','Insumo / Medicação'],['Responsavel','Responsável'],['Classificação','Classificação da fórmula'],['Fase','Fase de onde saiu']];
         var CONSUMO_DIMS=[['Ativo','Ativo'],['Classificação','Classificação da fórmula'],['Forma Farmac.','Forma farmacêutica'],['Responsavel','Responsável']];
-        var LEADS_DIMS=[['Origem','Origem (canal/número)'],['Funil','Funil'],['Responsavel','Responsável'],['Fase','Fase atual'],['Classe','Situação (ganho/perda/andamento)']];
+        var LEADS_DIMS=[['Como nos Conheceu','Como nos conheceu'],['Origem','Origem (canal/número)'],['Funil','Funil'],['Responsavel','Responsável'],['Fase','Fase atual'],['Classe','Situação (ganho/perda/andamento)']];
         var opDimOv=null, finDimOv=null, opDrill=null;   // override de dimensão + filtro de drill (perdas)
 
         // Builder genérico de visão dimensionável (contagem ou soma sobre uma dimensão trocável).
@@ -468,11 +468,24 @@ function tao_crm_page_analise() {
             classif:{label:'🧪 Classificação',slice:{rows:[{uniqueName:'Classificação'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Cards','int'),Mm('Valor','brl')]}},
             fase:{label:'📉 Fase de onde saiu',slice:{rows:[{uniqueName:'Fase'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Cards','int'),Mm('Valor','brl')]}}
         };
+        // Cubo de LEADS (grão card): TODOS os dados do lead p/ dimensionar livremente,
+        // incluindo "Como nos Conheceu?" (Google, indicação, etc.).
+        var META_LEADS={'Data':{type:'date string'},'Mes':{type:'string'},'Como nos Conheceu':{type:'string'},'Origem':{type:'string'},'Funil':{type:'string'},'Fase':{type:'string'},'Classe':{type:'string'},'Status':{type:'string'},'Classificação':{type:'string'},'Forma de Entrega':{type:'string'},'Responsavel':{type:'string'},'Valor':{type:'number'},'Leads':{type:'number'}};
+        var VIEWS_LEADS={
+            conheceu:{label:'📣 Como nos conheceu',slice:{rows:[{uniqueName:'Como nos Conheceu'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Leads','int'),Mm('Valor','brl')]}},
+            conhxsit:{label:'📣 Conheceu × situação',slice:{rows:[{uniqueName:'Como nos Conheceu'}],columns:[{uniqueName:'Classe'},{uniqueName:'[Measures]'}],measures:[Mm('Leads','int')]}},
+            origem:{label:'📥 Origem (canal/número)',slice:{rows:[{uniqueName:'Origem'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Leads','int'),Mm('Valor','brl')]}},
+            resp:{label:'👤 Responsável × mês',slice:{rows:[{uniqueName:'Responsavel'}],columns:[{uniqueName:'Mes'},{uniqueName:'[Measures]'}],measures:[Mm('Leads','int'),Mm('Valor','brl')]}},
+            funil:{label:'🚦 Funil → fase',slice:{rows:[{uniqueName:'Funil'},{uniqueName:'Fase'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Leads','int'),Mm('Valor','brl')]}},
+            classif:{label:'🧬 Classificação',slice:{rows:[{uniqueName:'Classificação'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Leads','int'),Mm('Valor','brl')]}}
+        };
         var wdr=null, wdrReady=false, curCube='consumo', curView='ativo', fieldsOpen=false, pivChartOn=false;
-        function curViews(){ return curCube==='perdas'?VIEWS_PERDA:VIEWS; }
+        function curViews(){ return curCube==='perdas'?VIEWS_PERDA : curCube==='leads'?VIEWS_LEADS : VIEWS; }
         function cubeRows(){
             if(curCube==='perdas'){ return [META_PERDA].concat(perdasData.map(function(r){
                 return {'Data':r['Data'],'Mes':r['Mes'],'Motivo':r['Motivo'],'Motivo Base':r['Motivo Base'],'Insumo/Medic.':r['Insumo/Medic.'],'Fase':r['Fase'],'Responsavel':r['Responsavel'],'Classificação':r['Classificação'],'Valor':r['Valor'],'Cards':1}; })); }
+            if(curCube==='leads'){ return [META_LEADS].concat(opData.map(function(r){
+                return {'Data':r['Data'],'Mes':r['Mes'],'Como nos Conheceu':r['Como nos Conheceu'],'Origem':r['Origem'],'Funil':r['Funil'],'Fase':r['Fase'],'Classe':r['Classe'],'Status':r['Status'],'Classificação':r['Classificação'],'Forma de Entrega':r['Forma de Entrega'],'Responsavel':r['Responsavel'],'Valor':r['Valor'],'Leads':1}; })); }
             return [META].concat(finData);
         }
         function buildReport(slice){ return { dataSource:{type:'json',data:cubeRows()}, slice:slice,

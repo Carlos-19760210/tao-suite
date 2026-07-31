@@ -6294,6 +6294,27 @@ add_action( 'wp_ajax_tao_crm_operacao_dataset', function () {
         }
     }
 
+    // Campos customizados do card p/ o cubo de Leads: "Como nos Conheceu?" (origem de
+    // marketing), Classificação da formulação e Forma de Entrega. Busca por chave (robusto
+    // entre ambientes) + valores em lote de todos os cards da coorte.
+    $cf_map = [];   // chave → campo_id
+    $rcf = tao_crm_api( "/crm_campos_definicao?chave=in.(como_nos_conheceu,classificacao_formulacao,forma_de_entrega)&select=id,chave" );
+    foreach ( ( $rcf['ok'] ? ( $rcf['data'] ?? [] ) : [] ) as $f ) $cf_map[ $f['chave'] ] = $f['id'];
+    $val_cnc = []; $val_clf = []; $val_ent = [];
+    $cf_ids  = array_values( array_filter( $cf_map ) );
+    if ( $cf_ids ) {
+        foreach ( array_chunk( $card_ids, 100 ) as $chunk ) {
+            $rv = tao_crm_api( "/crm_cards_valores?card_id=in.(" . implode( ',', $chunk ) . ")&campo_id=in.(" . implode( ',', $cf_ids ) . ")&select=card_id,campo_id,valor" );
+            foreach ( ( $rv['ok'] ? ( $rv['data'] ?? [] ) : [] ) as $v ) {
+                if ( empty( $v['valor'] ) ) continue;
+                $val = $demoji( $v['valor'] );
+                if ( $v['campo_id'] === ( $cf_map['como_nos_conheceu'] ?? '' ) )              $val_cnc[ $v['card_id'] ] = $val;
+                elseif ( $v['campo_id'] === ( $cf_map['classificacao_formulacao'] ?? '' ) )   $val_clf[ $v['card_id'] ] = $val;
+                elseif ( $v['campo_id'] === ( $cf_map['forma_de_entrega'] ?? '' ) )           $val_ent[ $v['card_id'] ] = $val;
+            }
+        }
+    }
+
     $rows = [];
     foreach ( $cards as $c ) {
         $pid   = $c['pipeline_id'] ?? '';
@@ -6312,6 +6333,9 @@ add_action( 'wp_ajax_tao_crm_operacao_dataset', function () {
             'Card'         => $c['titulo'] ?: ( $c['contato_nome'] ?? '' ),
             'Responsavel'  => $resp_map[ $c['responsavel_id'] ?? 0 ] ?? '— sem resp —',
             'Origem'       => $inst_nome[ $c['instancia_id'] ?? '' ] ?? '— sem origem —',
+            'Como nos Conheceu' => $val_cnc[ $cid ] ?? '— não informado —',
+            'Classificação' => $val_clf[ $cid ] ?? '—',
+            'Forma de Entrega'  => $val_ent[ $cid ] ?? '—',
             'Funil'        => $ispos ? ( $pl_map[ $pid ] ?? 'Pós-vendas' ) : ( $pl_map[ $pid ] ?? 'Vendas' ),
             'Fase'         => $fase,
             'Classe'       => $classe,
