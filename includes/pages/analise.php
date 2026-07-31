@@ -35,6 +35,11 @@ function tao_crm_page_analise() {
     $ajaxurl = admin_url( 'admin-ajax.php' );
     $mes_ini = gmdate( 'Y-m-01' );
     $hoje    = gmdate( 'Y-m-d' );
+    // funis + equipe p/ os filtros do modo Relatório
+    $rel_pipes = [];
+    $rp_ = tao_crm_api( "/crm_pipelines?workspace_id=eq.$ws_id&select=id,nome&order=nome.asc" );
+    foreach ( ( $rp_['ok'] ? ( $rp_['data'] ?? [] ) : [] ) as $p ) $rel_pipes[ $p['id'] ] = $p['nome'];
+    $rel_equipe = function_exists( 'tao_crm_get_equipe_ws' ) ? tao_crm_get_equipe_ws( $ws_id ) : [];
     $topts   = '<option value="bar">Barras</option><option value="barh">Barras horizontais</option>'
              . '<option value="line">Linha</option><option value="area">Área</option>'
              . '<option value="pie">Pizza</option><option value="doughnut">Rosca</option>';
@@ -57,11 +62,14 @@ function tao_crm_page_analise() {
       .an-mode{display:inline-flex;border:1px solid #cbd5e1;border-radius:8px;overflow:hidden;margin-left:8px}
       .an-mode button{border:0;background:#fff;padding:6px 12px;cursor:pointer;font-size:12px;color:#475569}
       .an-mode button.on{background:#2563eb;color:#fff}
+      #rel-tbl th,#rel-tbl td{border:1px solid #e5e7eb;padding:5px 8px;text-align:left}
+      #rel-tbl th{background:#f1f5f9;position:sticky;top:0;z-index:1;color:#334155}
+      #rel-tbl tr:nth-child(even) td{background:#fafafa}
     </style>
 
     <div class="wrap tao-analise">
         <h1 style="margin-bottom:2px;display:inline-block">&#x1F4CA; Análise
-            <span class="an-mode"><button id="mode-s" class="on">Simples</button><button id="mode-a">Avançado</button></span>
+            <span class="an-mode"><button id="mode-s" class="on">Simples</button><button id="mode-a">Avançado</button><button id="mode-r">Relatório</button></span>
         </h1>
         <p style="margin:6px 0 10px;color:#64748b;font-size:13px"><b>Simples</b>: respostas prontas, é só clicar. <b>Avançado</b>: o cubo, pra dimensionar livremente. Em qualquer visão você escolhe o tipo de gráfico.</p>
 
@@ -131,6 +139,47 @@ function tao_crm_page_analise() {
                 <div class="an-rhead"><b>Gráfico do cubo</b><label style="font-size:12px;color:#64748b">Ver como: <select id="piv-type" class="an-type"><?php echo $topts; ?></select></label></div>
                 <div class="an-sentence" id="piv-msg" style="display:none"></div>
                 <div style="height:400px"><canvas id="piv-canvas"></canvas></div>
+            </div>
+        </div>
+
+        <!-- ───────── MODO RELATÓRIO (denormalizado, export XLSX) ───────── -->
+        <div id="an-relatorio" style="display:none">
+            <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;margin-top:6px">
+                <div style="display:flex;flex-direction:column;gap:3px">
+                    <label style="font-size:11px;color:#64748b;font-weight:600">Grão</label>
+                    <select id="rel-grao" class="an-type">
+                        <option value="card">1 linha por card</option>
+                        <option value="item">1 linha por item/ativo (repete o card)</option>
+                    </select>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:3px">
+                    <label style="font-size:11px;color:#64748b;font-weight:600">Negócio</label>
+                    <select id="rel-negocio" class="an-type">
+                        <option value="todos">Todos</option><option value="ganho">Ganhos</option>
+                        <option value="perda">Perdas / Cancelados</option><option value="andamento">Em andamento</option>
+                    </select>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:3px">
+                    <label style="font-size:11px;color:#64748b;font-weight:600">Funil</label>
+                    <select id="rel-funil" class="an-type"><option value="">Todos os funis</option>
+                        <?php foreach ( $rel_pipes as $pid => $pnome ) : ?><option value="<?php echo esc_attr( $pid ); ?>"><?php echo esc_html( $pnome ); ?></option><?php endforeach; ?>
+                    </select>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:3px">
+                    <label style="font-size:11px;color:#64748b;font-weight:600">Responsável</label>
+                    <select id="rel-resp" class="an-type"><option value="">Todos</option>
+                        <?php foreach ( $rel_equipe as $u ) : ?><option value="<?php echo esc_attr( $u->ID ); ?>"><?php echo esc_html( $u->display_name ); ?></option><?php endforeach; ?>
+                    </select>
+                </div>
+                <button type="button" class="button button-primary" id="rel-gerar">Gerar</button>
+                <span style="flex:1"></span>
+                <button type="button" class="button" id="rel-xlsx" disabled>&#x2B07; XLSX</button>
+                <button type="button" class="button" id="rel-csv" disabled>CSV</button>
+            </div>
+            <p style="font-size:11px;color:#94a3b8;margin:6px 0">Usa o <b>período</b> definido acima (data de criação do card). Uma linha por card com todas as colunas + campos personalizados; no grão por item, a linha do card se repete para cada ativo.</p>
+            <div id="rel-status" style="font-size:13px;color:#475569;margin:6px 0">Ajuste os filtros e clique em <b>Gerar</b>.</div>
+            <div id="rel-tbl-wrap" style="display:none;overflow:auto;max-height:60vh;border:1px solid #e2e8f0;border-radius:8px">
+                <table id="rel-tbl" style="border-collapse:collapse;font-size:12px;white-space:nowrap"><thead></thead><tbody></tbody></table>
             </div>
         </div>
     </div>
@@ -539,10 +588,45 @@ function tao_crm_page_analise() {
 
         // ── modo ──
         function setMode(m){
-            el('mode-s').className=(m==='s'?'on':''); el('mode-a').className=(m==='a'?'on':'');
-            el('an-simples').style.display=(m==='s'?'block':'none'); el('an-avancado').style.display=(m==='a'?'block':'none');
+            el('mode-s').className=(m==='s'?'on':''); el('mode-a').className=(m==='a'?'on':''); el('mode-r').className=(m==='r'?'on':'');
+            el('an-simples').style.display=(m==='s'?'block':'none'); el('an-avancado').style.display=(m==='a'?'block':'none'); el('an-relatorio').style.display=(m==='r'?'block':'none');
             if(m==='a') ensureWDR(function(){ if(wdr) wdr.updateData({data:cubeRows()}); });
         }
+
+        // ── MODO RELATÓRIO: dataset denormalizado (grão card ou item) + export XLSX/CSV ──
+        var SHEETJS='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+        var relCOLS=[], relROWS=[], sheetjsReady=false, REL_PREVIEW=300;
+        function loadSheetJS(cb){ if(sheetjsReady){cb();return;} js(SHEETJS,function(){ sheetjsReady=!!window.XLSX; if(sheetjsReady)cb(); else relStatus('⚠ Não carregou a biblioteca de Excel; use o CSV.'); }); }
+        function relStatus(h){ el('rel-status').innerHTML=h; }
+        function relEsc(s){ return String(s).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];}); }
+        function relGerar(){
+            relStatus('Gerando… buscando cards e campos.'); el('rel-xlsx').disabled=true; el('rel-csv').disabled=true;
+            var body='action=tao_crm_relatorio_dataset&nonce='+encodeURIComponent(nonce)+'&workspace_id='+encodeURIComponent(wsId)
+                +'&de='+encodeURIComponent(el('an-de').value)+'&ate='+encodeURIComponent(el('an-ate').value)
+                +'&grao='+encodeURIComponent(el('rel-grao').value)+'&negocio='+encodeURIComponent(el('rel-negocio').value)
+                +'&pipeline_id='+encodeURIComponent(el('rel-funil').value)+'&responsavel_id='+encodeURIComponent(el('rel-resp').value);
+            fetch(ajaxurl,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body,credentials:'same-origin'})
+            .then(function(r){return r.text();}).then(function(t){ var i=t.indexOf('{'),j; try{ j=JSON.parse(i>0?t.slice(i):t); }catch(e){ relStatus('⚠ Erro ao ler a resposta.'); return; }
+                if(!j||!j.success){ relStatus('⚠ '+((j&&j.data)||'Falha ao gerar.')); return; }
+                relCOLS=j.data.colunas||[]; relROWS=j.data.rows||[]; relRender();
+                el('rel-xlsx').disabled=relROWS.length===0; el('rel-csv').disabled=relROWS.length===0;
+                relStatus('<b>'+relROWS.length+'</b> linha(s) · <b>'+relCOLS.length+'</b> colunas'+(relROWS.length>REL_PREVIEW?' · mostrando os primeiros '+REL_PREVIEW+' (o export leva todos)':''));
+            }).catch(function(){ relStatus('⚠ Erro de rede ao gerar.'); });
+        }
+        function relRender(){ var w=el('rel-tbl-wrap'); if(!relROWS.length){ w.style.display='none'; return; } w.style.display='block';
+            el('rel-tbl').querySelector('thead').innerHTML='<tr>'+relCOLS.map(function(c){return '<th>'+relEsc(c)+'</th>';}).join('')+'</tr>';
+            el('rel-tbl').querySelector('tbody').innerHTML=relROWS.slice(0,REL_PREVIEW).map(function(r){ return '<tr>'+r.map(function(v){return '<td>'+relEsc(v==null?'':String(v))+'</td>';}).join('')+'</tr>'; }).join('');
+        }
+        function relNome(ext){ return 'relatorio-cards_'+el('an-de').value+'_a_'+el('an-ate').value+'.'+ext; }
+        function relXLSX(){ if(!relROWS.length)return; relStatus('Montando planilha…'); loadSheetJS(function(){
+            var aoa=[relCOLS].concat(relROWS), ws=XLSX.utils.aoa_to_sheet(aoa);
+            ws['!cols']=relCOLS.map(function(c,i){ var w=String(c).length; relROWS.forEach(function(r){ var v=r[i]==null?'':String(r[i]); if(v.length>w)w=v.length; }); return {wch:Math.min(Math.max(w+1,8),50)}; });
+            var wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Cards'); XLSX.writeFile(wb,relNome('xlsx'));
+            relStatus('<b>'+relROWS.length+'</b> linha(s) exportadas para Excel.'); }); }
+        function relCSV(){ if(!relROWS.length)return; function cell(v){ v=v==null?'':String(v); return /[";\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }
+            var lines=[relCOLS.map(cell).join(';')].concat(relROWS.map(function(r){return r.map(cell).join(';');}));
+            var blob=new Blob(['﻿'+lines.join('\r\n')],{type:'text/csv;charset=utf-8;'});
+            var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=relNome('csv'); a.click(); URL.revokeObjectURL(a.href); }
 
         // ── carregar (financeiro + operação) ──
         function toISO(d){ return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
@@ -574,7 +658,8 @@ function tao_crm_page_analise() {
                 curFiltro=b.dataset.f;
                 Array.prototype.forEach.call(document.querySelectorAll('#an-filtro button'),function(x){ x.className=(x.dataset.f===curFiltro?'on':''); });
                 carregar(); }; });
-            el('mode-s').onclick=function(){ setMode('s'); }; el('mode-a').onclick=function(){ setMode('a'); };
+            el('mode-s').onclick=function(){ setMode('s'); }; el('mode-a').onclick=function(){ setMode('a'); }; el('mode-r').onclick=function(){ setMode('r'); };
+            el('rel-gerar').onclick=relGerar; el('rel-xlsx').onclick=relXLSX; el('rel-csv').onclick=relCSV;
             // ao trocar de atalho, zera a dimensão override e o drill (volta ao padrão da visão)
             gallery('fin-gallery', FINQ, curFin, function(k){ curFin=k; finDimOv=null; showSpec('fin', specFin(k)); });
             gallery('op-gallery',  OPQ,  curOp,  function(k){ curOp=k; opDimOv=null; opDrill=null; showSpec('op',  specOp(k)); });

@@ -66,7 +66,6 @@ require_once TAO_CRM_DIR . 'includes/pages/kanban.php';
 require_once TAO_CRM_DIR . 'includes/pages/card.php';
 require_once TAO_CRM_DIR . 'includes/pages/settings.php';
 require_once TAO_CRM_DIR . 'includes/pages/analise.php';
-require_once TAO_CRM_DIR . 'includes/pages/relatorio.php';
 // tao_crm_page_conversas is defined inline below (no separate file needed)
 
 // ─── CRON: AUTOMAÇÕES ─────────────────────────────────────────────────────────
@@ -6503,6 +6502,8 @@ add_action( 'wp_ajax_tao_crm_relatorio_dataset', function () {
     $negocio = sanitize_text_field( $_POST['negocio'] ?? 'todos' );
     $f_pipe  = sanitize_text_field( $_POST['pipeline_id'] ?? '' );
     $f_resp  = sanitize_text_field( $_POST['responsavel_id'] ?? '' );
+    $grao    = sanitize_text_field( $_POST['grao'] ?? 'card' );   // card | item (repete o card por ativo)
+    if ( ! in_array( $grao, [ 'card', 'item' ], true ) ) $grao = 'card';
     $demoji  = function ( $s ) { if ( $s !== '' && $s !== null && strpos( $s, 'Ã' ) !== false ) { $c = @mb_convert_encoding( $s, 'ISO-8859-1', 'UTF-8' ); if ( $c ) return $c; } return $s; };
 
     $pl_map = []; $pl_ispos = [];
@@ -6569,10 +6570,44 @@ add_action( 'wp_ajax_tao_crm_relatorio_dataset', function () {
         }
     }
 
+    // GRÃO POR ITEM: explode cada card em seus ativos (orcamentos.itens, JSONB) → a linha
+    // do card se repete por ativo. Dedupe: só a última versão por requisição (evita revisões).
+    $itens_por_card = [];
+    if ( $grao === 'item' && $card_ids ) {
+        $best = [];
+        foreach ( array_chunk( $card_ids, 100 ) as $chunk ) {
+            $ro = tao_crm_api( "/orcamentos?card_id=in.(" . implode( ',', $chunk ) . ")&select=id,card_id,numero_orcamento,forma_nome,criado_em,itens&order=criado_em.desc&limit=10000" );
+            foreach ( ( $ro['ok'] ? ( $ro['data'] ?? [] ) : [] ) as $o ) {
+                $num = (string) ( $o['numero_orcamento'] ?? '' ); $posd = strrpos( $num, '-' );
+                $base_n = ( $posd !== false ) ? substr( $num, 0, $posd ) : $num;
+                $ver    = ( $posd !== false ) ? intval( substr( $num, $posd + 1 ) ) : 0;
+                $k = ( $o['card_id'] ?? '' ) . '|' . $base_n;
+                if ( ! isset( $best[ $k ] ) || $ver > $best[ $k ]['v'] ) $best[ $k ] = [ 'v' => $ver, 'o' => $o ];
+            }
+        }
+        foreach ( $best as $x ) {
+            $o   = $x['o'];
+            $its = is_string( $o['itens'] ?? null ) ? json_decode( $o['itens'], true ) : ( $o['itens'] ?? [] );
+            if ( ! is_array( $its ) ) $its = [];
+            foreach ( $its as $it ) {
+                if ( ( $it['tipo'] ?? 'mp' ) !== 'mp' ) continue;
+                $nome_at = $it['nome'] ?: ( $it['nome_prescricao'] ?? '' );
+                if ( ! $nome_at || strtoupper( trim( $nome_at ) ) === 'EXCIPIENTE BASE' ) continue;
+                $itens_por_card[ $o['card_id'] ][] = [
+                    $o['numero_orcamento'] ?? '', $o['forma_nome'] ?? '', $demoji( $nome_at ),
+                    round( (float) ( $it['qtd_total_g'] ?? 0 ), 4 ),
+                    round( (float) ( $it['subtotal'] ?? 0 ), 2 ),
+                    round( (float) ( $it['preco_venda'] ?? 0 ), 2 ),
+                ];
+            }
+        }
+    }
+
     $colunas = [ 'Card','Contato','WhatsApp','Responsável','Funil','Fase','Negócio','Status',
                  'Valor (R$)','Origem (canal)','Como nos Conheceu','Presumido?','Tipo de Fechamento',
                  'Criado em','Movido em' ];
     foreach ( $campos as $cf ) $colunas[] = $cf['nome'];
+    if ( $grao === 'item' ) array_push( $colunas, 'OM','Forma Farmac.','Ativo','Qtd (g)','Custo Ativo (R$)','Venda Ativo (R$)' );
 
     $fmt_dt = function ( $s ) { if ( ! $s ) return ''; $t = strtotime( $s ); return $t ? gmdate( 'd/m/Y H:i', $t ) : ''; };
     $rows = [];
@@ -6613,10 +6648,16 @@ add_action( 'wp_ajax_tao_crm_relatorio_dataset', function () {
             $fmt_dt( $c['movido_em'] ?? '' ),
         ];
         foreach ( $campos as $cf ) $row[] = $valpiv[ $cid ][ $cf['id'] ] ?? '';
-        $rows[] = $row;
+        if ( $grao === 'card' ) {
+            $rows[] = $row;
+        } else {
+            $its = $itens_por_card[ $cid ] ?? [];
+            if ( ! $its ) { $rows[] = array_merge( $row, [ '', '', '', '', '', '' ] ); }  // card sem ativo = 1 linha
+            else foreach ( $its as $it ) $rows[] = array_merge( $row, $it );               // repete o card por ativo
+        }
     }
 
-    wp_send_json_success( [ 'colunas' => $colunas, 'rows' => $rows, 'total' => count( $rows ), 'de' => $de, 'ate' => $ate ] );
+    wp_send_json_success( [ 'colunas' => $colunas, 'rows' => $rows, 'total' => count( $rows ), 'de' => $de, 'ate' => $ate, 'grao' => $grao ] );
 } );
 
 // ── Busca de contato por nome OU WhatsApp (autocomplete do Novo Card). Read-only.

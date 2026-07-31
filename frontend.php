@@ -73,7 +73,6 @@ add_action( 'template_redirect', function() {
         'crm'            => 'tao-crm-dashboard',
         'crm-dashboard'  => 'tao-crm-dashboard',
         'crm-analise'    => 'tao-crm-analise',
-        'crm-relatorio'  => 'tao-crm-relatorio',
         'crm-inbox'      => 'tao-crm-inbox',
         'crm-kanban'     => 'tao-crm-kanban',
         'crm-settings'   => 'tao-crm-settings',
