@@ -6248,7 +6248,7 @@ add_action( 'wp_ajax_tao_crm_operacao_dataset', function () {
 
     // cards do período (coorte por criação)
     $rc = tao_crm_api( "/crm_cards?workspace_id=eq.$ws&criado_em=gte.$de&criado_em=lte.$ate_fim" .
-                       "&select=id,titulo,contato_nome,status,fechado,pipeline_id,estagio_id,responsavel_id,instancia_id,valor_oportunidade,criado_em,movido_em,ultima_mensagem_em&order=criado_em.desc&limit=5000" );
+                       "&select=id,titulo,contato_nome,contato_whatsapp,status,fechado,pipeline_id,estagio_id,responsavel_id,instancia_id,valor_oportunidade,criado_em,movido_em,ultima_mensagem_em&order=criado_em.desc&limit=5000" );
     $cards = ( $rc['ok'] ? ( $rc['data'] ?? [] ) : [] );
     if ( ! $cards ) wp_send_json_success( [ 'rows' => [], 'de' => $de, 'ate' => $ate, 'agora' => gmdate( 'c' ) ] );
 
@@ -6300,6 +6300,12 @@ add_action( 'wp_ajax_tao_crm_operacao_dataset', function () {
     $cf_map = [];   // chave → campo_id
     $rcf = tao_crm_api( "/crm_campos_definicao?chave=in.(como_nos_conheceu,classificacao_formulacao,forma_de_entrega)&select=id,chave" );
     foreach ( ( $rcf['ok'] ? ( $rcf['data'] ?? [] ) : [] ) as $f ) $cf_map[ $f['chave'] ] = $f['id'];
+    // Proxy de "já é cliente": whatsapp com algum card GANHO no workspace (comprou antes).
+    // Usado p/ inferir a origem de leads sem "Como nos Conheceu" (regra de negócio abaixo).
+    $cliente_wa = [];
+    $rgw = tao_crm_api( "/crm_cards?workspace_id=eq.$ws&status=eq.ganho&select=contato_whatsapp&limit=20000" );
+    foreach ( ( $rgw['ok'] ? ( $rgw['data'] ?? [] ) : [] ) as $g ) if ( ! empty( $g['contato_whatsapp'] ) ) $cliente_wa[ $g['contato_whatsapp'] ] = 1;
+
     $val_cnc = []; $val_clf = []; $val_ent = [];
     $cf_ids  = array_values( array_filter( $cf_map ) );
     if ( $cf_ids ) {
@@ -6326,6 +6332,15 @@ add_action( 'wp_ajax_tao_crm_operacao_dataset', function () {
         else $classe = 'Em andamento';
         $data = substr( (string) ( $c['criado_em'] ?? '' ), 0, 10 );
         $cid  = $c['id'];
+        // ORIGEM "Como nos Conheceu": valor real, senão inferência. O campo é obrigatório
+        // assim que a conversa evolui; sua ausência = lead descartado sem evolução. Regra
+        // (Carlos): descartado/perdido + NÃO cliente → presume-se busca no Google.
+        $conheceu = $val_cnc[ $cid ] ?? null;
+        if ( $conheceu === null ) {
+            $descartado = ( $classe === 'Perda' ) || ( stripos( $fase, 'cancelad' ) !== false );
+            $eh_cliente = ! empty( $cliente_wa[ $c['contato_whatsapp'] ?? '' ] );
+            $conheceu = ( $descartado && ! $eh_cliente ) ? 'Google (presumido)' : '— não informado —';
+        }
         $esperando = isset( $espera_card[ $cid ] ) && empty( $c['fechado'] );
         $tma_h = ( isset( $resol_card[ $cid ] ) && ! empty( $c['criado_em'] ) )
             ? round( max( 0, $resol_card[ $cid ] - strtotime( $c['criado_em'] ) ) / 3600, 1 ) : null;
@@ -6333,7 +6348,7 @@ add_action( 'wp_ajax_tao_crm_operacao_dataset', function () {
             'Card'         => $c['titulo'] ?: ( $c['contato_nome'] ?? '' ),
             'Responsavel'  => $resp_map[ $c['responsavel_id'] ?? 0 ] ?? '— sem resp —',
             'Origem'       => $inst_nome[ $c['instancia_id'] ?? '' ] ?? '— sem origem —',
-            'Como nos Conheceu' => $val_cnc[ $cid ] ?? '— não informado —',
+            'Como nos Conheceu' => $conheceu,
             'Classificação' => $val_clf[ $cid ] ?? '—',
             'Forma de Entrega'  => $val_ent[ $cid ] ?? '—',
             'Funil'        => $ispos ? ( $pl_map[ $pid ] ?? 'Pós-vendas' ) : ( $pl_map[ $pid ] ?? 'Vendas' ),
