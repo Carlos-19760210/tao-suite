@@ -203,6 +203,32 @@ function tao_crm_get_workspaces() {
     return $r['ok'] ? ( $r['data'] ?? [] ) : [];
 }
 
+/** Normaliza um código FC (1º token → inteiro em string) p/ casar item×cadastro. */
+function tao_crm_ncod_fc( $v ): string {
+    $p = preg_split( '/\s+/', trim( (string) $v ) ); $t = $p[0] ?? '';
+    return preg_match( '/^\d+$/', $t ) ? (string) (int) $t : $t;
+}
+
+/**
+ * Mapa codigo_fc (normalizado) → preco_compra (VALOR DE COMPRA do cadastro de ativos),
+ * paginado (o Supabase corta em 1000/req). Usado como custo real nas análises.
+ */
+function tao_crm_precos_compra( string $cli ): array {
+    if ( ! $cli ) return [];
+    $map = []; $offset = 0;
+    do {
+        $r = tao_crm_api( "/ativos?cliente_id=eq.$cli&select=codigo_fc,preco_compra&limit=1000&offset=$offset" );
+        $rows = ( $r['ok'] ? ( $r['data'] ?? [] ) : [] );
+        foreach ( $rows as $a ) {
+            $code = tao_crm_ncod_fc( $a['codigo_fc'] ?? '' );
+            $pc   = (float) ( $a['preco_compra'] ?? 0 );
+            if ( $code !== '' && $pc > 0 ) $map[ $code ] = $pc;
+        }
+        $offset += 1000;
+    } while ( count( $rows ) === 1000 && $offset < 50000 );
+    return $map;
+}
+
 // ─── URL HELPERS (frontend /robos/ ou wp-admin) ──────────────────────────────
 
 function tao_crm_url( $params = [] ) {

@@ -6034,6 +6034,10 @@ add_action( 'wp_ajax_tao_crm_analise_dataset', function () {
     // ── Cubo: 1 linha por OM × ativo. Medidas de ativo = valores calculados pelo motor
     //    (subtotal = custo real c/ potes; preco_venda = venda). Medidas de OM (preço da OM
     //    e pago) atribuídas 1× por OM/card p/ não duplicar ao explodir em ativos.
+    // Custo do ativo = VALOR DE COMPRA (ativos.preco_compra do cadastro; decisão Carlos),
+    // por grama, com fallback ao custo do item quando o cadastro não tiver.
+    $pc_por_code = tao_crm_precos_compra( $cli );
+
     $rows = [];
     $card_pago_visto = [];
     foreach ( $oms as $o ) {
@@ -6085,14 +6089,14 @@ add_action( 'wp_ajax_tao_crm_analise_dataset', function () {
             $nome_at = $it['nome'] ?: ( $it['nome_prescricao'] ?? '' );
             if ( ! $nome_at || strtoupper( trim( $nome_at ) ) === 'EXCIPIENTE BASE' ) continue;
             $tem_ativo = true;
-            // Campos do item (motor) são POR GRAMA: custo_por_unidade e preco_venda; já o
-            // subtotal = preco_venda × qtd = VENDA TOTAL do ativo. Custo total = custo/g × qtd.
-            $q_g = (float) ( $it['qtd_total_g'] ?? 0 );
+            // Custo/g = valor de compra do cadastro (fallback custo do item); subtotal = venda total.
+            $q_g   = (float) ( $it['qtd_total_g'] ?? 0 );
+            $cst_g = $pc_por_code[ tao_crm_ncod_fc( $it['codigo_fc'] ?? '' ) ] ?? (float) ( $it['custo_por_unidade'] ?? 0 );
             $rows[] = array_merge( $dim, [
                 'Ativo'               => $nome_at,
                 'Lote'                => $lote_por_om_at[ $omid ][ $it['ativo_id'] ?? '' ] ?? '—',
                 'Qtd (g)'             => round( $q_g, 4 ),
-                'Custo Ativo (R$)'    => round( (float) ( $it['custo_por_unidade'] ?? 0 ) * $q_g, 2 ),  // custo total real
+                'Custo Ativo (R$)'    => round( $cst_g * $q_g, 2 ),          // custo total = valor de compra × qtd
                 'Venda Ativo (R$)'    => round( (float) ( $it['subtotal'] ?? 0 ), 2 ),                    // venda total
                 'Preço Venda OM (R$)' => $primeiro ? round( $orcado, 2 ) : 0,
                 'Valor Pago (R$)'     => $primeiro ? round( $vpago, 2 ) : 0,
@@ -6577,6 +6581,10 @@ add_action( 'wp_ajax_tao_crm_relatorio_dataset', function () {
     // do card se repete por ativo. Dedupe: só a última versão por requisição (evita revisões).
     $itens_por_card = [];
     if ( $grao === 'item' && $card_ids ) {
+        // Custo/g = valor de compra do cadastro (ativos.preco_compra); fallback custo do item.
+        $rwc = tao_crm_api( "/crm_workspaces?id=eq.$ws&select=cliente_id&limit=1" );
+        $cli = ( $rwc['ok'] && ! empty( $rwc['data'] ) ) ? ( $rwc['data'][0]['cliente_id'] ?? '' ) : '';
+        $pc_por_code = tao_crm_precos_compra( $cli );
         $best = [];
         foreach ( array_chunk( $card_ids, 100 ) as $chunk ) {
             $ro = tao_crm_api( "/orcamentos?card_id=in.(" . implode( ',', $chunk ) . ")&select=id,card_id,numero_orcamento,forma_nome,criado_em,itens&order=criado_em.desc&limit=10000" );
@@ -6596,11 +6604,11 @@ add_action( 'wp_ajax_tao_crm_relatorio_dataset', function () {
                 if ( ( $it['tipo'] ?? 'mp' ) !== 'mp' ) continue;
                 $nome_at = $it['nome'] ?: ( $it['nome_prescricao'] ?? '' );
                 if ( ! $nome_at ) continue;   // excipiente base É considerado (faz parte da fórmula)
-                // Semântica dos campos do item (motor): custo_por_unidade e preco_venda são
-                // POR GRAMA; subtotal = preco_venda × qtd (VENDA TOTAL). Custo total = custo/g × qtd.
+                // Custo/g = valor de compra (cadastro), fallback custo do item; subtotal = venda total.
                 $q_g   = (float) ( $it['qtd_total_g'] ?? 0 );
-                $cst_t = (float) ( $it['custo_por_unidade'] ?? 0 ) * $q_g;   // custo total do ativo
-                $vnd_t = (float) ( $it['subtotal'] ?? 0 );                    // venda total do ativo
+                $cst_g = $pc_por_code[ tao_crm_ncod_fc( $it['codigo_fc'] ?? '' ) ] ?? (float) ( $it['custo_por_unidade'] ?? 0 );
+                $cst_t = $cst_g * $q_g;                     // custo total = valor de compra × qtd
+                $vnd_t = (float) ( $it['subtotal'] ?? 0 );  // venda total do ativo
                 $itens_por_card[ $o['card_id'] ][] = [
                     $o['numero_orcamento'] ?? '', $o['forma_nome'] ?? '', $demoji( $nome_at ),
                     round( $q_g, 4 ), round( $cst_t, 2 ), round( $vnd_t, 2 ),
