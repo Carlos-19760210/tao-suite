@@ -6593,11 +6593,14 @@ add_action( 'wp_ajax_tao_crm_relatorio_dataset', function () {
                 if ( ( $it['tipo'] ?? 'mp' ) !== 'mp' ) continue;
                 $nome_at = $it['nome'] ?: ( $it['nome_prescricao'] ?? '' );
                 if ( ! $nome_at ) continue;   // excipiente base É considerado (faz parte da fórmula)
+                // Semântica dos campos do item (motor): custo_por_unidade e preco_venda são
+                // POR GRAMA; subtotal = preco_venda × qtd (VENDA TOTAL). Custo total = custo/g × qtd.
+                $q_g   = (float) ( $it['qtd_total_g'] ?? 0 );
+                $cst_t = (float) ( $it['custo_por_unidade'] ?? 0 ) * $q_g;   // custo total do ativo
+                $vnd_t = (float) ( $it['subtotal'] ?? 0 );                    // venda total do ativo
                 $itens_por_card[ $o['card_id'] ][] = [
                     $o['numero_orcamento'] ?? '', $o['forma_nome'] ?? '', $demoji( $nome_at ),
-                    round( (float) ( $it['qtd_total_g'] ?? 0 ), 4 ),
-                    round( (float) ( $it['subtotal'] ?? 0 ), 2 ),
-                    round( (float) ( $it['preco_venda'] ?? 0 ), 2 ),
+                    round( $q_g, 4 ), round( $cst_t, 2 ), round( $vnd_t, 2 ),
                 ];
             }
         }
