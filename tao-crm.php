@@ -6592,7 +6592,7 @@ add_action( 'wp_ajax_tao_crm_relatorio_dataset', function () {
             foreach ( $its as $it ) {
                 if ( ( $it['tipo'] ?? 'mp' ) !== 'mp' ) continue;
                 $nome_at = $it['nome'] ?: ( $it['nome_prescricao'] ?? '' );
-                if ( ! $nome_at || strtoupper( trim( $nome_at ) ) === 'EXCIPIENTE BASE' ) continue;
+                if ( ! $nome_at ) continue;   // excipiente base É considerado (faz parte da fórmula)
                 $itens_por_card[ $o['card_id'] ][] = [
                     $o['numero_orcamento'] ?? '', $o['forma_nome'] ?? '', $demoji( $nome_at ),
                     round( (float) ( $it['qtd_total_g'] ?? 0 ), 4 ),
