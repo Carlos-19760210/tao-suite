@@ -6386,10 +6386,24 @@ add_action( 'wp_ajax_tao_crm_operacao_dataset', function () {
                 $p_seen[ $cid2 ] = 1;
                 $data  = substr( (string) ( $ev['criado_em'] ?? '' ), 0, 10 );
                 $tcanc = ! empty( $c['criado_em'] ) ? round( max( 0, strtotime( $ev['criado_em'] ) - strtotime( $c['criado_em'] ) ) / 3600, 1 ) : null;
+                // Motivo cru (ex.: "Falta de Insumo: MAGNÉSIO", "Drogaria: Losartana") →
+                //   Motivo Base = motivo agrupado (não abre por insumo/medicação);
+                //   Insumo/Medic. = o que vem após os dois-pontos (o detalhamento do gráfico).
+                $motivo_raw = $demoji( $ev['motivo'] ?? '' ); if ( $motivo_raw === '' ) $motivo_raw = '(sem motivo)';
+                $mbase = $motivo_raw; $mdet = '';
+                if ( preg_match( '/^\s*falta de insumo\s*:\s*(.+)$/iu', $motivo_raw, $mm ) ) {
+                    $mbase = 'Falta de Insumo'; $mdet = trim( $mm[1] );
+                } elseif ( preg_match( '/^\s*drogaria\s*:\s*(.+)$/iu', $motivo_raw, $mm ) ) {
+                    $mbase = 'Drogaria'; $mdet = trim( $mm[1] );
+                } elseif ( stripos( $motivo_raw, 'automação' ) === 0 || stripos( $motivo_raw, 'automacao' ) === 0 ) {
+                    $mbase = 'Fechado por automação (sem resposta)';
+                }
                 $perdas[] = [
                     'Data'          => $data,
                     'Mes'           => substr( $data, 0, 7 ),
-                    'Motivo'        => $demoji( $ev['motivo'] ?? '' ) ?: '(sem motivo)',
+                    'Motivo'        => $motivo_raw,      // cru (cubo/detalhe)
+                    'Motivo Base'   => $mbase,           // agrupado (visão simples)
+                    'Insumo/Medic.' => $mdet !== '' ? $mdet : '—',
                     'Fase'          => $est_map[ $ev['de_estagio_id'] ?? '' ] ?? '—',
                     'Responsavel'   => $resp_map[ $c['responsavel_id'] ?? 0 ] ?? '— sem resp —',
                     'Classificação' => $pclass[ $cid2 ] ?? '—',

@@ -91,7 +91,11 @@ function tao_crm_page_analise() {
             <div class="an-kpis" id="fin-kpis"></div>
             <div class="an-gallery" id="fin-gallery"></div>
             <div class="an-result">
-                <div class="an-rhead"><b id="fin-title"></b><label style="font-size:12px;color:#64748b">Ver como: <select id="fin-type" class="an-type"><?php echo $topts; ?></select></label></div>
+                <div class="an-rhead"><b id="fin-title"></b>
+                    <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                        <label id="fin-dim-l" style="display:none;font-size:12px;color:#64748b">Por: <select id="fin-dim" class="an-type"></select></label>
+                        <label style="font-size:12px;color:#64748b">Ver como: <select id="fin-type" class="an-type"><?php echo $topts; ?></select></label>
+                    </span></div>
                 <div class="an-sentence" id="fin-sentence"></div>
                 <div style="height:380px"><canvas id="fin-canvas"></canvas></div>
             </div>
@@ -100,7 +104,12 @@ function tao_crm_page_analise() {
             <div class="an-kpis" id="op-kpis"></div>
             <div class="an-gallery" id="op-gallery"></div>
             <div class="an-result">
-                <div class="an-rhead"><b id="op-title"></b><label style="font-size:12px;color:#64748b">Ver como: <select id="op-type" class="an-type"><?php echo $topts; ?></select></label></div>
+                <div class="an-rhead"><b id="op-title"></b>
+                    <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                        <button type="button" class="button button-small" id="op-back" style="display:none">&#x21A9; voltar</button>
+                        <label id="op-dim-l" style="display:none;font-size:12px;color:#64748b">Por: <select id="op-dim" class="an-type"></select></label>
+                        <label style="font-size:12px;color:#64748b">Ver como: <select id="op-type" class="an-type"><?php echo $topts; ?></select></label>
+                    </span></div>
                 <div class="an-sentence" id="op-sentence"></div>
                 <div style="height:380px"><canvas id="op-canvas"></canvas></div>
             </div>
@@ -109,7 +118,9 @@ function tao_crm_page_analise() {
         <!-- ───────── MODO AVANÇADO (cubo) ───────── -->
         <div id="an-avancado" style="display:none">
             <div style="margin:6px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-                <strong style="font-size:12px;color:#475569">Visões prontas:</strong>
+                <strong style="font-size:12px;color:#475569">Dados:</strong>
+                <span class="an-mode" id="an-cube-ds"><button data-ds="consumo" class="on">Consumo (ganhas)</button><button data-ds="perdas">Perdas</button></span>
+                <strong style="font-size:12px;color:#475569;margin-left:6px">Visões prontas:</strong>
                 <span id="an-vis-btns"></span>
                 <button type="button" class="button" id="an-fields-toggle" style="margin-left:4px">&#x1F9F2; Painel de campos</button>
                 <button type="button" class="button" id="an-chart-toggle">&#x1F4C8; Gráfico</button>
@@ -186,18 +197,54 @@ function tao_crm_page_analise() {
             var spec=SPECS[prefix]; if(!spec||!window.Chart) return;
             var type=el(prefix+'-type').value;
             if(charts[prefix]) charts[prefix].destroy();
-            charts[prefix]=new Chart(el(prefix+'-canvas').getContext('2d'), buildCfg(spec,type));
+            var cfg=buildCfg(spec,type);
+            if(spec._onBar){
+                cfg.options.onClick=function(evt,els){ if(els&&els.length){ var lbl=this.data.labels[els[0].index]; spec._onBar(lbl); } };
+                cfg.options.onHover=function(e,els){ if(e.native&&e.native.target) e.native.target.style.cursor=(els&&els.length)?'pointer':'default'; };
+            }
+            charts[prefix]=new Chart(el(prefix+'-canvas').getContext('2d'), cfg);
         }
         function showSpec(prefix, spec){
             SPECS[prefix]=spec;
             if(el(prefix+'-title')) el(prefix+'-title').textContent=spec.title||'';
             if(el(prefix+'-sentence')){ el(prefix+'-sentence').textContent=spec.sentence||''; el(prefix+'-sentence').style.display=spec.sentence?'block':'none'; }
+            // seletor de dimensão (só nas visões dimensionáveis)
+            var dimL=el(prefix+'-dim-l'), dimS=el(prefix+'-dim');
+            if(dimL&&dimS){
+                if(spec._dims){ dimS.innerHTML=spec._dims.map(function(d){ return '<option value="'+d[0]+'"'+(d[0]===spec._dim?' selected':'')+'>'+d[1]+'</option>'; }).join(''); dimL.style.display=''; }
+                else dimL.style.display='none';
+            }
+            var bk=el(prefix+'-back'); if(bk) bk.style.display=spec._drill?'':'none';   // voltar do drill
             var sel=el(prefix+'-type'); if(spec.defaultType && sel && !spec._keepType) sel.value=spec.defaultType;
             drawSpec(prefix);
         }
 
         // ── dados ──
         var finData=[], opData=[], aprovData=[], perdasData=[], fatData={vendas:[],pagamentos:[]}, curFin='fatdia', curOp='gp', curFiltro='aprovadas';
+
+        // ── dimensões trocáveis + drill (visões simples) ──
+        var PERDA_DIMS=[['Motivo Base','Motivo'],['Insumo/Medic.','Insumo / Medicação'],['Responsavel','Responsável'],['Classificação','Classificação da fórmula'],['Fase','Fase de onde saiu']];
+        var CONSUMO_DIMS=[['Ativo','Ativo'],['Classificação','Classificação da fórmula'],['Forma Farmac.','Forma farmacêutica'],['Responsavel','Responsável']];
+        var opDimOv=null, finDimOv=null, opDrill=null;   // override de dimensão + filtro de drill (perdas)
+
+        // Builder genérico de visão dimensionável (contagem ou soma sobre uma dimensão trocável).
+        function dimSpec(rows, cfg){
+            var dim = cfg.ov || cfg.defDim, filt=null, sub='';
+            if(cfg.drill){ filt=function(r){ return String(r[cfg.drill.field])===String(cfg.drill.value); }; dim=cfg.drill.to; sub=' · '+cfg.drill.value; }
+            var m = cfg.metric==='sum'? gSum(rows,dim,cfg.valField,filt) : gCount(rows,dim,filt);
+            var t=top(m), L=t.map(function(x){return x[0];}), tot=sumVals(m);
+            var dimLbl=(cfg.dims.filter(function(d){return d[0]===dim;})[0]||['',dim])[1];
+            var spec={ title:cfg.baseTitle+' — por '+dimLbl+sub, defaultType:cfg.cur?'bar':'barh', labels:L,
+                datasets:[{label:cfg.cur?(cfg.valLabel||'Valor (R$)'):'Cards',data:L.map(function(l){return cfg.cur?r2(m[l]):m[l];}),_cur:!!cfg.cur}],
+                _dims:cfg.dims, _dim:dim, _drill:!!cfg.drill,
+                sentence: t.length? ((cfg.cur?brl(tot):num(tot))+' '+cfg.noun+'; maior: "'+t[0][0]+'" ('+(cfg.cur?brl(t[0][1]):t[0][1])+', '+pct(tot?t[0][1]/tot*100:0)+').') : (cfg.empty||'Nada no período.') };
+            // drill: clicar num grupo com detalhamento (Falta de Insumo/Drogaria) abre por Insumo/Medicação
+            if(!cfg.drill && cfg.drillField && dim===cfg.drillField && cfg.drillWhen){
+                spec._onBar=function(lbl){ if(cfg.drillWhen.indexOf(lbl)>=0){ opDrill={field:cfg.drillField,value:lbl,to:cfg.drillTo}; showSpec('op',specOp(curOp)); } };
+            }
+            return spec;
+        }
+        var PERDA_DRILL={drillField:'Motivo Base',drillTo:'Insumo/Medic.',drillWhen:['Falta de Insumo','Drogaria']};
 
         // Perguntas FINANCEIRO (dinheiro = Caixa; consumo = OMs ganhas/deduplicadas)
         function specFin(key){
@@ -235,13 +282,14 @@ function tao_crm_page_analise() {
                                {label:'Qtd (g)',data:L.map(function(l){return r2(qtd[l]||0);}),_cur:false} ],
                     sentence: t.length? ('Os 3 ativos de maior custo concentram '+pct(tot?t3/tot*100:0)+' do custo de insumos: '+t.slice(0,3).map(function(x){return x[0];}).join(', ')+'.') : 'Sem produção no período.' };
             }
-            if(key==='classif'){
-                var mc=gSum(D,'Classificação','Custo Ativo (R$)',function(r){return r['Classificação']&&r['Classificação']!=='—';}), tt=top(mc), LL=tt.map(function(x){return x[0];}), tc=sumVals(mc);
-                return { title:'🧬 Custo de insumos por classificação da formulação', defaultType:'bar', labels:LL,
-                    datasets:[{label:'Custo (R$)',data:LL.map(function(l){return r2(mc[l]);}),_cur:true}],
-                    sentence: tt.length? ('Maior custo: "'+tt[0][0]+'" ('+brl(tt[0][1])+', '+pct(tc?tt[0][1]/tc*100:0)+').') : 'Sem produção classificada no período.' };
+            // Custo de insumos (OMs fechadas) — dimensão trocável (Ativo/Classificação/Forma/Responsável).
+            if(key==='classif'||key==='custoforma'){
+                var defd = key==='classif'?'Classificação':'Forma Farmac.';
+                return dimSpec(D, {dims:CONSUMO_DIMS, defDim:defd, ov:finDimOv, metric:'sum', valField:'Custo Ativo (R$)',
+                    cur:true, valLabel:'Custo de insumos (R$)', baseTitle:'🧬 Custo de insumos', noun:'em insumos',
+                    empty:'Sem produção no período.' });
             }
-            // custo por forma farmacêutica (consumo das fechadas)
+            // fallback antigo (não deve cair aqui — mantido por segurança)
             var m=gSum(D,'Forma Farmac.','Custo Ativo (R$)'), t=top(m), L=t.map(function(x){return x[0];}), tot=sumVals(m);
             return { title:'🧪 Custo de insumos por forma farmacêutica', defaultType:'bar', labels:L,
                 datasets:[{label:'Custo (R$)',data:L.map(function(l){return r2(m[l]);}),_cur:true}],
@@ -252,29 +300,21 @@ function tao_crm_page_analise() {
         function specOp(key){
             var D=opData, A=aprovData, P=perdasData;
             function br(d){ return d.split('-').reverse().join('/'); }
-            if(key==='motivo'){
-                var m=gCount(P,'Motivo'), t=top(m), L=t.map(function(x){return x[0];}), tot=sumVals(m);
-                return { title:'🚫 Por que perdemos (motivo do cancelamento)', defaultType:'barh', labels:L,
-                    datasets:[{label:'Cards perdidos',data:L.map(function(l){return m[l];}),_cur:false}],
-                    sentence: t.length? (tot+' perdas no período; principal motivo: "'+t[0][0]+'" ('+t[0][1]+', '+pct(tot?t[0][1]/tot*100:0)+').') : 'Nenhuma perda no período.' };
-            }
-            if(key==='ondeperde'){
-                var m=gCount(P,'Fase'), t=top(m), L=t.map(function(x){return x[0];}), tot=sumVals(m);
-                return { title:'📉 Onde perdemos (fase de onde saiu)', defaultType:'barh', labels:L,
-                    datasets:[{label:'Cards perdidos',data:L.map(function(l){return m[l];}),_cur:false}],
-                    sentence: t.length? ('Mais perdas saindo de "'+t[0][0]+'" ('+t[0][1]+') — é onde atacar o gargalo.') : 'Nenhuma perda no período.' };
+            // Família de PERDAS — dimensão trocável (seletor "Por:") + drill em Falta de Insumo/Drogaria.
+            //   Os botões são atalhos que só mudam a dimensão padrão; o motivo NÃO abre por insumo
+            //   (fica agrupado em "Falta de Insumo"/"Drogaria"); o clique na barra é que detalha.
+            if(key==='motivo'||key==='ondeperde'||key==='perdaclass'){
+                var defd = key==='ondeperde'?'Fase' : key==='perdaclass'?'Classificação' : 'Motivo Base';
+                var ttl  = key==='ondeperde'?'📉 Onde perdemos' : key==='perdaclass'?'🧪 Perdas por classificação' : '🚫 Por que perdemos';
+                return dimSpec(P, {dims:PERDA_DIMS, defDim:defd, ov:opDimOv, metric:'count', cur:false,
+                    baseTitle:ttl, noun:'perdas', empty:'Nenhuma perda no período.', drill:opDrill,
+                    drillField:PERDA_DRILL.drillField, drillTo:PERDA_DRILL.drillTo, drillWhen:PERDA_DRILL.drillWhen });
             }
             if(key==='perdaresp'){
-                var m=gSum(P,'Responsavel','Valor'), mc=gCount(P,'Responsavel'), t=top(m), L=t.map(function(x){return x[0];});
-                return { title:'👤 Perdas por responsável (valor)', defaultType:'bar', labels:L,
-                    datasets:[{label:'Valor perdido (R$)',data:L.map(function(l){return r2(m[l]);}),_cur:true}],
-                    sentence: t.length? (t[0][0]+' concentra '+brl(t[0][1])+' em '+(mc[t[0][0]]||0)+' perdas.') : 'Nenhuma perda no período.' };
-            }
-            if(key==='perdaclass'){
-                var m=gCount(P,'Classificação'), t=top(m), L=t.map(function(x){return x[0];}), tot=sumVals(m);
-                return { title:'🧪 Perdas por classificação da formulação', defaultType:'doughnut', labels:L,
-                    datasets:[{label:'Cards perdidos',data:L.map(function(l){return m[l];}),_cur:false}],
-                    sentence: t.length? ('Classificação com mais perdas: "'+t[0][0]+'" ('+t[0][1]+', '+pct(tot?t[0][1]/tot*100:0)+').') : 'Nenhuma perda classificada no período.' };
+                return dimSpec(P, {dims:PERDA_DIMS, defDim:'Responsavel', ov:opDimOv, metric:'sum', valField:'Valor',
+                    cur:true, valLabel:'Valor perdido (R$)', baseTitle:'👤 Perdas (valor)', noun:'em perdas',
+                    empty:'Nenhuma perda no período.', drill:opDrill,
+                    drillField:PERDA_DRILL.drillField, drillTo:PERDA_DRILL.drillTo, drillWhen:PERDA_DRILL.drillWhen });
             }
             if(key==='tempocanc'){
                 var m=gAvg(P,'Motivo','Tempo (h)'), t=top(m), L=t.map(function(x){return x[0];});
@@ -414,21 +454,40 @@ function tao_crm_page_analise() {
             resp:{label:'👤 Responsável × mês',slice:{rows:[{uniqueName:'Responsavel'}],columns:[{uniqueName:'Mes'},{uniqueName:'[Measures]'}],measures:[Mm('Preço Venda OM (R$)','brl')]}},
             drill:{label:'🔎 Telefone→OM→Ativo→Lote',slice:{rows:[{uniqueName:'Telefone'},{uniqueName:'OM'},{uniqueName:'Ativo'},{uniqueName:'Lote'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Qtd (g)','qtd'),Mm('Custo Ativo (R$)','brl'),Mm('Venda Ativo (R$)','brl'),Mm('Preço Venda OM (R$)','brl'),Mm('Valor Pago (R$)','brl')]}}
         };
-        var wdr=null, wdrReady=false, curView='ativo', fieldsOpen=false, pivChartOn=false;
-        function buildReport(slice){ return { dataSource:{type:'json',data:[META].concat(finData)}, slice:slice,
-            formats:[{name:'brl',decimalPlaces:2,decimalSeparator:',',thousandsSeparator:'.',currencySymbol:'R$ ',currencySymbolAlign:'left',nullValue:''},{name:'qtd',decimalPlaces:2,decimalSeparator:',',thousandsSeparator:'.',nullValue:''}],
+        // Cubo de PERDAS (grão card): dimensione por motivo/insumo/ativo·medicação/responsável etc.
+        var META_PERDA={'Data':{type:'date string'},'Mes':{type:'string'},'Motivo':{type:'string'},'Motivo Base':{type:'string'},'Insumo/Medic.':{type:'string'},'Fase':{type:'string'},'Responsavel':{type:'string'},'Classificação':{type:'string'},'Valor':{type:'number'},'Cards':{type:'number'}};
+        var VIEWS_PERDA={
+            motivo:{label:'🚫 Motivo → Insumo/Medicação',slice:{rows:[{uniqueName:'Motivo Base'},{uniqueName:'Insumo/Medic.'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Cards','int'),Mm('Valor','brl')]}},
+            insumo:{label:'💊 Insumo/Medicação (causa)',slice:{rows:[{uniqueName:'Insumo/Medic.'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Cards','int'),Mm('Valor','brl')]}},
+            resp:{label:'👤 Responsável × mês',slice:{rows:[{uniqueName:'Responsavel'}],columns:[{uniqueName:'Mes'},{uniqueName:'[Measures]'}],measures:[Mm('Cards','int'),Mm('Valor','brl')]}},
+            classif:{label:'🧪 Classificação',slice:{rows:[{uniqueName:'Classificação'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Cards','int'),Mm('Valor','brl')]}},
+            fase:{label:'📉 Fase de onde saiu',slice:{rows:[{uniqueName:'Fase'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Cards','int'),Mm('Valor','brl')]}}
+        };
+        var wdr=null, wdrReady=false, curCube='consumo', curView='ativo', fieldsOpen=false, pivChartOn=false;
+        function curViews(){ return curCube==='perdas'?VIEWS_PERDA:VIEWS; }
+        function cubeRows(){
+            if(curCube==='perdas'){ return [META_PERDA].concat(perdasData.map(function(r){
+                return {'Data':r['Data'],'Mes':r['Mes'],'Motivo':r['Motivo'],'Motivo Base':r['Motivo Base'],'Insumo/Medic.':r['Insumo/Medic.'],'Fase':r['Fase'],'Responsavel':r['Responsavel'],'Classificação':r['Classificação'],'Valor':r['Valor'],'Cards':1}; })); }
+            return [META].concat(finData);
+        }
+        function buildReport(slice){ return { dataSource:{type:'json',data:cubeRows()}, slice:slice,
+            formats:[{name:'brl',decimalPlaces:2,decimalSeparator:',',thousandsSeparator:'.',currencySymbol:'R$ ',currencySymbolAlign:'left',nullValue:''},{name:'qtd',decimalPlaces:2,decimalSeparator:',',thousandsSeparator:'.',nullValue:''},{name:'int',decimalPlaces:0,decimalSeparator:',',thousandsSeparator:'.',nullValue:''}],
             options:{grid:{type:'compact',showGrandTotals:'on',showTotals:'on',title:''}} }; }
         function syncFieldsBtn(){ var b=el('an-fields-toggle'); if(b) b.className='button'+(fieldsOpen?' button-primary':''); }
+        function renderViewBtns(){
+            var V=curViews(), host=el('an-vis-btns'); if(!host) return; host.innerHTML='';
+            Object.keys(V).forEach(function(k){ var b=document.createElement('button'); b.type='button'; b.className='button button-small'+(k===curView?' button-primary':''); b.style.marginRight='4px'; b.textContent=V[k].label;
+                b.onclick=function(){ curView=k; wdr.setReport(buildReport(V[k].slice)); renderViewBtns(); }; host.appendChild(b); });
+        }
         function ensureWDR(cb){
             if(wdrReady){ cb(); return; }
             css(WDR_CSS); js(WDR_TB, function(){ js(WDR_CR, function(){
-                wdr=new WebDataRocks({ container:'#wdr-pivot', toolbar:true, height:600, global:{localization:LOC}, report:buildReport(VIEWS[curView].slice) });
+                wdr=new WebDataRocks({ container:'#wdr-pivot', toolbar:true, height:600, global:{localization:LOC}, report:buildReport(curViews()[curView].slice) });
                 wdr.on('update', function(){ if(pivChartOn) pivRefresh(); });
                 wdr.on('reportcomplete', function(){ if(pivChartOn) pivRefresh(); });
                 wdr.on('fieldslistopen', function(){ fieldsOpen=true; syncFieldsBtn(); });
                 wdr.on('fieldslistclose', function(){ fieldsOpen=false; syncFieldsBtn(); });
-                var host=el('an-vis-btns'); host.innerHTML='';
-                Object.keys(VIEWS).forEach(function(k){ var b=document.createElement('button'); b.type='button'; b.className='button button-small'; b.style.marginRight='4px'; b.textContent=VIEWS[k].label; b.onclick=function(){ curView=k; wdr.setReport(buildReport(VIEWS[k].slice)); }; host.appendChild(b); });
+                renderViewBtns();
                 wdrReady=true; cb();
             }); });
         }
@@ -453,7 +512,7 @@ function tao_crm_page_analise() {
         function setMode(m){
             el('mode-s').className=(m==='s'?'on':''); el('mode-a').className=(m==='a'?'on':'');
             el('an-simples').style.display=(m==='s'?'block':'none'); el('an-avancado').style.display=(m==='a'?'block':'none');
-            if(m==='a') ensureWDR(function(){ if(wdr) wdr.updateData({data:[META].concat(finData)}); });
+            if(m==='a') ensureWDR(function(){ if(wdr) wdr.updateData({data:cubeRows()}); });
         }
 
         // ── carregar (financeiro + operação) ──
@@ -470,7 +529,7 @@ function tao_crm_page_analise() {
             var done=0; function step(){ done++; if(done===3){ setMsg('');
                 el('an-status').textContent=(fatData.vendas||[]).length+' vendas · '+finData.length+' linhas de consumo · '+opData.length+' cards';
                 renderSimples();
-                if(wdr) wdr.updateData({data:[META].concat(finData)});
+                if(wdr) wdr.updateData({data:cubeRows()});
             } }
             post('tao_crm_analise_dataset',    function(d){ finData=(d&&d.rows)||[]; step(); });
             post('tao_crm_operacao_dataset',   function(d){ opData=(d&&d.rows)||[]; aprovData=(d&&d.aprovacoes)||[]; perdasData=(d&&d.perdas)||[]; step(); });
@@ -487,11 +546,23 @@ function tao_crm_page_analise() {
                 Array.prototype.forEach.call(document.querySelectorAll('#an-filtro button'),function(x){ x.className=(x.dataset.f===curFiltro?'on':''); });
                 carregar(); }; });
             el('mode-s').onclick=function(){ setMode('s'); }; el('mode-a').onclick=function(){ setMode('a'); };
-            gallery('fin-gallery', FINQ, curFin, function(k){ curFin=k; showSpec('fin', specFin(k)); });
-            gallery('op-gallery',  OPQ,  curOp,  function(k){ curOp=k;  showSpec('op',  specOp(k)); });
+            // ao trocar de atalho, zera a dimensão override e o drill (volta ao padrão da visão)
+            gallery('fin-gallery', FINQ, curFin, function(k){ curFin=k; finDimOv=null; showSpec('fin', specFin(k)); });
+            gallery('op-gallery',  OPQ,  curOp,  function(k){ curOp=k; opDimOv=null; opDrill=null; showSpec('op',  specOp(k)); });
             el('fin-type').onchange=function(){ drawSpec('fin'); };
             el('op-type').onchange=function(){ drawSpec('op'); };
             el('piv-type').onchange=function(){ drawSpec('piv'); };
+            // seletor de dimensão (visões prontas) + voltar do drill
+            if(el('fin-dim')) el('fin-dim').onchange=function(){ finDimOv=this.value; showSpec('fin', specFin(curFin)); };
+            if(el('op-dim'))  el('op-dim').onchange =function(){ opDimOv=this.value; opDrill=null; showSpec('op', specOp(curOp)); };
+            if(el('op-back')) el('op-back').onclick=function(){ opDrill=null; showSpec('op', specOp(curOp)); };
+            // troca de dataset do cubo (Consumo × Perdas)
+            Array.prototype.forEach.call(document.querySelectorAll('#an-cube-ds button'), function(b){ b.onclick=function(){
+                curCube=b.dataset.ds;
+                Array.prototype.forEach.call(document.querySelectorAll('#an-cube-ds button'),function(x){ x.className=(x.dataset.ds===curCube?'on':''); });
+                curView=Object.keys(curViews())[0];
+                if(wdr){ renderViewBtns(); wdr.setReport(buildReport(curViews()[curView].slice)); }
+            }; });
             el('an-fields-toggle').onclick=function(){ if(!wdr)return; try{ if(fieldsOpen) wdr.closeFieldsList(); else wdr.openFieldsList(); }catch(e){} };
             el('an-chart-toggle').onclick=function(){ pivChartOn=!pivChartOn; el('piv-chart-wrap').style.display=pivChartOn?'block':'none'; el('an-chart-toggle').className='button'+(pivChartOn?' button-primary':''); if(pivChartOn) pivRefresh(); };
         }
