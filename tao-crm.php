@@ -6300,11 +6300,15 @@ add_action( 'wp_ajax_tao_crm_operacao_dataset', function () {
     $cf_map = [];   // chave → campo_id
     $rcf = tao_crm_api( "/crm_campos_definicao?chave=in.(como_nos_conheceu,classificacao_formulacao,forma_de_entrega)&select=id,chave" );
     foreach ( ( $rcf['ok'] ? ( $rcf['data'] ?? [] ) : [] ) as $f ) $cf_map[ $f['chave'] ] = $f['id'];
-    // Proxy de "já é cliente": whatsapp com algum card GANHO no workspace (comprou antes).
-    // Usado p/ inferir a origem de leads sem "Como nos Conheceu" (regra de negócio abaixo).
+    // Proxy de "já é cliente": whatsapp com algum card que chegou ao funil PÓS-VENDAS
+    // (= ganho real neste CRM; o status='ganho' quase não é usado). Usado p/ inferir a
+    // origem de leads sem "Como nos Conheceu" (regra de negócio abaixo).
     $cliente_wa = [];
-    $rgw = tao_crm_api( "/crm_cards?workspace_id=eq.$ws&status=eq.ganho&select=contato_whatsapp&limit=20000" );
-    foreach ( ( $rgw['ok'] ? ( $rgw['data'] ?? [] ) : [] ) as $g ) if ( ! empty( $g['contato_whatsapp'] ) ) $cliente_wa[ $g['contato_whatsapp'] ] = 1;
+    $pos_pids   = array_keys( array_filter( $pl_ispos ) );
+    if ( $pos_pids ) {
+        $rgw = tao_crm_api( "/crm_cards?workspace_id=eq.$ws&pipeline_id=in.(" . implode( ',', $pos_pids ) . ")&select=contato_whatsapp&limit=20000" );
+        foreach ( ( $rgw['ok'] ? ( $rgw['data'] ?? [] ) : [] ) as $g ) if ( ! empty( $g['contato_whatsapp'] ) ) $cliente_wa[ $g['contato_whatsapp'] ] = 1;
+    }
 
     $val_cnc = []; $val_clf = []; $val_ent = [];
     $cf_ids  = array_values( array_filter( $cf_map ) );
