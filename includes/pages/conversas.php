@@ -7,13 +7,15 @@ function tao_crm_page_conversas() {
     }
 
     $ws_id = sanitize_text_field( $_GET['workspace_id'] ?? '' );
+    if ( $ws_id && ! tao_crm_pode_acessar_ws( $ws_id ) ) $ws_id = '';   // nega negócio não liberado
+    if ( ! $ws_id ) $ws_id = tao_crm_negocio_ativo();                   // negócio ativo permitido
     $ws    = tao_crm_get_workspace( $ws_id ?: null );
 
     if ( ! $ws ) {
         echo '<div class="wrap"><div class="notice notice-warning"><p>Nenhum workspace configurado.</p></div></div>'; return;
     }
     $ws_id      = $ws['id'];
-    $workspaces = tao_crm_get_workspaces();
+    $workspaces = tao_crm_negocios_permitidos();
     $base_url   = admin_url( 'admin.php?page=tao-crm-conversas' );
     $nonce      = wp_create_nonce( 'tao_crm_nonce' );
     ?>

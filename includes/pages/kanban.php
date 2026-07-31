@@ -27,7 +27,8 @@ function tao_crm_page_kanban() {
     }
 
     $ws_id    = sanitize_text_field( $_GET['workspace_id'] ?? '' );
-    $todos_ws = tao_crm_get_workspaces();
+    if ( $ws_id && ! tao_crm_pode_acessar_ws( $ws_id ) ) $ws_id = '';   // nega negócio não liberado ao usuário
+    $todos_ws = tao_crm_negocios_permitidos();                          // dropdown só com os negócios liberados
 
     // Se não tem ws_id na URL, redireciona para o último visitado (cookie) ou o primeiro da lista
     if ( ! $ws_id && ! empty( $todos_ws ) ) {

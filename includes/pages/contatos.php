@@ -3,15 +3,18 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 if ( ! function_exists( 'cbpm_can_access' ) || ! cbpm_can_access() ) { echo '<p>Acesso negado.</p>'; return; }
 
 $workspace_id = sanitize_text_field( $_GET['workspace_id'] ?? '' );
+if ( $workspace_id && ! tao_crm_pode_acessar_ws( $workspace_id ) ) $workspace_id = '';   // nega negócio não liberado
+if ( ! $workspace_id ) $workspace_id = tao_crm_negocio_ativo();                           // força o negócio ativo
 
-$rw = tao_crm_api( '/crm_workspaces?ativo=eq.true&order=nome.asc' );
-$workspaces = $rw['ok'] ? ( $rw['data'] ?? [] ) : [];
+$workspaces = tao_crm_negocios_permitidos();
 
-$q = '/crm_contatos?order=nome.asc&limit=500';
-if ( $workspace_id ) $q .= "&workspace_id=eq.$workspace_id";
-
-$rc = tao_crm_api( $q );
-$contatos = $rc['ok'] ? ( $rc['data'] ?? [] ) : [];
+// SEMPRE escopa por negócio — sem negócio ativo, NÃO lista nada (evita vazar contatos de todos)
+if ( $workspace_id ) {
+    $rc = tao_crm_api( "/crm_contatos?order=nome.asc&limit=500&workspace_id=eq.$workspace_id" );
+    $contatos = $rc['ok'] ? ( $rc['data'] ?? [] ) : [];
+} else {
+    $contatos = [];
+}
 
 $cls_cores = [
     'Excelente'   => '#22c55e',
