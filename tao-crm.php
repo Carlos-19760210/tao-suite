@@ -509,6 +509,7 @@ function tao_crm_ajax_save_contato() {
 
     $id           = sanitize_text_field( $_POST['id'] ?? '' );
     $workspace_id = sanitize_text_field( $_POST['workspace_id'] ?? '' );
+    tao_crm_guard_ws( $workspace_id );   // só grava contato em negócio liberado
 
     $data = array_filter( [
         'nome'         => sanitize_text_field( $_POST['nome'] ?? '' ),
@@ -937,6 +938,7 @@ function tao_crm_ajax_wa_status() {
 
     $ws_id = sanitize_text_field( $_POST['workspace_id'] ?? '' );
     if ( ! $ws_id ) wp_send_json_error( 'workspace_id obrigatório' );
+    tao_crm_guard_ws( $ws_id );
 
     $cache_key = 'tao_wa_status_' . md5( $ws_id );
     $cached    = get_transient( $cache_key );
@@ -984,6 +986,7 @@ function tao_crm_ajax_notif_count() {
 
     $ws_id = sanitize_text_field( $_POST['workspace_id'] ?? '' );
     if ( ! $ws_id ) { wp_send_json_success( [ 'count' => 0 ] ); }
+    tao_crm_guard_ws( $ws_id );
 
     // Handoff abertos = clientes aguardando atendente humano
     $r = tao_crm_api( "/crm_cards?workspace_id=eq.$ws_id&atendimento_humano=eq.true&fechado=eq.false&select=id&limit=200" );
@@ -4964,6 +4967,7 @@ add_action( 'wp_ajax_tao_crm_save_lembrete', function () {
     $id      = sanitize_text_field( $_POST['id'] ?? '' );
     $card_id = sanitize_text_field( $_POST['card_id'] ?? '' );
     $ws_id   = sanitize_text_field( $_POST['workspace_id'] ?? '' );
+    tao_crm_guard_ws( $ws_id );
     $dh_raw  = sanitize_text_field( $_POST['data_hora'] ?? '' );
     $dh_iso  = $dh_raw;
     if ( $dh_raw ) {
@@ -5510,9 +5514,14 @@ function tao_crm_ajax_search_global() {
     $q        = sanitize_text_field( $_POST['q'] ?? '' );
     $ws_id    = sanitize_text_field( $_POST['workspace_id'] ?? '' );
     if ( strlen( $q ) < 2 ) wp_send_json_success( [] );
+    // Escopo por NEGÓCIO: valida o ws recebido; sem ws válido usa o negócio ativo.
+    // (Antes, ws vazio buscava em TODOS os negócios.)
+    if ( $ws_id && ! tao_crm_pode_acessar_ws( $ws_id ) ) $ws_id = '';
+    if ( ! $ws_id ) $ws_id = tao_crm_negocio_ativo();
+    if ( ! $ws_id ) wp_send_json_success( [] );
 
     $q_enc = urlencode( $q );
-    $ws_filter = $ws_id ? "&workspace_id=eq.$ws_id" : '';
+    $ws_filter = "&workspace_id=eq.$ws_id";
 
     // Gestor vê todos; atendente só vê os próprios
     $cards_filter = '';
@@ -5853,6 +5862,7 @@ function tao_crm_check_card_access( string $card_id ) {
     if ( ! $rc['ok'] || empty( $rc['data'] ) ) return false;
     $card = $rc['data'][0];
     $ws   = $card['workspace_id'] ?? '';
+    if ( ! tao_crm_pode_acessar_ws( $ws ) ) return false;   // negócio não liberado ao usuário
     if ( tao_crm_is_gestor( $ws ) ) return $ws;
     // Atendente só acessa cards atribuídos a ele
     if ( intval( $card['responsavel_id'] ?? 0 ) === get_current_user_id() ) return $ws;

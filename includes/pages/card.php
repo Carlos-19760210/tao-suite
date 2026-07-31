@@ -9,6 +9,13 @@ function tao_crm_page_card() {
     if ( ! $rc['ok'] || empty( $rc['data'] ) ) { echo '<p>Card não encontrado.</p>'; return; }
     $card = $rc['data'][0];
 
+    // Trava por NEGÓCIO (antes de qualquer leitura/claim): card de negócio não liberado ao
+    // usuário não abre — impede abrir/assumir por ID um card de outro negócio.
+    if ( ! tao_crm_pode_acessar_ws( $card['workspace_id'] ?? '' ) ) {
+        echo '<div class="wrap"><div class="notice notice-error"><p>&#x1F512; Acesso negado — este card é de um negócio ao qual você não tem acesso.</p></div></div>';
+        return;
+    }
+
     // Pós Vendas: verifica se este card veio de um handoff de cliente com pedido em andamento
     $card_meta      = json_decode( $card['meta'] ?? '{}', true ) ?: [];
     $pv_card_id     = $card_meta['pos_vendas_card_id'] ?? null;

@@ -8,6 +8,7 @@ add_action( 'wp_ajax_tao_entregas_get', function () {
     if ( ! tao_entregas_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
     $card = sanitize_text_field( $_GET['card_id'] ?? '' );
     if ( ! $card ) wp_send_json_error( [ 'message' => 'Card inválido' ] );
+    if ( function_exists( 'tao_crm_check_card_access' ) && ! tao_crm_check_card_access( $card ) ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
     $r = tao_entregas_api( "/entregas?card_id=eq.$card&select=*&order=criado_em.desc&limit=1" );
     if ( ! $r['ok'] ) wp_send_json_error( [ 'message' => 'Erro: ' . mb_substr( (string) $r['raw'], 0, 160 ) ] );
     wp_send_json_success( ! empty( $r['data'] ) ? $r['data'][0] : null );
@@ -40,6 +41,11 @@ add_action( 'wp_ajax_tao_entregas_enderecos', function () {
     if ( ! tao_entregas_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
     $contato = sanitize_text_field( $_GET['contato_id'] ?? '' );
     if ( ! $contato ) { wp_send_json_success( [] ); return; }
+    if ( function_exists( 'tao_crm_pode_acessar_ws' ) ) {
+        $rcw = tao_entregas_api( "/crm_contatos?id=eq.$contato&select=workspace_id&limit=1" );
+        $cws = ( ! empty( $rcw['ok'] ) && ! empty( $rcw['data'] ) ) ? ( $rcw['data'][0]['workspace_id'] ?? '' ) : '';
+        if ( ! tao_crm_pode_acessar_ws( $cws ) ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    }
     $out = [];
     $rc = tao_entregas_api( "/crm_contatos?id=eq.$contato&select=cep,logradouro,numero,bairro,cidade&limit=1" );
     if ( ! empty( $rc['ok'] ) && ! empty( $rc['data'] ) ) {
@@ -59,6 +65,7 @@ add_action( 'wp_ajax_tao_entregas_end_salvar', function () {
     $ws      = sanitize_text_field( $_POST['workspace_id'] ?? '' );
     $contato = sanitize_text_field( $_POST['contato_id'] ?? '' );
     if ( ! $ws || ! $contato ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+    if ( function_exists( 'tao_crm_pode_acessar_ws' ) && ! tao_crm_pode_acessar_ws( $ws ) ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
     $t = function ( $k ) { $v = trim( sanitize_text_field( $_POST[ $k ] ?? '' ) ); return $v === '' ? null : $v; };
     $r = tao_entregas_api( '/contato_enderecos', 'POST', [
         'workspace_id' => $ws, 'contato_id' => $contato, 'apelido' => $t( 'apelido' ) ?: 'Entrega',
@@ -80,6 +87,7 @@ add_action( 'wp_ajax_tao_entregas_save', function () {
     $card = sanitize_text_field( $_POST['card_id'] ?? '' );
     $ws   = sanitize_text_field( $_POST['workspace_id'] ?? '' );
     if ( ! $card || ! $ws ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+    if ( function_exists( 'tao_crm_pode_acessar_ws' ) && ! tao_crm_pode_acessar_ws( $ws ) ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
 
     $tipos = array_keys( tao_entregas_tipos() );
     $txt   = function ( $k ) { $v = trim( sanitize_text_field( $_POST[ $k ] ?? '' ) ); return $v === '' ? null : $v; };

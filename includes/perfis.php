@@ -160,6 +160,11 @@ function tao_crm_pode_acessar_ws( $ws_id ) {
     return in_array( $ws_id, tao_crm_negocios_permitidos_ids(), true );
 }
 
+/** Aborta o AJAX (wp_send_json_error) se o usuário não pode acessar o negócio. */
+function tao_crm_guard_ws( $ws_id ) {
+    if ( ! tao_crm_pode_acessar_ws( $ws_id ) ) wp_send_json_error( 'Acesso negado ao negócio.' );
+}
+
 /**
  * Negócio ATIVO da sessão, SEMPRE validado contra os permitidos:
  *  1) ?workspace_id do request, se permitido (e persiste a escolha);
