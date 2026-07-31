@@ -225,7 +225,8 @@ function tao_crm_page_analise() {
         // ── dimensões trocáveis + drill (visões simples) ──
         var PERDA_DIMS=[['Motivo Base','Motivo'],['Insumo/Medic.','Insumo / Medicação'],['Responsavel','Responsável'],['Classificação','Classificação da fórmula'],['Fase','Fase de onde saiu']];
         var CONSUMO_DIMS=[['Ativo','Ativo'],['Classificação','Classificação da fórmula'],['Forma Farmac.','Forma farmacêutica'],['Responsavel','Responsável']];
-        var LEADS_DIMS=[['Como nos Conheceu','Como nos conheceu'],['Origem','Origem (canal/número)'],['Funil','Funil'],['Responsavel','Responsável'],['Fase','Fase atual'],['Classe','Situação (ganho/perda/andamento)']];
+        var LEADS_DIMS=[['Origem','Origem (canal/número)'],['Como nos Conheceu','Como nos conheceu'],['Funil','Funil'],['Responsavel','Responsável'],['Fase','Fase atual'],['Classe','Situação (ganho/perda/andamento)']];
+        var CONHECEU_DIMS=[['Como nos Conheceu','Como nos conheceu'],['Tipo de Fechamento','Tipo de fechamento'],['Origem','Origem (canal/número)'],['Responsavel','Responsável'],['Funil','Funil'],['Classe','Situação (ganho/perda/andamento)']];
         var opDimOv=null, finDimOv=null, opDrill=null;   // override de dimensão + filtro de drill (perdas)
 
         // Builder genérico de visão dimensionável (contagem ou soma sobre uma dimensão trocável).
@@ -239,9 +240,12 @@ function tao_crm_page_analise() {
                 datasets:[{label:cfg.cur?(cfg.valLabel||'Valor (R$)'):'Cards',data:L.map(function(l){return cfg.cur?r2(m[l]):m[l];}),_cur:!!cfg.cur}],
                 _dims:cfg.dims, _dim:dim, _drill:!!cfg.drill,
                 sentence: t.length? ((cfg.cur?brl(tot):num(tot))+' '+cfg.noun+'; maior: "'+t[0][0]+'" ('+(cfg.cur?brl(t[0][1]):t[0][1])+', '+pct(tot?t[0][1]/tot*100:0)+').') : (cfg.empty||'Nada no período.') };
-            // drill: clicar num grupo com detalhamento (Falta de Insumo/Drogaria) abre por Insumo/Medicação
-            if(!cfg.drill && cfg.drillField && dim===cfg.drillField && cfg.drillWhen){
-                spec._onBar=function(lbl){ if(cfg.drillWhen.indexOf(lbl)>=0){ opDrill={field:cfg.drillField,value:lbl,to:cfg.drillTo}; showSpec('op',specOp(curOp)); } };
+            // drill ao clicar numa barra: perdas (Falta de Insumo/Drogaria → Insumo) ou
+            // origem (Como nos Conheceu → Tipo de Fechamento). drillWhen null = qualquer barra;
+            // drillFromAny = drilla a partir de qualquer dimensão da visão.
+            if(!cfg.drill && cfg.drillTo && (cfg.drillFromAny || dim===cfg.drillField)){
+                var fromF=cfg.drillFromAny?dim:cfg.drillField;
+                spec._onBar=function(lbl){ if(!cfg.drillWhen || cfg.drillWhen.indexOf(lbl)>=0){ opDrill={field:fromF,value:lbl,to:cfg.drillTo}; showSpec('op',specOp(curOp)); } };
             }
             return spec;
         }
@@ -353,6 +357,12 @@ function tao_crm_page_analise() {
                 return dimSpec(D, {dims:LEADS_DIMS, defDim:'Origem', ov:opDimOv, metric:'count', cur:false,
                     baseTitle:'📥 Leads por origem', noun:'leads', empty:'Nenhum lead no período.'});
             }
+            if(key==='conheceu'){
+                // clique numa barra (ex.: Google presumido) abre por Tipo de Fechamento
+                return dimSpec(D, {dims:CONHECEU_DIMS, defDim:'Como nos Conheceu', ov:opDimOv, metric:'count', cur:false,
+                    baseTitle:'📣 Como nos conheceu', noun:'leads', empty:'Nenhum lead no período.',
+                    drill:opDrill, drillFromAny:true, drillTo:'Tipo de Fechamento'});
+            }
             if(key==='leads'){
                 var m=gCount(D,'Fase',function(r){return r['Classe']==='Em andamento';}), t=top(m), L=t.map(function(x){return x[0];}), tot=sumVals(m);
                 return { title:'🚦 Onde estão os leads (funil de vendas)', defaultType:'barh', labels:L,
@@ -432,7 +442,7 @@ function tao_crm_page_analise() {
                 Array.prototype.forEach.call(el(id).querySelectorAll('.an-qbtn'),function(x){x.classList.remove('on');}); b.classList.add('on'); onpick(b.dataset.k); }; });
         }
         var FINQ=[{key:'fatdia',label:'💰 Faturado por dia'},{key:'recdia',label:'💵 Recebido por dia'},{key:'pagto',label:'💳 Forma de pagamento'},{key:'fatresp',label:'👤 Faturado por responsável'},{key:'ativos',label:'💊 Ativos que + consomem'},{key:'custoforma',label:'🧪 Custo por forma'},{key:'classif',label:'🧬 Custo por classificação'}];
-        var OPQ=[{key:'aprovdia',label:'✅ Aprovações por dia'},{key:'aprovresp',label:'✅ Aprovações por responsável'},{key:'gp',label:'🏆 Ganhos × Perdas'},{key:'origem',label:'📥 Leads por origem'},{key:'motivo',label:'🚫 Por que perdemos'},{key:'ondeperde',label:'📉 Onde perdemos'},{key:'perdaresp',label:'👤 Perdas por resp.'},{key:'perdaclass',label:'🧪 Perdas por classificação'},{key:'tempocanc',label:'⏱️ Tempo até cancelar'},{key:'leads',label:'🚦 Onde estão os leads'},{key:'prod',label:'🏭 Produção → Entrega'},{key:'tmr',label:'⏱️ Tempo de resposta'},{key:'tma',label:'🕒 Tempo de atendimento'},{key:'espera',label:'⏳ Quem está esperando'},{key:'renov',label:'🔁 Renovações'}];
+        var OPQ=[{key:'aprovdia',label:'✅ Aprovações por dia'},{key:'aprovresp',label:'✅ Aprovações por responsável'},{key:'gp',label:'🏆 Ganhos × Perdas'},{key:'origem',label:'📥 Leads por origem'},{key:'conheceu',label:'📣 Como nos conheceu'},{key:'motivo',label:'🚫 Por que perdemos'},{key:'ondeperde',label:'📉 Onde perdemos'},{key:'perdaresp',label:'👤 Perdas por resp.'},{key:'perdaclass',label:'🧪 Perdas por classificação'},{key:'tempocanc',label:'⏱️ Tempo até cancelar'},{key:'leads',label:'🚦 Onde estão os leads'},{key:'prod',label:'🏭 Produção → Entrega'},{key:'tmr',label:'⏱️ Tempo de resposta'},{key:'tma',label:'🕒 Tempo de atendimento'},{key:'espera',label:'⏳ Quem está esperando'},{key:'renov',label:'🔁 Renovações'}];
 
         function renderSimples(){
             finKPIs(); opKPIs();
@@ -470,9 +480,10 @@ function tao_crm_page_analise() {
         };
         // Cubo de LEADS (grão card): TODOS os dados do lead p/ dimensionar livremente,
         // incluindo "Como nos Conheceu?" (Google, indicação, etc.).
-        var META_LEADS={'Data':{type:'date string'},'Mes':{type:'string'},'Como nos Conheceu':{type:'string'},'Origem':{type:'string'},'Funil':{type:'string'},'Fase':{type:'string'},'Classe':{type:'string'},'Status':{type:'string'},'Classificação':{type:'string'},'Forma de Entrega':{type:'string'},'Responsavel':{type:'string'},'Valor':{type:'number'},'Leads':{type:'number'}};
+        var META_LEADS={'Data':{type:'date string'},'Mes':{type:'string'},'Como nos Conheceu':{type:'string'},'Tipo de Fechamento':{type:'string'},'Origem':{type:'string'},'Funil':{type:'string'},'Fase':{type:'string'},'Classe':{type:'string'},'Status':{type:'string'},'Classificação':{type:'string'},'Forma de Entrega':{type:'string'},'Responsavel':{type:'string'},'Valor':{type:'number'},'Leads':{type:'number'}};
         var VIEWS_LEADS={
             conheceu:{label:'📣 Como nos conheceu',slice:{rows:[{uniqueName:'Como nos Conheceu'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Leads','int'),Mm('Valor','brl')]}},
+            conhxfech:{label:'📣 Conheceu → tipo de fechamento',slice:{rows:[{uniqueName:'Como nos Conheceu'},{uniqueName:'Tipo de Fechamento'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Leads','int'),Mm('Valor','brl')]}},
             conhxsit:{label:'📣 Conheceu × situação',slice:{rows:[{uniqueName:'Como nos Conheceu'}],columns:[{uniqueName:'Classe'},{uniqueName:'[Measures]'}],measures:[Mm('Leads','int')]}},
             origem:{label:'📥 Origem (canal/número)',slice:{rows:[{uniqueName:'Origem'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Leads','int'),Mm('Valor','brl')]}},
             resp:{label:'👤 Responsável × mês',slice:{rows:[{uniqueName:'Responsavel'}],columns:[{uniqueName:'Mes'},{uniqueName:'[Measures]'}],measures:[Mm('Leads','int'),Mm('Valor','brl')]}},
@@ -485,7 +496,7 @@ function tao_crm_page_analise() {
             if(curCube==='perdas'){ return [META_PERDA].concat(perdasData.map(function(r){
                 return {'Data':r['Data'],'Mes':r['Mes'],'Motivo':r['Motivo'],'Motivo Base':r['Motivo Base'],'Insumo/Medic.':r['Insumo/Medic.'],'Fase':r['Fase'],'Responsavel':r['Responsavel'],'Classificação':r['Classificação'],'Valor':r['Valor'],'Cards':1}; })); }
             if(curCube==='leads'){ return [META_LEADS].concat(opData.map(function(r){
-                return {'Data':r['Data'],'Mes':r['Mes'],'Como nos Conheceu':r['Como nos Conheceu'],'Origem':r['Origem'],'Funil':r['Funil'],'Fase':r['Fase'],'Classe':r['Classe'],'Status':r['Status'],'Classificação':r['Classificação'],'Forma de Entrega':r['Forma de Entrega'],'Responsavel':r['Responsavel'],'Valor':r['Valor'],'Leads':1}; })); }
+                return {'Data':r['Data'],'Mes':r['Mes'],'Como nos Conheceu':r['Como nos Conheceu'],'Tipo de Fechamento':r['Tipo de Fechamento'],'Origem':r['Origem'],'Funil':r['Funil'],'Fase':r['Fase'],'Classe':r['Classe'],'Status':r['Status'],'Classificação':r['Classificação'],'Forma de Entrega':r['Forma de Entrega'],'Responsavel':r['Responsavel'],'Valor':r['Valor'],'Leads':1}; })); }
             return [META].concat(finData);
         }
         function buildReport(slice){ return { dataSource:{type:'json',data:cubeRows()}, slice:slice,

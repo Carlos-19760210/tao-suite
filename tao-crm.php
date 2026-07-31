@@ -6321,6 +6321,26 @@ add_action( 'wp_ajax_tao_crm_operacao_dataset', function () {
         }
     }
 
+    // TIPO DE FECHAMENTO por card: motivo agrupado da transição p/ "Cards Cancelados"
+    // (mais recente). Permite abrir "Como nos Conheceu" (ex.: Google presumido) por
+    // motivo do descarte. Ganho/Em andamento recebem rótulo próprio no loop.
+    $canc_ids = [];
+    foreach ( $est_map as $eid => $enome ) if ( stripos( $enome, 'cancelad' ) !== false ) $canc_ids[] = $eid;
+    $fech_motivo = [];
+    if ( $canc_ids ) {
+        foreach ( array_chunk( $card_ids, 100 ) as $chunk ) {
+            $rhf = tao_crm_api( "/crm_cards_historico?card_id=in.(" . implode( ',', $chunk ) . ")&para_estagio_id=in.(" . implode( ',', $canc_ids ) . ")&select=card_id,motivo,criado_em&order=criado_em.desc&limit=50000" );
+            foreach ( ( $rhf['ok'] ? ( $rhf['data'] ?? [] ) : [] ) as $h ) {
+                $cid_h = $h['card_id']; if ( isset( $fech_motivo[ $cid_h ] ) ) continue;   // 1º = mais recente
+                $mr = $demoji( $h['motivo'] ?? '' ); if ( $mr === '' ) $mr = 'Perdido (sem motivo)';
+                if ( preg_match( '/^\s*falta de insumo\s*:/iu', $mr ) )      $mr = 'Falta de Insumo';
+                elseif ( preg_match( '/^\s*drogaria\s*:/iu', $mr ) )         $mr = 'Drogaria';
+                elseif ( stripos( $mr, 'automaç' ) === 0 || stripos( $mr, 'automac' ) === 0 ) $mr = 'Fechado por automação';
+                $fech_motivo[ $cid_h ] = $mr;
+            }
+        }
+    }
+
     $rows = [];
     foreach ( $cards as $c ) {
         $pid   = $c['pipeline_id'] ?? '';
@@ -6341,6 +6361,8 @@ add_action( 'wp_ajax_tao_crm_operacao_dataset', function () {
             $eh_cliente = ! empty( $cliente_wa[ $c['contato_whatsapp'] ?? '' ] );
             $conheceu = ( $descartado && ! $eh_cliente ) ? 'Google (presumido)' : '— não informado —';
         }
+        $tipo_fech = ( $classe === 'Ganho' ) ? 'Ganho'
+                   : ( ( $classe === 'Em andamento' ) ? 'Em andamento' : ( $fech_motivo[ $cid ] ?? 'Perdido (sem motivo)' ) );
         $esperando = isset( $espera_card[ $cid ] ) && empty( $c['fechado'] );
         $tma_h = ( isset( $resol_card[ $cid ] ) && ! empty( $c['criado_em'] ) )
             ? round( max( 0, $resol_card[ $cid ] - strtotime( $c['criado_em'] ) ) / 3600, 1 ) : null;
@@ -6349,6 +6371,7 @@ add_action( 'wp_ajax_tao_crm_operacao_dataset', function () {
             'Responsavel'  => $resp_map[ $c['responsavel_id'] ?? 0 ] ?? '— sem resp —',
             'Origem'       => $inst_nome[ $c['instancia_id'] ?? '' ] ?? '— sem origem —',
             'Como nos Conheceu' => $conheceu,
+            'Tipo de Fechamento' => $tipo_fech,
             'Classificação' => $val_clf[ $cid ] ?? '—',
             'Forma de Entrega'  => $val_ent[ $cid ] ?? '—',
             'Funil'        => $ispos ? ( $pl_map[ $pid ] ?? 'Pós-vendas' ) : ( $pl_map[ $pid ] ?? 'Vendas' ),
