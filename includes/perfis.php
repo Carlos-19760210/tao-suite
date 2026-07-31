@@ -118,6 +118,70 @@ function tao_crm_perfil_usuario() {
     return $cache = $pid;
 }
 
+// ── NEGÓCIOS (multi-tenant) — acesso por negócio ancorado nos vínculos de perfil ──
+/** É master? (vê todos os negócios) */
+function tao_crm_is_master() {
+    return current_user_can( 'manage_options' ) || ( function_exists( 'cbpm_is_master' ) && cbpm_is_master() );
+}
+
+/**
+ * Negócios (workspaces) que o usuário pode acessar.
+ *  • master → TODOS os ativos;
+ *  • senão  → workspaces onde tem vínculo em crm_perfil_usuarios (RBAC por ws);
+ *  • fallback legado (sem vínculo) → o negócio único do cbpm_cliente_id.
+ * Retorna array de workspaces (linhas). Cacheado por request.
+ */
+function tao_crm_negocios_permitidos() {
+    static $cache = null;
+    if ( $cache !== null ) return $cache;
+    if ( tao_crm_is_master() ) return $cache = tao_crm_get_workspaces();
+    $uid = get_current_user_id();
+    if ( ! $uid ) return $cache = [];
+    $r   = tao_crm_api( "/crm_perfil_usuarios?usuario_id=eq.$uid&select=workspace_id&limit=200" );
+    $ids = array_values( array_unique( array_filter( array_column( $r['ok'] ? ( $r['data'] ?? [] ) : [], 'workspace_id' ) ) ) );
+    if ( $ids ) {
+        $rw = tao_crm_api( "/crm_workspaces?id=in.(" . implode( ',', $ids ) . ")&ativo=eq.true&order=nome.asc" );
+        $ws = $rw['ok'] ? ( $rw['data'] ?? [] ) : [];
+        if ( $ws ) return $cache = $ws;
+    }
+    $w = tao_crm_get_workspace();   // legado: negócio único do cliente
+    return $cache = $w ? [ $w ] : [];
+}
+
+/** IDs dos negócios permitidos. */
+function tao_crm_negocios_permitidos_ids() {
+    return array_values( array_filter( array_column( tao_crm_negocios_permitidos(), 'id' ) ) );
+}
+
+/** O usuário pode acessar este negócio (workspace)? Base da trava anti-vazamento. */
+function tao_crm_pode_acessar_ws( $ws_id ) {
+    if ( ! $ws_id ) return false;
+    if ( tao_crm_is_master() ) return true;
+    return in_array( $ws_id, tao_crm_negocios_permitidos_ids(), true );
+}
+
+/**
+ * Negócio ATIVO da sessão, SEMPRE validado contra os permitidos:
+ *  1) ?workspace_id do request, se permitido (e persiste a escolha);
+ *  2) último escolhido (user_meta), se ainda permitido;
+ *  3) 1º permitido.  Retorna null se o usuário não tem nenhum negócio.
+ */
+function tao_crm_negocio_ativo() {
+    static $cache = false;
+    if ( $cache !== false ) return $cache;
+    $permitidos = tao_crm_negocios_permitidos_ids();
+    if ( ! $permitidos ) return $cache = null;
+    $uid = get_current_user_id();
+    $req = sanitize_text_field( $_REQUEST['workspace_id'] ?? '' );
+    if ( $req && in_array( $req, $permitidos, true ) ) {
+        if ( $uid ) update_user_meta( $uid, 'tao_crm_negocio_ativo', $req );
+        return $cache = $req;
+    }
+    $saved = $uid ? get_user_meta( $uid, 'tao_crm_negocio_ativo', true ) : '';
+    if ( $saved && in_array( $saved, $permitidos, true ) ) return $cache = $saved;
+    return $cache = $permitidos[0];
+}
+
 /** Mapa de permissões do perfil: ["tela|recurso" => permissao]. Cache 10 min. */
 function tao_crm_permissoes_do_perfil( $perfil_id ) {
     static $cache = [];
