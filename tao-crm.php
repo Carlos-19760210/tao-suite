@@ -66,6 +66,7 @@ require_once TAO_CRM_DIR . 'includes/pages/kanban.php';
 require_once TAO_CRM_DIR . 'includes/pages/card.php';
 require_once TAO_CRM_DIR . 'includes/pages/settings.php';
 require_once TAO_CRM_DIR . 'includes/pages/analise.php';
+require_once TAO_CRM_DIR . 'includes/pages/relatorio.php';
 // tao_crm_page_conversas is defined inline below (no separate file needed)
 
 // ─── CRON: AUTOMAÇÕES ─────────────────────────────────────────────────────────
@@ -6484,6 +6485,138 @@ add_action( 'wp_ajax_tao_crm_operacao_dataset', function () {
     }
 
     wp_send_json_success( [ 'rows' => $rows, 'aprovacoes' => $aprov, 'perdas' => $perdas, 'de' => $de, 'ate' => $ate, 'agora' => gmdate( 'c' ) ] );
+} );
+
+// ── Relatório DENORMALIZADO de cards (1 linha/card + TODOS os campos customizados)
+//    p/ export XLSX/CSV. Filtros: período (criação), negócio, funil, responsável. Read-only.
+add_action( 'wp_ajax_tao_crm_relatorio_dataset', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    nocache_headers();
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+    $ws = sanitize_text_field( $_POST['workspace_id'] ?? '' );
+    if ( ! $ws || ! tao_crm_is_gestor( $ws ) ) wp_send_json_error( 'Acesso negado' );
+    $de  = sanitize_text_field( $_POST['de']  ?? '' );
+    $ate = sanitize_text_field( $_POST['ate'] ?? '' );
+    if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $de ) )  $de  = gmdate( 'Y-m-01' );
+    if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $ate ) ) $ate = gmdate( 'Y-m-d' );
+    $ate_fim = $ate . 'T23:59:59';
+    $negocio = sanitize_text_field( $_POST['negocio'] ?? 'todos' );
+    $f_pipe  = sanitize_text_field( $_POST['pipeline_id'] ?? '' );
+    $f_resp  = sanitize_text_field( $_POST['responsavel_id'] ?? '' );
+    $demoji  = function ( $s ) { if ( $s !== '' && $s !== null && strpos( $s, 'Ã' ) !== false ) { $c = @mb_convert_encoding( $s, 'ISO-8859-1', 'UTF-8' ); if ( $c ) return $c; } return $s; };
+
+    $pl_map = []; $pl_ispos = [];
+    $rp = tao_crm_api( "/crm_pipelines?workspace_id=eq.$ws&select=id,nome" );
+    foreach ( ( $rp['ok'] ? ( $rp['data'] ?? [] ) : [] ) as $p ) {
+        $pl_map[ $p['id'] ]   = $p['nome'];
+        $pl_ispos[ $p['id'] ] = (bool) preg_match( '/p[o\x{00F3}]s.?\s*venda|pos.?\s*venda/iu', $p['nome'] );
+    }
+    $est_map = [];
+    $re = tao_crm_api( "/crm_estagios?select=id,nome,pipeline_id&limit=2000" );
+    foreach ( ( $re['ok'] ? ( $re['data'] ?? [] ) : [] ) as $e ) $est_map[ $e['id'] ] = $e['nome'];
+    $inst_nome = [];
+    $ri = tao_crm_api( "/crm_instancias?workspace_id=eq.$ws&select=id,nome,evolution_instancia" );
+    foreach ( ( $ri['ok'] ? ( $ri['data'] ?? [] ) : [] ) as $i ) if ( ! empty( $i['id'] ) ) $inst_nome[ $i['id'] ] = $i['nome'] ?: ( $i['evolution_instancia'] ?? '' );
+
+    // Campos customizados → colunas dinâmicas (como_nos_conheceu vira coluna fixa c/ presumido)
+    $campos = []; $cnc_id = '';
+    $rcd = tao_crm_api( "/crm_campos_definicao?select=id,nome,chave&order=nome.asc&limit=300" );
+    foreach ( ( $rcd['ok'] ? ( $rcd['data'] ?? [] ) : [] ) as $f ) {
+        if ( ( $f['chave'] ?? '' ) === 'como_nos_conheceu' ) { $cnc_id = $f['id']; continue; }
+        $campos[] = [ 'id' => $f['id'], 'nome' => $demoji( $f['nome'] ) ];
+    }
+
+    $q = "/crm_cards?workspace_id=eq.$ws&criado_em=gte.$de&criado_em=lte.$ate_fim" .
+         "&select=id,titulo,contato_nome,contato_whatsapp,status,fechado,pipeline_id,estagio_id,responsavel_id,instancia_id,valor_oportunidade,criado_em,movido_em&order=criado_em.desc&limit=10000";
+    if ( $f_pipe ) $q .= "&pipeline_id=eq." . rawurlencode( $f_pipe );
+    if ( $f_resp ) $q .= "&responsavel_id=eq." . rawurlencode( $f_resp );
+    $rc = tao_crm_api( $q );
+    $cards = ( $rc['ok'] ? ( $rc['data'] ?? [] ) : [] );
+
+    $resp_map = [];
+    foreach ( array_values( array_unique( array_filter( array_column( $cards, 'responsavel_id' ) ) ) ) as $uid ) { $u = get_userdata( (int) $uid ); if ( $u ) $resp_map[ $uid ] = $u->display_name; }
+
+    $cliente_wa = []; $pos_pids = array_keys( array_filter( $pl_ispos ) );
+    if ( $pos_pids ) {
+        $rgw = tao_crm_api( "/crm_cards?workspace_id=eq.$ws&pipeline_id=in.(" . implode( ',', $pos_pids ) . ")&select=contato_whatsapp&limit=20000" );
+        foreach ( ( $rgw['ok'] ? ( $rgw['data'] ?? [] ) : [] ) as $g ) if ( ! empty( $g['contato_whatsapp'] ) ) $cliente_wa[ $g['contato_whatsapp'] ] = 1;
+    }
+
+    $card_ids = array_column( $cards, 'id' );
+    $canc_ids = []; foreach ( $est_map as $eid => $en ) if ( stripos( $en, 'cancelad' ) !== false ) $canc_ids[] = $eid;
+    $fech_motivo = [];
+    if ( $canc_ids && $card_ids ) {
+        foreach ( array_chunk( $card_ids, 100 ) as $chunk ) {
+            $rhf = tao_crm_api( "/crm_cards_historico?card_id=in.(" . implode( ',', $chunk ) . ")&para_estagio_id=in.(" . implode( ',', $canc_ids ) . ")&select=card_id,motivo,criado_em&order=criado_em.desc&limit=50000" );
+            foreach ( ( $rhf['ok'] ? ( $rhf['data'] ?? [] ) : [] ) as $h ) {
+                $ch = $h['card_id']; if ( isset( $fech_motivo[ $ch ] ) ) continue;
+                $mr = $demoji( $h['motivo'] ?? '' ); if ( $mr === '' ) $mr = 'Perdido (sem motivo)';
+                if ( preg_match( '/^\s*falta de insumo\s*:/iu', $mr ) )      $mr = 'Falta de Insumo';
+                elseif ( preg_match( '/^\s*drogaria\s*:/iu', $mr ) )         $mr = 'Drogaria';
+                elseif ( stripos( $mr, 'automaç' ) === 0 || stripos( $mr, 'automac' ) === 0 ) $mr = 'Fechado por automação';
+                $fech_motivo[ $ch ] = $mr;
+            }
+        }
+    }
+    $valpiv = [];
+    if ( $card_ids ) {
+        foreach ( array_chunk( $card_ids, 100 ) as $chunk ) {
+            $rv = tao_crm_api( "/crm_cards_valores?card_id=in.(" . implode( ',', $chunk ) . ")&select=card_id,campo_id,valor" );
+            foreach ( ( $rv['ok'] ? ( $rv['data'] ?? [] ) : [] ) as $v ) {
+                if ( $v['valor'] === null || $v['valor'] === '' ) continue;
+                $valpiv[ $v['card_id'] ][ $v['campo_id'] ] = $demoji( $v['valor'] );
+            }
+        }
+    }
+
+    $colunas = [ 'Card','Contato','WhatsApp','Responsável','Funil','Fase','Negócio','Status',
+                 'Valor (R$)','Origem (canal)','Como nos Conheceu','Presumido?','Tipo de Fechamento',
+                 'Criado em','Movido em' ];
+    foreach ( $campos as $cf ) $colunas[] = $cf['nome'];
+
+    $fmt_dt = function ( $s ) { if ( ! $s ) return ''; $t = strtotime( $s ); return $t ? gmdate( 'd/m/Y H:i', $t ) : ''; };
+    $rows = [];
+    foreach ( $cards as $c ) {
+        $cid  = $c['id'];
+        $fase = $est_map[ $c['estagio_id'] ?? '' ] ?? '';
+        $stat = $c['status'] ?? '';
+        $ispos = $pl_ispos[ $c['pipeline_id'] ?? '' ] ?? false;
+        if ( $ispos ) $classe = 'Ganho';
+        elseif ( $stat === 'perdido' || stripos( $fase, 'cancelad' ) !== false ) $classe = 'Perda';
+        else $classe = 'Em andamento';
+        if ( $negocio === 'ganho'     && $classe !== 'Ganho' )        continue;
+        if ( $negocio === 'perda'     && $classe !== 'Perda' )        continue;
+        if ( $negocio === 'andamento' && $classe !== 'Em andamento' ) continue;
+        $conheceu = ( $cnc_id && isset( $valpiv[ $cid ][ $cnc_id ] ) ) ? $valpiv[ $cid ][ $cnc_id ] : null;
+        $presum = 'Não';
+        if ( $conheceu === null ) {
+            $eh_cliente = ! empty( $cliente_wa[ $c['contato_whatsapp'] ?? '' ] );
+            if ( $classe === 'Perda' && ! $eh_cliente ) { $conheceu = 'Google (presumido)'; $presum = 'Sim'; }
+            else $conheceu = '';
+        }
+        $tipo_fech = ( $classe === 'Ganho' ) ? 'Ganho' : ( ( $classe === 'Em andamento' ) ? 'Em andamento' : ( $fech_motivo[ $cid ] ?? 'Perdido (sem motivo)' ) );
+        $row = [
+            $c['titulo'] ?: ( $c['contato_nome'] ?? '' ),
+            $c['contato_nome'] ?? '',
+            $c['contato_whatsapp'] ?? '',
+            $resp_map[ $c['responsavel_id'] ?? 0 ] ?? '',
+            $pl_map[ $c['pipeline_id'] ?? '' ] ?? '',
+            $fase,
+            $classe,
+            $stat,
+            (float) ( $c['valor_oportunidade'] ?? 0 ),
+            $inst_nome[ $c['instancia_id'] ?? '' ] ?? '',
+            $conheceu,
+            $presum,
+            $tipo_fech,
+            $fmt_dt( $c['criado_em'] ?? '' ),
+            $fmt_dt( $c['movido_em'] ?? '' ),
+        ];
+        foreach ( $campos as $cf ) $row[] = $valpiv[ $cid ][ $cf['id'] ] ?? '';
+        $rows[] = $row;
+    }
+
+    wp_send_json_success( [ 'colunas' => $colunas, 'rows' => $rows, 'total' => count( $rows ), 'de' => $de, 'ate' => $ate ] );
 } );
 
 // ── Busca de contato por nome OU WhatsApp (autocomplete do Novo Card). Read-only.
