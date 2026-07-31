@@ -667,6 +667,22 @@ $_mobile_label = $secoes[$page_atual]['label'] ?? 'Portal';
         <?php endforeach; ?>
         </nav>
         <div class="cbpm-sidebar-footer">
+            <?php
+            // Seletor de NEGÓCIO (multi-tenant): só aparece quando o usuário tem acesso a >1.
+            if ( function_exists( 'tao_crm_negocios_permitidos' ) ) {
+                $__negs = tao_crm_negocios_permitidos();
+                if ( is_array( $__negs ) && count( $__negs ) > 1 ) {
+                    $__ativo = function_exists( 'tao_crm_negocio_ativo' ) ? tao_crm_negocio_ativo() : '';
+                    echo '<div style="margin-bottom:10px">';
+                    echo '<label style="font-size:11px;opacity:.7;display:block;margin-bottom:2px">🏢 Negócio</label>';
+                    echo '<select onchange="var u=new URL(location.href);u.searchParams.set(&quot;workspace_id&quot;,this.value);location.href=u.toString();" style="width:100%;padding:4px 6px;border-radius:4px;border:1px solid #cbd5e1;font-size:12px">';
+                    foreach ( $__negs as $__n ) {
+                        echo '<option value="' . esc_attr( $__n['id'] ) . '"' . selected( $__n['id'], $__ativo, false ) . '>' . esc_html( $__n['nome'] ) . '</option>';
+                    }
+                    echo '</select></div>';
+                }
+            }
+            ?>
             <?php echo esc_html( wp_get_current_user()->display_name ); ?><br>
             <a href="<?php echo esc_url( wp_logout_url( home_url('/robos/') ) ); ?>">Sair</a>
             &nbsp;&middot;&nbsp;
