@@ -104,18 +104,21 @@ function tao_crm_tela_da_secao( $secao ) {
 }
 
 // ── Engine ────────────────────────────────────────────────────────────────────
-/** Perfil do usuário logado (qualquer workspace na Fase 1). null = sem perfil (legado). */
+/** Perfil do usuário logado NO NEGÓCIO ATIVO. null = sem perfil (legado) ou master. */
 function tao_crm_perfil_usuario() {
-    static $cache = false;
-    if ( $cache !== false ) return $cache;
+    static $cache = [];
     $uid = get_current_user_id();
-    if ( ! $uid || ( function_exists( 'current_user_can' ) && current_user_can( 'manage_options' ) ) ) return $cache = null;
-    $t = get_transient( 'tao_perfil_u' . $uid );
-    if ( $t !== false ) return $cache = ( $t === 'none' ? null : $t );
-    $r = tao_crm_api( "/crm_perfil_usuarios?usuario_id=eq.$uid&select=perfil_id&limit=1" );
+    if ( ! $uid || tao_crm_is_master() ) return null;
+    $ws = tao_crm_negocio_ativo();
+    if ( ! $ws ) return null;
+    if ( isset( $cache[ $ws ] ) ) return $cache[ $ws ];
+    $ck = 'tao_perfil_u' . $uid . '_' . $ws;
+    $t  = get_transient( $ck );
+    if ( $t !== false ) return $cache[ $ws ] = ( $t === 'none' ? null : $t );
+    $r   = tao_crm_api( "/crm_perfil_usuarios?usuario_id=eq.$uid&workspace_id=eq.$ws&select=perfil_id&limit=1" );
     $pid = ( $r['ok'] && ! empty( $r['data'] ) ) ? $r['data'][0]['perfil_id'] : null;
-    set_transient( 'tao_perfil_u' . $uid, $pid ?: 'none', 10 * MINUTE_IN_SECONDS );
-    return $cache = $pid;
+    set_transient( $ck, $pid ?: 'none', 10 * MINUTE_IN_SECONDS );
+    return $cache[ $ws ] = $pid;
 }
 
 // ── NEGÓCIOS (multi-tenant) — acesso por negócio ancorado nos vínculos de perfil ──
@@ -356,7 +359,7 @@ add_action( 'wp_ajax_tao_crm_perfil_atribuir', function () {
     if ( ! $ws || ! $uid ) wp_send_json_error( 'dados' );
     tao_crm_api( "/crm_perfil_usuarios?workspace_id=eq.$ws&usuario_id=eq.$uid", 'DELETE' );
     if ( $pid ) tao_crm_api( '/crm_perfil_usuarios', 'POST', [ 'workspace_id' => $ws, 'perfil_id' => $pid, 'usuario_id' => $uid ] );
-    delete_transient( 'tao_perfil_u' . $uid );
+    delete_transient( 'tao_perfil_u' . $uid . '_' . $ws );   // cache do perfil é por negócio
     wp_send_json_success();
 } );
 
