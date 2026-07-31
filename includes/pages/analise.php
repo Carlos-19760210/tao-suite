@@ -225,6 +225,7 @@ function tao_crm_page_analise() {
         // ── dimensões trocáveis + drill (visões simples) ──
         var PERDA_DIMS=[['Motivo Base','Motivo'],['Insumo/Medic.','Insumo / Medicação'],['Responsavel','Responsável'],['Classificação','Classificação da fórmula'],['Fase','Fase de onde saiu']];
         var CONSUMO_DIMS=[['Ativo','Ativo'],['Classificação','Classificação da fórmula'],['Forma Farmac.','Forma farmacêutica'],['Responsavel','Responsável']];
+        var LEADS_DIMS=[['Origem','Origem (canal/número)'],['Funil','Funil'],['Responsavel','Responsável'],['Fase','Fase atual'],['Classe','Situação (ganho/perda/andamento)']];
         var opDimOv=null, finDimOv=null, opDrill=null;   // override de dimensão + filtro de drill (perdas)
 
         // Builder genérico de visão dimensionável (contagem ou soma sobre uma dimensão trocável).
@@ -348,6 +349,10 @@ function tao_crm_page_analise() {
                                {label:'Perdas',data:L.map(function(l){return resp[l].p;}),_cur:false} ],
                     sentence: (G+P)? ('Conversão geral: '+pct(conv)+' ('+G+' ganhos × '+P+' perdas).'+(bestR?' Melhor conversão: '+bestR+'.':'')) : 'Sem cards classificados no período.' };
             }
+            if(key==='origem'){
+                return dimSpec(D, {dims:LEADS_DIMS, defDim:'Origem', ov:opDimOv, metric:'count', cur:false,
+                    baseTitle:'📥 Leads por origem', noun:'leads', empty:'Nenhum lead no período.'});
+            }
             if(key==='leads'){
                 var m=gCount(D,'Fase',function(r){return r['Classe']==='Em andamento';}), t=top(m), L=t.map(function(x){return x[0];}), tot=sumVals(m);
                 return { title:'🚦 Onde estão os leads (funil de vendas)', defaultType:'barh', labels:L,
@@ -427,7 +432,7 @@ function tao_crm_page_analise() {
                 Array.prototype.forEach.call(el(id).querySelectorAll('.an-qbtn'),function(x){x.classList.remove('on');}); b.classList.add('on'); onpick(b.dataset.k); }; });
         }
         var FINQ=[{key:'fatdia',label:'💰 Faturado por dia'},{key:'recdia',label:'💵 Recebido por dia'},{key:'pagto',label:'💳 Forma de pagamento'},{key:'fatresp',label:'👤 Faturado por responsável'},{key:'ativos',label:'💊 Ativos que + consomem'},{key:'custoforma',label:'🧪 Custo por forma'},{key:'classif',label:'🧬 Custo por classificação'}];
-        var OPQ=[{key:'aprovdia',label:'✅ Aprovações por dia'},{key:'aprovresp',label:'✅ Aprovações por responsável'},{key:'gp',label:'🏆 Ganhos × Perdas'},{key:'motivo',label:'🚫 Por que perdemos'},{key:'ondeperde',label:'📉 Onde perdemos'},{key:'perdaresp',label:'👤 Perdas por resp.'},{key:'perdaclass',label:'🧪 Perdas por classificação'},{key:'tempocanc',label:'⏱️ Tempo até cancelar'},{key:'leads',label:'🚦 Onde estão os leads'},{key:'prod',label:'🏭 Produção → Entrega'},{key:'tmr',label:'⏱️ Tempo de resposta'},{key:'tma',label:'🕒 Tempo de atendimento'},{key:'espera',label:'⏳ Quem está esperando'},{key:'renov',label:'🔁 Renovações'}];
+        var OPQ=[{key:'aprovdia',label:'✅ Aprovações por dia'},{key:'aprovresp',label:'✅ Aprovações por responsável'},{key:'gp',label:'🏆 Ganhos × Perdas'},{key:'origem',label:'📥 Leads por origem'},{key:'motivo',label:'🚫 Por que perdemos'},{key:'ondeperde',label:'📉 Onde perdemos'},{key:'perdaresp',label:'👤 Perdas por resp.'},{key:'perdaclass',label:'🧪 Perdas por classificação'},{key:'tempocanc',label:'⏱️ Tempo até cancelar'},{key:'leads',label:'🚦 Onde estão os leads'},{key:'prod',label:'🏭 Produção → Entrega'},{key:'tmr',label:'⏱️ Tempo de resposta'},{key:'tma',label:'🕒 Tempo de atendimento'},{key:'espera',label:'⏳ Quem está esperando'},{key:'renov',label:'🔁 Renovações'}];
 
         function renderSimples(){
             finKPIs(); opKPIs();

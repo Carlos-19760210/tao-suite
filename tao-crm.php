@@ -6238,15 +6238,17 @@ add_action( 'wp_ajax_tao_crm_operacao_dataset', function () {
     // resposta da EQUIPE. Humano = display_name do WP; bot = 'Automação'; disparo =
     // nome/evolution_instancia da instância.
     $inst_excl = [ 'Automação' => 1, 'Automacao' => 1 ];
-    $ri = tao_crm_api( "/crm_instancias?workspace_id=eq.$ws&select=nome,evolution_instancia" );
+    $inst_nome = [];   // instancia_id → nome (ORIGEM do lead: canal/número que recebeu)
+    $ri = tao_crm_api( "/crm_instancias?workspace_id=eq.$ws&select=id,nome,evolution_instancia" );
     foreach ( ( $ri['ok'] ? ( $ri['data'] ?? [] ) : [] ) as $i ) {
         if ( ! empty( $i['evolution_instancia'] ) ) $inst_excl[ $i['evolution_instancia'] ] = 1;
         if ( ! empty( $i['nome'] ) )                 $inst_excl[ $i['nome'] ] = 1;
+        if ( ! empty( $i['id'] ) )                   $inst_nome[ $i['id'] ] = $i['nome'] ?: ( $i['evolution_instancia'] ?? '' );
     }
 
     // cards do período (coorte por criação)
     $rc = tao_crm_api( "/crm_cards?workspace_id=eq.$ws&criado_em=gte.$de&criado_em=lte.$ate_fim" .
-                       "&select=id,titulo,contato_nome,status,fechado,pipeline_id,estagio_id,responsavel_id,valor_oportunidade,criado_em,movido_em,ultima_mensagem_em&order=criado_em.desc&limit=5000" );
+                       "&select=id,titulo,contato_nome,status,fechado,pipeline_id,estagio_id,responsavel_id,instancia_id,valor_oportunidade,criado_em,movido_em,ultima_mensagem_em&order=criado_em.desc&limit=5000" );
     $cards = ( $rc['ok'] ? ( $rc['data'] ?? [] ) : [] );
     if ( ! $cards ) wp_send_json_success( [ 'rows' => [], 'de' => $de, 'ate' => $ate, 'agora' => gmdate( 'c' ) ] );
 
@@ -6309,6 +6311,7 @@ add_action( 'wp_ajax_tao_crm_operacao_dataset', function () {
         $rows[] = [
             'Card'         => $c['titulo'] ?: ( $c['contato_nome'] ?? '' ),
             'Responsavel'  => $resp_map[ $c['responsavel_id'] ?? 0 ] ?? '— sem resp —',
+            'Origem'       => $inst_nome[ $c['instancia_id'] ?? '' ] ?? '— sem origem —',
             'Funil'        => $ispos ? ( $pl_map[ $pid ] ?? 'Pós-vendas' ) : ( $pl_map[ $pid ] ?? 'Vendas' ),
             'Fase'         => $fase,
             'Classe'       => $classe,
