@@ -515,8 +515,7 @@ function tao_crm_page_analise() {
             ativo:{label:'💊 Ativo: qtd+custo+venda',slice:{rows:[{uniqueName:'Ativo'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Qtd (g)','qtd'),Mm('Custo Ativo (R$)','brl'),Mm('Venda Ativo (R$)','brl')]}},
             fin:{label:'💰 Financeiro por forma',slice:{rows:[{uniqueName:'Forma Farmac.'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Preço Venda OM (R$)','brl'),Mm('Valor Pago (R$)','brl')]}},
             pgto:{label:'💳 Pagamento × mês',slice:{rows:[{uniqueName:'Forma Pagto'}],columns:[{uniqueName:'Mes'},{uniqueName:'[Measures]'}],measures:[Mm('Valor Pago (R$)','brl')]}},
-            resp:{label:'👤 Responsável × mês',slice:{rows:[{uniqueName:'Responsavel'}],columns:[{uniqueName:'Mes'},{uniqueName:'[Measures]'}],measures:[Mm('Preço Venda OM (R$)','brl')]}},
-            drill:{label:'🔎 Telefone→OM→Ativo→Lote',slice:{rows:[{uniqueName:'Telefone'},{uniqueName:'OM'},{uniqueName:'Ativo'},{uniqueName:'Lote'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Qtd (g)','qtd'),Mm('Custo Ativo (R$)','brl'),Mm('Venda Ativo (R$)','brl'),Mm('Preço Venda OM (R$)','brl'),Mm('Valor Pago (R$)','brl')]}}
+            resp:{label:'👤 Responsável × mês',slice:{rows:[{uniqueName:'Responsavel'}],columns:[{uniqueName:'Mes'},{uniqueName:'[Measures]'}],measures:[Mm('Preço Venda OM (R$)','brl')]}}
         };
         // Cubo de PERDAS (grão card): dimensione por motivo/insumo/ativo·medicação/responsável etc.
         var META_PERDA={'Data':{type:'date string'},'Mes':{type:'string'},'Motivo':{type:'string'},'Motivo Base':{type:'string'},'Insumo/Medic.':{type:'string'},'Fase':{type:'string'},'Responsavel':{type:'string'},'Classificação':{type:'string'},'Valor':{type:'number'},'Cards':{type:'number'}};
@@ -552,6 +551,9 @@ function tao_crm_page_analise() {
             formats:[{name:'brl',decimalPlaces:2,decimalSeparator:',',thousandsSeparator:'.',currencySymbol:'R$ ',currencySymbolAlign:'left',nullValue:''},{name:'qtd',decimalPlaces:2,decimalSeparator:',',thousandsSeparator:'.',nullValue:''},{name:'int',decimalPlaces:0,decimalSeparator:',',thousandsSeparator:'.',nullValue:''}],
             options:{grid:{type:'compact',showGrandTotals:'on',showTotals:'on',title:''}} }; }
         function syncFieldsBtn(){ var b=el('an-fields-toggle'); if(b) b.className='button'+(fieldsOpen?' button-primary':''); }
+        // Recarrega os dados do cubo PRESERVANDO a visão/slice atual. (updateData reseta o
+        // slice p/ o default do WebDataRocks — 1º campo do META × Soma — daí o "OM e Soma Qtde".)
+        function cubeReload(){ if(!wdr) return; var rep=wdr.getReport(); rep.dataSource={type:'json',data:cubeRows()}; wdr.setReport(rep); }
         function renderViewBtns(){
             var V=curViews(), host=el('an-vis-btns'); if(!host) return; host.innerHTML='';
             Object.keys(V).forEach(function(k){ var b=document.createElement('button'); b.type='button'; b.className='button button-small'+(k===curView?' button-primary':''); b.style.marginRight='4px'; b.textContent=V[k].label;
@@ -590,7 +592,7 @@ function tao_crm_page_analise() {
         function setMode(m){
             el('mode-s').className=(m==='s'?'on':''); el('mode-a').className=(m==='a'?'on':''); el('mode-r').className=(m==='r'?'on':'');
             el('an-simples').style.display=(m==='s'?'block':'none'); el('an-avancado').style.display=(m==='a'?'block':'none'); el('an-relatorio').style.display=(m==='r'?'block':'none');
-            if(m==='a') ensureWDR(function(){ if(wdr) wdr.updateData({data:cubeRows()}); });
+            if(m==='a') ensureWDR(function(){ cubeReload(); });
         }
 
         // ── MODO RELATÓRIO: dataset denormalizado (grão card ou item) + export XLSX/CSV ──
@@ -642,7 +644,7 @@ function tao_crm_page_analise() {
             var done=0; function step(){ done++; if(done===3){ setMsg('');
                 el('an-status').textContent=(fatData.vendas||[]).length+' vendas · '+finData.length+' linhas de consumo · '+opData.length+' cards';
                 renderSimples();
-                if(wdr) wdr.updateData({data:cubeRows()});
+                cubeReload();
             } }
             post('tao_crm_analise_dataset',    function(d){ finData=(d&&d.rows)||[]; step(); });
             post('tao_crm_operacao_dataset',   function(d){ opData=(d&&d.rows)||[]; aprovData=(d&&d.aprovacoes)||[]; perdasData=(d&&d.perdas)||[]; step(); });
