@@ -128,11 +128,12 @@ function tao_crm_is_master() {
 }
 
 /**
- * Negócios (workspaces) que o usuário pode acessar.
+ * Negócios (workspaces) que o usuário pode acessar. UNIÃO de:
  *  • master → TODOS os ativos;
- *  • senão  → workspaces onde tem vínculo em crm_perfil_usuarios (RBAC por ws);
- *  • fallback legado (sem vínculo) → o negócio único do cbpm_cliente_id.
- * Retorna array de workspaces (linhas). Cacheado por request.
+ *  • negócio LEGADO do cliente fixo (cbpm_cliente_id, user_meta), se houver; +
+ *  • todos os workspaces onde tem vínculo em crm_perfil_usuarios (RBAC por ws).
+ * (O legado é ADITIVO: ganhar um vínculo noutro negócio não remove o de origem.)
+ * Retorna array de workspaces (linhas), ordenado por nome. Cacheado por request.
  */
 function tao_crm_negocios_permitidos() {
     static $cache = null;
@@ -140,15 +141,37 @@ function tao_crm_negocios_permitidos() {
     if ( tao_crm_is_master() ) return $cache = tao_crm_get_workspaces();
     $uid = get_current_user_id();
     if ( ! $uid ) return $cache = [];
+    $out = []; $seen = [];
+    // (1) negócio de ORIGEM (cliente fixo legado) primeiro = default do usuário. user_meta
+    //     lido DIRETO — nunca via cbpm_current_cliente_id, p/ não recursar com o núcleo.
+    $cli = get_user_meta( $uid, 'cbpm_cliente_id', true );
+    if ( $cli ) {
+        $rw = tao_crm_api( "/crm_workspaces?cliente_id=eq.$cli&ativo=eq.true&order=nome.asc&limit=1" );
+        foreach ( ( $rw['ok'] ? ( $rw['data'] ?? [] ) : [] ) as $w ) { $out[] = $w; $seen[ $w['id'] ] = 1; }
+    }
+    // (2) + negócios liberados por vínculo de perfil (crm_perfil_usuarios)
     $r   = tao_crm_api( "/crm_perfil_usuarios?usuario_id=eq.$uid&select=workspace_id&limit=200" );
     $ids = array_values( array_unique( array_filter( array_column( $r['ok'] ? ( $r['data'] ?? [] ) : [], 'workspace_id' ) ) ) );
+    $ids = array_values( array_filter( $ids, function ( $x ) use ( $seen ) { return empty( $seen[ $x ] ); } ) );
     if ( $ids ) {
         $rw = tao_crm_api( "/crm_workspaces?id=in.(" . implode( ',', $ids ) . ")&ativo=eq.true&order=nome.asc" );
-        $ws = $rw['ok'] ? ( $rw['data'] ?? [] ) : [];
-        if ( $ws ) return $cache = $ws;
+        foreach ( ( $rw['ok'] ? ( $rw['data'] ?? [] ) : [] ) as $w ) if ( empty( $seen[ $w['id'] ] ) ) { $out[] = $w; $seen[ $w['id'] ] = 1; }
     }
-    $w = tao_crm_get_workspace();   // legado: negócio único do cliente
-    return $cache = $w ? [ $w ] : [];
+    return $cache = $out;
+}
+
+/**
+ * cliente_id do NEGÓCIO ATIVO do usuário — para o núcleo (cbpm_current_cliente_id)
+ * respeitar o seletor de negócio. Null p/ master (mantém "vê tudo") ou se não resolver.
+ * NÃO chama cbpm_current_cliente_id (evita recursão).
+ */
+function tao_crm_cliente_do_negocio_ativo() {
+    if ( tao_crm_is_master() ) return null;
+    $negs = tao_crm_negocios_permitidos();
+    if ( ! $negs ) return null;
+    $ativo = tao_crm_negocio_ativo();
+    foreach ( $negs as $w ) if ( ( $w['id'] ?? '' ) === $ativo ) return ( $w['cliente_id'] ?? '' ) ?: null;
+    return ( $negs[0]['cliente_id'] ?? '' ) ?: null;
 }
 
 /** IDs dos negócios permitidos. */
