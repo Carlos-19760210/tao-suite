@@ -1727,7 +1727,12 @@
     }
     function formatHoraBRT(utcStr){
         if(!utcStr) return '';
-        try { var d=new Date(utcStr),h=(d.getUTCHours()-3+24)%24,m=d.getUTCMinutes(); return ('0'+h).slice(-2)+':'+('0'+m).slice(-2); } catch(e){ return ''; }
+        try {
+            var d=new Date(utcStr), b=new Date(d.getTime()-3*3600*1000);   // desloca p/ BRT (evita virada de dia)
+            var dd=('0'+b.getUTCDate()).slice(-2), mm=('0'+(b.getUTCMonth()+1)).slice(-2);
+            var h=('0'+b.getUTCHours()).slice(-2), m=('0'+b.getUTCMinutes()).slice(-2);
+            return dd+'/'+mm+' '+h+':'+m;
+        } catch(e){ return ''; }
     }
 
 

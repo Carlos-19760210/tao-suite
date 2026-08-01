@@ -2956,7 +2956,7 @@ function tao_crm_render_campo_input( $def, $val, $card_id, $bool_radio = false )
 function tao_crm_render_message( $msg ) {
     $dir   = $msg['direcao'] === 'out' ? 'out' : 'in';
     $nome  = esc_html( $msg['remetente_nome'] ?? ( $dir === 'out' ? 'Atendente' : 'Cliente' ) );
-    $hora  = esc_html( tao_crm_brt( $msg['enviado_em'], 'H:i' ) );
+    $hora  = esc_html( tao_crm_brt( $msg['enviado_em'], 'd/m H:i' ) );   // data + hora
     $texto = esc_html( $msg['conteudo'] ?? '' );
     $tipo  = $msg['tipo'] ?? 'text';
     $midia = esc_url( $msg['midia_url'] ?? '' );
