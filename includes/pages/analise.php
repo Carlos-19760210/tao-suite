@@ -559,7 +559,8 @@ function tao_crm_page_analise() {
             setMsg('Carregando dados do relatório para o cubo…');
             var body='action=tao_crm_relatorio_dataset&nonce='+encodeURIComponent(nonce)+'&workspace_id='+encodeURIComponent(wsId)
                 +'&de='+encodeURIComponent(el('an-de').value)+'&ate='+encodeURIComponent(el('an-ate').value)
-                +'&grao='+encodeURIComponent(grao)+'&negocio=todos';
+                +'&grao='+encodeURIComponent(grao)
+                +'&negocio='+encodeURIComponent({aprovadas:'ganho',canceladas:'perda',todas:'todos'}[curFiltro]||'todos');   // filtro-mestre → negócio
             fetch(ajaxurl,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body,credentials:'same-origin'})
             .then(function(r){return r.text();}).then(function(t){ var i=t.indexOf('{'),j; try{ j=JSON.parse(i>0?t.slice(i):t); }catch(e){ setMsg('⚠ Erro ao carregar o cubo do relatório.'); return; }
                 if(!j||!j.success){ setMsg('⚠ '+((j&&j.data)||'Falha ao gerar.')); return; }
