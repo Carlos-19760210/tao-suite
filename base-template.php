@@ -58,6 +58,10 @@ if ( $has_formula ) {
     $secoes['tao-formula-sngpc']        = [ 'fn' => 'tao_formula_page_sngpc',            'label' => 'Controlados / SNGPC' ];
     $secoes['tao-formula-formas']    = [ 'fn' => 'tao_formula_page_formas',         'label' => 'Formas Farmacêuticas' ];
     $secoes['tao-formula-ativos']    = [ 'fn' => 'tao_formula_page_ativos',         'label' => 'Ativos' ];
+    if ( function_exists( 'tao_formula_page_unidades_medida' ) )
+        $secoes['tao-formula-unidades'] = [ 'fn' => 'tao_formula_page_unidades_medida', 'label' => 'Unidades de Medida' ];
+    if ( function_exists( 'tao_formula_page_laudo_modelos' ) )
+        $secoes['tao-formula-laudo-modelos'] = [ 'fn' => 'tao_formula_page_laudo_modelos', 'label' => 'Modelos de Laudo' ];
     $secoes['tao-formula-config']    = [ 'fn' => 'tao_formula_page_config',         'label' => 'Fórmulas — Configurações' ];
 }
 
@@ -142,6 +146,7 @@ if ( $has_formula ) {
     $cad_items[] = [ 'slug' => 'tao-formula-fornecedores', 'label' => 'Fornecedores',           'url' => cbpm_url('formula-fornecedores') ];
     $cad_items[] = [ 'slug' => 'tao-formula-ativos',       'label' => 'Ativos',                 'url' => cbpm_url('formula-ativos') ];
     $cad_items[] = [ 'slug' => 'tao-formula-formas',       'label' => 'Formas Farmac&ecirc;uticas', 'url' => cbpm_url('formula-formas') ];
+    $cad_items[] = [ 'slug' => 'tao-formula-unidades',     'label' => 'Unidades de Medida',     'url' => cbpm_url('formula-unidades') ];
 } elseif ( $has_cotacoes ) {
     // Sem Fórmula: a tela de Fornecedores das Cotações atende (mesma tabela `fornecedores`).
     $cad_items[] = [ 'slug' => 'tao-cotacoes-fornecedores', 'label' => 'Fornecedores', 'url' => cbpm_url('cotacoes-fornecedores') ];
@@ -157,6 +162,7 @@ if ( $has_formula ) {
         'icon'  => '&#x1F4E6;',
         'items' => [
             [ 'slug' => 'tao-formula-estoque-nf',         'label' => 'Entrada NF',      'url' => cbpm_url('formula-estoque-nf') ],
+            [ 'slug' => 'tao-formula-laudo-modelos',      'label' => 'Modelos de Laudo', 'url' => cbpm_url('formula-laudo-modelos') ],
             [ 'slug' => 'tao-formula-estoque-lotes',      'label' => 'Lotes',           'url' => cbpm_url('formula-estoque-lotes') ],
             [ 'slug' => 'tao-formula-estoque-inventario', 'label' => 'Invent&aacute;rio', 'url' => cbpm_url('formula-estoque-inventario') ],
             [ 'slug' => 'tao-formula-estoque-repo',       'label' => 'Reposi&ccedil;&atilde;o', 'url' => cbpm_url('formula-estoque-repo') ],
