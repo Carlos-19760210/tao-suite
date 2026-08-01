@@ -152,13 +152,24 @@ function tao_formula_page_estoque_nf() {
                 });
             },260));
         });
-        // associa o ativo escolhido ao item (guarda unidade/última compra p/ a granularidade)
+        // conversão de unidade (espelho da PHP tao_formula_conv_unid) — recálculo ao vivo na tela
+        function convUnid(q,de,pa){
+            de=(de||'').toUpperCase().trim(); pa=(pa||'').toUpperCase().trim();
+            if(!de||!pa) return null; if(de===pa) return q;
+            var dims=[{KG:1000,G:1,GR:1,MG:.001,MCG:1e-6},{L:1000,LT:1000,ML:1},{MIL:1000,MILHEIRO:1000,MI:1000,MILH:1000,UN:1,UND:1,UNID:1,CAP:1,CAPS:1,CPR:1,COMP:1,PC:1}];
+            for(var i=0;i<dims.length;i++){ if(dims[i][de]!=null&&dims[i][pa]!=null) return q*dims[i][de]/dims[i][pa]; }
+            return null;
+        }
+        // associa o ativo escolhido ao item (guarda unidade + RECALCULA a qtd p/ a granularidade)
         function selAtivo(i,a){
             NF.itens[i].ativo_id=a.id;
             NF.itens[i].ativo={nome:a.nome,codigo_fc:a.codigo_fc,unidade:a.unidade,unidade_padrao:a.unidade_padrao,preco_compra:a.preco_compra};
-            // recalcula a conversão de unidade p/ a unidade de compra do novo ativo
             var it=NF.itens[i], uc=a.unidade||it.unidade;
-            if(uc && uc!==it.unidade){ /* conversão feita no back ao efetivar; aqui só marca a unidade de compra */ it.unidade_compra=uc; }
+            // converte da unidade da NF (qtd original) p/ a unidade de compra do ativo (menor granularidade)
+            var q2=convUnid(parseFloat(it.quantidade)||0, it.unidade, uc);
+            if(q2!=null && q2>0){ it.qtd_compra=Math.round(q2*1e4)/1e4; it.unidade_compra=uc; }
+            else { it.qtd_compra=parseFloat(it.quantidade)||0; it.unidade_compra=it.unidade; }   // sem conversão possível
+            recalcItem(it);
             renderConf();
         }
         // navegação por teclado no autocomplete (↑ ↓ Enter Esc)
