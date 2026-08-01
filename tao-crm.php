@@ -6639,7 +6639,7 @@ add_action( 'wp_ajax_tao_crm_relatorio_dataset', function () {
                  'Criado em','Movido em' ];
     foreach ( $campos as $cf ) $colunas[] = $cf['nome'];
     if ( $grao === 'item' ) array_push( $colunas, 'OM','Forma Farmac.','Ativo','Qtd (g)','Custo Ativo (R$)','Venda Ativo (R$)' );
-    else array_push( $colunas, 'Custo Ativos (R$)','Venda Ativos (R$)','Custo Fixo Forma (R$)','Valor de Ajuste (R$)' );   // composição de valor
+    else array_push( $colunas, 'Custo Ativos (R$)','Venda Ativos (R$)','Custo Fixo Forma (R$)','Valor de Ajuste (R$)','Ajuste %' );   // composição de valor
 
     $fmt_dt = function ( $s ) { if ( ! $s ) return ''; $t = strtotime( $s ); return $t ? gmdate( 'd/m/Y H:i', $t ) : ''; };
     $rows = [];
@@ -6682,8 +6682,10 @@ add_action( 'wp_ajax_tao_crm_relatorio_dataset', function () {
         foreach ( $campos as $cf ) $row[] = $valpiv[ $cid ][ $cf['id'] ] ?? '';
         if ( $grao === 'card' ) {
             $comp   = $compo_por_card[ $cid ] ?? [ 0.0, 0.0, 0.0 ];
-            $ajuste = (float) ( $c['valor_oportunidade'] ?? 0 ) - ( $comp[1] + $comp[2] );   // venda card − (venda ativos + custo fixo)
-            $rows[] = array_merge( $row, [ round( $comp[0], 2 ), round( $comp[1], 2 ), round( $comp[2], 2 ), round( $ajuste, 2 ) ] );
+            $vcard  = (float) ( $c['valor_oportunidade'] ?? 0 );
+            $ajuste = $vcard - ( $comp[1] + $comp[2] );                      // venda card − (venda ativos + custo fixo)
+            $aj_pct = $vcard > 0 ? $ajuste / $vcard * 100 : 0;               // ajuste ÷ valor de venda do card
+            $rows[] = array_merge( $row, [ round( $comp[0], 2 ), round( $comp[1], 2 ), round( $comp[2], 2 ), round( $ajuste, 2 ), round( $aj_pct, 1 ) ] );
         } else {
             $its = $itens_por_card[ $cid ] ?? [];
             if ( ! $its ) { $rows[] = array_merge( $row, [ '', '', '', '', '', '' ] ); }  // card sem ativo = 1 linha
