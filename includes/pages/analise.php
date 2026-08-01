@@ -127,7 +127,7 @@ function tao_crm_page_analise() {
         <div id="an-avancado" style="display:none">
             <div style="margin:6px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
                 <strong style="font-size:12px;color:#475569">Dados:</strong>
-                <span class="an-mode" id="an-cube-ds"><button data-ds="consumo" class="on">Consumo (ganhas)</button><button data-ds="leads">Leads</button><button data-ds="perdas">Perdas</button></span>
+                <span class="an-mode" id="an-cube-ds"><button data-ds="consumo" class="on">Consumo (ganhas)</button><button data-ds="leads">Leads</button><button data-ds="perdas">Perdas</button><button data-ds="cards">Cards (relatório)</button><button data-ds="itens">Itens (relatório)</button></span>
                 <strong style="font-size:12px;color:#475569;margin-left:6px">Visões prontas:</strong>
                 <span id="an-vis-btns"></span>
                 <button type="button" class="button" id="an-fields-toggle" style="margin-left:4px">&#x1F9F2; Painel de campos</button>
@@ -538,13 +538,49 @@ function tao_crm_page_analise() {
             funil:{label:'🚦 Funil → fase',slice:{rows:[{uniqueName:'Funil'},{uniqueName:'Fase'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Leads','int'),Mm('Valor','brl')]}},
             classif:{label:'🧬 Classificação',slice:{rows:[{uniqueName:'Classificação'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Leads','int'),Mm('Valor','brl')]}}
         };
+        // Cubo do RELATÓRIO (dados denormalizados completos, carregados sob demanda do
+        // handler tao_crm_relatorio_dataset): grão card (todos os campos + personalizados)
+        // e grão item (repete o card por ativo). META é dinâmico (colunas do relatório).
+        var VIEWS_CARDS={
+            conheceu:{label:'📣 Como nos conheceu',slice:{rows:[{uniqueName:'Como nos Conheceu'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Cards','int'),Mm('Valor (R$)','brl')]}},
+            resp:{label:'👤 Responsável',slice:{rows:[{uniqueName:'Responsável'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Cards','int'),Mm('Valor (R$)','brl')]}},
+            funil:{label:'🚦 Funil → Fase',slice:{rows:[{uniqueName:'Funil'},{uniqueName:'Fase'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Cards','int'),Mm('Valor (R$)','brl')]}},
+            negocio:{label:'🧩 Negócio (arraste os campos)',slice:{rows:[{uniqueName:'Negócio'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Cards','int'),Mm('Valor (R$)','brl')]}}
+        };
+        var VIEWS_ITENS={
+            ativo:{label:'💊 Ativo: qtd+custo+venda',slice:{rows:[{uniqueName:'Ativo'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Itens','int'),Mm('Qtd (g)','qtd'),Mm('Custo Ativo (R$)','brl'),Mm('Venda Ativo (R$)','brl')]}},
+            ativoconh:{label:'💊 Ativo × Como conheceu',slice:{rows:[{uniqueName:'Ativo'}],columns:[{uniqueName:'Como nos Conheceu'},{uniqueName:'[Measures]'}],measures:[Mm('Custo Ativo (R$)','brl')]}},
+            formaativo:{label:'🧪 Forma → Ativo',slice:{rows:[{uniqueName:'Forma Farmac.'},{uniqueName:'Ativo'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Itens','int'),Mm('Custo Ativo (R$)','brl'),Mm('Venda Ativo (R$)','brl')]}}
+        };
+        var relCube = {};   // cache dos dados do relatório p/ o cubo: {cards:{data}, itens:{data}}
+        function carregarRelCube(grao, cb){
+            var key = grao==='item'?'itens':'cards';
+            if(relCube[key]){ cb(); return; }
+            setMsg('Carregando dados do relatório para o cubo…');
+            var body='action=tao_crm_relatorio_dataset&nonce='+encodeURIComponent(nonce)+'&workspace_id='+encodeURIComponent(wsId)
+                +'&de='+encodeURIComponent(el('an-de').value)+'&ate='+encodeURIComponent(el('an-ate').value)
+                +'&grao='+encodeURIComponent(grao)+'&negocio=todos';
+            fetch(ajaxurl,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body,credentials:'same-origin'})
+            .then(function(r){return r.text();}).then(function(t){ var i=t.indexOf('{'),j; try{ j=JSON.parse(i>0?t.slice(i):t); }catch(e){ setMsg('⚠ Erro ao carregar o cubo do relatório.'); return; }
+                if(!j||!j.success){ setMsg('⚠ '+((j&&j.data)||'Falha ao gerar.')); return; }
+                var cols=j.data.colunas||[], rows=j.data.rows||[];
+                var numCols={'Valor (R$)':1,'Qtd (g)':1,'Custo Ativo (R$)':1,'Venda Ativo (R$)':1};
+                var measure = key==='itens'?'Itens':'Cards';
+                var meta={}; cols.forEach(function(c){ meta[c]={type: numCols[c]?'number':'string'}; }); meta[measure]={type:'number'};
+                var data=[meta];
+                rows.forEach(function(r){ var o={}; cols.forEach(function(c,ci){ o[c]=r[ci]; }); o[measure]=1; data.push(o); });
+                relCube[key]={ data:data };
+                setMsg(''); cb();
+            }).catch(function(){ setMsg('⚠ Erro de rede ao carregar o cubo do relatório.'); });
+        }
         var wdr=null, wdrReady=false, curCube='consumo', curView='ativo', fieldsOpen=false, pivChartOn=false;
-        function curViews(){ return curCube==='perdas'?VIEWS_PERDA : curCube==='leads'?VIEWS_LEADS : VIEWS; }
+        function curViews(){ return curCube==='perdas'?VIEWS_PERDA : curCube==='leads'?VIEWS_LEADS : curCube==='cards'?VIEWS_CARDS : curCube==='itens'?VIEWS_ITENS : VIEWS; }
         function cubeRows(){
             if(curCube==='perdas'){ return [META_PERDA].concat(perdasData.map(function(r){
                 return {'Data':r['Data'],'Mes':r['Mes'],'Motivo':r['Motivo'],'Motivo Base':r['Motivo Base'],'Insumo/Medic.':r['Insumo/Medic.'],'Fase':r['Fase'],'Responsavel':r['Responsavel'],'Classificação':r['Classificação'],'Valor':r['Valor'],'Cards':1}; })); }
             if(curCube==='leads'){ return [META_LEADS].concat(opData.map(function(r){
                 return {'Data':r['Data'],'Mes':r['Mes'],'Como nos Conheceu':r['Como nos Conheceu'],'Tipo de Fechamento':r['Tipo de Fechamento'],'Origem':r['Origem'],'Funil':r['Funil'],'Fase':r['Fase'],'Classe':r['Classe'],'Status':r['Status'],'Classificação':r['Classificação'],'Forma de Entrega':r['Forma de Entrega'],'Responsavel':r['Responsavel'],'Valor':r['Valor'],'Leads':1}; })); }
+            if(curCube==='cards'||curCube==='itens'){ var k=curCube==='itens'?'itens':'cards'; return relCube[k]?relCube[k].data:[{}]; }
             return [META].concat(finData);
         }
         function buildReport(slice){ return { dataSource:{type:'json',data:cubeRows()}, slice:slice,
@@ -553,7 +589,10 @@ function tao_crm_page_analise() {
         function syncFieldsBtn(){ var b=el('an-fields-toggle'); if(b) b.className='button'+(fieldsOpen?' button-primary':''); }
         // Recarrega os dados do cubo PRESERVANDO a visão/slice atual. (updateData reseta o
         // slice p/ o default do WebDataRocks — 1º campo do META × Soma — daí o "OM e Soma Qtde".)
-        function cubeReload(){ if(!wdr) return; var rep=wdr.getReport(); rep.dataSource={type:'json',data:cubeRows()}; wdr.setReport(rep); }
+        function cubeReload(){ if(!wdr) return;
+            if(curCube==='cards'||curCube==='itens'){ var k=curCube==='itens'?'itens':'cards';
+                if(!relCube[k]){ carregarRelCube(curCube==='itens'?'item':'card', function(){ var r=wdr.getReport(); r.dataSource={type:'json',data:cubeRows()}; wdr.setReport(r); }); return; } }
+            var rep=wdr.getReport(); rep.dataSource={type:'json',data:cubeRows()}; wdr.setReport(rep); }
         function renderViewBtns(){
             var V=curViews(), host=el('an-vis-btns'); if(!host) return; host.innerHTML='';
             Object.keys(V).forEach(function(k){ var b=document.createElement('button'); b.type='button'; b.className='button button-small'+(k===curView?' button-primary':''); b.style.marginRight='4px'; b.textContent=V[k].label;
@@ -641,6 +680,7 @@ function tao_crm_page_analise() {
         }
         function carregar(){
             el('an-status').textContent='carregando…'; setMsg('Buscando dados do período…');
+            relCube={};   // invalida o cache do cubo do relatório (período/filtro mudou)
             var done=0; function step(){ done++; if(done===3){ setMsg('');
                 el('an-status').textContent=(fatData.vendas||[]).length+' vendas · '+finData.length+' linhas de consumo · '+opData.length+' cards';
                 renderSimples();
@@ -677,7 +717,10 @@ function tao_crm_page_analise() {
                 curCube=b.dataset.ds;
                 Array.prototype.forEach.call(document.querySelectorAll('#an-cube-ds button'),function(x){ x.className=(x.dataset.ds===curCube?'on':''); });
                 curView=Object.keys(curViews())[0];
-                if(wdr){ renderViewBtns(); wdr.setReport(buildReport(curViews()[curView].slice)); }
+                if(!wdr) return;
+                var aplica=function(){ renderViewBtns(); wdr.setReport(buildReport(curViews()[curView].slice)); };
+                if(curCube==='cards'||curCube==='itens') carregarRelCube(curCube==='itens'?'item':'card', aplica);
+                else aplica();
             }; });
             el('an-fields-toggle').onclick=function(){ if(!wdr)return; try{ if(fieldsOpen) wdr.closeFieldsList(); else wdr.openFieldsList(); }catch(e){} };
             el('an-chart-toggle').onclick=function(){ pivChartOn=!pivChartOn; el('piv-chart-wrap').style.display=pivChartOn?'block':'none'; el('an-chart-toggle').className='button'+(pivChartOn?' button-primary':''); if(pivChartOn) pivRefresh(); };
