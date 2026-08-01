@@ -3720,8 +3720,31 @@ function tao_formula_unidades_map( $cliente_id = null ) {
             if ( $sig !== '' ) $map[ $sig ] = [ 'dim'=>$u['dimensao'] ?? '', 'f'=>(float)( $u['fator_base'] ?? 1 ) ];
         }
     }
-    if ( ! $map ) $map = tao_formula_unidades_fallback();
+    // Mescla o fallback embutido (variações comuns: GR/MIL/UND/LT…) com a tabela — a tabela
+    // tem prioridade. Assim o combo mostra só as canônicas cadastradas, mas a CONVERSÃO
+    // reconhece também as variações que aparecem nas NFs.
+    $map = array_merge( tao_formula_unidades_fallback(), $map );
     return $cache[$key] = $map;
+}
+// Lista de unidades para popular COMBOS (só as cadastradas/ativas, ordenadas por dimensão).
+// Fonte única do sistema — usada por Ativos, Cotações, etc. Se a tabela estiver vazia,
+// cai no fallback embutido (canônicas) para o combo nunca vir vazio. [{sigla,nome,dimensao}].
+function tao_formula_unidades_opcoes( $cliente_id = null ) {
+    $cliente_id = $cliente_id ?: tao_formula_cliente_id();
+    $out = [];
+    if ( $cliente_id ) {
+        $r = tao_formula_api( "/unidades_medida?cliente_id=eq.$cliente_id&ativo=eq.true&select=sigla,nome,dimensao&order=dimensao.asc,fator_base.desc&limit=200" );
+        foreach ( ( $r['ok'] ? ( $r['data'] ?? [] ) : [] ) as $u ) {
+            $sig = strtoupper( trim( (string) ( $u['sigla'] ?? '' ) ) );
+            if ( $sig !== '' ) $out[] = [ 'sigla'=>$sig, 'nome'=>$u['nome'] ?? $sig, 'dimensao'=>$u['dimensao'] ?? '' ];
+        }
+    }
+    if ( ! $out ) {   // tabela vazia → canônicas do fallback (uma por sigla)
+        $ordem = [ 'massa'=>1,'volume'=>2,'contagem'=>3 ];
+        foreach ( tao_formula_unidades_fallback() as $sig=>$d ) $out[] = [ 'sigla'=>$sig, 'nome'=>$sig, 'dimensao'=>$d['dim'] ];
+        usort( $out, function( $a, $b ) use ( $ordem ) { return ( $ordem[$a['dimensao']] ?? 9 ) <=> ( $ordem[$b['dimensao']] ?? 9 ); } );
+    }
+    return $out;
 }
 // Converte $qtd de $de → $para (mesma dimensão). null se incompatível. Fatores da tabela.
 function tao_formula_conv_unid( $qtd, $de, $para ) {

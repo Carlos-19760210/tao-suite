@@ -13,6 +13,8 @@ function tao_cotacoes_page_nova() {
         $fornecedores = $rf['ok'] ? $rf['data'] : [];
         $instancias   = tao_cot_instancias( $cid );
     }
+    // Unidades de medida — fonte única do sistema (cadastro no Fórmula). Combo em vez de texto livre.
+    $taocot_unidades = function_exists( 'tao_formula_unidades_opcoes' ) ? tao_formula_unidades_opcoes( $cid ) : [];
     ?>
     <div class="wrap taocot-wrap">
         <div class="taocot-bar">
@@ -130,6 +132,7 @@ function tao_cotacoes_page_nova() {
     <script>
     (function(){
         var C = window.taoCot;
+        var UNIDADES = <?php echo wp_json_encode( $taocot_unidades ); ?>;
         var grid = document.getElementById('taocot-grid');
         var tbody = grid.querySelector('tbody');
         var itens = []; // {codigo_fc, ativo_id, descricao, unidade, qtd, ult_pago, urgente, origem, sem_match}
@@ -167,10 +170,21 @@ function tao_cotacoes_page_nova() {
                 tdQ.appendChild(inQ); tr.appendChild(tdQ);
 
                 var tdU = document.createElement('td');
-                var inU = document.createElement('input');
-                inU.type='text'; inU.value = it.unidade||'';
-                inU.style.cssText='width:52px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:5px';
-                inU.addEventListener('change', function(){ it.unidade = inU.value.trim(); });
+                var inU;
+                if (UNIDADES && UNIDADES.length) {
+                    inU = document.createElement('select');
+                    inU.style.cssText='width:74px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:5px';
+                    var op0=document.createElement('option'); op0.value=''; op0.textContent='—'; inU.appendChild(op0);
+                    var atual=(it.unidade||'').toUpperCase(), achou=false;
+                    UNIDADES.forEach(function(u){ var o=document.createElement('option'); o.value=u.sigla; o.textContent=u.sigla; if(u.sigla===atual){o.selected=true;achou=true;} inU.appendChild(o); });
+                    // unidade vinda da planilha que não está cadastrada: preserva como opção extra
+                    if (atual && !achou) { var oe=document.createElement('option'); oe.value=atual; oe.textContent=atual+' (?)'; oe.selected=true; inU.appendChild(oe); }
+                } else {
+                    inU = document.createElement('input');
+                    inU.type='text'; inU.value = it.unidade||'';
+                    inU.style.cssText='width:52px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:5px';
+                }
+                inU.addEventListener('change', function(){ it.unidade = (inU.value||'').trim(); });
                 tdU.appendChild(inU); tr.appendChild(tdU);
 
                 var tdP = document.createElement('td'); tdP.style.textAlign='right';
