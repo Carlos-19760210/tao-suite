@@ -3707,8 +3707,8 @@ function tao_formula_conv_unid( $qtd, $de, $para ) {
     $dims = [
         [ 'KG'=>1000.0, 'G'=>1.0, 'GR'=>1.0, 'MG'=>0.001, 'MCG'=>0.000001 ],   // massa (base g)
         [ 'L'=>1000.0, 'LT'=>1000.0, 'ML'=>1.0 ],                               // volume (base ml)
-        [ 'MIL'=>1000.0, 'MILHEIRO'=>1000.0, 'UN'=>1.0, 'UND'=>1.0, 'UNID'=>1.0,
-          'CAP'=>1.0, 'CPR'=>1.0, 'COMP'=>1.0, 'PC'=>1.0 ],                     // contagem (base unidade)
+        [ 'MIL'=>1000.0, 'MILHEIRO'=>1000.0, 'MI'=>1000.0, 'MILH'=>1000.0, 'UN'=>1.0, 'UND'=>1.0, 'UNID'=>1.0,
+          'CAP'=>1.0, 'CAPS'=>1.0, 'CPR'=>1.0, 'COMP'=>1.0, 'PC'=>1.0 ],        // contagem (base unidade); MI = milheiro
     ];
     foreach ( $dims as $d ) {
         if ( isset( $d[$de], $d[$para] ) ) return (float) $qtd * ( $d[$de] / $d[$para] );
