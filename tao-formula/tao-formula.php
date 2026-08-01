@@ -30,6 +30,7 @@ require_once TAOF_PLUGIN_DIR . 'includes/pages/historico.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/prescritores.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/fornecedores.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/estoque-nf.php';
+require_once TAOF_PLUGIN_DIR . 'includes/pages/estoque-laudo-modelos.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/estoque-lotes.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/estoque-inventario.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/estoque-reposicao.php';
@@ -55,6 +56,7 @@ add_action( 'admin_menu', function() {
     add_submenu_page( 'tao-formula', 'Prescritores',         'Prescritores',         'read', 'tao-formula-prescritores', 'tao_formula_page_prescritores' );
     add_submenu_page( 'tao-formula', 'Fornecedores',         'Fornecedores',         'read', 'tao-formula-fornecedores', 'tao_formula_page_fornecedores' );
     add_submenu_page( 'tao-formula', 'Estoque — Entrada NF', 'Estoque — Entrada NF', 'read', 'tao-formula-estoque-nf',  'tao_formula_page_estoque_nf' );
+    add_submenu_page( 'tao-formula', 'Estoque — Modelos de Laudo', 'Estoque — Modelos de Laudo', 'read', 'tao-formula-laudo-modelos', 'tao_formula_page_laudo_modelos' );
     add_submenu_page( 'tao-formula', 'Estoque — Lotes',      'Estoque — Lotes',      'read', 'tao-formula-estoque-lotes', 'tao_formula_page_estoque_lotes' );
     add_submenu_page( 'tao-formula', 'Estoque — Inventário',  'Estoque — Inventário', 'read', 'tao-formula-estoque-inventario', 'tao_formula_page_estoque_inventario' );
     add_submenu_page( 'tao-formula', 'Estoque — Reposição',  'Estoque — Reposição',  'read', 'tao-formula-estoque-repo', 'tao_formula_page_estoque_reposicao' );

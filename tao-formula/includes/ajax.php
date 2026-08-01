@@ -4689,6 +4689,105 @@ add_action( 'wp_ajax_tao_formula_nf_laudos_molde', function () {
     ] );
 } );
 
+// ── DEFINIÇÃO do molde (Fase 2): IA propõe RÓTULOS 1x → constrói regex → preview → salva ──
+// Constrói as regras (regex) do molde a partir da sugestão de rótulos da IA.
+function tao_formula_laudo_molde_regras_de_sugestao( $sug ) {
+    $q = function ( $s ) { return preg_quote( (string) $s, '#' ); };
+    $regras = [ 'multi_ativo' => ! empty( $sug['multi_ativo'] ), 'campos' => [] ];
+    if ( ! empty( $sug['split_marcador'] ) ) $regras['split_inicio'] = $q( $sug['split_marcador'] );
+    foreach ( ( $sug['campos'] ?? [] ) as $campo => $c ) {
+        $rot = trim( (string) ( $c['rotulo'] ?? '' ) ); if ( $rot === '' ) continue;
+        $tipo = $c['tipo'] ?? '';
+        if ( $tipo === 'data_br' )      $cap = '(\d{2}/\d{2}/\d{4})';
+        elseif ( ! empty( $c['ate'] ) ) $cap = '(.+?)\s+' . $q( $c['ate'] );
+        else                            $cap = '([^\s]+)';
+        $regras['campos'][ $campo ] = [ 'regex' => $q( $rot ) . '\s*' . $cap, 'tipo' => $tipo ];
+    }
+    return $regras;
+}
+// IA propõe o molde a partir do TEXTO (1x). Retorna regras + preview aplicado.
+add_action( 'wp_ajax_tao_formula_laudo_molde_sugerir', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    @set_time_limit( 120 );
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $paginas = json_decode( wp_unslash( $_POST['paginas'] ?? '[]' ), true );
+    if ( ! is_array( $paginas ) || ! $paginas ) wp_send_json_error( [ 'message' => 'Sem texto do PDF (digitalizado? use o caminho por IA).' ] );
+    $amostra = implode( "\n----PAGINA----\n", array_slice( $paginas, 0, 4 ) );
+    $prompt = "Você monta um MOLDE de leitura por RÓTULOS para Certificados de Análise de matéria-prima. "
+        . "Analise o TEXTO (páginas separadas por ----PAGINA----). Responda APENAS JSON, sem markdown: "
+        . '{"multi_ativo":true,"split_marcador":"","campos":{"nome":{"rotulo":"","ate":""},"lote":{"rotulo":""},"dt_validade":{"rotulo":"","tipo":"data_br"},"dt_fabricacao":{"rotulo":"","tipo":"data_br"},"fabricante":{"rotulo":""},"origem":{"rotulo":""}}}. '
+        . "multi_ativo=true se há VÁRIOS laudos (um por insumo). split_marcador = texto CURTO no começo de CADA novo laudo (ex.: \"Pág 1\"); vazio se não multi. "
+        . "Para cada campo, \"rotulo\" = o texto EXATO que antecede o valor (ex.: \"LOTE PN:\"). Em \"nome\", \"ate\" = texto logo DEPOIS do nome (ex.: \"Pág\"). "
+        . "lote = o lote da FARMÁCIA (p/ casar com a NF). Use os rótulos EXATOS do texto.";
+    $txt = tao_formula_openai_ask( [ 'type' => 'input_text', 'text' => mb_substr( $amostra, 0, 12000 ) ], $prompt, 1500 );
+    if ( preg_match( '/\{.*\}/s', $txt, $m ) ) $txt = $m[0];
+    $sug = json_decode( $txt, true );
+    if ( ! is_array( $sug ) ) wp_send_json_error( [ 'message' => 'A IA não retornou um molde válido — ajuste manual ou tente de novo.' ] );
+    $regras  = tao_formula_laudo_molde_regras_de_sugestao( $sug );
+    $preview = tao_formula_laudo_extrair_por_molde( $paginas, $regras );
+    wp_send_json_success( [ 'regras' => $regras, 'preview' => array_slice( $preview, 0, 30 ), 'total' => count( $preview ) ] );
+} );
+// Salva o molde (após o farmacêutico validar/ajustar).
+add_action( 'wp_ajax_tao_formula_laudo_molde_salvar', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cli     = tao_formula_cliente_id();
+    $forn_id = sanitize_text_field( $_POST['fornecedor_id'] ?? '' );
+    $nome    = trim( sanitize_text_field( $_POST['nome'] ?? '' ) ) ?: 'Molde';
+    $regras  = json_decode( wp_unslash( $_POST['regras'] ?? '{}' ), true );
+    $assin   = sanitize_text_field( $_POST['assinatura'] ?? '' );
+    $mid     = sanitize_text_field( $_POST['id'] ?? '' );
+    if ( ! $cli || ! $forn_id || ! is_array( $regras ) ) wp_send_json_error( [ 'message' => 'Dados inválidos' ] );
+    $rf   = tao_formula_api( "/fornecedores?id=eq.$forn_id&cliente_id=eq.$cli&select=cnpj&limit=1" );
+    $cnpj = ( $rf['ok'] && ! empty( $rf['data'] ) ) ? preg_replace( '/\D/', '', (string) ( $rf['data'][0]['cnpj'] ?? '' ) ) : '';
+    $body = [ 'nome' => $nome, 'ativo' => true, 'tipo' => 'texto', 'multi_ativo' => ! empty( $regras['multi_ativo'] ),
+        'regras' => $regras, 'assinatura' => $assin ?: null, 'fornecedor_cnpj' => $cnpj ?: null, 'atualizado_em' => gmdate( 'c' ) ];
+    if ( $mid ) {
+        $r = tao_formula_api( "/laudo_modelos?id=eq.$mid&cliente_id=eq.$cli", 'PATCH', $body, [ 'Prefer' => 'return=representation' ] );
+    } else {
+        $body['cliente_id'] = $cli; $body['fornecedor_id'] = $forn_id; $body['criado_por'] = get_current_user_id();
+        $r = tao_formula_api( '/laudo_modelos', 'POST', $body, [ 'Prefer' => 'return=representation' ] );
+    }
+    ( $r['ok'] ) ? wp_send_json_success( $r['data'][0] ?? [] ) : wp_send_json_error( [ 'message' => 'Erro ao salvar: ' . mb_substr( (string) ( $r['raw'] ?? '' ), 0, 160 ) ] );
+} );
+// Lista os moldes cadastrados (com nome do fornecedor).
+add_action( 'wp_ajax_tao_formula_laudo_modelos_lista', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cli = tao_formula_cliente_id();
+    $r = tao_formula_api( "/laudo_modelos?cliente_id=eq.$cli&select=id,nome,ativo,multi_ativo,fornecedor_id,fornecedor_cnpj,regras,criado_em&order=criado_em.desc" );
+    $moldes = $r['ok'] ? ( $r['data'] ?? [] ) : [];
+    $fids = array_values( array_unique( array_filter( array_column( $moldes, 'fornecedor_id' ) ) ) );
+    $fnome = [];
+    if ( $fids ) { $rf = tao_formula_api( "/fornecedores?id=in.(" . implode( ',', $fids ) . ")&select=id,nome" ); foreach ( ( $rf['ok'] ? $rf['data'] : [] ) as $f ) $fnome[ $f['id'] ] = $f['nome']; }
+    foreach ( $moldes as &$md ) $md['fornecedor_nome'] = $fnome[ $md['fornecedor_id'] ?? '' ] ?? '—';
+    wp_send_json_success( $moldes );
+} );
+// Reaplica um molde (regras editadas) ao texto já lido — prévia ao vivo, sem IA.
+add_action( 'wp_ajax_tao_formula_laudo_molde_testar', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $paginas = json_decode( wp_unslash( $_POST['paginas'] ?? '[]' ), true );
+    $regras  = json_decode( wp_unslash( $_POST['regras'] ?? '{}' ), true );
+    if ( ! is_array( $paginas ) || ! is_array( $regras ) ) wp_send_json_error( [ 'message' => 'dados' ] );
+    $preview = tao_formula_laudo_extrair_por_molde( $paginas, $regras );
+    wp_send_json_success( [ 'preview' => array_slice( $preview, 0, 30 ), 'total' => count( $preview ) ] );
+} );
+// Exclui um molde.
+add_action( 'wp_ajax_tao_formula_laudo_molde_excluir', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cli = tao_formula_cliente_id(); $mid = sanitize_text_field( $_POST['id'] ?? '' );
+    if ( ! $cli || ! $mid ) wp_send_json_error( [ 'message' => 'id' ] );
+    tao_formula_api( "/laudo_modelos?id=eq.$mid&cliente_id=eq.$cli", 'DELETE' );
+    wp_send_json_success();
+} );
+
 // subdiretório dedicado p/ laudos (organiza os uploads)
 function tao_formula_laudo_dir( $dirs ) {
     $dirs['subdir'] = '/laudos-mp' . $dirs['subdir'];
