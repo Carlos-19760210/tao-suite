@@ -298,44 +298,72 @@ function tao_formula_page_estoque_nf() {
                 else{$b.prop('disabled',false).text('↩ Estornar entrada');alert((r.data&&r.data.message)||'Erro ao estornar');}
             }).fail(function(){$b.prop('disabled',false).text('↩ Estornar entrada');alert('Falha na requisição');});
         });
-        // Importar laudos da NF EM LOTE: 1 PDF com vários laudos → IA distribui por lote
+        // Importar laudos da NF: MOLDE do fornecedor (determinístico, sem IA) → IA como fallback
         $(document).on('click','.taof-nf-laudos',function(){
             var id=$(this).data('id');
             if($('#taof-nf-laudos-box').length){$('#taof-nf-laudos-box').remove();return;}
             $('#taof-nf-detalhe').append(
                 '<div id="taof-nf-laudos-box" data-id="'+esc(id)+'" style="margin-top:12px;padding:12px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc">'+
-                '<strong>📎 Importar laudos da NF</strong> <small style="color:#64748b">— 1 PDF com todos os laudos; a IA distribui por lote</small><br>'+
+                '<strong>📎 Importar laudos da NF</strong> <small style="color:#64748b">— usa o molde do fornecedor (sem IA); PDF digitalizado ou sem molde cai na IA</small><br>'+
                 '<input type="file" id="taof-nf-laudos-file" accept=".pdf,image/*" style="margin:8px 0"><br>'+
                 '<button type="button" class="button button-primary" id="taof-nf-laudos-go">▶ Processar laudos</button> '+
                 '<span id="taof-nf-laudos-msg" style="font-size:12px;margin-left:6px"></span></div>');
         });
-        $(document).on('click','#taof-nf-laudos-go',function(){
-            var id=$('#taof-nf-laudos-box').data('id'), f=$('#taof-nf-laudos-file')[0].files[0];
-            if(!f){$('#taof-nf-laudos-msg').css('color','#dc2626').text('Selecione o PDF dos laudos.');return;}
-            var $b=$(this).prop('disabled',true), $m=$('#taof-nf-laudos-msg').css('color','#64748b').text('Subindo o PDF…');
-            // 1) PREP: sobe o PDF e recebe os lotes; 2) processa 1 lote por vez (progresso, sem timeout)
+        // pdf.js (lazy): extrai o TEXTO por página no navegador
+        var _pdfjs=null;
+        function carregarPdfJs(){ if(_pdfjs) return _pdfjs; _pdfjs=new Promise(function(res,rej){
+            var s=document.createElement('script'); s.src='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';
+            s.onload=function(){ try{ pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js'; res(window.pdfjsLib); }catch(e){ rej(e); } };
+            s.onerror=rej; document.head.appendChild(s); }); return _pdfjs; }
+        function extrairTextoPDF(file){ return carregarPdfJs().then(function(){ return new Promise(function(res,rej){
+            var fr=new FileReader(); fr.onload=function(){
+                pdfjsLib.getDocument({data:new Uint8Array(fr.result)}).promise.then(function(pdf){
+                    var pags=[], chain=Promise.resolve();
+                    for(var i=1;i<=pdf.numPages;i++){ (function(n){ chain=chain.then(function(){ return pdf.getPage(n).then(function(p){ return p.getTextContent().then(function(tc){ pags[n-1]=tc.items.map(function(it){return it.str;}).join(' '); }); }); }); })(i); }
+                    chain.then(function(){ res(pags); }).catch(rej);
+                }).catch(rej);
+            }; fr.onerror=rej; fr.readAsArrayBuffer(file);
+        }); }); }
+        // Fluxo IA (fallback): sobe o PDF e pergunta 1 lote por vez
+        function processarLaudosIA(id,f,$b,$m){
+            $m.css('color','#64748b').text('Subindo o PDF (IA)…');
             var fd=new FormData(); fd.append('action','tao_formula_nf_laudos_prep'); fd.append('nonce',nonce); fd.append('entrada_id',id); fd.append('laudo',f);
             $.ajax({url:ajaxUrl,method:'POST',data:fd,processData:false,contentType:false}).done(function(r){
                 if(!r.success){$b.prop('disabled',false);$m.css('color','#dc2626').text((r.data&&r.data.message)||'Erro');return;}
                 var fileId=r.data.file_id, laudoUrl=r.data.laudo_url, lotes=r.data.lotes||[];
                 if(!lotes.length){$b.prop('disabled',false);$m.css('color','#b45309').text('Nenhum lote nesta NF.');return;}
                 var i=0, apl=0, fora=0, sem=[];
-                function fim(){
-                    $.post(ajaxUrl,{action:'tao_formula_nf_laudos_cleanup',nonce:nonce,file_id:fileId});
-                    $b.prop('disabled',false);
-                    $m.css('color','#16a34a').text('✓ '+apl+' de '+lotes.length+' lote(s)'+(fora>0?' · ⚠ '+fora+' fora da especificação':'')+(sem.length?' · sem laudo: '+sem.join(', '):''));
-                }
-                function proximo(){
-                    if(i>=lotes.length){fim();return;}
-                    var lt=lotes[i];
-                    $m.css('color','#64748b').text('Processando '+(i+1)+'/'+lotes.length+'  (lote '+lt.nr_lote+')…');
+                function fim(){ $.post(ajaxUrl,{action:'tao_formula_nf_laudos_cleanup',nonce:nonce,file_id:fileId}); $b.prop('disabled',false);
+                    $m.css('color','#16a34a').text('✓ (IA) '+apl+' de '+lotes.length+' lote(s)'+(fora>0?' · ⚠ '+fora+' fora':'')+(sem.length?' · sem laudo: '+sem.join(', '):'')); }
+                function proximo(){ if(i>=lotes.length){fim();return;} var lt=lotes[i];
+                    $m.css('color','#64748b').text('IA '+(i+1)+'/'+lotes.length+' (lote '+lt.nr_lote+')…');
                     $.post(ajaxUrl,{action:'tao_formula_nf_laudo_lote_ia',nonce:nonce,lote_id:lt.id,file_id:fileId,laudo_url:laudoUrl,nr_lote:lt.nr_lote},function(rr){
-                        if(rr.success&&rr.data.aplicado){apl++;if(rr.data.fora)fora++;} else sem.push(lt.nr_lote);
-                        i++;proximo();
+                        if(rr.success&&rr.data.aplicado){apl++;if(rr.data.fora)fora++;} else sem.push(lt.nr_lote); i++;proximo();
                     }).fail(function(){sem.push(lt.nr_lote);i++;proximo();});
                 }
                 proximo();
             }).fail(function(){$b.prop('disabled',false);$m.css('color','#dc2626').text('Falha ao subir o PDF');});
+        }
+        $(document).on('click','#taof-nf-laudos-go',function(){
+            var id=$('#taof-nf-laudos-box').data('id'), f=$('#taof-nf-laudos-file')[0].files[0];
+            if(!f){$('#taof-nf-laudos-msg').css('color','#dc2626').text('Selecione o PDF dos laudos.');return;}
+            var $b=$(this).prop('disabled',true), $m=$('#taof-nf-laudos-msg').css('color','#64748b').text('Lendo o PDF…');
+            var isPdf = f.type==='application/pdf' || /\.pdf$/i.test(f.name||'');
+            if(!isPdf){ processarLaudosIA(id,f,$b,$m); return; }   // imagem → IA
+            extrairTextoPDF(f).then(function(pags){
+                var chars=(pags.join('')||'').replace(/\s/g,'').length;
+                if(chars<50){ $m.text('PDF digitalizado (sem texto) — usando IA…'); processarLaudosIA(id,f,$b,$m); return; }
+                $m.text('Aplicando o molde do fornecedor…');
+                $.post(ajaxUrl,{action:'tao_formula_nf_laudos_molde',nonce:nonce,entrada_id:id,paginas:JSON.stringify(pags)},function(r){
+                    if(r&&r.success){ var d=r.data;
+                        var msg='✓ Molde "'+d.molde+'": '+d.casados+' de '+d.laudos+' laudo(s) casados'+(d.fora>0?' · ⚠ '+d.fora+' fora da especificação':'');
+                        if((d.lotes_sem_laudo||[]).length) msg+=' · lotes sem laudo: '+d.lotes_sem_laudo.join(', ');
+                        if((d.sem_molde_match||[]).length) msg+=' · laudos sem lote na NF: '+d.sem_molde_match.join(', ');
+                        $m.css('color', d.fora>0?'#b45309':'#16a34a').text(msg); $b.prop('disabled',false);
+                    } else if(r&&r.data&&r.data.code==='sem_molde'){ $m.text('Sem molde p/ este fornecedor — usando IA…'); processarLaudosIA(id,f,$b,$m); }
+                    else { $m.css('color','#dc2626').text((r&&r.data&&r.data.message)||'Falha.'); $b.prop('disabled',false); }
+                }).fail(function(){ $m.css('color','#dc2626').text('Falha ao aplicar o molde.'); $b.prop('disabled',false); });
+            }).catch(function(){ $m.text('Não consegui ler o PDF — usando IA…'); processarLaudosIA(id,f,$b,$m); });
         });
         carregarLista(true);
     });

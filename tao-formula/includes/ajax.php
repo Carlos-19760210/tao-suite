@@ -4396,8 +4396,8 @@ function tao_formula_laudo_extrair_por_molde( array $paginas, array $molde ) {
 function tao_formula_laudo_molde_do_fornecedor( $cliente_id, $fornecedor_id, $cnpj, $texto_amostra = '' ) {
     $q = "/laudo_modelos?cliente_id=eq.$cliente_id&ativo=eq.true&select=*&order=criado_em.desc";
     $filtros = [];
-    if ( $fornecedor_id ) $filtros[] = "fornecedor_id=eq.$fornecedor_id";
-    if ( $cnpj )          $filtros[] = "fornecedor_cnpj=eq." . preg_replace( '/\D/', '', $cnpj );
+    if ( $fornecedor_id ) $filtros[] = "fornecedor_id.eq.$fornecedor_id";
+    if ( $cnpj )          $filtros[] = "fornecedor_cnpj.eq." . preg_replace( '/\D/', '', $cnpj );
     if ( ! $filtros ) return null;
     $r = tao_formula_api( $q . '&or=(' . implode( ',', $filtros ) . ')' );
     $moldes = ( $r['ok'] ? ( $r['data'] ?? [] ) : [] );
@@ -4639,6 +4639,54 @@ add_action( 'wp_ajax_tao_formula_nf_laudos_cleanup', function () {
     check_ajax_referer( 'tao_formula_nonce', 'nonce' );
     tao_formula_openai_delete_file( sanitize_text_field( $_POST['file_id'] ?? '' ) );
     wp_send_json_success();
+} );
+
+// Importa laudos da NF por MOLDE (determinístico, sem IA). Recebe o TEXTO das páginas
+// (extraído pelo pdf.js no navegador); aplica o molde do fornecedor; casa por lote; grava.
+add_action( 'wp_ajax_tao_formula_nf_laudos_molde', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    @ignore_user_abort( true ); @set_time_limit( 120 );
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $entrada_id = sanitize_text_field( $_POST['entrada_id'] ?? '' );
+    $paginas    = json_decode( wp_unslash( $_POST['paginas'] ?? '[]' ), true );
+    $laudo_url  = esc_url_raw( $_POST['laudo_url'] ?? '' );
+    if ( ! $cliente_id || ! $entrada_id || ! is_array( $paginas ) || ! $paginas ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+
+    $rc = tao_formula_api( "/estoque_entradas_nf?id=eq.$entrada_id&cliente_id=eq.$cliente_id&select=chave_nfe,fornecedor_id,cnpj_emitente&limit=1" );
+    if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( [ 'message' => 'Entrada não encontrada' ] );
+    $ent   = $rc['data'][0];
+    $chave = (string) ( $ent['chave_nfe'] ?? '' );
+    if ( ! $chave ) wp_send_json_error( [ 'message' => 'Entrada sem chave da NF (estornada?).' ] );
+
+    $md = tao_formula_laudo_molde_do_fornecedor( $cliente_id, $ent['fornecedor_id'] ?? '', $ent['cnpj_emitente'] ?? '', implode( "\n", array_slice( $paginas, 0, 2 ) ) );
+    if ( ! $md ) wp_send_json_error( [ 'code' => 'sem_molde', 'message' => 'Sem molde para este fornecedor.' ] );
+
+    $laudos = tao_formula_laudo_extrair_por_molde( $paginas, $md['regras'] ?? [] );
+    $rl     = tao_formula_api( "/lab_lotes_mp?cliente_id=eq.$cliente_id&nf_chave=eq." . rawurlencode( $chave ) . "&select=id,nr_lote" );
+    $lotes  = $rl['ok'] ? ( $rl['data'] ?? [] ) : [];
+    $norm   = function ( $s ) { return strtoupper( preg_replace( '/\s+/', '', (string) $s ) ); };
+    $set = []; foreach ( $lotes as $l ) $set[ $norm( $l['nr_lote'] ) ] = $l['id'];
+
+    $casados = 0; $fora = 0; $sem = []; $usados = [];
+    foreach ( $laudos as $d ) {
+        $lote = $norm( $d['lote'] ?? '' );
+        if ( $lote !== '' && isset( $set[ $lote ] ) ) {
+            $conf = tao_formula_laudo_aplicar_ao_lote( $cliente_id, $set[ $lote ], $laudo_url, $d );
+            $casados++; if ( $conf === false ) $fora++;
+            $usados[ $lote ] = 1;
+        } else {
+            $sem[] = ( $d['nome'] ?? '?' ) . ' (' . ( $d['lote'] ?? '?' ) . ')';
+        }
+    }
+    $lotes_sem = [];
+    foreach ( $lotes as $l ) if ( empty( $usados[ $norm( $l['nr_lote'] ) ] ) ) $lotes_sem[] = $l['nr_lote'];
+
+    wp_send_json_success( [
+        'molde' => $md['nome'] ?? '', 'laudos' => count( $laudos ), 'casados' => $casados, 'fora' => $fora,
+        'sem_molde_match' => $sem, 'lotes_sem_laudo' => $lotes_sem,
+    ] );
 } );
 
 // subdiretório dedicado p/ laudos (organiza os uploads)
