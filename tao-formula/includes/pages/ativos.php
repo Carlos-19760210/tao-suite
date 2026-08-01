@@ -5,6 +5,8 @@ function tao_formula_page_ativos() {
     if ( ! tao_formula_can_access() ) { echo '<p>Acesso negado.</p>'; return; }
 
     $cliente_id = tao_formula_cliente_id();
+    $ru_        = $cliente_id ? tao_formula_api( "/unidades_medida?cliente_id=eq.$cliente_id&ativo=eq.true&select=sigla,nome&order=dimensao.asc,fator_base.desc" ) : [ 'ok' => false ];
+    $taof_unidades = ( $ru_['ok'] ?? false ) ? ( $ru_['data'] ?? [] ) : [];
     $busca      = sanitize_text_field( $_GET['s'] ?? '' );
     $filtro_gr  = sanitize_text_field( $_GET['grupo'] ?? '' );
     $size       = intval( $_GET['size'] ?? 30 ); if ( ! in_array( $size, [ 20, 30, 50 ], true ) ) $size = 30;
@@ -434,6 +436,17 @@ function tao_formula_page_ativos() {
                     'style="width:'+w+';padding:5px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px"></div>';
             }
             function fgrid(n,items){return '<div style="display:grid;grid-template-columns:repeat('+n+',1fr);gap:10px 14px;margin-bottom:12px">'+items.join('')+'</div>';}
+            var taofUnidades = <?php echo wp_json_encode( $taof_unidades ); ?>;
+            // combo de unidade (do CRUD Unidades de Medida); fallback p/ input-texto se ainda não cadastradas
+            function selUnid(lbl,name,val){
+                val=(val===null||val===undefined?'':String(val));
+                if(!taofUnidades.length) return inp(lbl,name,val,{ph:'cadastre em Unidades de Medida'});
+                var opts='<option value="">—</option>', achou=false;
+                taofUnidades.forEach(function(u){ if(u.sigla===val)achou=true; opts+='<option value="'+escH(u.sigla)+'"'+(u.sigla===val?' selected':'')+'>'+escH(u.sigla)+(u.nome&&u.nome!==u.sigla?' — '+escH(u.nome):'')+'</option>'; });
+                if(val&&!achou) opts+='<option value="'+escH(val)+'" selected>'+escH(val)+' (não cadastrada)</option>';
+                return '<div><label style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:2px">'+lbl+'</label>' +
+                    '<select name="'+name+'" style="width:100%;padding:5px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px">'+opts+'</select></div>';
+            }
 
             function renderFormAtivo(a){
                 a = a || {};
@@ -449,8 +462,8 @@ function tao_formula_page_ativos() {
                     inp('C&oacute;digo','codigo_fc',a.codigo_fc,{ph:'ex: 10569'})
                 ]);
                 html += fgrid(3,[
-                    inp('Unidade (compra)','unidade',a.unidade,{ph:'G / ML / UN'}),
-                    inp('Unidade padr&atilde;o (venda)','unidade_padrao',a.unidade_padrao,{ph:'g / mg / ml / un'}),
+                    selUnid('Unidade (compra)','unidade',a.unidade),
+                    selUnid('Unidade padr&atilde;o (venda)','unidade_padrao',a.unidade_padrao),
                     inp('Categoria','categoria',a.categoria)
                 ]);
                 // Os 3 valores do ativo (definição Carlos): custo=mercado · compra=pago s/ frete · compra c/ frete=base de venda

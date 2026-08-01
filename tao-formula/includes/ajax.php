@@ -3698,23 +3698,93 @@ function tao_formula_parse_nfe( $xml_raw ) {
  * cadastro (ex.: KG→G, MIL→CAP/UN, L→ML). Retorna null se as unidades forem de dimensões
  * diferentes/desconhecidas (aí o chamador mantém a unidade da NF, sem converter).
  */
+// Fallback embutido (usado se a tabela unidades_medida estiver vazia) → [sigla=>['dim','f']].
+function tao_formula_unidades_fallback() {
+    $m = [];
+    foreach ( [ 'KG'=>1000.0,'G'=>1.0,'GR'=>1.0,'MG'=>0.001,'MCG'=>0.000001 ] as $s=>$f ) $m[$s]=[ 'dim'=>'massa','f'=>$f ];
+    foreach ( [ 'L'=>1000.0,'LT'=>1000.0,'ML'=>1.0 ] as $s=>$f )                            $m[$s]=[ 'dim'=>'volume','f'=>$f ];
+    foreach ( [ 'MIL'=>1000.0,'MILHEIRO'=>1000.0,'MI'=>1000.0,'MILH'=>1000.0,'UN'=>1.0,'UND'=>1.0,'UNID'=>1.0,'CAP'=>1.0,'CAPS'=>1.0,'CPR'=>1.0,'COMP'=>1.0,'PC'=>1.0 ] as $s=>$f ) $m[$s]=[ 'dim'=>'contagem','f'=>$f ];
+    return $m;
+}
+// Mapa de unidades: lê da tabela unidades_medida (CRUD); fallback embutido se vazia. Cache/request.
+function tao_formula_unidades_map( $cliente_id = null ) {
+    static $cache = [];
+    $cliente_id = $cliente_id ?: tao_formula_cliente_id();
+    $key = (string) $cliente_id;
+    if ( isset( $cache[$key] ) ) return $cache[$key];
+    $map = [];
+    if ( $cliente_id ) {
+        $r = tao_formula_api( "/unidades_medida?cliente_id=eq.$cliente_id&ativo=eq.true&select=sigla,dimensao,fator_base&limit=200" );
+        foreach ( ( $r['ok'] ? ( $r['data'] ?? [] ) : [] ) as $u ) {
+            $sig = strtoupper( trim( (string) ( $u['sigla'] ?? '' ) ) );
+            if ( $sig !== '' ) $map[ $sig ] = [ 'dim'=>$u['dimensao'] ?? '', 'f'=>(float)( $u['fator_base'] ?? 1 ) ];
+        }
+    }
+    if ( ! $map ) $map = tao_formula_unidades_fallback();
+    return $cache[$key] = $map;
+}
+// Converte $qtd de $de → $para (mesma dimensão). null se incompatível. Fatores da tabela.
 function tao_formula_conv_unid( $qtd, $de, $para ) {
     $de   = strtoupper( trim( (string) $de ) );
     $para = strtoupper( trim( (string) $para ) );
     if ( $de === '' || $para === '' ) return null;
     if ( $de === $para ) return (float) $qtd;
-    // fator para a base de cada dimensão
-    $dims = [
-        [ 'KG'=>1000.0, 'G'=>1.0, 'GR'=>1.0, 'MG'=>0.001, 'MCG'=>0.000001 ],   // massa (base g)
-        [ 'L'=>1000.0, 'LT'=>1000.0, 'ML'=>1.0 ],                               // volume (base ml)
-        [ 'MIL'=>1000.0, 'MILHEIRO'=>1000.0, 'MI'=>1000.0, 'MILH'=>1000.0, 'UN'=>1.0, 'UND'=>1.0, 'UNID'=>1.0,
-          'CAP'=>1.0, 'CAPS'=>1.0, 'CPR'=>1.0, 'COMP'=>1.0, 'PC'=>1.0 ],        // contagem (base unidade); MI = milheiro
-    ];
-    foreach ( $dims as $d ) {
-        if ( isset( $d[$de], $d[$para] ) ) return (float) $qtd * ( $d[$de] / $d[$para] );
-    }
-    return null;   // dimensões incompatíveis (ex.: CX/FR/PT sem fração conhecida)
+    $map = tao_formula_unidades_map();
+    if ( isset( $map[$de], $map[$para] ) && $map[$de]['dim'] === $map[$para]['dim'] && $map[$para]['f'] != 0.0 )
+        return (float) $qtd * ( $map[$de]['f'] / $map[$para]['f'] );
+    return null;   // dimensões incompatíveis (ex.: LT→G) ou unidade desconhecida
 }
+
+// ── CRUD de Unidades de Medida ────────────────────────────────────────────────
+add_action( 'wp_ajax_tao_formula_unidades_lista', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cli = tao_formula_cliente_id();
+    $r = tao_formula_api( "/unidades_medida?cliente_id=eq.$cli&select=id,sigla,nome,dimensao,fator_base,ativo&order=dimensao.asc,fator_base.desc" );
+    wp_send_json_success( $r['ok'] ? ( $r['data'] ?? [] ) : [] );
+} );
+add_action( 'wp_ajax_tao_formula_unidade_salvar', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cli  = tao_formula_cliente_id();
+    $id   = sanitize_text_field( $_POST['id'] ?? '' );
+    $sig  = strtoupper( trim( sanitize_text_field( $_POST['sigla'] ?? '' ) ) );
+    $nome = trim( sanitize_text_field( $_POST['nome'] ?? '' ) );
+    $dim  = sanitize_text_field( $_POST['dimensao'] ?? '' );
+    $fat  = (float) str_replace( ',', '.', (string) ( $_POST['fator_base'] ?? '1' ) );
+    $ativo = ( $_POST['ativo'] ?? '1' ) === '1';
+    if ( ! $cli || $sig === '' || ! in_array( $dim, [ 'massa','volume','contagem' ], true ) || $fat <= 0 ) wp_send_json_error( [ 'message' => 'Sigla, dimensão e fator (>0) são obrigatórios.' ] );
+    $body = [ 'sigla'=>$sig, 'nome'=>$nome ?: $sig, 'dimensao'=>$dim, 'fator_base'=>$fat, 'ativo'=>$ativo ];
+    if ( $id ) $r = tao_formula_api( "/unidades_medida?id=eq.$id&cliente_id=eq.$cli", 'PATCH', $body, [ 'Prefer'=>'return=representation' ] );
+    else { $body['cliente_id']=$cli; $r = tao_formula_api( '/unidades_medida', 'POST', $body, [ 'Prefer'=>'return=representation' ] ); }
+    ( $r['ok'] ) ? wp_send_json_success( $r['data'][0] ?? [] ) : wp_send_json_error( [ 'message' => 'Erro (sigla duplicada?): ' . mb_substr( (string)( $r['raw'] ?? '' ), 0, 160 ) ] );
+} );
+add_action( 'wp_ajax_tao_formula_unidade_excluir', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cli = tao_formula_cliente_id(); $id = sanitize_text_field( $_POST['id'] ?? '' );
+    if ( ! $cli || ! $id ) wp_send_json_error( [ 'message' => 'id' ] );
+    tao_formula_api( "/unidades_medida?id=eq.$id&cliente_id=eq.$cli", 'DELETE' );
+    wp_send_json_success();
+} );
+// Semeia as unidades padrão (o que faltar) a partir do fallback embutido.
+add_action( 'wp_ajax_tao_formula_unidades_seed', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cli = tao_formula_cliente_id();
+    $nomes = [ 'KG'=>'Quilograma','G'=>'Grama','GR'=>'Grama','MG'=>'Miligrama','MCG'=>'Micrograma','L'=>'Litro','LT'=>'Litro','ML'=>'Mililitro','MIL'=>'Milheiro','MILHEIRO'=>'Milheiro','MI'=>'Milheiro','MILH'=>'Milheiro','UN'=>'Unidade','UND'=>'Unidade','UNID'=>'Unidade','CAP'=>'Cápsula','CAPS'=>'Cápsula','CPR'=>'Comprimido','COMP'=>'Comprimido','PC'=>'Peça' ];
+    $fb = tao_formula_unidades_fallback();
+    $ex = tao_formula_api( "/unidades_medida?cliente_id=eq.$cli&select=sigla" );
+    $tem = []; foreach ( ( $ex['ok'] ? ( $ex['data'] ?? [] ) : [] ) as $u ) $tem[ strtoupper( $u['sigla'] ) ] = 1;
+    $rows = [];
+    foreach ( $fb as $sig=>$d ) if ( empty( $tem[$sig] ) ) $rows[] = [ 'cliente_id'=>$cli, 'sigla'=>$sig, 'nome'=>$nomes[$sig] ?? $sig, 'dimensao'=>$d['dim'], 'fator_base'=>$d['f'], 'ativo'=>true ];
+    if ( $rows ) tao_formula_api( '/unidades_medida', 'POST', $rows );
+    wp_send_json_success( [ 'criadas' => count( $rows ) ] );
+} );
 
 add_action( 'wp_ajax_tao_formula_nf_upload', function () {
     while ( ob_get_level() > 0 ) ob_end_clean();
@@ -3807,6 +3877,7 @@ add_action( 'wp_ajax_tao_formula_nf_upload', function () {
     unset( $it );
 
     $nfe['fornecedor'] = $forn;
+    $nfe['unidades']   = tao_formula_unidades_map( $cliente_id );   // mapa p/ o recálculo ao vivo no front
     wp_send_json_success( $nfe );
 } );
 

@@ -31,6 +31,7 @@ require_once TAOF_PLUGIN_DIR . 'includes/pages/prescritores.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/fornecedores.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/estoque-nf.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/estoque-laudo-modelos.php';
+require_once TAOF_PLUGIN_DIR . 'includes/pages/unidades-medida.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/estoque-lotes.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/estoque-inventario.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/estoque-reposicao.php';
@@ -66,6 +67,7 @@ add_action( 'admin_menu', function() {
     add_submenu_page( 'tao-formula', 'Contas a Pagar',       'Contas a Pagar',       'read', 'tao-formula-contas-pagar', 'tao_formula_page_contas_pagar' );
     add_submenu_page( 'tao-formula', 'Controlados / SNGPC',  'Controlados / SNGPC',  'read', 'tao-formula-sngpc',      'tao_formula_page_sngpc' );
     add_submenu_page( 'tao-formula', 'Formas Farmacêuticas', 'Formas Farmacêuticas', 'read', 'tao-formula-formas',    'tao_formula_page_formas' );
+    add_submenu_page( 'tao-formula', 'Unidades de Medida',   'Unidades de Medida',   'read', 'tao-formula-unidades',  'tao_formula_page_unidades_medida' );
     add_submenu_page( 'tao-formula', 'Ativos',               'Ativos',               'read', 'tao-formula-ativos',    'tao_formula_page_ativos' );
     add_submenu_page( 'tao-formula', 'Sinônimos',            'Sinônimos',            'read', 'tao-formula-sinonimos', 'tao_formula_page_sinonimos' );
     add_submenu_page( 'tao-formula', 'Configurações',        'Configurações',        'read', 'tao-formula-config',    'tao_formula_page_config' );
