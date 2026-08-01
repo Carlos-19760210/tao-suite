@@ -816,5 +816,32 @@ window.taoCrm = <?php echo wp_json_encode( [
 </script>
 <script src="<?php echo esc_url( TAO_CRM_URL . 'assets/crm-script.js' ); ?>?v=<?php echo @filemtime( TAO_CRM_DIR . 'assets/crm-script.js' ); ?>"></script>
 <?php endif; ?>
+<script>
+/* Guardião de alterações não salvas — avisa antes de sair da tela com edição pendente.
+   Marca "sujo" só campos DENTRO de um <form> (edição); filtros/buscas soltos não contam.
+   Some ao salvar/submeter. Telas com AJAX podem chamar window.taoFormLimpo() após salvar. */
+(function(){
+    var sujo = false;
+    function ehCampo(t){
+        if ( ! t || ! t.matches ) return false;
+        if ( ! t.matches('input,select,textarea') ) return false;
+        if ( t.matches('[data-nodirty],[type=hidden],[type=submit],[type=button],[type=search],[type=file],[readonly],[disabled]') ) return false;
+        var f = t.closest('form'); if ( ! f || f.hasAttribute('data-nodirty') ) return false;  // só formulários de edição
+        return true;
+    }
+    document.addEventListener('input',  function(e){ if ( ehCampo(e.target) ) sujo = true; }, true);
+    document.addEventListener('change', function(e){ if ( ehCampo(e.target) ) sujo = true; }, true);
+    document.addEventListener('submit', function(){ sujo = false; }, true);
+    document.addEventListener('click', function(e){
+        var b = e.target.closest && e.target.closest('button,input[type=submit],a.button,.button');
+        if ( ! b ) return;
+        var txt = ( (b.textContent||'') + ' ' + (b.value||'') ).toLowerCase();
+        if ( b.classList.contains('button-primary') || /salv|grav|efetiv|confirm|aplicar|import|cadastr|adicion/.test(txt) ) setTimeout(function(){ sujo = false; }, 0);
+    }, true);
+    window.taoFormLimpo = function(){ sujo = false; };
+    window.taoFormSujo  = function(){ return sujo; };
+    window.addEventListener('beforeunload', function(e){ if ( sujo ) { e.preventDefault(); e.returnValue = ''; return ''; } });
+})();
+</script>
 </body>
 </html>
