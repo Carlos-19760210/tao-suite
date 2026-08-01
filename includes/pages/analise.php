@@ -542,6 +542,7 @@ function tao_crm_page_analise() {
         // handler tao_crm_relatorio_dataset): grão card (todos os campos + personalizados)
         // e grão item (repete o card por ativo). META é dinâmico (colunas do relatório).
         var VIEWS_CARDS={
+            composicao:{label:'💰 Composição de valor (por card)',slice:{rows:[{uniqueName:'Card'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Valor (R$)','brl'),Mm('Custo Ativos (R$)','brl'),Mm('Venda Ativos (R$)','brl'),Mm('Custo Fixo Forma (R$)','brl'),Mm('Valor de Ajuste (R$)','brl')]}},
             conheceu:{label:'📣 Como nos conheceu',slice:{rows:[{uniqueName:'Como nos Conheceu'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Cards','int'),Mm('Valor (R$)','brl')]}},
             resp:{label:'👤 Responsável',slice:{rows:[{uniqueName:'Responsável'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Cards','int'),Mm('Valor (R$)','brl')]}},
             funil:{label:'🚦 Funil → Fase',slice:{rows:[{uniqueName:'Funil'},{uniqueName:'Fase'}],columns:[{uniqueName:'[Measures]'}],measures:[Mm('Cards','int'),Mm('Valor (R$)','brl')]}},
@@ -565,7 +566,7 @@ function tao_crm_page_analise() {
             .then(function(r){return r.text();}).then(function(t){ var i=t.indexOf('{'),j; try{ j=JSON.parse(i>0?t.slice(i):t); }catch(e){ setMsg('⚠ Erro ao carregar o cubo do relatório.'); return; }
                 if(!j||!j.success){ setMsg('⚠ '+((j&&j.data)||'Falha ao gerar.')); return; }
                 var cols=j.data.colunas||[], rows=j.data.rows||[];
-                var numCols={'Valor (R$)':1,'Qtd (g)':1,'Custo Ativo (R$)':1,'Venda Ativo (R$)':1};
+                var numCols={'Valor (R$)':1,'Qtd (g)':1,'Custo Ativo (R$)':1,'Venda Ativo (R$)':1,'Custo Ativos (R$)':1,'Venda Ativos (R$)':1,'Custo Fixo Forma (R$)':1,'Valor de Ajuste (R$)':1};
                 var measure = key==='itens'?'Itens':'Cards';
                 var meta={}; cols.forEach(function(c){ meta[c]={type: numCols[c]?'number':'string'}; }); meta[measure]={type:'number'};
                 var data=[meta];

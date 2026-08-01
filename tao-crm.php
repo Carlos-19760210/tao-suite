@@ -6589,15 +6589,18 @@ add_action( 'wp_ajax_tao_crm_relatorio_dataset', function () {
 
     // GRÃO POR ITEM: explode cada card em seus ativos (orcamentos.itens, JSONB) → a linha
     // do card se repete por ativo. Dedupe: só a última versão por requisição (evita revisões).
+    // Também agrega POR CARD a composição de valor (custo/venda dos ativos + custo fixo da
+    // forma) das colunas do grão card. Ambos derivam dos orçamentos deduplicados.
     $itens_por_card = [];
-    if ( $grao === 'item' && $card_ids ) {
+    $compo_por_card = [];   // card_id => [ custo_ativos, venda_ativos, custo_fixo_forma ]
+    if ( $card_ids ) {
         // Custo/g = valor de compra do cadastro (ativos.preco_compra); fallback custo do item.
         $rwc = tao_crm_api( "/crm_workspaces?id=eq.$ws&select=cliente_id&limit=1" );
         $cli = ( $rwc['ok'] && ! empty( $rwc['data'] ) ) ? ( $rwc['data'][0]['cliente_id'] ?? '' ) : '';
         $pc_por_code = tao_crm_precos_compra( $cli );
         $best = [];
         foreach ( array_chunk( $card_ids, 100 ) as $chunk ) {
-            $ro = tao_crm_api( "/orcamentos?card_id=in.(" . implode( ',', $chunk ) . ")&select=id,card_id,numero_orcamento,forma_nome,criado_em,itens&order=criado_em.desc&limit=10000" );
+            $ro = tao_crm_api( "/orcamentos?card_id=in.(" . implode( ',', $chunk ) . ")&select=id,card_id,numero_orcamento,forma_nome,criado_em,custo_fixo_aplicado,itens&order=criado_em.desc&limit=10000" );
             foreach ( ( $ro['ok'] ? ( $ro['data'] ?? [] ) : [] ) as $o ) {
                 $num = (string) ( $o['numero_orcamento'] ?? '' ); $posd = strrpos( $num, '-' );
                 $base_n = ( $posd !== false ) ? substr( $num, 0, $posd ) : $num;
@@ -6607,19 +6610,23 @@ add_action( 'wp_ajax_tao_crm_relatorio_dataset', function () {
             }
         }
         foreach ( $best as $x ) {
-            $o   = $x['o'];
-            $its = is_string( $o['itens'] ?? null ) ? json_decode( $o['itens'], true ) : ( $o['itens'] ?? [] );
+            $o    = $x['o'];
+            $cido = $o['card_id'] ?? '';
+            $its  = is_string( $o['itens'] ?? null ) ? json_decode( $o['itens'], true ) : ( $o['itens'] ?? [] );
             if ( ! is_array( $its ) ) $its = [];
+            if ( ! isset( $compo_por_card[ $cido ] ) ) $compo_por_card[ $cido ] = [ 0.0, 0.0, 0.0 ];
+            $compo_por_card[ $cido ][2] += (float) ( $o['custo_fixo_aplicado'] ?? 0 );   // custo fixo da forma (por orçamento)
             foreach ( $its as $it ) {
                 if ( ( $it['tipo'] ?? 'mp' ) !== 'mp' ) continue;
                 $nome_at = $it['nome'] ?: ( $it['nome_prescricao'] ?? '' );
                 if ( ! $nome_at ) continue;   // excipiente base É considerado (faz parte da fórmula)
-                // Custo/g = valor de compra (cadastro), fallback custo do item; subtotal = venda total.
                 $q_g   = (float) ( $it['qtd_total_g'] ?? 0 );
                 $cst_g = $pc_por_code[ tao_crm_ncod_fc( $it['codigo_fc'] ?? '' ) ] ?? (float) ( $it['custo_por_unidade'] ?? 0 );
                 $cst_t = $cst_g * $q_g;                     // custo total = valor de compra × qtd
                 $vnd_t = (float) ( $it['subtotal'] ?? 0 );  // venda total do ativo
-                $itens_por_card[ $o['card_id'] ][] = [
+                $compo_por_card[ $cido ][0] += $cst_t;
+                $compo_por_card[ $cido ][1] += $vnd_t;
+                if ( $grao === 'item' ) $itens_por_card[ $cido ][] = [
                     $o['numero_orcamento'] ?? '', $o['forma_nome'] ?? '', $demoji( $nome_at ),
                     round( $q_g, 4 ), round( $cst_t, 2 ), round( $vnd_t, 2 ),
                 ];
@@ -6632,6 +6639,7 @@ add_action( 'wp_ajax_tao_crm_relatorio_dataset', function () {
                  'Criado em','Movido em' ];
     foreach ( $campos as $cf ) $colunas[] = $cf['nome'];
     if ( $grao === 'item' ) array_push( $colunas, 'OM','Forma Farmac.','Ativo','Qtd (g)','Custo Ativo (R$)','Venda Ativo (R$)' );
+    else array_push( $colunas, 'Custo Ativos (R$)','Venda Ativos (R$)','Custo Fixo Forma (R$)','Valor de Ajuste (R$)' );   // composição de valor
 
     $fmt_dt = function ( $s ) { if ( ! $s ) return ''; $t = strtotime( $s ); return $t ? gmdate( 'd/m/Y H:i', $t ) : ''; };
     $rows = [];
@@ -6673,7 +6681,9 @@ add_action( 'wp_ajax_tao_crm_relatorio_dataset', function () {
         ];
         foreach ( $campos as $cf ) $row[] = $valpiv[ $cid ][ $cf['id'] ] ?? '';
         if ( $grao === 'card' ) {
-            $rows[] = $row;
+            $comp   = $compo_por_card[ $cid ] ?? [ 0.0, 0.0, 0.0 ];
+            $ajuste = (float) ( $c['valor_oportunidade'] ?? 0 ) - ( $comp[1] + $comp[2] );   // venda card − (venda ativos + custo fixo)
+            $rows[] = array_merge( $row, [ round( $comp[0], 2 ), round( $comp[1], 2 ), round( $comp[2], 2 ), round( $ajuste, 2 ) ] );
         } else {
             $its = $itens_por_card[ $cid ] ?? [];
             if ( ! $its ) { $rows[] = array_merge( $row, [ '', '', '', '', '', '' ] ); }  // card sem ativo = 1 linha
