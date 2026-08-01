@@ -34,7 +34,7 @@ function tao_formula_page_unidades_medida() {
     </div>
 
     <script>
-    (function($){
+    jQuery(function($){
         var ajaxUrl=taoFormula.ajaxUrl, nonce=taoFormula.nonce;
         function esc(s){ return String(s==null?'':s).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];}); }
         function limpar(){ $('#um-id').val(''); $('#um-sigla').val(''); $('#um-nome').val(''); $('#um-dim').val('massa'); $('#um-fator').val('1'); $('#um-ativo').prop('checked',true);
@@ -72,7 +72,7 @@ function tao_formula_page_unidades_medida() {
         $(document).on('click','.um-del',function(e){ e.preventDefault(); if(!confirm('Excluir esta unidade?'))return;
             $.post(ajaxUrl,{action:'tao_formula_unidade_excluir',nonce:nonce,id:$(this).data('id')},function(){ carregar(); }); });
         carregar();
-    })(jQuery);
+    });
     </script>
     <?php
 }

@@ -47,7 +47,7 @@ function tao_formula_page_laudo_modelos() {
     </div>
 
     <script>
-    (function($){
+    jQuery(function($){
         var ajaxUrl = taoFormula.ajaxUrl, nonce = taoFormula.nonce;
         var pdfPags = null;   // texto das páginas do PDF em análise
         function esc(s){ return String(s==null?'':s).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];}); }
@@ -134,7 +134,7 @@ function tao_formula_page_laudo_modelos() {
         $(document).on('click','.lm-del',function(){ if(!confirm('Excluir este molde?'))return;
             $.post(ajaxUrl,{action:'tao_formula_laudo_molde_excluir',nonce:nonce,id:$(this).data('id')},function(){ carregarLista(); }); });
         carregarLista();
-    })(jQuery);
+    });
     </script>
     <?php
 }
