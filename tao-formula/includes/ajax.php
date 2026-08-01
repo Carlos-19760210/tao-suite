@@ -4345,6 +4345,69 @@ function tao_formula_laudo_aplicar_ao_lote( $cliente_id, $lote_id, $laudo_url, $
     return $conf;
 }
 
+// ── Extração DETERMINÍSTICA por MOLDE do fornecedor (sem IA) ──────────────────
+// Data BR (dd/mm/aaaa) → ISO (aaaa-mm-dd); '' se não casar.
+function tao_formula_laudo_data_iso( $s ) {
+    if ( preg_match( '#(\d{2})/(\d{2})/(\d{4})#', (string) $s, $m ) ) return "{$m[3]}-{$m[2]}-{$m[1]}";
+    return '';
+}
+// Compila um regex do molde de forma segura (delimitador # escapado, unicode).
+function tao_formula_laudo_rx( $pat ) { return '#' . str_replace( '#', '\#', (string) $pat ) . '#u'; }
+// Separa as páginas em N laudos conforme o molde (split_inicio = regex da página que inicia
+// um novo laudo). Sem multi_ativo → 1 laudo (todas as páginas juntas).
+function tao_formula_laudo_split_paginas( array $paginas, array $molde ) {
+    if ( empty( $molde['multi_ativo'] ) || empty( $molde['split_inicio'] ) ) return [ implode( "\n", $paginas ) ];
+    $rx = tao_formula_laudo_rx( $molde['split_inicio'] );
+    $laudos = []; $cur = null;
+    foreach ( $paginas as $t ) {
+        $inicio = @preg_match( $rx, $t );
+        if ( $inicio || $cur === null ) { if ( $inicio && $cur !== null ) $laudos[] = $cur; $cur = $t; }
+        else $cur .= "\n" . $t;
+    }
+    if ( $cur !== null ) $laudos[] = $cur;
+    return $laudos;
+}
+// Extrai os campos de UM laudo (texto) conforme o molde → objeto $d (formato de aplicar_ao_lote).
+function tao_formula_laudo_extrair_campos( $texto, array $molde ) {
+    $d = [];
+    foreach ( ( $molde['campos'] ?? [] ) as $campo => $rule ) {
+        $rx   = is_array( $rule ) ? ( $rule['regex'] ?? '' ) : $rule;
+        $tipo = is_array( $rule ) ? ( $rule['tipo'] ?? '' ) : '';
+        if ( ! $rx ) continue;
+        if ( @preg_match( tao_formula_laudo_rx( $rx ), $texto, $m ) && isset( $m[1] ) ) {
+            $v = trim( $m[1] );
+            if ( $tipo === 'data_br' )   $v = tao_formula_laudo_data_iso( $v );
+            elseif ( $tipo === 'num' )   $v = (float) str_replace( ',', '.', preg_replace( '/[^\d,\.]/', '', $v ) );
+            $d[ $campo ] = $v;
+        }
+    }
+    return $d;
+}
+// Extrai TODOS os laudos das páginas conforme o molde → array de objetos $d.
+function tao_formula_laudo_extrair_por_molde( array $paginas, array $molde ) {
+    $out = [];
+    foreach ( tao_formula_laudo_split_paginas( $paginas, $molde ) as $txt ) {
+        $d = tao_formula_laudo_extrair_campos( $txt, $molde );
+        if ( ! empty( $d['nome'] ) || ! empty( $d['lote'] ) ) $out[] = $d;
+    }
+    return $out;
+}
+// Busca o molde ativo do fornecedor (por id ou CNPJ). Se houver >1, tenta a assinatura no texto.
+function tao_formula_laudo_molde_do_fornecedor( $cliente_id, $fornecedor_id, $cnpj, $texto_amostra = '' ) {
+    $q = "/laudo_modelos?cliente_id=eq.$cliente_id&ativo=eq.true&select=*&order=criado_em.desc";
+    $filtros = [];
+    if ( $fornecedor_id ) $filtros[] = "fornecedor_id=eq.$fornecedor_id";
+    if ( $cnpj )          $filtros[] = "fornecedor_cnpj=eq." . preg_replace( '/\D/', '', $cnpj );
+    if ( ! $filtros ) return null;
+    $r = tao_formula_api( $q . '&or=(' . implode( ',', $filtros ) . ')' );
+    $moldes = ( $r['ok'] ? ( $r['data'] ?? [] ) : [] );
+    if ( ! $moldes ) return null;
+    if ( count( $moldes ) > 1 && $texto_amostra ) {
+        foreach ( $moldes as $md ) if ( ! empty( $md['assinatura'] ) && mb_stripos( $texto_amostra, $md['assinatura'] ) !== false ) return $md;
+    }
+    return $moldes[0];
+}
+
 add_action( 'wp_ajax_tao_formula_lote_laudo_upload', function () {
     while ( ob_get_level() > 0 ) ob_end_clean();
     check_ajax_referer( 'tao_formula_nonce', 'nonce' );
