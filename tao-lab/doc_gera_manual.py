@@ -7,8 +7,8 @@ from docx.shared import Pt, Cm, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from manual_cap_card import capitulo_card
 
-PRINTS = r"C:\Users\carlo\AppData\Local\Temp\claude\C--Users-carlo\fc46e316-08dd-4693-9e35-805a6cb6dffe\scratchpad\prints"
-OUT    = r"C:\Users\carlo\Manual_Usuario_TAO_Lab_v6.docx"
+PRINTS = os.environ.get("MAN_PRINTS", r"C:\Users\carlo\AppData\Local\Temp\claude\C--Users-carlo\cc1c8537-9fba-44a3-9e06-a41e1fb91f1d\scratchpad\prints")
+OUT    = os.environ.get("MAN_OUT", r"C:\Users\carlo\Manual_Usuario_TAO_Lab_v7.docx")
 AZUL   = RGBColor(0x1e, 0x40, 0xaf)
 CINZA  = RGBColor(0x64, 0x74, 0x8b)
 
@@ -59,9 +59,9 @@ r = t.add_run('\n\n\nManual do Usuário'); r.bold = True; r.font.size = Pt(32); 
 s = doc.add_paragraph(); s.alignment = WD_ALIGN_PARAGRAPH.CENTER
 r = s.add_run('TAO Lab — Farmácia de Manipulação'); r.font.size = Pt(18)
 s2 = doc.add_paragraph(); s2.alignment = WD_ALIGN_PARAGRAPH.CENTER
-r = s2.add_run('Cadastros · Orçamento · Estoque · Produção · Controlados · RDC 67'); r.font.size = Pt(13); r.font.color.rgb = CINZA
+r = s2.add_run('Cadastros · Orçamento · Estoque · Produção · Laudos · Controlados · RDC 67'); r.font.size = Pt(13); r.font.color.rgb = CINZA
 d = doc.add_paragraph(); d.alignment = WD_ALIGN_PARAGRAPH.CENTER
-r = d.add_run('\nAcesso: portal solucoesetao.com.br/robos → menu Fórmulas\nVersão de 09/07/2026'); r.font.size = Pt(11)
+r = d.add_run('\nAcesso: portal solucoesetao.com.br/robos → menu Fórmulas\nVersão v7 — 02/08/2026'); r.font.size = Pt(11)
 doc.add_page_break()
 
 h1('Apresentação')
@@ -319,6 +319,14 @@ passo('Confira o número do lote e a validade de cada item (vêm do XML quando d
 passo('Escolha o destino do valor de cada item: Compra (padrão, atualiza o preço de compra), Custo ou Ambos.')
 passo('Clique em "Efetivar": cria os lotes, lança o estoque, atualiza os preços e gera as contas a pagar.')
 nota('Depois de efetivar, os lotes entram em quarentena — aprove-os em Lotes (cap. 9) — e as duplicatas da nota vão para Contas a Pagar (cap. 13). O de-para (código do fornecedor → ativo) é aprendido uma vez: nas próximas notas do mesmo fornecedor o item já vem associado.')
+h3('Unidades de medida (padronização)')
+para('As unidades de compra e venda do ativo saem de um cadastro único (Cadastros → Unidades de Medida, cap. 24) — combo, não texto livre. É o que permite a conversão automática da quantidade da nota para a unidade do estoque (ex.: 1 KG da NF vira 1000 g no lote). Se a NF trouxer uma unidade não cadastrada, o item avisa para você padronizar.')
+h3('Importar os laudos da NF (Certificados de Análise)')
+para('Ainda na entrada, o botão "📎 Importar laudos da NF" traz os Certificados de Análise dos insumos daquela nota — de uma vez, vários PDFs.')
+passo('Selecione um ou vários PDFs de laudo e clique em "Analisar laudos".')
+passo('O sistema lê cada laudo pelo MOLDE do fornecedor (leitura automática, sem IA — ver cap. 14) e monta a lista de conferência: qual laudo casa com qual lote da NF, com um selo (✅ casou por lote · 🔵 por nome · ⚠ ambíguo · ❌ escolha manual).')
+passo('A farmacêutica confere a lista, ajusta o lote de destino no que estiver ambíguo, e só então clica em "Confirmar e importar" — aí os dados do laudo entram no lote e o PDF fica arquivado.')
+nota('Nada é gravado antes da confirmação da farmacêutica. É ela quem dá o OK final do casamento laudo → lote.')
 
 # ══════════ 9. ESTOQUE — LOTES ══════════
 doc.add_page_break(); h1('9. Estoque — Lotes')
@@ -334,6 +342,12 @@ passo('A tela mostra o saldo de cada lote; os que vencem em menos de 90 dias apa
 passo('Botão ⚖ (ajuste avulso): informe a quantidade real contada de um lote — o sistema gera o ajuste e registra quem fez e quando. (Para contagem geral, use o Inventário, cap. 15.)')
 passo('Botão ↔ (kardex): abre o extrato de todas as entradas e saídas daquele produto, para conferência.')
 nota('Só lotes aprovados e dentro da validade aparecem para uso na pesagem da produção — e o de vencimento mais próximo é sugerido primeiro (FEFO).')
+h3('Escolha automática do lote (FEFO + lote em uso)')
+para('Na produção, o sistema escolhe o lote sozinho — você não precisa selecionar a cada OM. A regra espelha o sistema legado:')
+passo('Prioriza o lote LIBERADO (aprovado) que já está "em uso" (frasco aberto) — para terminar o que já foi aberto antes de abrir outro.')
+passo('Não havendo lote em uso, pega o de VALIDADE mais próxima (FEFO), entre os liberados com saldo.')
+passo('Lote bloqueado/em quarentena nunca é escolhido. O operador ainda pode trocar manualmente, se precisar.')
+nota('O controle de lote é ligado por produto: no cadastro do ativo (cap. 2) há a opção "Controla lote". Ligada (padrão), o produto é rastreado por lote e entra nessa escolha automática.')
 
 # ══════════ 10. ESTOQUE — REPOSIÇÃO ══════════
 doc.add_page_break(); h1('10. Estoque — Reposição')
@@ -354,7 +368,7 @@ para('Menu Fórmulas → Produção. Onde a fórmula é produzida, com rastreabi
 imagem('producao', 'Kanban de produção')
 passo('Para gerar a OM: busque o orçamento (nº ou paciente) no topo e confirme. A OM nasce com a validade padrão da forma farmacêutica (parâmetro cadastrado em Cadastros → Formas → "Validade padrão (dias)") e já herda o "Modo de preparo" daquela forma.')
 passo('As OMs aparecem no kanban por etapa (Conferência → Pesagem → … → Entregue).')
-passo('Abra a OM: aparece a FICHA DE PESAGEM (ver detalhe abaixo). Informe a quantidade pesada de cada componente e escolha o lote usado — só lotes aprovados; o de validade mais próxima vem sugerido.')
+passo('Abra a OM: aparece a FICHA DE PESAGEM (ver detalhe abaixo). O sistema JÁ vem com o lote escolhido de cada componente (ver "escolha automática", cap. 9) — o selo "✓ escolhido pelo sistema" indica se foi por FEFO ou por lote em uso. Informe a quantidade pesada de cada componente; troque o lote só se precisar.')
 passo('Confira o "Modo de preparo / precauções" (herdado da forma) e ajuste se esta preparação exigir cuidado específico; Salvar.')
 passo('Mova a OM pelas etapas. Ao concluir (etapa final), o estoque é baixado dos lotes pesados e a VALIDADE é recalculada: passa a ser a MENOR entre o prazo da forma e a validade do lote usado — se o lote reduzir a validade, um alerta é exibido (regra RDC 67 / VALIDADELOTE do FCerta).')
 passo('Botão "🖨 Ficha de Pesagem": abre a ficha imprimível para a bancada. Botão "🏷 Rótulo (RDC 67)": abre o rótulo pronto para impressão, já com a validade correta.')
@@ -370,7 +384,8 @@ tabela_campos([
 ])
 nota('REGRA de nomes (importante): a FICHA DE PESAGEM usa o ativo ORIGEM (o produto que se pesa); já o ORÇAMENTO e o RÓTULO usam a DESCRIÇÃO DA PRESCRIÇÃO (o que foi prescrito, muitas vezes um sinônimo — o cliente reconhece). São documentos com públicos diferentes.')
 nota('Controlados (Portaria 344/98): se a OM tiver componente controlado, aparece o bloco "🔒 Receita controlada" — a OM NÃO conclui sem tipo de receita, nº da notificação, comprador e prescritor. Esses dados alimentam a escrituração automática no SNGPC.')
-nota('A escolha do lote em cada componente é o que garante a rastreabilidade: lote de MP → OM → paciente. A baixa de estoque é feita uma única vez por OM.')
+nota('A escolha do lote em cada componente é o que garante a rastreabilidade: lote de MP → OM → paciente. A baixa de estoque é feita uma única vez por OM, no momento da CONCLUSÃO — ao gerar a OM e pesar o insumo, o estoque ainda NÃO cai; só cai quando a OM é concluída (etapa final).')
+nota('Recálculo pela pesagem do lote (opcional): quando ligada a chave "Recalcular pesagem pelo lote" (Configurações de Fórmulas), a Qtd a Pesar é ajustada pelo teor/fator REAIS do lote escolhido — mostra o "antes → depois" e reflete na ficha. Desligada, usa o teor do cadastro. Não altera o cálculo do orçamento.')
 
 imagem('ficha_pesagem_exemplo', 'Exemplo de Ficha de Pesagem — cápsulas, 60 unidades (com as correções de teor, equivalência e diluição)')
 
@@ -433,6 +448,14 @@ passo('Em Estoque → Lotes, clique no botão de Laudo (📎) do lote.')
 passo('Informe o nº do certificado/laudo e anexe o arquivo (PDF, JPG ou PNG).')
 passo('O ícone passa a 📄; dá para reabrir e ver o laudo a qualquer momento.')
 nota('Os laudos ficam arquivados e rastreáveis por lote — atende à exigência de guarda do laudo de análise.')
+
+h3('Modelos de Laudo — leitura automática (IA só na 1ª vez)')
+para('Menu Fórmulas → Estoque — Modelos de Laudo. Em vez de digitar cada laudo, o sistema APRENDE o layout de cada fornecedor uma única vez e depois lê os laudos sozinho, sem IA.')
+imagem('laudo_modelos', 'Modelos de Laudo — a IA propõe o layout do fornecedor')
+passo('Na 1ª vez de um fornecedor: selecione-o, suba um PDF de laudo de exemplo e clique em "Analisar laudo (IA propõe o molde)".')
+passo('A IA identifica os rótulos (produto, lote, validade, fabricante, ensaios…) e monta o molde. Você revisa/ajusta e vê a prévia do que será extraído.')
+passo('Salve. A partir daí, na Entrada de NF (cap. 8), os laudos daquele fornecedor são lidos automaticamente (determinístico), sem IA — só a conferência da farmacêutica.')
+nota('Um fornecedor pode ter mais de um layout (ex.: extrato vegetal e cápsula): o sistema reconhece cada um pela "assinatura" e usa o molde certo. Um layout novo → um molde novo.')
 
 # ══════════ 16. INVENTÁRIO EM MASSA ══════════
 doc.add_page_break(); h1('15. Estoque — Inventário')
@@ -520,6 +543,43 @@ h3('Sessão e conciliação')
 passo('Sessão (Caixa → Sessão): abra o caixa com o saldo inicial e feche no fim do dia — o sistema confere o esperado (dinheiro recebido) com o contado e aponta a diferença.')
 passo('Conciliação (Caixa → Conciliação): confirme o que caiu de cartão/PIX na data prevista e antecipe recebíveis quando precisar (aplica a taxa de antecipação).')
 nota('As formas de pagamento e as taxas (MDR) por operadora e faixa de parcelas são configuradas em Configuração → TAO Caixa.')
+
+# ══════════ 23. VALOR DO ESTOQUE ══════════
+doc.add_page_break(); h1('23. Estoque — Valor do Estoque')
+para('Menu Fórmulas → Estoque — Valor do Estoque. A foto financeira do estoque: quanto vale o saldo de cada produto, a custo, a preço de compra e a preço de venda.')
+imagem('valor_estoque', 'Valor do Estoque — valorização por produto (editável)')
+para('Cada linha traz o saldo do produto (lotes com estoque) multiplicado pelos seus valores unitários. Cada total bate com o seu unitário: Custo total = custo unit × qtde; Compra total = compra unit × qtde; Venda total = venda unit × qtde.')
+tabela_campos([
+ ('Filtro Grupo', False, 'Matéria-prima, embalagem ou todos.'),
+ ('Filtro Status do lote', False, 'Todos (estoque físico) · Só liberados · Em quarentena.'),
+ ('Custo unit / total', False, 'Custo de mercado do cadastro. Em cinza quando o custo não foi cadastrado (custo total = 0).'),
+ ('Compra unit / total', False, 'Último preço de compra pago — é a base do "Valor do estoque".'),
+ ('Venda unit / total', False, 'Preço de venda do cadastro.'),
+])
+passo('Os cards do topo somam: Valor a custo, Valor do estoque (a compra), Valor a venda e a Margem potencial.')
+passo('Os valores unitários são EDITÁVEIS direto na tabela — digite e saia do campo; grava no cadastro do ativo e os totais recalculam na hora (verde = salvo).')
+nota('A tela também "denuncia" preços errados do cadastro (ex.: um item com venda igual ao custo, ou um valor absurdo por grama que deveria ser por litro/frasco) — corrija ali mesmo.')
+
+# ══════════ 24. CERTIFICADOS / LAUDOS ══════════
+doc.add_page_break(); h1('24. Estoque — Certificados / Laudos')
+para('Menu Fórmulas → Estoque — Certificados / Laudos. Consulta os laudos importados por lote e EMITE o Certificado de Análise da farmácia (RDC 67) a partir do laudo do fornecedor.')
+imagem('certificados', 'Certificados / Laudos — consulta e emissão')
+passo('Busque por ativo, lote ou fabricante; filtre por resultado (Aprovado/Reprovado).')
+passo('Clique em "ver / certificado" para abrir os dados extraídos do laudo (produto, lote, validade, fabricante, ensaios) e o PDF do fornecedor.')
+passo('Botão "📄 Gerar Certificado": emite o Certificado de Análise da farmácia — documento pronto para imprimir/salvar em PDF, com o cabeçalho da farmácia, os dados do lote, os ensaios, a identificação e a assinatura da responsável técnica.')
+nota('O PDF do fornecedor fica guardado em nuvem com acesso protegido (URL temporária) — atende à LGPD.')
+
+# ══════════ 25. UNIDADES DE MEDIDA ══════════
+doc.add_page_break(); h1('25. Cadastros — Unidades de Medida')
+para('Menu Cadastros → Unidades de Medida. O cadastro único das unidades usadas em compra e venda — é o que padroniza o sistema e alimenta a conversão automática na Entrada de NF.')
+imagem('unidades', 'Unidades de Medida — cadastro e fatores')
+tabela_campos([
+ ('Sigla', True, 'Ex.: KG, G, MG, L, ML, UN, CAP.'),
+ ('Dimensão', True, 'Massa, volume ou contagem — a conversão só acontece dentro da mesma dimensão.'),
+ ('Fator para a base', True, 'Quanto vale na unidade base da dimensão (massa: G=1, KG=1000; volume: ML=1, L=1000).'),
+])
+passo('Botão "⚙ Criar unidades padrão": semeia de uma vez as unidades comuns que faltarem.')
+nota('Essas unidades aparecem como combo no cadastro do ativo (compra/venda) e no módulo de Cotações — fim do texto livre, que causava erro de conversão.')
 
 # ══════════ GLOSSÁRIO ══════════
 doc.add_page_break(); h1('Glossário — termos usados no sistema')
