@@ -176,7 +176,7 @@ function tao_formula_page_producao() {
                     else if(!it.lotes.length){loteSel='<span style="color:#dc2626;font-size:11px">sem lote liberado</span>';}
                     else{loteSel='<select class="taof-pd-lote" data-it="'+it.id+'"'+baseAttrs+' style="font-size:12px;max-width:150px"><option value="">—</option>'+
                         it.lotes.map(function(l){return '<option value="'+l.id+'" data-teor="'+(l.teor_pct!=null?l.teor_pct:'')+'" data-dil="'+(l.fator_diluicao!=null?l.fator_diluicao:'')+'"'+(it.lote_mp_id===l.id?' selected':'')+'>'+esc(l.nr_lote)+' (val '+fdata(l.dt_validade)+', '+parseFloat(l.qtd_atual)+')</option>';}).join('')+'</select>'+
-                        (it.lote_auto?'<br><small style="color:#16a34a">✓ escolhido pelo sistema (FEFO)</small>':'');}
+                        (it.lote_auto?'<br><small style="color:#16a34a">✓ escolhido pelo sistema ('+(it.lotes[0]&&it.lotes[0].em_uso?'lote em uso':'FEFO')+')</small>':'');}
                     var pesar=it.eh_qsp?'QSP':(it.qtd_pesar!=null?'<strong>'+parseFloat(it.qtd_pesar)+' '+esc(it.unid_pesar||'g')+'</strong>':'—');
                     var corr=[]; if(it.teor_aplic&&it.teor_aplic!=100)corr.push('teor '+parseFloat(it.teor_aplic)+'%'); if(it.equiv_aplic&&it.equiv_aplic!=1)corr.push('equiv ×'+parseFloat(it.equiv_aplic)); if(it.diluicao_aplic&&it.diluicao_aplic!=1)corr.push('dil ×'+parseFloat(it.diluicao_aplic));
                     return '<tr><td><strong>'+esc(it.nome_ativo||it.descricao)+'</strong>'+(it.eh_qsp?' <small style="color:#94a3b8">(qsp)</small>':'')+

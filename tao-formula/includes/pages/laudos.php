@@ -41,7 +41,7 @@ function tao_formula_page_laudos() {
                 ls.forEach(function(l){
                     h+='<tr><td><b>'+esc(l.ativo_nome||l.produto_nome||'?')+'</b>'+(l.produto_nome&&l.ativo_nome?('<br><small style="color:#94a3b8">'+esc(l.produto_nome)+'</small>'):'')+'</td>'+
                        '<td>'+esc(l.nr_lote||l.lote_original||'—')+'</td><td>'+dBR(l.dt_validade)+'</td><td>'+esc(l.fabricante||'—')+'</td><td>'+pill(l.resultado)+'</td>'+
-                       '<td>'+(l.pdf_url?('<a href="'+esc(l.pdf_url)+'" target="_blank">abrir</a>'):'—')+'</td>'+
+                       '<td>'+(l.pdf_url?('<a href="'+ajaxUrl+'?action=tao_formula_laudo_pdf&nonce='+nonce+'&id='+esc(l.id)+'" target="_blank">abrir</a>'):'—')+'</td>'+
                        '<td><a href="#" class="lc-ver" data-id="'+esc(l.id)+'">ver / certificado</a></td></tr>';
                 });
                 h+='</tbody></table>';
@@ -61,7 +61,7 @@ function tao_formula_page_laudos() {
                 var h='<div style="border:1px solid #cbd5e1;border-radius:10px;padding:14px;background:#fff">'+
                     '<div style="display:flex;justify-content:space-between;align-items:start;gap:10px">'+
                     '<h2 style="margin:0">'+esc(A.nome||L.produto_nome||'Laudo')+' <small style="color:#94a3b8;font-weight:400">lote '+esc(LT.nr_lote||L.lote_original||'')+'</small></h2>'+
-                    '<div>'+(L.pdf_url?('<a class="button" href="'+esc(L.pdf_url)+'" target="_blank">📎 PDF do fornecedor</a> '):'')+
+                    '<div>'+(L.pdf_url?('<a class="button" href="'+ajaxUrl+'?action=tao_formula_laudo_pdf&nonce='+nonce+'&id='+esc(id)+'" target="_blank">📎 PDF do fornecedor</a> '):'')+
                     '<button type="button" class="button button-primary lc-cert" data-id="'+esc(id)+'">📄 Gerar Certificado</button></div></div>'+
                     '<table class="widefat" style="margin-top:10px;max-width:720px"><tbody>'+
                     linha('Produto (laudo)',L.produto_nome)+linha('Nome científico',L.nome_cientifico)+linha('Parte utilizada',L.parte_utilizada)+

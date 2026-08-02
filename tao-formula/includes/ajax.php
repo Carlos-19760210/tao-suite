@@ -4509,13 +4509,30 @@ function tao_formula_storage_ensure_bucket( $bucket ) {
     $base = rtrim( tao_formula_supabase_url(), '/' ); $key = tao_formula_supabase_key();
     if ( ! $base || ! $key ) return false;
     $h = [ 'apikey' => $key, 'Authorization' => 'Bearer ' . $key, 'Content-Type' => 'application/json' ];
-    // existe?
+    // existe? garante PRIVADO (laudos = documento sensível; servidos por URL assinada temporária — LGPD)
     $g = wp_remote_get( "$base/storage/v1/bucket/$bucket", [ 'headers' => $h, 'timeout' => 10 ] );
-    if ( ! is_wp_error( $g ) && wp_remote_retrieve_response_code( $g ) === 200 ) return true;
-    // cria (público — laudos podem ser servidos direto; a URL é longa e não-adivinhável pelo id do lote)
+    if ( ! is_wp_error( $g ) && wp_remote_retrieve_response_code( $g ) === 200 ) {
+        wp_remote_request( "$base/storage/v1/bucket/$bucket", [ 'method' => 'PUT', 'headers' => $h, 'timeout' => 10,
+            'body' => wp_json_encode( [ 'id' => $bucket, 'name' => $bucket, 'public' => false ] ) ] );
+        return true;
+    }
     $c = wp_remote_post( "$base/storage/v1/bucket", [ 'headers' => $h, 'timeout' => 10,
-        'body' => wp_json_encode( [ 'id' => $bucket, 'name' => $bucket, 'public' => true ] ) ] );
+        'body' => wp_json_encode( [ 'id' => $bucket, 'name' => $bucket, 'public' => false ] ) ] );
     return ! is_wp_error( $c ) && wp_remote_retrieve_response_code( $c ) < 300;
+}
+// URL assinada temporária para um objeto do Storage (bucket privado).
+function tao_formula_storage_signed_url( $bucket, $path, $expires = 3600 ) {
+    $base = rtrim( tao_formula_supabase_url(), '/' ); $key = tao_formula_supabase_key();
+    if ( ! $base || ! $key || $path === '' ) return '';
+    $resp = wp_remote_post( "$base/storage/v1/object/sign/$bucket/$path", [
+        'timeout' => 15,
+        'headers' => [ 'apikey' => $key, 'Authorization' => 'Bearer ' . $key, 'Content-Type' => 'application/json' ],
+        'body'    => wp_json_encode( [ 'expiresIn' => (int) $expires ] ),
+    ] );
+    if ( is_wp_error( $resp ) ) return '';
+    $d = json_decode( wp_remote_retrieve_body( $resp ), true );
+    $signed = $d['signedURL'] ?? ( $d['signedUrl'] ?? '' );
+    return $signed ? ( $base . '/storage/v1' . $signed ) : '';
 }
 function tao_formula_storage_upload( $bucket, $path, $bytes, $content_type = 'application/pdf' ) {
     $base = rtrim( tao_formula_supabase_url(), '/' ); $key = tao_formula_supabase_key();
@@ -5037,6 +5054,21 @@ add_action( 'wp_ajax_tao_formula_laudo_detalhe', function () {
     $emp = null; $rc = tao_formula_api( "/empresa_config?cliente_id=eq.$cli&select=razao_social,nome_fantasia,cnpj,rt_nome,rt_crf,rt_uf&limit=1" );
     if ( $rc['ok'] && ! empty( $rc['data'] ) ) $emp = $rc['data'][0];
     wp_send_json_success( [ 'laudo' => $laudo, 'ensaios' => $ens, 'ativo' => $ativo, 'lote' => $lote, 'farmacia' => $emp ] );
+} );
+// Serve o PDF do laudo por URL ASSINADA temporária (bucket privado, LGPD). Redireciona.
+add_action( 'wp_ajax_tao_formula_laudo_pdf', function () {
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_die( 'Acesso negado', 403 );
+    $cli = tao_formula_cliente_id();
+    $id  = sanitize_text_field( $_GET['id'] ?? '' );
+    $r = tao_formula_api( "/lab_laudos?id=eq.$id&cliente_id=eq.$cli&select=pdf_url&limit=1" );
+    $url = ( $r['ok'] && ! empty( $r['data'] ) ) ? (string) ( $r['data'][0]['pdf_url'] ?? '' ) : '';
+    if ( ! $url ) wp_die( 'PDF não encontrado.' );
+    $path = '';
+    if ( preg_match( '#/laudos/(.+)$#', $url, $m ) ) $path = $m[1];   // path (encodado) após o bucket
+    $signed = $path ? tao_formula_storage_signed_url( 'laudos', $path, 3600 ) : '';
+    wp_redirect( $signed ?: $url );
+    exit;
 } );
 
 // ── DEFINIÇÃO do molde (Fase 2): IA propõe RÓTULOS 1x → constrói regex → preview → salva ──
@@ -5814,7 +5846,8 @@ add_action( 'wp_ajax_tao_formula_prod_om', function () {
     $lotes = []; $nome_ativo = []; $ctrl_lote = [];
     if ( $ids ) {
         $hoje = gmdate( 'Y-m-d' );
-        $rl = tao_formula_api( "/lab_lotes_mp?cliente_id=eq.$cliente_id&ativo_id=in.(" . implode( ',', $ids ) . ")&status=eq.aprovado&qtd_atual=gt.0&dt_validade=gte.$hoje&select=id,ativo_id,nr_lote,dt_validade,qtd_atual,fabricante,teor_pct,densidade,fator_diluicao&order=dt_validade.asc&limit=500" );
+        // Prioridade: lote EM USO (frasco aberto) primeiro; entre iguais, FEFO (validade asc).
+        $rl = tao_formula_api( "/lab_lotes_mp?cliente_id=eq.$cliente_id&ativo_id=in.(" . implode( ',', $ids ) . ")&status=eq.aprovado&qtd_atual=gt.0&dt_validade=gte.$hoje&select=id,ativo_id,nr_lote,dt_validade,qtd_atual,fabricante,teor_pct,densidade,fator_diluicao,em_uso&order=em_uso.desc,dt_validade.asc&limit=500" );
         foreach ( ( $rl['ok'] ? $rl['data'] : [] ) as $l ) $lotes[ $l['ativo_id'] ][] = $l;
         $ra = tao_formula_api( "/ativos?id=in.(" . implode( ',', $ids ) . ")&select=id,nome,controla_lote" );
         foreach ( ( $ra['ok'] ? $ra['data'] : [] ) as $a ) { $nome_ativo[ $a['id'] ] = $a['nome']; $ctrl_lote[ $a['id'] ] = ! isset( $a['controla_lote'] ) || $a['controla_lote']; }
@@ -5858,6 +5891,14 @@ add_action( 'wp_ajax_tao_formula_prod_pesar', function () {
         'pesado_por' => get_current_user_id(),
         'pesado_em'  => gmdate( 'c' ),
     ] );
+    // Marca o lote como "em uso" (frasco aberto) — 1 aberto por ativo (FCerta INDEMUSO).
+    if ( $r['ok'] && $lote ) {
+        $cliente_id = tao_formula_cliente_id();
+        $rlt = tao_formula_api( "/lab_lotes_mp?id=eq.$lote&cliente_id=eq.$cliente_id&select=ativo_id&limit=1" );
+        $aid = ( $rlt['ok'] && ! empty( $rlt['data'] ) ) ? ( $rlt['data'][0]['ativo_id'] ?? '' ) : '';
+        if ( $aid ) tao_formula_api( "/lab_lotes_mp?cliente_id=eq.$cliente_id&ativo_id=eq.$aid&em_uso=eq.true&id=neq.$lote", 'PATCH', [ 'em_uso' => false ] );
+        tao_formula_api( "/lab_lotes_mp?id=eq.$lote&cliente_id=eq.$cliente_id", 'PATCH', [ 'em_uso' => true ] );
+    }
     $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => mb_substr( (string) $r['raw'], 0, 200 ) ] );
 } );
 
