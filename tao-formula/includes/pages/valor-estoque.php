@@ -45,8 +45,9 @@ function tao_formula_page_valor_estoque() {
                 <th>Qtde</th>
                 <th class="l">Un</th>
                 <th>Custo unit</th>
-                <th>Compra unit</th>
                 <th>Custo total</th>
+                <th>Compra unit</th>
+                <th>Compra total</th>
                 <th>Venda unit</th>
                 <th>Venda total</th>
             </tr></thead>
@@ -63,27 +64,31 @@ function tao_formula_page_valor_estoque() {
         function R(v){ return 'R$ '+m(v,2); }
         function num(s){ return parseFloat(String(s==null?'':s).replace(/\./g,'').replace(',','.'))||0; }
 
-        // valor do estoque = preço de COMPRA (fallback custo) × saldo
+        // Cada total = seu próprio unitário × qtde (transparente).
+        // "Valor do estoque" (card) usa a COMPRA com fallback p/ custo (não subestima quando o custo=0).
         function vbase(x){ return (x.compra_un>0)?x.compra_un:(x.custo_un>0?x.custo_un:0); }
         function totais(){
-            var tc=0,tv=0; ITENS.forEach(function(x){ tc+=x.qtd*vbase(x); tv+=x.qtd*x.venda_un; });
+            var tCu=0,tPc=0,tv=0; ITENS.forEach(function(x){ tCu+=x.qtd*x.custo_un; tPc+=x.qtd*vbase(x); tv+=x.qtd*x.venda_un; });
             $('#ve-cards').html(
                 '<div class="ve-card"><div class="l">Itens em estoque</div><div class="v">'+m(ITENS.length,0)+'</div></div>'+
-                '<div class="ve-card"><div class="l">Valor de custo total</div><div class="v" style="color:#b45309">'+R(tc)+'</div></div>'+
-                '<div class="ve-card"><div class="l">Valor de venda total</div><div class="v" style="color:#16a34a">'+R(tv)+'</div></div>'+
-                '<div class="ve-card"><div class="l">Margem potencial</div><div class="v" style="color:#2563eb">'+R(tv-tc)+'</div></div>'
+                '<div class="ve-card"><div class="l">Valor a custo (Σ custo×qtd)</div><div class="v" style="color:#6b7280">'+R(tCu)+'</div></div>'+
+                '<div class="ve-card"><div class="l">Valor do estoque (a compra)</div><div class="v" style="color:#b45309">'+R(tPc)+'</div></div>'+
+                '<div class="ve-card"><div class="l">Valor a venda</div><div class="v" style="color:#16a34a">'+R(tv)+'</div></div>'+
+                '<div class="ve-card"><div class="l">Margem potencial (venda−compra)</div><div class="v" style="color:#2563eb">'+R(tv-tPc)+'</div></div>'
             );
         }
         function inp(i,campo,val){ return '<input class="ve-in" data-i="'+i+'" data-campo="'+campo+'" value="'+m(val,4)+'">'; }
         function render(){
-            if(!ITENS.length){ $('#ve-body').html('<tr><td colspan="8" style="text-align:left;color:#64748b">Nenhum item com saldo.</td></tr>'); totais(); return; }
+            if(!ITENS.length){ $('#ve-body').html('<tr><td colspan="9" style="text-align:left;color:#64748b">Nenhum item com saldo.</td></tr>'); totais(); return; }
             var h='';
             ITENS.forEach(function(x,i){
+                var cz = (x.custo_un>0)?'#374151':'#cbd5e1';  // custo não cadastrado = cinza claro
                 h+='<tr data-i="'+i+'"><td class="l"><b>'+esc(x.nome)+'</b></td>'+
                    '<td>'+m(x.qtd,3)+'</td><td class="l">'+esc(x.un)+'</td>'+
                    '<td>'+inp(i,'custo_por_unidade',x.custo_un)+'</td>'+
+                   '<td class="ve-tot ve-ct" style="color:'+cz+'">'+R(x.qtd*x.custo_un)+'</td>'+
                    '<td>'+inp(i,'preco_compra',x.compra_un)+'</td>'+
-                   '<td class="ve-tot ve-ct" style="color:#b45309">'+R(x.qtd*vbase(x))+'</td>'+
+                   '<td class="ve-tot ve-pt" style="color:#b45309">'+R(x.qtd*x.compra_un)+'</td>'+
                    '<td>'+inp(i,'preco_venda',x.venda_un)+'</td>'+
                    '<td class="ve-tot ve-vt" style="color:#16a34a">'+R(x.qtd*x.venda_un)+'</td></tr>';
             });
@@ -103,7 +108,10 @@ function tao_formula_page_valor_estoque() {
             $in.val(m(val,4));
             if(campo==='custo_por_unidade') x.custo_un=val; else if(campo==='preco_compra') x.compra_un=val; else x.venda_un=val;
             var $tr=$in.closest('tr');
-            $tr.find('.ve-ct').text(R(x.qtd*vbase(x))); $tr.find('.ve-vt').text(R(x.qtd*x.venda_un)); totais();
+            $tr.find('.ve-ct').text(R(x.qtd*x.custo_un)).css('color', x.custo_un>0?'#374151':'#cbd5e1');
+            $tr.find('.ve-pt').text(R(x.qtd*x.compra_un));
+            $tr.find('.ve-vt').text(R(x.qtd*x.venda_un));
+            totais();
             $in.css('background','#fefce8');
             $.post(ajaxUrl,{action:'tao_formula_valor_estoque_salvar',nonce:nonce,id:x.id,campo:campo,valor:val},function(rr){
                 $in.css('background', (rr&&rr.success)?'#dcfce7':'#fee2e2');
