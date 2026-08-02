@@ -373,10 +373,13 @@ add_action( 'wp_ajax_tao_formula_valor_estoque', function () {
     if ( ! $cli ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
     $busca = trim( sanitize_text_field( $_POST['busca'] ?? '' ) );
     $grupo = sanitize_text_field( $_POST['grupo'] ?? '' );
-    // saldo por ativo (lotes aprovados com saldo)
+    // status: '' = todos (estoque físico total); ou aprovado/quarentena/reprovado
+    $status = sanitize_text_field( $_POST['status'] ?? '' );
+    $fst = in_array( $status, [ 'aprovado', 'quarentena', 'reprovado', 'vencido' ], true ) ? "&status=eq.$status" : '';
+    // saldo por ativo (lotes com saldo, conforme o filtro de status)
     $saldo = []; $off = 0;
     do {
-        $r = tao_formula_api( "/lab_lotes_mp?cliente_id=eq.$cli&status=eq.aprovado&qtd_atual=gt.0&select=ativo_id,qtd_atual&limit=1000&offset=$off" );
+        $r = tao_formula_api( "/lab_lotes_mp?cliente_id=eq.$cli$fst&qtd_atual=gt.0&select=ativo_id,qtd_atual&limit=1000&offset=$off" );
         $d = $r['ok'] ? ( $r['data'] ?? [] ) : [];
         foreach ( $d as $l ) if ( ! empty( $l['ativo_id'] ) ) $saldo[ $l['ativo_id'] ] = ( $saldo[ $l['ativo_id'] ] ?? 0 ) + (float) $l['qtd_atual'];
         $off += 1000;

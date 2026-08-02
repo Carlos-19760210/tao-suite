@@ -32,6 +32,8 @@ function tao_formula_page_valor_estoque() {
         <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:2px">Buscar produto</label><input id="ve-busca" style="width:240px;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px"></div>
         <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:2px">Grupo</label>
             <select id="ve-grupo" style="padding:6px 8px;border:1px solid #d1d5db;border-radius:6px"><option value="">Todos</option><option value="M">Matéria-prima</option><option value="E">Embalagem</option></select></div>
+        <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:2px">Status do lote</label>
+            <select id="ve-status" style="padding:6px 8px;border:1px solid #d1d5db;border-radius:6px"><option value="">Todos (estoque físico)</option><option value="aprovado">Só liberados</option><option value="quarentena">Em quarentena</option></select></div>
         <span id="ve-msg" style="font-size:12px;color:#64748b;margin-bottom:6px"></span>
     </div>
 
@@ -89,7 +91,7 @@ function tao_formula_page_valor_estoque() {
         }
         function carregar(){
             $('#ve-msg').text('carregando…');
-            $.post(ajaxUrl,{action:'tao_formula_valor_estoque',nonce:nonce,busca:$('#ve-busca').val(),grupo:$('#ve-grupo').val()},function(r){
+            $.post(ajaxUrl,{action:'tao_formula_valor_estoque',nonce:nonce,busca:$('#ve-busca').val(),grupo:$('#ve-grupo').val(),status:$('#ve-status').val()},function(r){
                 if(!r||!r.success){ $('#ve-msg').text('Erro.'); return; }
                 ITENS=r.data.itens||[]; render(); $('#ve-msg').text(ITENS.length+' item(ns)');
             });
@@ -110,6 +112,7 @@ function tao_formula_page_valor_estoque() {
         });
         $('#ve-busca').on('keydown',function(e){ if(e.which===13) carregar(); });
         $('#ve-grupo').on('change',carregar);
+        $('#ve-status').on('change',carregar);
         carregar();
     });
     </script>
