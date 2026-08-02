@@ -1354,14 +1354,15 @@ function tao_crm_ajax_get_campos_destino() {
 // ─── AJAX: CAMPOS OBRIGATÓRIOS DO ESTÁGIO GANHO (dado card_id) ───────────────
 
 /**
- * O card tem "negócio" (item ou orçamento)?
- * Regra: ≥1 item do negócio OU ≥1 orçamento de fórmula. Valor sozinho NÃO conta.
+ * O card tem "negócio" fechável?
+ * Regra: ≥1 item do negócio OU ≥1 orçamento APROVADO (virou OM).
+ * Orçamento só criado (não aprovado) e valor sozinho NÃO contam.
  */
 function tao_crm_card_tem_negocio( $card_id ) {
     if ( ! $card_id ) return false;
     $ri = tao_crm_api( "/crm_card_itens?card_id=eq.$card_id&select=id&limit=1" );
     if ( $ri['ok'] && ! empty( $ri['data'] ) ) return true;
-    $ro = tao_crm_api( "/orcamentos?card_id=eq.$card_id&select=id&limit=1" );
+    $ro = tao_crm_api( "/orcamentos?card_id=eq.$card_id&status=in.(aprovado_farma,aceito_paciente)&select=id&limit=1" );
     if ( $ro['ok'] && ! empty( $ro['data'] ) ) return true;
     return false;
 }
@@ -1944,6 +1945,14 @@ function tao_crm_ajax_fechar_card() {
     $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=estagio_id,pipeline_id,contato_whatsapp,workspace_id,instancia_id,valor_oportunidade&limit=1" );
     if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( 'Card não encontrado' );
     $card = $rc['data'][0];
+
+    // Para fechar como GANHO: exige ≥1 orçamento aprovado (virou OM) OU ≥1 item de negócio.
+    if ( $tipo === 'ganho' && ! tao_crm_card_tem_negocio( $card_id ) ) {
+        wp_send_json_error( [
+            'code' => 'sem_base_ganho',
+            'msg'  => 'Para fechar como ganho, o card precisa de ao menos 1 orçamento aprovado (que virou OM) ou 1 item de negócio.',
+        ] );
+    }
 
     // Ganho exige confirmação explícita do Valor Final pelo usuário (o front mostra
     // o valor e só envia valor_ok=1 após o "Sim"; sem isso o card não é movimentado)
@@ -5828,12 +5837,18 @@ function tao_crm_sync_valor_oportunidade( string $card_id ): void {
     $ri = tao_crm_api( "/crm_card_itens?card_id=eq.$card_id&select=total" );
     if ( $ri['ok'] ) $total += array_sum( array_column( $ri['data'] ?? [], 'total' ) );
 
+    // Card GANHO (pós-vendas): o valor considera só os orçamentos APROVADOS (que viraram OM).
+    // Em negociação, soma todos os orçamentos (como antes).
+    $rst = tao_crm_api( "/crm_cards?id=eq.$card_id&select=status&limit=1" );
+    $card_ganho = ( $rst['ok'] && ! empty( $rst['data'] ) ) && ( ( $rst['data'][0]['status'] ?? '' ) === 'ganho' );
+
     // Orçamentos de fórmula vinculados ao card.
     // O valor do card reflete o que foi IMPORTADO (valor_final_fc = com acréscimo/desconto do FC);
     // fallback para total_orcamento (orçamentos criados manualmente, sem valor FC).
-    $ro = tao_crm_api( "/orcamentos?card_id=eq.$card_id&select=total_orcamento,valor_final_fc" );
+    $ro = tao_crm_api( "/orcamentos?card_id=eq.$card_id&select=total_orcamento,valor_final_fc,status" );
     if ( $ro['ok'] ) {
         foreach ( $ro['data'] ?? [] as $o ) {
+            if ( $card_ganho && ! in_array( (string) ( $o['status'] ?? '' ), [ 'aprovado_farma', 'aceito_paciente' ], true ) ) continue;
             $ov = floatval( $o['valor_final_fc'] ?? 0 );
             if ( $ov <= 0 ) $ov = floatval( $o['total_orcamento'] ?? 0 );
             $total += $ov;

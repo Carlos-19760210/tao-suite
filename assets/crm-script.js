@@ -460,7 +460,7 @@
                             function(r2){
                                 var d = (r2 && r2.success && r2.data) ? r2.data : {};
                                 if(d.tem_negocio === false){
-                                    alert('Adicione ao menos um item ou orçamento ao negócio antes de fechar como ganho.');
+                                    alert('Para fechar como ganho, adicione um item de negócio ou aprove ao menos um orçamento (que vira OM).');
                                     _fecharViaDrag = false; location.reload(); return;
                                 }
                                 if (!_confirmarValorGanho(d.valor || resp.data.valor || 0)) {

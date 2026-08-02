@@ -476,6 +476,12 @@ function tao_crm_page_card() {
                                         title="Re-tenta associar ativos pendentes usando sinônimos atuais">
                                     &#x1F504; Reprocessar
                                 </button>
+                                <button type="button" id="crm-formula-aprovar-sel-btn"
+                                        class="button button-small"
+                                        style="font-size:11px;display:none;color:#16a34a;border-color:#86efac"
+                                        title="Aprovar orçamentos selecionados (cada um vira OM)">
+                                    &#x2705; Aprovar selecionados
+                                </button>
                                 <button type="button" id="crm-formula-excluir-sel-btn"
                                         class="button button-small"
                                         style="font-size:11px;display:none;color:#dc2626;border-color:#fca5a5"
@@ -1814,6 +1820,7 @@ function tao_crm_page_card() {
         var reprocessarBtn= document.getElementById('crm-formula-reprocessar-btn');
         var associarBtn   = document.getElementById('crm-formula-associar-btn');
         var exclSelBtn    = document.getElementById('crm-formula-excluir-sel-btn');
+        var aprovSelBtn   = document.getElementById('crm-formula-aprovar-sel-btn');
         var listDiv       = document.getElementById('crm-formulas-list');
         var cardId   = window.taofCrmCardId;
         var baseUrl  = window.taofNovoUrl;
@@ -2158,7 +2165,7 @@ function tao_crm_page_card() {
                             + '&card_id=' + encodeURIComponent(cardId);
                         html += '<tr style="border-bottom:1px solid #f1f5f9">'
                             + '<td style="padding:5px 2px;width:20px">'
-                            + (canSend ? '<input type="checkbox" class="taof-orc-check" value="' + o.id + '" style="cursor:pointer">' : '')
+                            + (canSend ? '<input type="checkbox" class="taof-orc-check" value="' + o.id + '" data-status="' + (o.status||'') + '" style="cursor:pointer">' : '')
                             + '</td>'
                             + '<td style="padding:5px 4px;font-weight:600;color:#0f172a">' + (o.numero_orcamento || '—') + '</td>'
                             + '<td style="padding:5px 4px;color:#475569;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + descOrc.replace(/"/g,'&quot;') + '">' + descOrc + '</td>'
@@ -2195,12 +2202,19 @@ function tao_crm_page_card() {
                     if (reprocessarBtn) reprocessarBtn.style.display = anyPendente ? 'inline-block' : 'none';
                     if (associarBtn)    associarBtn.style.display    = anyPendente ? 'inline-block' : 'none';
                     if (exclSelBtn)     exclSelBtn.style.display     = 'none'; // visível só quando há checks marcados
+                    if (aprovSelBtn)    aprovSelBtn.style.display    = 'none';
 
-                    // Atualizar visibilidade do Excluir selecionados ao marcar/desmarcar
+                    // Atualizar visibilidade do Excluir/Aprovar selecionados ao marcar/desmarcar
                     listDiv.querySelectorAll('.taof-orc-check').forEach(function(cb) {
                         cb.addEventListener('change', function() {
                             var algum = listDiv.querySelectorAll('.taof-orc-check:checked').length > 0;
-                            if (exclSelBtn) exclSelBtn.style.display = algum ? 'inline-block' : 'none';
+                            if (exclSelBtn)  exclSelBtn.style.display  = algum ? 'inline-block' : 'none';
+                            // Aprovar em lote: só faz sentido se algum SELECIONADO ainda não está aprovado
+                            var temPendente = Array.from(listDiv.querySelectorAll('.taof-orc-check:checked')).some(function(c){
+                                var st = c.getAttribute('data-status') || '';
+                                return st !== 'aprovado_farma' && st !== 'aceito_paciente';
+                            });
+                            if (aprovSelBtn) aprovSelBtn.style.display = (algum && temPendente) ? 'inline-block' : 'none';
                         });
                     });
 
@@ -2573,6 +2587,34 @@ function tao_crm_page_card() {
                     exclSelBtn.textContent = '🗑 Excluir selecionados';
                     carregarFormulas();
                 });
+            });
+        }
+
+        // ── Aprovar orçamentos selecionados EM LOTE (cada um vira OM) ──────────
+        if (aprovSelBtn) {
+            aprovSelBtn.addEventListener('click', function () {
+                var checks = Array.from(listDiv.querySelectorAll('.taof-orc-check:checked')).filter(function(c){
+                    var st = c.getAttribute('data-status') || '';
+                    return st !== 'aprovado_farma' && st !== 'aceito_paciente';   // só os ainda não aprovados
+                });
+                if (!checks.length) return;
+                if (!confirm('Aprovar ' + checks.length + ' orçamento(s) selecionado(s)? Cada um vira uma OM.')) return;
+                aprovSelBtn.disabled = true; aprovSelBtn.textContent = 'Aprovando...';
+                var ids = checks.map(function(c){ return c.value; });
+                // sequencial (cada aprovação gera OM/baixa; evita corrida no fluxo de OM)
+                var falhas = [];
+                (function proximo(i){
+                    if (i >= ids.length) {
+                        aprovSelBtn.disabled = false; aprovSelBtn.textContent = '✅ Aprovar selecionados';
+                        carregarFormulas(); window.postMessage({taofSaved:true},'*');
+                        if (falhas.length) alert('Não aprovados: ' + falhas.length + ' (verifique se você é o farmacêutico responsável).');
+                        return;
+                    }
+                    orcAcao('tao_formula_orc_aprovar', ids[i]).then(function(r){
+                        if (!r || !r.success) falhas.push(ids[i]);
+                        proximo(i+1);
+                    }).catch(function(){ falhas.push(ids[i]); proximo(i+1); });
+                })(0);
             });
         }
 
