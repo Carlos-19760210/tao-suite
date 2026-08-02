@@ -395,12 +395,27 @@ add_action( 'wp_ajax_tao_formula_valor_estoque', function () {
         $cu = (float) $a['custo_por_unidade']; $pc = (float) $a['preco_compra']; $pv = (float) $a['preco_venda'];
         $ct = $q * $cu; $vt = $q * $pv; $tc += $ct; $tv += $vt;
         $linhas[] = [
-            'nome' => $a['nome'], 'un' => $a['unidade_padrao'] ?: ( $a['unidade'] ?: '' ),
+            'id' => $aid, 'nome' => $a['nome'], 'un' => $a['unidade_padrao'] ?: ( $a['unidade'] ?: '' ),
             'qtd' => round( $q, 3 ), 'custo_un' => $cu, 'compra_un' => $pc, 'custo_tot' => $ct, 'venda_un' => $pv, 'venda_tot' => $vt,
         ];
     }
     usort( $linhas, function ( $x, $y ) { return $y['custo_tot'] <=> $x['custo_tot']; } );
     wp_send_json_success( [ 'itens' => $linhas, 'tot_custo' => $tc, 'tot_venda' => $tv, 'tot_itens' => count( $linhas ) ] );
+} );
+
+// Edição inline de custo/compra/venda direto na tela de Valor do Estoque (grava no ativo).
+add_action( 'wp_ajax_tao_formula_valor_estoque_salvar', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cli   = tao_formula_cliente_id();
+    $id    = sanitize_text_field( $_POST['id'] ?? '' );
+    $campo = sanitize_text_field( $_POST['campo'] ?? '' );
+    if ( ! $cli || ! $id || ! in_array( $campo, [ 'custo_por_unidade', 'preco_compra', 'preco_venda' ], true ) )
+        wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+    $valor = (float) str_replace( ',', '.', preg_replace( '/[^\d,.\-]/', '', (string) ( $_POST['valor'] ?? '' ) ) );
+    $r = tao_formula_api( "/ativos?id=eq.$id&cliente_id=eq.$cli", 'PATCH', [ $campo => $valor ] );
+    $r['ok'] ? wp_send_json_success( [ 'valor' => $valor ] ) : wp_send_json_error( [ 'message' => mb_substr( (string) $r['raw'], 0, 120 ) ] );
 } );
 
 // ── Helper: gerar número de orçamento/OM no padrão TAO Neo YYYYMM-NNNNN-SS ────
