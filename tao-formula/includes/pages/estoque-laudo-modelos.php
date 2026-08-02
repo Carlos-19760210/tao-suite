@@ -63,14 +63,21 @@ function tao_formula_page_laudo_modelos() {
                 ch.then(function(){ res(pags); }).catch(rej); }).catch(rej); }; fr.onerror=rej; fr.readAsArrayBuffer(file);
         }); }); }
 
-        var CAMPOS = ['nome','lote','dt_validade','dt_fabricacao','fabricante','origem'];
+        // Todos os campos do certificado (ordem de exibição). A IA preenche os que existem.
+        var CAMPOS = ['nome','lote','lote_interno','nome_cientifico','sinonimia','parte_utilizada',
+            'dcb','cas','formula_molecular','peso_molecular','cor_corpo','cor_tampa','numero',
+            'dt_fabricacao','dt_validade','dt_emissao','origem','procedencia','fabricante',
+            'conservacao_temp','conservacao_umid','higroscopico','fotossensivel',
+            'conclusao','resultado','rt_nome','rt_crf','ensaios_bloco'];
         function preencherEditor(regras){
             $('#lm-multi').prop('checked', !!regras.multi_ativo);
             $('#lm-split').val(regras.split_inicio||'');
             $('#lm-split-wrap').toggle(!!regras.multi_ativo);
             var campos = regras.campos||{}, html='';
-            CAMPOS.forEach(function(c){ var r=(campos[c]&&campos[c].regex)||''; var tipo=(campos[c]&&campos[c].tipo)||'';
-                html+='<tr><td><b>'+c+'</b>'+(tipo?' <small style="color:#94a3b8">('+tipo+')</small>':'')+'</td><td><input class="lm-rx" data-campo="'+c+'" data-tipo="'+esc(tipo)+'" value="'+esc(r)+'" style="width:100%;font-family:monospace;font-size:12px;padding:3px"></td></tr>'; });
+            // união: campos conhecidos + quaisquer extras que a IA tenha retornado
+            var lista = CAMPOS.slice(); Object.keys(campos).forEach(function(c){ if(lista.indexOf(c)<0) lista.push(c); });
+            lista.forEach(function(c){ var r=(campos[c]&&campos[c].regex)||''; var tipo=(campos[c]&&campos[c].tipo)||'';
+                html+='<tr><td><b>'+c+'</b>'+(tipo?' <small style="color:#94a3b8">('+tipo+')</small>':'')+'</td><td><input class="lm-rx" data-campo="'+c+'" data-tipo="'+esc(tipo)+'" value="'+esc(r)+'" style="width:100%;font-family:monospace;font-size:12px;padding:3px" placeholder="(vazio = não extrai)"></td></tr>'; });
             $('#lm-campos').html(html);
         }
         function coletarRegras(){
@@ -99,6 +106,7 @@ function tao_formula_page_laudo_modelos() {
                     if(!r||!r.success){ $m.css('color','#dc2626').text((r&&r.data&&r.data.message)||'Falha.'); return; }
                     $m.css('color','#16a34a').text('✓ Molde proposto — revise abaixo.');
                     preencherEditor(r.data.regras||{}); mostrarPreview(r.data.preview, r.data.total);
+                    if(r.data.assinatura) $('#lm-assin').val(r.data.assinatura);
                     $('#lm-editor').show();
                 }).fail(function(){ $b.prop('disabled',false); $m.css('color','#dc2626').text('Falha na análise.'); });
             }).catch(function(){ $b.prop('disabled',false); $m.css('color','#dc2626').text('Não consegui ler o PDF.'); });

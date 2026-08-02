@@ -4502,6 +4502,90 @@ function tao_formula_laudo_molde_do_fornecedor( $cliente_id, $fornecedor_id, $cn
     return $moldes[0];
 }
 
+// ── Supabase Storage: garante o bucket e sobe o PDF do laudo → URL pública ─────
+function tao_formula_storage_ensure_bucket( $bucket ) {
+    $base = rtrim( tao_formula_supabase_url(), '/' ); $key = tao_formula_supabase_key();
+    if ( ! $base || ! $key ) return false;
+    $h = [ 'apikey' => $key, 'Authorization' => 'Bearer ' . $key, 'Content-Type' => 'application/json' ];
+    // existe?
+    $g = wp_remote_get( "$base/storage/v1/bucket/$bucket", [ 'headers' => $h, 'timeout' => 10 ] );
+    if ( ! is_wp_error( $g ) && wp_remote_retrieve_response_code( $g ) === 200 ) return true;
+    // cria (público — laudos podem ser servidos direto; a URL é longa e não-adivinhável pelo id do lote)
+    $c = wp_remote_post( "$base/storage/v1/bucket", [ 'headers' => $h, 'timeout' => 10,
+        'body' => wp_json_encode( [ 'id' => $bucket, 'name' => $bucket, 'public' => true ] ) ] );
+    return ! is_wp_error( $c ) && wp_remote_retrieve_response_code( $c ) < 300;
+}
+function tao_formula_storage_upload( $bucket, $path, $bytes, $content_type = 'application/pdf' ) {
+    $base = rtrim( tao_formula_supabase_url(), '/' ); $key = tao_formula_supabase_key();
+    if ( ! $base || ! $key ) return [ 'ok' => false, 'error' => 'sem config' ];
+    $enc  = implode( '/', array_map( 'rawurlencode', explode( '/', ltrim( $path, '/' ) ) ) );
+    $resp = wp_remote_request( "$base/storage/v1/object/$bucket/$enc", [
+        'method' => 'POST', 'timeout' => 30,
+        'headers' => [ 'apikey' => $key, 'Authorization' => 'Bearer ' . $key, 'Content-Type' => $content_type, 'x-upsert' => 'true' ],
+        'body' => $bytes,
+    ] );
+    if ( is_wp_error( $resp ) ) return [ 'ok' => false, 'error' => $resp->get_error_message() ];
+    $code = wp_remote_retrieve_response_code( $resp );
+    if ( $code < 200 || $code >= 300 ) return [ 'ok' => false, 'error' => 'HTTP ' . $code . ' ' . mb_substr( (string) wp_remote_retrieve_body( $resp ), 0, 160 ) ];
+    return [ 'ok' => true, 'path' => ltrim( $path, '/' ), 'url' => "$base/storage/v1/object/public/$bucket/$enc" ];
+}
+
+// ── Casamento laudo → lote da NF (cascata: lote original → nome c/ desempate) ──
+function tao_formula_laudo_norm_nome( $s ) {
+    $s = function_exists( 'remove_accents' ) ? remove_accents( (string) $s ) : (string) $s;
+    $s = mb_strtoupper( $s, 'UTF-8' );
+    $s = preg_replace( '/[^A-Z0-9 ]/', ' ', $s );
+    return trim( preg_replace( '/\s+/', ' ', $s ) );
+}
+function tao_formula_laudo_norm_lote( $s ) { return strtoupper( preg_replace( '/\s+/', '', (string) $s ) ); }
+// Tokens significativos p/ score (descarta genéricos de MP e conectivos).
+function tao_formula_laudo_tokens( $s ) {
+    $stop = [ 'DE','DA','DO','DAS','DOS','COM','EM','PO','POS','SOLUVEL','PARCIALMENTE','EXT','EXTRATO','SECO','FLUIDO','GLICOLICO','SEM','PARA' ];
+    $out = [];
+    foreach ( explode( ' ', tao_formula_laudo_norm_nome( $s ) ) as $t )
+        if ( $t !== '' && ! in_array( $t, $stop, true ) && ( strlen( $t ) >= 3 || ctype_digit( $t ) ) ) $out[ $t ] = 1;
+    return array_keys( $out );
+}
+// Score 0..1 = fração dos tokens do ATIVO cobertos pelo texto do laudo (nome + cores + nº).
+function tao_formula_laudo_score( $laudo_txt, $ativo_nome ) {
+    $a = tao_formula_laudo_tokens( $laudo_txt ); $b = tao_formula_laudo_tokens( $ativo_nome );
+    if ( ! $a || ! $b ) return 0.0;
+    $inter = count( array_intersect( $a, $b ) );
+    return $inter / count( $b );
+}
+// $laudos = extraídos; $lotes = [{id,nr_lote,ativo_id,ativo_nome}]. Devolve cada laudo com
+// { _lote_id, _lote_nr, _ativo_nome, _metodo: lote|nome|ambiguo|sem, _score }.
+function tao_formula_laudo_casar( array $laudos, array $lotes ) {
+    $porLote = []; foreach ( $lotes as $l ) $porLote[ tao_formula_laudo_norm_lote( $l['nr_lote'] ?? '' ) ] = $l;
+    $out = [];
+    foreach ( $laudos as $d ) {
+        $r = $d; $r['_metodo'] = 'sem'; $r['_lote_id'] = null; $r['_lote_nr'] = null; $r['_ativo_nome'] = null; $r['_score'] = 0;
+        // 1) Lote Original == nr_lote da NF
+        $lo = tao_formula_laudo_norm_lote( $d['lote'] ?? $d['lote_original'] ?? '' );
+        if ( $lo !== '' && isset( $porLote[ $lo ] ) ) {
+            $l = $porLote[ $lo ];
+            $r['_metodo'] = 'lote'; $r['_lote_id'] = $l['id']; $r['_lote_nr'] = $l['nr_lote']; $r['_ativo_nome'] = $l['ativo_nome']; $r['_score'] = 1;
+            $out[] = $r; continue;
+        }
+        // 2) Nome do ativo (+ cores/nº do laudo p/ desempate de cápsulas)
+        $txt = trim( ( $d['nome'] ?? '' ) . ' ' . ( $d['cor_corpo'] ?? '' ) . ' ' . ( $d['cor_tampa'] ?? '' ) . ' ' . ( $d['numero'] ?? '' ) );
+        $best = null; $bestSc = 0; $second = 0;
+        foreach ( $lotes as $l ) {
+            $sc = tao_formula_laudo_score( $txt, $l['ativo_nome'] ?? '' );
+            if ( $sc > $bestSc ) { $second = $bestSc; $bestSc = $sc; $best = $l; }
+            elseif ( $sc > $second ) { $second = $sc; }
+        }
+        if ( $best && $bestSc >= 0.5 && ( $bestSc - $second ) >= 0.2 ) {
+            $r['_metodo'] = 'nome'; $r['_lote_id'] = $best['id']; $r['_lote_nr'] = $best['nr_lote']; $r['_ativo_nome'] = $best['ativo_nome']; $r['_score'] = round( $bestSc, 2 );
+        } elseif ( $best && $bestSc >= 0.5 ) {
+            // empate técnico → sugere o melhor mas marca ambíguo p/ a farmacêutica decidir
+            $r['_metodo'] = 'ambiguo'; $r['_lote_id'] = $best['id']; $r['_lote_nr'] = $best['nr_lote']; $r['_ativo_nome'] = $best['ativo_nome']; $r['_score'] = round( $bestSc, 2 );
+        }
+        $out[] = $r;
+    }
+    return $out;
+}
+
 add_action( 'wp_ajax_tao_formula_lote_laudo_upload', function () {
     while ( ob_get_level() > 0 ) ob_end_clean();
     check_ajax_referer( 'tao_formula_nonce', 'nonce' );
@@ -4783,6 +4867,130 @@ add_action( 'wp_ajax_tao_formula_nf_laudos_molde', function () {
     ] );
 } );
 
+// ── PREVIEW (não grava): extrai + casa em cascata → lista p/ a revisão da farmacêutica ──
+add_action( 'wp_ajax_tao_formula_nf_laudos_preview', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    @set_time_limit( 120 );
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $entrada_id = sanitize_text_field( $_POST['entrada_id'] ?? '' );
+    $paginas    = json_decode( wp_unslash( $_POST['paginas'] ?? '[]' ), true );
+    if ( ! $cliente_id || ! $entrada_id || ! is_array( $paginas ) || ! $paginas ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+
+    $rc = tao_formula_api( "/estoque_entradas_nf?id=eq.$entrada_id&cliente_id=eq.$cliente_id&select=chave_nfe,fornecedor_id,cnpj_emitente&limit=1" );
+    if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( [ 'message' => 'Entrada não encontrada' ] );
+    $ent = $rc['data'][0]; $chave = (string) ( $ent['chave_nfe'] ?? '' );
+    if ( ! $chave ) wp_send_json_error( [ 'message' => 'Entrada sem chave da NF (estornada?).' ] );
+
+    $rl = tao_formula_api( "/lab_lotes_mp?cliente_id=eq.$cliente_id&nf_chave=eq." . rawurlencode( $chave ) . "&select=id,ativo_id,nr_lote,dt_validade,status&order=nr_lote.asc&limit=200" );
+    $lotes = $rl['ok'] ? ( $rl['data'] ?? [] ) : [];
+    $ids = array_values( array_unique( array_filter( array_column( $lotes, 'ativo_id' ) ) ) );
+    $nome = [];
+    if ( $ids ) { $ra = tao_formula_api( "/ativos?id=in.(" . implode( ',', $ids ) . ")&select=id,nome" ); foreach ( ( $ra['ok'] ? $ra['data'] : [] ) as $a ) $nome[ $a['id'] ] = $a['nome']; }
+    foreach ( $lotes as &$l ) $l['ativo_nome'] = $nome[ $l['ativo_id'] ] ?? '';
+    unset( $l );
+
+    $md = tao_formula_laudo_molde_do_fornecedor( $cliente_id, $ent['fornecedor_id'] ?? '', $ent['cnpj_emitente'] ?? '', implode( "\n", array_slice( $paginas, 0, 2 ) ) );
+    $laudos  = $md ? tao_formula_laudo_extrair_por_molde( $paginas, $md['regras'] ?? [] ) : [];
+    $casados = $laudos ? tao_formula_laudo_casar( $laudos, $lotes ) : [];
+    if ( $md ) foreach ( $casados as &$c ) $c['_molde_id'] = $md['id'];
+    unset( $c );
+
+    wp_send_json_success( [
+        'tem_molde' => (bool) $md,
+        'molde'     => $md ? [ 'id' => $md['id'], 'nome' => $md['nome'] ] : null,
+        'laudos'    => $casados,
+        'lotes'     => array_map( function ( $l ) { return [ 'id' => $l['id'], 'nr_lote' => $l['nr_lote'], 'ativo_nome' => $l['ativo_nome'], 'status' => $l['status'] ?? '' ]; }, $lotes ),
+    ] );
+} );
+
+// Monta o registro do certificado completo (lab_laudos) a partir dos dados extraídos.
+function tao_formula_laudo_cert_body( $cliente_id, $lote_id, $ativo_id, $chave, $d, $pdf_url, $extra ) {
+    $iso  = function ( $v ) { $v = trim( (string) $v ); if ( $v === '' ) return null; return preg_match( '/^\d{4}-\d{2}-\d{2}$/', $v ) ? $v : ( tao_formula_laudo_data_iso( $v ) ?: null ); };
+    $bool = function ( $v ) { if ( $v === null || $v === '' ) return null; $s = strtolower( (string) $v );
+        if ( strpos( $s, 'sim' ) !== false || $s === 'x' || $s === 'true' || $s === '1' ) return true;
+        if ( strpos( $s, 'nao' ) !== false || strpos( $s, 'não' ) !== false || $s === 'false' || $s === '0' ) return false; return null; };
+    $res = strtolower( (string) ( $d['resultado'] ?? '' ) );
+    $resultado = strpos( $res, 'reprov' ) !== false ? 'reprovado' : ( strpos( $res, 'aprov' ) !== false ? 'aprovado' : null );
+    $body = [
+        'cliente_id' => $cliente_id, 'lote_id' => $lote_id, 'ativo_id' => $ativo_id ?: null,
+        'molde_id' => $extra['molde_id'] ?? null, 'nf_chave' => $chave ?: null,
+        'produto_nome' => $d['nome'] ?? null, 'nome_cientifico' => $d['nome_cientifico'] ?? null,
+        'sinonimia' => $d['sinonimia'] ?? null, 'parte_utilizada' => $d['parte_utilizada'] ?? null,
+        'dcb' => $d['dcb'] ?? null, 'cas' => $d['cas'] ?? null,
+        'formula_molecular' => $d['formula_molecular'] ?? null, 'peso_molecular' => $d['peso_molecular'] ?? null,
+        'lote_original' => $d['lote'] ?? ( $d['lote_original'] ?? null ), 'lote_interno' => $d['lote_interno'] ?? null,
+        'dt_fabricacao' => $iso( $d['dt_fabricacao'] ?? '' ), 'dt_validade' => $iso( $d['dt_validade'] ?? '' ), 'dt_emissao' => $iso( $d['dt_emissao'] ?? '' ),
+        'origem' => $d['origem'] ?? null, 'procedencia' => $d['procedencia'] ?? null, 'fabricante' => $d['fabricante'] ?? null,
+        'conservacao_temp' => $d['conservacao_temp'] ?? null, 'conservacao_umid' => $d['conservacao_umid'] ?? null,
+        'higroscopico' => $bool( $d['higroscopico'] ?? null ), 'fotossensivel' => $bool( $d['fotossensivel'] ?? null ),
+        'conclusao' => $d['conclusao'] ?? null, 'resultado' => $resultado,
+        'conforme_geral' => array_key_exists( 'conforme_geral', $d ) ? $d['conforme_geral'] : null,
+        'rt_nome' => $d['rt_nome'] ?? null, 'rt_crf' => $d['rt_crf'] ?? null,
+        'pdf_url' => $pdf_url ?: null, 'pdf_nome' => $extra['file_nome'] ?? null,
+        'texto_extraido' => $d['ensaios_bloco'] ?? ( $extra['texto'] ?? null ),
+        'conferido_por' => get_current_user_id(), 'conferido_em' => gmdate( 'c' ),
+    ];
+    // remove chaves vazias (mantém false/0)
+    return array_filter( $body, function ( $v ) { return $v !== null && $v !== ''; } );
+}
+
+// ── CONFIRMAR (grava): recebe os casamentos revisados pela farmacêutica ───────
+add_action( 'wp_ajax_tao_formula_nf_laudos_confirmar', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    @ignore_user_abort( true ); @set_time_limit( 300 );
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $entrada_id = sanitize_text_field( $_POST['entrada_id'] ?? '' );
+    $itens = json_decode( wp_unslash( $_POST['itens'] ?? '[]' ), true );
+    if ( ! $cliente_id || ! is_array( $itens ) || ! $itens ) wp_send_json_error( [ 'message' => 'Nada a confirmar' ] );
+
+    $rc = tao_formula_api( "/estoque_entradas_nf?id=eq.$entrada_id&cliente_id=eq.$cliente_id&select=chave_nfe&limit=1" );
+    $chave = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? (string) ( $rc['data'][0]['chave_nfe'] ?? '' ) : '';
+
+    tao_formula_storage_ensure_bucket( 'laudos' );
+    $urls = [];
+    $subir = function ( $idx ) use ( &$urls, $cliente_id ) {
+        if ( array_key_exists( $idx, $urls ) ) return $urls[ $idx ];
+        $urls[ $idx ] = null; $k = "file_$idx";
+        if ( empty( $_FILES[ $k ] ) || $_FILES[ $k ]['error'] !== UPLOAD_ERR_OK ) return null;
+        $bytes = @file_get_contents( $_FILES[ $k ]['tmp_name'] ); if ( $bytes === false ) return null;
+        $nome  = preg_replace( '/[^A-Za-z0-9._-]/', '_', (string) ( $_FILES[ $k ]['name'] ?? "laudo_$idx.pdf" ) );
+        $path  = "$cliente_id/" . gmdate( 'Y/m' ) . '/' . substr( md5( $nome . $idx . microtime() ), 0, 10 ) . "_$nome";
+        $up    = tao_formula_storage_upload( 'laudos', $path, $bytes, 'application/pdf' );
+        return $urls[ $idx ] = ( $up['ok'] ? $up['url'] : null );
+    };
+
+    $ok = 0; $falhas = [];
+    foreach ( $itens as $it ) {
+        $lote_id = sanitize_text_field( $it['lote_id'] ?? '' );
+        $dados   = is_array( $it['dados'] ?? null ) ? $it['dados'] : $it;
+        $rotulo  = $dados['nome'] ?? ( $it['file_nome'] ?? '?' );
+        if ( ! $lote_id ) { $falhas[] = "$rotulo: sem lote escolhido"; continue; }
+        $pdf_url = array_key_exists( 'file_idx', $it ) ? $subir( (int) $it['file_idx'] ) : null;
+
+        // 1) atualiza o lote (datas/fabricante/teor/laudo_url/ensaios estruturados se houver)
+        tao_formula_laudo_aplicar_ao_lote( $cliente_id, $lote_id, $pdf_url, $dados );
+        // 2) status conforme resultado (aprovado/reprovado)
+        $res = strtolower( (string) ( $dados['resultado'] ?? '' ) );
+        $status = strpos( $res, 'reprov' ) !== false ? 'reprovado' : ( strpos( $res, 'aprov' ) !== false ? 'aprovado' : null );
+        if ( $status ) tao_formula_api( "/lab_lotes_mp?id=eq.$lote_id&cliente_id=eq.$cliente_id", 'PATCH', [ 'status' => $status ] );
+        // 3) certificado completo (1 por lote → upsert)
+        $ativo_id = null;
+        $rlt = tao_formula_api( "/lab_lotes_mp?id=eq.$lote_id&cliente_id=eq.$cliente_id&select=ativo_id&limit=1" );
+        if ( $rlt['ok'] && ! empty( $rlt['data'] ) ) $ativo_id = $rlt['data'][0]['ativo_id'] ?? null;
+        $cert = tao_formula_laudo_cert_body( $cliente_id, $lote_id, $ativo_id, $chave, $dados, $pdf_url, [
+            'molde_id' => $it['molde_id'] ?? ( $dados['_molde_id'] ?? null ), 'file_nome' => $it['file_nome'] ?? null,
+        ] );
+        tao_formula_api( "/lab_laudos?lote_id=eq.$lote_id&cliente_id=eq.$cliente_id", 'DELETE' );
+        $rins = tao_formula_api( '/lab_laudos', 'POST', $cert );
+        if ( $rins['ok'] ) $ok++; else $falhas[] = "$rotulo: " . mb_substr( (string) ( $rins['raw'] ?? $rins['error'] ?? '' ), 0, 90 );
+    }
+    wp_send_json_success( [ 'gravados' => $ok, 'falhas' => $falhas ] );
+} );
+
 // ── DEFINIÇÃO do molde (Fase 2): IA propõe RÓTULOS 1x → constrói regex → preview → salva ──
 // Constrói as regras (regex) do molde a partir da sugestão de rótulos da IA.
 function tao_formula_laudo_molde_regras_de_sugestao( $sug ) {
@@ -4792,9 +5000,11 @@ function tao_formula_laudo_molde_regras_de_sugestao( $sug ) {
     foreach ( ( $sug['campos'] ?? [] ) as $campo => $c ) {
         $rot = trim( (string) ( $c['rotulo'] ?? '' ) ); if ( $rot === '' ) continue;
         $tipo = $c['tipo'] ?? '';
-        if ( $tipo === 'data_br' )      $cap = '(\d{2}/\d{2}/\d{4})';
-        elseif ( ! empty( $c['ate'] ) ) $cap = '(.+?)\s+' . $q( $c['ate'] );
-        else                            $cap = '([^\s]+)';
+        if ( $tipo === 'data_br' )        $cap = '(\d{2}/\d{2}/\d{4})';
+        elseif ( $tipo === 'resultado' )  $cap = '\(?\s*[xX]?\s*\)?\s*(Aprovado|Reprovado|APROVADO|REPROVADO)';
+        elseif ( $tipo === 'sim_nao' )    $cap = 'Sim\s*\(\s*([xX ]?)\s*\)';   // conteúdo do () do "Sim"
+        elseif ( ! empty( $c['ate'] ) )   $cap = '(.+?)\s+' . $q( $c['ate'] );
+        else                              $cap = '([^\s]+)';
         $regras['campos'][ $campo ] = [ 'regex' => $q( $rot ) . '\s*' . $cap, 'tipo' => $tipo ];
     }
     return $regras;
@@ -4808,19 +5018,32 @@ add_action( 'wp_ajax_tao_formula_laudo_molde_sugerir', function () {
     $paginas = json_decode( wp_unslash( $_POST['paginas'] ?? '[]' ), true );
     if ( ! is_array( $paginas ) || ! $paginas ) wp_send_json_error( [ 'message' => 'Sem texto do PDF (digitalizado? use o caminho por IA).' ] );
     $amostra = implode( "\n----PAGINA----\n", array_slice( $paginas, 0, 4 ) );
-    $prompt = "Você monta um MOLDE de leitura por RÓTULOS para Certificados de Análise de matéria-prima. "
-        . "Analise o TEXTO (páginas separadas por ----PAGINA----). Responda APENAS JSON, sem markdown: "
-        . '{"multi_ativo":true,"split_marcador":"","campos":{"nome":{"rotulo":"","ate":""},"lote":{"rotulo":""},"dt_validade":{"rotulo":"","tipo":"data_br"},"dt_fabricacao":{"rotulo":"","tipo":"data_br"},"fabricante":{"rotulo":""},"origem":{"rotulo":""}}}. '
-        . "multi_ativo=true se há VÁRIOS laudos (um por insumo). split_marcador = texto CURTO no começo de CADA novo laudo (ex.: \"Pág 1\"); vazio se não multi. "
-        . "Para cada campo, \"rotulo\" = o texto EXATO que antecede o valor (ex.: \"LOTE PN:\"). Em \"nome\", \"ate\" = texto logo DEPOIS do nome (ex.: \"Pág\"). "
-        . "lote = o lote da FARMÁCIA (p/ casar com a NF). Use os rótulos EXATOS do texto.";
-    $txt = tao_formula_openai_ask( [ 'type' => 'input_text', 'text' => mb_substr( $amostra, 0, 12000 ) ], $prompt, 1500 );
+    $prompt = "Você monta um MOLDE de leitura por RÓTULOS para Certificados de Análise (laudo) de matéria-prima de farmácia de manipulação (RDC 67). "
+        . "Analise o TEXTO (páginas separadas por ----PAGINA----). Responda APENAS JSON, sem markdown, no formato: "
+        . '{"multi_ativo":true,"split_marcador":"","assinatura":"","campos":{'
+        . '"nome":{"rotulo":"","ate":""},"lote":{"rotulo":"","ate":""},"lote_interno":{"rotulo":"","ate":""},'
+        . '"nome_cientifico":{"rotulo":"","ate":""},"sinonimia":{"rotulo":"","ate":""},"parte_utilizada":{"rotulo":"","ate":""},'
+        . '"dcb":{"rotulo":"","ate":""},"cas":{"rotulo":"","ate":""},"formula_molecular":{"rotulo":"","ate":""},"peso_molecular":{"rotulo":"","ate":""},'
+        . '"cor_corpo":{"rotulo":"","ate":""},"cor_tampa":{"rotulo":"","ate":""},"numero":{"rotulo":"","ate":""},'
+        . '"dt_fabricacao":{"rotulo":"","tipo":"data_br"},"dt_validade":{"rotulo":"","tipo":"data_br"},"dt_emissao":{"rotulo":"","tipo":"data_br"},'
+        . '"origem":{"rotulo":"","ate":""},"procedencia":{"rotulo":"","ate":""},"fabricante":{"rotulo":"","ate":""},'
+        . '"conservacao_temp":{"rotulo":"","ate":""},"conservacao_umid":{"rotulo":"","ate":""},'
+        . '"higroscopico":{"rotulo":"","tipo":"sim_nao"},"fotossensivel":{"rotulo":"","tipo":"sim_nao"},'
+        . '"conclusao":{"rotulo":"","ate":""},"resultado":{"rotulo":"","tipo":"resultado"},'
+        . '"rt_nome":{"rotulo":"","ate":""},"rt_crf":{"rotulo":"","ate":""},"ensaios_bloco":{"rotulo":"","ate":""}}}. '
+        . "REGRAS: multi_ativo=true se há VÁRIOS laudos (um por insumo/página); split_marcador = texto CURTO no início de CADA laudo (vazio se não multi). "
+        . "assinatura = um trecho CURTO e EXATO que aparece SÓ neste LAYOUT (para diferenciar de outros layouts do mesmo fornecedor — ex.: um laudo de extrato vegetal tem \"Nome científico\", um de cápsula tem \"Cor do Corpo\"). "
+        . "Para cada campo: \"rotulo\" = o texto EXATO imediatamente ANTES do valor; \"ate\" = o texto EXATO logo DEPOIS do valor (use quando o valor tem espaços, ex.: nome, origem). "
+        . "IMPORTANTE: \"lote\" = o LOTE que casa com a Nota Fiscal (normalmente \"Lote Original\"); \"lote_interno\" = o lote interno do fornecedor. "
+        . "\"ensaios_bloco\": rotulo = cabeçalho da tabela de ensaios (ex.: \"RESULTADO\") e ate = o texto logo após a tabela (ex.: \"Referência\"). "
+        . "Só inclua no JSON os campos que EXISTEM neste laudo (omita os ausentes). Use os rótulos EXATOS do texto.";
+    $txt = tao_formula_openai_ask( [ 'type' => 'input_text', 'text' => mb_substr( $amostra, 0, 12000 ) ], $prompt, 2200 );
     if ( preg_match( '/\{.*\}/s', $txt, $m ) ) $txt = $m[0];
     $sug = json_decode( $txt, true );
     if ( ! is_array( $sug ) ) wp_send_json_error( [ 'message' => 'A IA não retornou um molde válido — ajuste manual ou tente de novo.' ] );
     $regras  = tao_formula_laudo_molde_regras_de_sugestao( $sug );
     $preview = tao_formula_laudo_extrair_por_molde( $paginas, $regras );
-    wp_send_json_success( [ 'regras' => $regras, 'preview' => array_slice( $preview, 0, 30 ), 'total' => count( $preview ) ] );
+    wp_send_json_success( [ 'regras' => $regras, 'assinatura' => $sug['assinatura'] ?? '', 'preview' => array_slice( $preview, 0, 30 ), 'total' => count( $preview ) ] );
 } );
 // Salva o molde (após o farmacêutico validar/ajustar).
 add_action( 'wp_ajax_tao_formula_laudo_molde_salvar', function () {
