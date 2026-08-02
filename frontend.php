@@ -96,6 +96,7 @@ add_action( 'template_redirect', function() {
         'formula-unidades'     => 'tao-formula-unidades',
         'formula-estoque-lotes'=> 'tao-formula-estoque-lotes',
         'formula-estoque-inventario'=> 'tao-formula-estoque-inventario',
+        'formula-valor-estoque'     => 'tao-formula-valor-estoque',
         'formula-estoque-repo' => 'tao-formula-estoque-repo',
         'formula-producao'     => 'tao-formula-producao',
         'formula-producao-interna' => 'tao-formula-producao-interna',

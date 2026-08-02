@@ -362,6 +362,47 @@ add_action( 'wp_ajax_tao_formula_ativo_estoque', function () {
     ] );
 } );
 
+// Valor do estoque — saldo (lotes aprovados) × custos, por produto. Custo/Venda na MESMA
+// unidade do saldo (unidade padrão); Compra unit só exibida (é por unidade de compra).
+add_action( 'wp_ajax_tao_formula_valor_estoque', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    @set_time_limit( 120 );
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cli = tao_formula_cliente_id();
+    if ( ! $cli ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+    $busca = trim( sanitize_text_field( $_POST['busca'] ?? '' ) );
+    $grupo = sanitize_text_field( $_POST['grupo'] ?? '' );
+    // saldo por ativo (lotes aprovados com saldo)
+    $saldo = []; $off = 0;
+    do {
+        $r = tao_formula_api( "/lab_lotes_mp?cliente_id=eq.$cli&status=eq.aprovado&qtd_atual=gt.0&select=ativo_id,qtd_atual&limit=1000&offset=$off" );
+        $d = $r['ok'] ? ( $r['data'] ?? [] ) : [];
+        foreach ( $d as $l ) if ( ! empty( $l['ativo_id'] ) ) $saldo[ $l['ativo_id'] ] = ( $saldo[ $l['ativo_id'] ] ?? 0 ) + (float) $l['qtd_atual'];
+        $off += 1000;
+    } while ( count( $d ) === 1000 );
+    if ( ! $saldo ) { wp_send_json_success( [ 'itens' => [], 'tot_custo' => 0, 'tot_venda' => 0, 'tot_itens' => 0 ] ); }
+    $at = [];
+    foreach ( array_chunk( array_keys( $saldo ), 100 ) as $ch ) {
+        $ra = tao_formula_api( "/ativos?id=in.(" . implode( ',', $ch ) . ")&select=id,nome,grupo,unidade,unidade_padrao,custo_por_unidade,preco_compra,preco_venda" );
+        foreach ( ( $ra['data'] ?? [] ) as $a ) $at[ $a['id'] ] = $a;
+    }
+    $linhas = []; $tc = 0; $tv = 0;
+    foreach ( $saldo as $aid => $q ) {
+        $a = $at[ $aid ] ?? null; if ( ! $a ) continue;
+        if ( $grupo && ( $a['grupo'] ?? '' ) !== $grupo ) continue;
+        if ( $busca !== '' && mb_stripos( (string) ( $a['nome'] ?? '' ), $busca ) === false ) continue;
+        $cu = (float) $a['custo_por_unidade']; $pc = (float) $a['preco_compra']; $pv = (float) $a['preco_venda'];
+        $ct = $q * $cu; $vt = $q * $pv; $tc += $ct; $tv += $vt;
+        $linhas[] = [
+            'nome' => $a['nome'], 'un' => $a['unidade_padrao'] ?: ( $a['unidade'] ?: '' ),
+            'qtd' => round( $q, 3 ), 'custo_un' => $cu, 'compra_un' => $pc, 'custo_tot' => $ct, 'venda_un' => $pv, 'venda_tot' => $vt,
+        ];
+    }
+    usort( $linhas, function ( $x, $y ) { return $y['custo_tot'] <=> $x['custo_tot']; } );
+    wp_send_json_success( [ 'itens' => $linhas, 'tot_custo' => $tc, 'tot_venda' => $tv, 'tot_itens' => count( $linhas ) ] );
+} );
+
 // ── Helper: gerar número de orçamento/OM no padrão TAO Neo YYYYMM-NNNNN-SS ────
 // YYYYMM  = ano+mês; NNNNN = nº da REQUISIÇÃO (5 dígitos, um por card/atendimento);
 // SS      = sequência da fórmula dentro da requisição (2 dígitos). Ex: 202607-00001-01.

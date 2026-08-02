@@ -50,6 +50,8 @@ if ( $has_formula ) {
     $secoes['tao-formula-estoque-nf']   = [ 'fn' => 'tao_formula_page_estoque_nf',   'label' => 'Estoque — Entrada NF' ];
     $secoes['tao-formula-estoque-lotes']= [ 'fn' => 'tao_formula_page_estoque_lotes','label' => 'Estoque — Lotes' ];
     $secoes['tao-formula-estoque-inventario']= [ 'fn' => 'tao_formula_page_estoque_inventario','label' => 'Estoque — Inventário' ];
+    if ( function_exists( 'tao_formula_page_valor_estoque' ) )
+        $secoes['tao-formula-valor-estoque'] = [ 'fn' => 'tao_formula_page_valor_estoque', 'label' => 'Valor do Estoque' ];
     $secoes['tao-formula-estoque-repo'] = [ 'fn' => 'tao_formula_page_estoque_reposicao','label' => 'Estoque — Reposição' ];
     $secoes['tao-formula-producao']     = [ 'fn' => 'tao_formula_page_producao',        'label' => 'Produção' ];
     $secoes['tao-formula-producao-interna'] = [ 'fn' => 'tao_formula_page_producao_interna', 'label' => 'Produção Interna' ];
@@ -168,6 +170,7 @@ if ( $has_formula ) {
             [ 'slug' => 'tao-formula-laudos',             'label' => 'Certificados / Laudos', 'url' => cbpm_url('formula-laudos') ],
             [ 'slug' => 'tao-formula-estoque-lotes',      'label' => 'Lotes',           'url' => cbpm_url('formula-estoque-lotes') ],
             [ 'slug' => 'tao-formula-estoque-inventario', 'label' => 'Invent&aacute;rio', 'url' => cbpm_url('formula-estoque-inventario') ],
+            [ 'slug' => 'tao-formula-valor-estoque',      'label' => 'Valor do Estoque', 'url' => cbpm_url('formula-valor-estoque') ],
             [ 'slug' => 'tao-formula-estoque-repo',       'label' => 'Reposi&ccedil;&atilde;o', 'url' => cbpm_url('formula-estoque-repo') ],
         ],
     ];

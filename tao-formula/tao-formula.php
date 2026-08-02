@@ -33,6 +33,7 @@ require_once TAOF_PLUGIN_DIR . 'includes/pages/estoque-nf.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/estoque-laudo-modelos.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/unidades-medida.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/laudos.php';
+require_once TAOF_PLUGIN_DIR . 'includes/pages/valor-estoque.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/estoque-lotes.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/estoque-inventario.php';
 require_once TAOF_PLUGIN_DIR . 'includes/pages/estoque-reposicao.php';
@@ -62,6 +63,7 @@ add_action( 'admin_menu', function() {
     add_submenu_page( 'tao-formula', 'Certificados / Laudos', 'Certificados / Laudos', 'read', 'tao-formula-laudos', 'tao_formula_page_laudos' );
     add_submenu_page( 'tao-formula', 'Estoque — Lotes',      'Estoque — Lotes',      'read', 'tao-formula-estoque-lotes', 'tao_formula_page_estoque_lotes' );
     add_submenu_page( 'tao-formula', 'Estoque — Inventário',  'Estoque — Inventário', 'read', 'tao-formula-estoque-inventario', 'tao_formula_page_estoque_inventario' );
+    add_submenu_page( 'tao-formula', 'Estoque — Valor do Estoque', 'Estoque — Valor do Estoque', 'read', 'tao-formula-valor-estoque', 'tao_formula_page_valor_estoque' );
     add_submenu_page( 'tao-formula', 'Estoque — Reposição',  'Estoque — Reposição',  'read', 'tao-formula-estoque-repo', 'tao_formula_page_estoque_reposicao' );
     add_submenu_page( 'tao-formula', 'Produção',             'Produção',             'read', 'tao-formula-producao',    'tao_formula_page_producao' );
     add_submenu_page( 'tao-formula', 'Produção Interna',     'Produção Interna',     'read', 'tao-formula-producao-interna', 'tao_formula_page_producao_interna' );
