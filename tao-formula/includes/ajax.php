@@ -384,7 +384,7 @@ add_action( 'wp_ajax_tao_formula_valor_estoque', function () {
     if ( ! $saldo ) { wp_send_json_success( [ 'itens' => [], 'tot_custo' => 0, 'tot_venda' => 0, 'tot_itens' => 0 ] ); }
     $at = [];
     foreach ( array_chunk( array_keys( $saldo ), 100 ) as $ch ) {
-        $ra = tao_formula_api( "/ativos?id=in.(" . implode( ',', $ch ) . ")&select=id,nome,grupo,unidade,unidade_padrao,custo_por_unidade,preco_compra,preco_venda" );
+        $ra = tao_formula_api( "/ativos?id=in.(" . implode( ',', $ch ) . ")&select=id,nome,grupo,unidade,unidade_padrao,custo_por_unidade,preco_compra,custo_com_frete,preco_venda" );
         foreach ( ( $ra['data'] ?? [] ) as $a ) $at[ $a['id'] ] = $a;
     }
     $linhas = []; $tc = 0; $tv = 0;
@@ -393,7 +393,10 @@ add_action( 'wp_ajax_tao_formula_valor_estoque', function () {
         if ( $grupo && ( $a['grupo'] ?? '' ) !== $grupo ) continue;
         if ( $busca !== '' && mb_stripos( (string) ( $a['nome'] ?? '' ), $busca ) === false ) continue;
         $cu = (float) $a['custo_por_unidade']; $pc = (float) $a['preco_compra']; $pv = (float) $a['preco_venda'];
-        $ct = $q * $cu; $vt = $q * $pv; $tc += $ct; $tv += $vt;
+        $cf = (float) ( $a['custo_com_frete'] ?? 0 );
+        // Valoriza o estoque pelo PREÇO DE COMPRA (fallback: custo, depois custo c/ frete) — o que tiver valor.
+        $base = $pc > 0 ? $pc : ( $cu > 0 ? $cu : $cf );
+        $ct = $q * $base; $vt = $q * $pv; $tc += $ct; $tv += $vt;
         $linhas[] = [
             'id' => $aid, 'nome' => $a['nome'], 'un' => $a['unidade_padrao'] ?: ( $a['unidade'] ?: '' ),
             'qtd' => round( $q, 3 ), 'custo_un' => $cu, 'compra_un' => $pc, 'custo_tot' => $ct, 'venda_un' => $pv, 'venda_tot' => $vt,
