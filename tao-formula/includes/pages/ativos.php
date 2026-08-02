@@ -498,6 +498,8 @@ function tao_formula_page_ativos() {
                     inp('Unid. dose m&aacute;x','uni_dose_max',a.uni_dose_max,{ph:'mg'}),
                     '<div style="grid-column:span 2">'+inp('Observa&ccedil;&otilde;es','observacoes',a.observacoes)+'</div>'
                 ]);
+                html += '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:8px 12px;margin-bottom:12px">'+
+                    '<label style="font-size:13px;display:inline-flex;align-items:center;gap:6px"><input type="checkbox" name="controla_lote" value="1"'+(a.controla_lote===false?'':' checked')+'> <strong>Controla lote</strong> (rastreio por lote — na produção o sistema escolhe o lote liberado por FEFO e aplica o teor/fator do lote)</label></div>';
                 html += '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:8px 12px;margin-bottom:12px">'+
                     '<label style="font-size:13px;display:inline-flex;align-items:center;gap:6px"><input type="checkbox" name="controlado" value="1"'+(a.controlado?' checked':'')+'> <strong>Substância controlada</strong> (Portaria 344/98 — escritura no SNGPC)</label>'+
                     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">'+

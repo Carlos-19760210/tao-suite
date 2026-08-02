@@ -110,7 +110,7 @@ add_action( 'wp_ajax_tao_formula_get_ativo', function() {
     $sel_base = "id,codigo_fc,nome,grupo,unidade,unidade_padrao,estoque_atual,preco_compra,preco_custo," .
         "custo_por_unidade,preco_venda,fator_correcao,fator_perda,densidade,dcb,dose_min,uni_dose_min," .
         "dose_max,uni_dose_max,categoria,classe_terapeutica,principio_ativo,observacoes,sincronizado_em," .
-        "diluicao,teor,concentracao,markup_preco,restricao,ativo,controlado,classe_sngpc,registro_ms," .
+        "diluicao,teor,concentracao,markup_preco,restricao,ativo,controlado,controla_lote,classe_sngpc,registro_ms," .
         "ft_nome_quimico,ft_formula_molecular,ft_peso_molecular,ft_caracteres,ft_ponto_fusao,ft_solubilidade," .
         "ft_ph,ft_grau_pureza,ft_conservacao,ft_referencias,ft_revisao,excipiente_id,bloqueado,bloqueado_motivo";
     // Campos da migration_ativo_fiscal_v1 (fiscal + compra c/ frete) — separados p/ retry defensivo.
@@ -186,6 +186,7 @@ add_action( 'wp_ajax_tao_formula_salvar_ativo', function() {
         'grupo'             => $grupo,
         'codigo_fc'         => $txt( 'codigo_fc' ),
         'controlado'        => ( $_POST['controlado'] ?? '' ) === '1',
+        'controla_lote'     => ( $_POST['controla_lote'] ?? '' ) === '1',
         'classe_sngpc'      => $txt( 'classe_sngpc', true ),
         'registro_ms'       => $txt( 'registro_ms' ),
         'unidade'           => $txt( 'unidade', true ),
@@ -5808,23 +5809,34 @@ add_action( 'wp_ajax_tao_formula_prod_om', function () {
     $ri = tao_formula_api( "/lab_ordem_itens?ordem_id=eq.$ordem_id&select=id,ativo_id,descricao,qtd_prescrita,unidade,qtd_pesada,qtd_pesar,unid_pesar,teor_aplic,equiv_aplic,diluicao_aplic,lote_mp_id,eh_qsp,ordem&order=ordem.asc&limit=200" );
     $itens = $ri['ok'] ? ( $ri['data'] ?? [] ) : [];
 
-    // lotes aprovados FEFO + NOME DO ATIVO ORIGEM (produto real, usado na ficha de pesagem) por ativo
+    // lotes LIBERADOS (aprovado) com saldo, FEFO (validade asc) + NOME/controla_lote do ativo origem
     $ids = array_values( array_unique( array_filter( array_column( $itens, 'ativo_id' ) ) ) );
-    $lotes = []; $nome_ativo = [];
+    $lotes = []; $nome_ativo = []; $ctrl_lote = [];
     if ( $ids ) {
         $hoje = gmdate( 'Y-m-d' );
         $rl = tao_formula_api( "/lab_lotes_mp?cliente_id=eq.$cliente_id&ativo_id=in.(" . implode( ',', $ids ) . ")&status=eq.aprovado&qtd_atual=gt.0&dt_validade=gte.$hoje&select=id,ativo_id,nr_lote,dt_validade,qtd_atual,fabricante,teor_pct,densidade,fator_diluicao&order=dt_validade.asc&limit=500" );
         foreach ( ( $rl['ok'] ? $rl['data'] : [] ) as $l ) $lotes[ $l['ativo_id'] ][] = $l;
-        $ra = tao_formula_api( "/ativos?id=in.(" . implode( ',', $ids ) . ")&select=id,nome" );
-        foreach ( ( $ra['ok'] ? $ra['data'] : [] ) as $a ) $nome_ativo[ $a['id'] ] = $a['nome'];
+        $ra = tao_formula_api( "/ativos?id=in.(" . implode( ',', $ids ) . ")&select=id,nome,controla_lote" );
+        foreach ( ( $ra['ok'] ? $ra['data'] : [] ) as $a ) { $nome_ativo[ $a['id'] ] = $a['nome']; $ctrl_lote[ $a['id'] ] = ! isset( $a['controla_lote'] ) || $a['controla_lote']; }
     }
+    // Escolha AUTOMÁTICA do lote pelo sistema (igual ao FCerta: FEFO entre os liberados).
+    // Só para itens que CONTROLAM lote e ainda não têm lote atribuído; persiste a escolha.
+    $auto = [];
     foreach ( $itens as &$it ) {
-        $it['lotes']      = $it['ativo_id'] ? ( $lotes[ $it['ativo_id'] ] ?? [] ) : [];
-        // Ficha de pesagem usa o ATIVO ORIGEM (produto); fallback para a descrição prescrita se for item livre
-        $it['nome_ativo'] = ( $it['ativo_id'] && isset( $nome_ativo[ $it['ativo_id'] ] ) ) ? $nome_ativo[ $it['ativo_id'] ] : $it['descricao'];
+        $aid              = $it['ativo_id'] ?? '';
+        $it['lotes']      = $aid ? ( $lotes[ $aid ] ?? [] ) : [];
+        $it['controla_lote'] = $aid ? (bool) ( $ctrl_lote[ $aid ] ?? true ) : false;
+        $it['nome_ativo'] = ( $aid && isset( $nome_ativo[ $aid ] ) ) ? $nome_ativo[ $aid ] : $it['descricao'];
+        if ( ! $it['eh_qsp'] && $it['controla_lote'] && empty( $it['lote_mp_id'] ) && ! empty( $it['lotes'] ) ) {
+            $it['lote_mp_id'] = $it['lotes'][0]['id'];   // 1º da lista = menor validade = FEFO
+            $it['lote_auto']  = true;
+            $auto[ $it['id'] ] = $it['lote_mp_id'];
+        }
     }
     unset( $it );
-    // Flag: recalcular a pesagem pelo teor/diluição REAIS do lote escolhido (default OFF).
+    // persiste as escolhas automáticas (uma vez) para que a baixa e a ficha usem o mesmo lote
+    foreach ( $auto as $iid => $lid ) tao_formula_api( "/lab_ordem_itens?id=eq.$iid", 'PATCH', [ 'lote_mp_id' => $lid ] );
+
     wp_send_json_success( [ 'ordem' => $ro['data'][0], 'itens' => $itens, 'recalc_lote' => get_option( 'tao_formula_recalc_lote' ) === '1' ] );
 } );
 
