@@ -97,6 +97,21 @@ function tao_formula_page_config() {
                     </p>
                 </td>
             </tr>
+            <tr>
+                <th><label for="taof-recalc-lote">Recalcular pesagem pelo lote</label></th>
+                <td>
+                    <label>
+                        <input type="checkbox" id="taof-recalc-lote" name="recalc_lote" value="1"
+                               <?php checked( get_option( 'tao_formula_recalc_lote' ), '1' ); ?>>
+                        Ativar na tela de Produção
+                    </label>
+                    <p class="description">
+                        Ao escolher o lote na Produção, mostra a <strong>quantidade a pesar ajustada</strong>
+                        pelo teor/fator de diluição <strong>reais daquele lote</strong> (fator de correção, RDC 67).
+                        Não altera o cálculo do orçamento; o valor-base é preservado. Desligado, nada muda.
+                    </p>
+                </td>
+            </tr>
         </table>
 
         <p>

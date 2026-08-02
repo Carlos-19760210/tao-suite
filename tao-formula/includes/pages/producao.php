@@ -46,7 +46,23 @@ function tao_formula_page_producao() {
     jQuery(function($){
         var ajaxUrl=taoFormula.ajaxUrl, nonce=taoFormula.nonce, timer=null;
         var CARDURL=<?php echo wp_json_encode( $card_url ); ?>;
+        var RECALC=false;   // flag: recalcular a pesagem pelo teor/diluição reais do lote (tao_formula_recalc_lote)
         function esc(t){return $('<span>').text(t==null?'':t).html();}
+        function nBR(n,d){ d=(d==null?3:d); return parseFloat(n||0).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d}); }
+        // qtd a pesar ajustada ao lote = base × (teorBase/teorLote) × (dilLote/dilBase)
+        function recalcExib(itId){
+            var $sel=$('.taof-pd-lote[data-it="'+itId+'"]'), $aj=$('.taof-pd-ajuste[data-it="'+itId+'"]');
+            if(!RECALC||!$sel.length){ return; }
+            var base=parseFloat($sel.data('base-pesar'))||0, $opt=$sel.find('option:selected');
+            if(!base||!$opt.val()){ $aj.html(''); return; }
+            var teorBase=parseFloat($sel.data('base-teor'))||100, dilBase=parseFloat($sel.data('base-dil'))||1;
+            var teorLote=parseFloat($opt.data('teor'))||0, dilLote=parseFloat($opt.data('dil'))||0;
+            var ratioTeor=teorLote>0?(teorBase/teorLote):1, ratioDil=dilLote>0?(dilLote/dilBase):1;
+            var aj=base*ratioTeor*ratioDil;
+            if(Math.abs(aj-base)/base<0.001){ $aj.html('<small style="color:#94a3b8">lote sem correção</small>'); return; }
+            var nota=[]; if(teorLote>0)nota.push('teor '+nBR(teorLote,1)+'%'); if(dilLote>0&&dilLote!=dilBase)nota.push('dil ×'+nBR(dilLote,2));
+            $aj.html('<small style="color:#b45309">➜ pesar pelo lote: <strong>'+nBR(aj)+' g</strong>'+(nota.length?' ('+nota.join(' · ')+')':'')+'</small>');
+        }
         function fdata(d){if(!d)return '—';var p=String(d).substring(0,10).split('-');return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:d;}
 
         // ── Gerar OM (buscar orçamento) ──
@@ -151,19 +167,20 @@ function tao_formula_page_producao() {
             $('#taof-pd-body').html('<p style="color:#94a3b8">Carregando…</p>'); $('#taof-pd-modal').show();
             $.getJSON(ajaxUrl,{action:'tao_formula_prod_om',nonce:nonce,ordem_id:id},function(r){
                 if(!r.success){$('#taof-pd-body').html('<p style="color:#dc2626">Erro</p>');return;}
-                var o=r.data.ordem, its=r.data.itens;
+                var o=r.data.ordem, its=r.data.itens; RECALC=!!r.data.recalc_lote;
                 var rows=its.map(function(it){
                     var loteSel;
+                    var baseAttrs=' data-base-pesar="'+(it.qtd_pesar!=null?it.qtd_pesar:'')+'" data-base-teor="'+(it.teor_aplic!=null?it.teor_aplic:'')+'" data-base-dil="'+(it.diluicao_aplic!=null?it.diluicao_aplic:'')+'"';
                     if(it.eh_qsp){loteSel='<span style="color:#94a3b8">QSP</span>';}
                     else if(!it.lotes.length){loteSel='<span style="color:#dc2626;font-size:11px">sem lote aprovado</span>';}
-                    else{loteSel='<select class="taof-pd-lote" data-it="'+it.id+'" style="font-size:12px;max-width:150px"><option value="">—</option>'+
-                        it.lotes.map(function(l){return '<option value="'+l.id+'"'+(it.lote_mp_id===l.id?' selected':'')+'>'+esc(l.nr_lote)+' (val '+fdata(l.dt_validade)+', '+parseFloat(l.qtd_atual)+')</option>';}).join('')+'</select>';}
+                    else{loteSel='<select class="taof-pd-lote" data-it="'+it.id+'"'+baseAttrs+' style="font-size:12px;max-width:150px"><option value="">—</option>'+
+                        it.lotes.map(function(l){return '<option value="'+l.id+'" data-teor="'+(l.teor_pct!=null?l.teor_pct:'')+'" data-dil="'+(l.fator_diluicao!=null?l.fator_diluicao:'')+'"'+(it.lote_mp_id===l.id?' selected':'')+'>'+esc(l.nr_lote)+' (val '+fdata(l.dt_validade)+', '+parseFloat(l.qtd_atual)+')</option>';}).join('')+'</select>';}
                     var pesar=it.eh_qsp?'QSP':(it.qtd_pesar!=null?'<strong>'+parseFloat(it.qtd_pesar)+' '+esc(it.unid_pesar||'g')+'</strong>':'—');
                     var corr=[]; if(it.teor_aplic&&it.teor_aplic!=100)corr.push('teor '+parseFloat(it.teor_aplic)+'%'); if(it.equiv_aplic&&it.equiv_aplic!=1)corr.push('equiv ×'+parseFloat(it.equiv_aplic)); if(it.diluicao_aplic&&it.diluicao_aplic!=1)corr.push('dil ×'+parseFloat(it.diluicao_aplic));
                     return '<tr><td><strong>'+esc(it.nome_ativo||it.descricao)+'</strong>'+(it.eh_qsp?' <small style="color:#94a3b8">(qsp)</small>':'')+
                         (it.descricao&&it.descricao!==it.nome_ativo?'<br><small style="color:#94a3b8">prescrição: '+esc(it.descricao)+'</small>':'')+'</td>'+
                         '<td style="text-align:right">'+(it.qtd_prescrita!=null?parseFloat(it.qtd_prescrita)+' '+esc(it.unidade||''):'—')+'</td>'+
-                        '<td style="text-align:right">'+pesar+(corr.length?'<br><small style="color:#94a3b8">'+corr.join(' · ')+'</small>':'')+'</td>'+
+                        '<td style="text-align:right">'+pesar+(corr.length?'<br><small style="color:#94a3b8">'+corr.join(' · ')+'</small>':'')+'<div class="taof-pd-ajuste" data-it="'+it.id+'"></div></td>'+
                         '<td><input type="text" class="taof-pd-pesou" data-it="'+it.id+'" value="'+(it.qtd_pesada!=null?it.qtd_pesada:'')+'" style="width:70px;padding:3px 5px" placeholder="pesado"></td>'+
                         '<td>'+loteSel+'</td></tr>';
                 }).join('');
@@ -192,10 +209,11 @@ function tao_formula_page_producao() {
                     '<p style="margin:14px 0 0"><button class="button taof-ficha2" data-id="'+o.id+'">🖨 Ficha de Pesagem</button> <button class="button button-primary taof-rotulo2" data-id="'+o.id+'">🏷 Rótulo (RDC 67)</button> <button class="button taof-concluir" data-id="'+o.id+'" data-nome="'+esc(o.numero)+'">✅ Concluir OM</button> <button class="button" id="taof-pd-fechar">Fechar</button> <span id="taof-pd-msg" style="font-size:12px;margin-left:8px"></span></p>'+
                     '<p style="margin:8px 0 0;color:#94a3b8;font-size:11px">Concluir a OM <strong>baixa o estoque</strong> dos lotes pesados (+ SNGPC, se controlado) — a baixa só acontece quando você clica. Com a chave do fluxo novo ligada, mover o card para <strong>"Pronto para Entrega"</strong> também conclui.</p>'
                 );
+                if(RECALC) its.forEach(function(it){ recalcExib(it.id); });   // lotes já selecionados
             });
         }
         $(document).on('change','.taof-pd-pesou',function(){salvarPesagem($(this).data('it'));});
-        $(document).on('change','.taof-pd-lote', function(){salvarPesagem($(this).data('it'));});
+        $(document).on('change','.taof-pd-lote', function(){var it=$(this).data('it'); recalcExib(it); salvarPesagem(it);});
         $(document).on('click','.taof-rc-salvar',function(){
             $.post(ajaxUrl,{action:'tao_formula_prod_receita_ctrl',nonce:nonce,ordem_id:$(this).data('om'),
                 tp_receita:$('#taof-rc-tp').val(),nr_notificacao:$('#taof-rc-nr').val(),

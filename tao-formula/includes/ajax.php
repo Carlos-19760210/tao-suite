@@ -776,6 +776,7 @@ add_action( 'wp_ajax_tao_formula_save_config', function() {
     update_option( 'tao_formula_margem_padrao', (float) ( $_POST['margem_padrao'] ?? 30 ) );
     // Checkbox: ausente no POST quando desmarcado
     update_option( 'tao_formula_motor_v2', ( $_POST['motor_v2'] ?? '' ) === '1' ? '1' : '0' );
+    update_option( 'tao_formula_recalc_lote', ( $_POST['recalc_lote'] ?? '' ) === '1' ? '1' : '0' );
 
     wp_send_json_success( 'Configurações salvas.' );
 } );
@@ -5812,7 +5813,7 @@ add_action( 'wp_ajax_tao_formula_prod_om', function () {
     $lotes = []; $nome_ativo = [];
     if ( $ids ) {
         $hoje = gmdate( 'Y-m-d' );
-        $rl = tao_formula_api( "/lab_lotes_mp?cliente_id=eq.$cliente_id&ativo_id=in.(" . implode( ',', $ids ) . ")&status=eq.aprovado&qtd_atual=gt.0&dt_validade=gte.$hoje&select=id,ativo_id,nr_lote,dt_validade,qtd_atual,fabricante&order=dt_validade.asc&limit=500" );
+        $rl = tao_formula_api( "/lab_lotes_mp?cliente_id=eq.$cliente_id&ativo_id=in.(" . implode( ',', $ids ) . ")&status=eq.aprovado&qtd_atual=gt.0&dt_validade=gte.$hoje&select=id,ativo_id,nr_lote,dt_validade,qtd_atual,fabricante,teor_pct,densidade,fator_diluicao&order=dt_validade.asc&limit=500" );
         foreach ( ( $rl['ok'] ? $rl['data'] : [] ) as $l ) $lotes[ $l['ativo_id'] ][] = $l;
         $ra = tao_formula_api( "/ativos?id=in.(" . implode( ',', $ids ) . ")&select=id,nome" );
         foreach ( ( $ra['ok'] ? $ra['data'] : [] ) as $a ) $nome_ativo[ $a['id'] ] = $a['nome'];
@@ -5823,7 +5824,8 @@ add_action( 'wp_ajax_tao_formula_prod_om', function () {
         $it['nome_ativo'] = ( $it['ativo_id'] && isset( $nome_ativo[ $it['ativo_id'] ] ) ) ? $nome_ativo[ $it['ativo_id'] ] : $it['descricao'];
     }
     unset( $it );
-    wp_send_json_success( [ 'ordem' => $ro['data'][0], 'itens' => $itens ] );
+    // Flag: recalcular a pesagem pelo teor/diluição REAIS do lote escolhido (default OFF).
+    wp_send_json_success( [ 'ordem' => $ro['data'][0], 'itens' => $itens, 'recalc_lote' => get_option( 'tao_formula_recalc_lote' ) === '1' ] );
 } );
 
 // Salva a pesagem (qtd_pesada + lote) de um item
@@ -5835,6 +5837,9 @@ add_action( 'wp_ajax_tao_formula_prod_pesar', function () {
     if ( ! $item_id ) wp_send_json_error( [ 'message' => 'Item inválido' ] );
     $qtd  = $_POST['qtd_pesada'] ?? '';
     $lote = sanitize_text_field( $_POST['lote_mp_id'] ?? '' ) ?: null;
+    // Grava só a pesagem real + o lote usado. O teor/fator REAIS do lote NÃO sobrescrevem
+    // o base do orçamento — o recálculo pelo lote é derivado do lote_mp_id na exibição
+    // (tela de produção e ficha), o que preserva o base e evita acúmulo entre trocas de lote.
     $r = tao_formula_api( "/lab_ordem_itens?id=eq.$item_id", 'PATCH', [
         'qtd_pesada' => $qtd === '' ? null : (float) str_replace( ',', '.', $qtd ),
         'lote_mp_id' => $lote,

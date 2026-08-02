@@ -78,7 +78,7 @@ function tao_formula_render_ficha_html( $cliente_id, $ordem_id ) {
 	$lote_ids = array_values( array_unique( array_filter( array_column( $itens, 'lote_mp_id' ) ) ) );
 	$lotes = [];
 	if ( $lote_ids ) {
-		$rl = tao_formula_api( "/lab_lotes_mp?id=in.(" . implode( ',', $lote_ids ) . ")&select=id,nr_lote,dt_validade,densidade,fornecedor_id,fabricante" );
+		$rl = tao_formula_api( "/lab_lotes_mp?id=in.(" . implode( ',', $lote_ids ) . ")&select=id,nr_lote,dt_validade,densidade,teor_pct,fator_diluicao,fornecedor_id,fabricante" );
 		$forn_ids = [];
 		foreach ( ( $rl['ok'] ? $rl['data'] : [] ) as $l ) { $lotes[ $l['id'] ] = $l; if ( ! empty( $l['fornecedor_id'] ) ) $forn_ids[ $l['fornecedor_id'] ] = 1; }
 		if ( $forn_ids ) {
@@ -105,6 +105,28 @@ function tao_formula_render_ficha_html( $cliente_id, $ordem_id ) {
 				}
 			}
 		}
+	}
+
+	// Flag: recalcula a QTD A PESAR pelo teor/fator de diluição REAIS do lote escolhido
+	// (fator de correção efetivo, RDC 67). O base do orçamento não é alterado no banco —
+	// o ajuste é derivado do lote aqui, na emissão da ficha, para o documento bater com a balança.
+	if ( get_option( 'tao_formula_recalc_lote' ) === '1' ) {
+		foreach ( $itens as &$__it ) {
+			if ( empty( $__it['lote_mp_id'] ) || empty( $__it['qtd_pesar'] ) ) continue;
+			$__lt = $lotes[ $__it['lote_mp_id'] ] ?? null; if ( ! $__lt ) continue;
+			$tb = (float) ( $__it['teor_aplic'] ?? 0 ) ?: 100.0;
+			$db = (float) ( $__it['diluicao_aplic'] ?? 0 ) ?: 1.0;
+			$tl = (float) ( $__lt['teor_pct'] ?? 0 );
+			$dl = (float) ( $__lt['fator_diluicao'] ?? 0 );
+			$rt = $tl > 0 ? ( $tb / $tl ) : 1.0;
+			$rd = $dl > 0 ? ( $dl / $db ) : 1.0;
+			if ( abs( $rt * $rd - 1 ) > 0.0001 ) {
+				$__it['qtd_pesar'] = round( (float) $__it['qtd_pesar'] * $rt * $rd, 4 );
+				if ( $tl > 0 ) $__it['teor_aplic']     = $tl;   // reflete o teor real do lote nas correções
+				if ( $dl > 0 ) $__it['diluicao_aplic'] = $dl;
+			}
+		}
+		unset( $__it );
 	}
 
 	// ── cálculos de peso + alertas ──
