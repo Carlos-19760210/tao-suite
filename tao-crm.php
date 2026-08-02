@@ -2060,6 +2060,8 @@ function tao_crm_ajax_fechar_card() {
                 do_action( 'tao_entregas_card_ganho', $card_id, $card['workspace_id'] ?? '' );
                 // Negócio ganho → cria a OM do módulo Fórmula (listener isolado; o card nasce com a OM)
                 do_action( 'tao_formula_card_ganho', $card_id, $card['workspace_id'] ?? '' );
+                // Card ganho: recalcula o valor considerando só os orçamentos APROVADOS.
+                if ( function_exists( 'tao_crm_sync_valor_oportunidade' ) ) tao_crm_sync_valor_oportunidade( $card_id );
                 wp_send_json_success( [ 'pos_vendas' => true ] );
                 return;
             }
@@ -5837,10 +5839,21 @@ function tao_crm_sync_valor_oportunidade( string $card_id ): void {
     $ri = tao_crm_api( "/crm_card_itens?card_id=eq.$card_id&select=total" );
     if ( $ri['ok'] ) $total += array_sum( array_column( $ri['data'] ?? [], 'total' ) );
 
-    // Card GANHO (pós-vendas): o valor considera só os orçamentos APROVADOS (que viraram OM).
-    // Em negociação, soma todos os orçamentos (como antes).
-    $rst = tao_crm_api( "/crm_cards?id=eq.$card_id&select=status&limit=1" );
-    $card_ganho = ( $rst['ok'] && ! empty( $rst['data'] ) ) && ( ( $rst['data'][0]['status'] ?? '' ) === 'ganho' );
+    // Card GANHO = está no pipeline de PÓS-VENDAS do workspace (não mexe no status p/ não
+    // afetar métricas). Nesse caso o valor considera só os orçamentos APROVADOS (que viraram OM);
+    // em negociação, soma todos os orçamentos (como antes).
+    $card_ganho = false;
+    $rcd = tao_crm_api( "/crm_cards?id=eq.$card_id&select=pipeline_id,workspace_id&limit=1" );
+    if ( $rcd['ok'] && ! empty( $rcd['data'] ) ) {
+        $ws = $rcd['data'][0]['workspace_id'] ?? '';
+        $pl = $rcd['data'][0]['pipeline_id'] ?? '';
+        $pos = $ws ? get_option( 'tao_crm_pos_vendas_pipeline_' . $ws, '' ) : '';
+        if ( ! $pos && $ws ) {  // auto-detect: 2º pipeline ativo = pós-vendas
+            $rall = tao_crm_api( "/crm_pipelines?workspace_id=eq.$ws&ativo=eq.true&order=ordem.asc&limit=2" );
+            if ( $rall['ok'] && count( $rall['data'] ?? [] ) >= 2 ) $pos = $rall['data'][1]['id'];
+        }
+        $card_ganho = ( $pos && $pl === $pos );
+    }
 
     // Orçamentos de fórmula vinculados ao card.
     // O valor do card reflete o que foi IMPORTADO (valor_final_fc = com acréscimo/desconto do FC);
