@@ -62,6 +62,8 @@ if ( $has_formula ) {
         $secoes['tao-formula-unidades'] = [ 'fn' => 'tao_formula_page_unidades_medida', 'label' => 'Unidades de Medida' ];
     if ( function_exists( 'tao_formula_page_laudo_modelos' ) )
         $secoes['tao-formula-laudo-modelos'] = [ 'fn' => 'tao_formula_page_laudo_modelos', 'label' => 'Modelos de Laudo' ];
+    if ( function_exists( 'tao_formula_page_laudos' ) )
+        $secoes['tao-formula-laudos'] = [ 'fn' => 'tao_formula_page_laudos', 'label' => 'Certificados / Laudos' ];
     $secoes['tao-formula-config']    = [ 'fn' => 'tao_formula_page_config',         'label' => 'Fórmulas — Configurações' ];
 }
 
@@ -163,6 +165,7 @@ if ( $has_formula ) {
         'items' => [
             [ 'slug' => 'tao-formula-estoque-nf',         'label' => 'Entrada NF',      'url' => cbpm_url('formula-estoque-nf') ],
             [ 'slug' => 'tao-formula-laudo-modelos',      'label' => 'Modelos de Laudo', 'url' => cbpm_url('formula-laudo-modelos') ],
+            [ 'slug' => 'tao-formula-laudos',             'label' => 'Certificados / Laudos', 'url' => cbpm_url('formula-laudos') ],
             [ 'slug' => 'tao-formula-estoque-lotes',      'label' => 'Lotes',           'url' => cbpm_url('formula-estoque-lotes') ],
             [ 'slug' => 'tao-formula-estoque-inventario', 'label' => 'Invent&aacute;rio', 'url' => cbpm_url('formula-estoque-inventario') ],
             [ 'slug' => 'tao-formula-estoque-repo',       'label' => 'Reposi&ccedil;&atilde;o', 'url' => cbpm_url('formula-estoque-repo') ],

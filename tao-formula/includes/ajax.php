@@ -4547,11 +4547,17 @@ function tao_formula_laudo_tokens( $s ) {
     return array_keys( $out );
 }
 // Score 0..1 = fração dos tokens do ATIVO cobertos pelo texto do laudo (nome + cores + nº).
+// Casa por igualdade OU por prefixo comum (>=3) p/ tolerar abreviações (CAP↔CAPSULA, GELAT↔GELATINA).
 function tao_formula_laudo_score( $laudo_txt, $ativo_nome ) {
     $a = tao_formula_laudo_tokens( $laudo_txt ); $b = tao_formula_laudo_tokens( $ativo_nome );
     if ( ! $a || ! $b ) return 0.0;
-    $inter = count( array_intersect( $a, $b ) );
-    return $inter / count( $b );
+    $hit = 0;
+    foreach ( $b as $tb ) foreach ( $a as $ta ) {
+        if ( $ta === $tb ) { $hit++; break; }
+        $min = min( strlen( $ta ), strlen( $tb ) );
+        if ( $min >= 3 && strncmp( $ta, $tb, $min ) === 0 ) { $hit++; break; }
+    }
+    return $hit / count( $b );
 }
 // $laudos = extraídos; $lotes = [{id,nr_lote,ativo_id,ativo_nome}]. Devolve cada laudo com
 // { _lote_id, _lote_nr, _ativo_nome, _metodo: lote|nome|ambiguo|sem, _score }.
@@ -4989,6 +4995,46 @@ add_action( 'wp_ajax_tao_formula_nf_laudos_confirmar', function () {
         if ( $rins['ok'] ) $ok++; else $falhas[] = "$rotulo: " . mb_substr( (string) ( $rins['raw'] ?? $rins['error'] ?? '' ), 0, 90 );
     }
     wp_send_json_success( [ 'gravados' => $ok, 'falhas' => $falhas ] );
+} );
+
+// ── CONSULTA de laudos/certificados importados ────────────────────────────────
+add_action( 'wp_ajax_tao_formula_laudos_lista', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cli = tao_formula_cliente_id();
+    $busca = trim( sanitize_text_field( $_POST['busca'] ?? '' ) );
+    $res   = sanitize_text_field( $_POST['resultado'] ?? '' );   // ''|aprovado|reprovado
+    $f = "cliente_id=eq.$cli";
+    if ( in_array( $res, [ 'aprovado', 'reprovado' ], true ) ) $f .= "&resultado=eq.$res";
+    $r = tao_formula_api( "/lab_laudos?$f&select=id,produto_nome,ativo_id,lote_id,lote_original,lote_interno,dt_validade,dt_fabricacao,resultado,fabricante,pdf_url,criado_em&order=criado_em.desc&limit=500" );
+    $rows = $r['ok'] ? ( $r['data'] ?? [] ) : [];
+    if ( $busca !== '' ) { $b = mb_strtolower( $busca );
+        $rows = array_values( array_filter( $rows, function ( $x ) use ( $b ) {
+            return mb_stripos( (string) ( $x['produto_nome'] ?? '' ), $b ) !== false || mb_stripos( (string) ( $x['lote_original'] ?? '' ), $b ) !== false || mb_stripos( (string) ( $x['fabricante'] ?? '' ), $b ) !== false; } ) ); }
+    $aids = array_values( array_unique( array_filter( array_column( $rows, 'ativo_id' ) ) ) );
+    $lids = array_values( array_unique( array_filter( array_column( $rows, 'lote_id' ) ) ) );
+    $an = []; if ( $aids ) { $ra = tao_formula_api( "/ativos?id=in.(" . implode( ',', $aids ) . ")&select=id,nome" ); foreach ( ( $ra['data'] ?? [] ) as $a ) $an[ $a['id'] ] = $a['nome']; }
+    $ln = []; if ( $lids ) { $rl = tao_formula_api( "/lab_lotes_mp?id=in.(" . implode( ',', $lids ) . ")&select=id,nr_lote,status" ); foreach ( ( $rl['data'] ?? [] ) as $l ) $ln[ $l['id'] ] = $l; }
+    foreach ( $rows as &$x ) { $x['ativo_nome'] = $an[ $x['ativo_id'] ] ?? ''; $x['nr_lote'] = $ln[ $x['lote_id'] ]['nr_lote'] ?? ''; $x['lote_status'] = $ln[ $x['lote_id'] ]['status'] ?? ''; }
+    unset( $x );
+    wp_send_json_success( $rows );
+} );
+add_action( 'wp_ajax_tao_formula_laudo_detalhe', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cli = tao_formula_cliente_id();
+    $id  = sanitize_text_field( $_POST['id'] ?? '' );
+    $r = tao_formula_api( "/lab_laudos?id=eq.$id&cliente_id=eq.$cli&select=*&limit=1" );
+    if ( ! $r['ok'] || empty( $r['data'] ) ) wp_send_json_error( [ 'message' => 'Laudo não encontrado' ] );
+    $laudo = $r['data'][0];
+    $ens = []; if ( ! empty( $laudo['lote_id'] ) ) { $re = tao_formula_api( "/lab_laudo_ensaios?lote_id=eq.{$laudo['lote_id']}&select=teste,especificacao,resultado,conforme&order=criado_em.asc" ); $ens = $re['data'] ?? []; }
+    $ativo = null; if ( ! empty( $laudo['ativo_id'] ) ) { $ra = tao_formula_api( "/ativos?id=eq.{$laudo['ativo_id']}&select=nome,codigo_fc&limit=1" ); $ativo = $ra['data'][0] ?? null; }
+    $lote  = null; if ( ! empty( $laudo['lote_id'] ) ) { $rl = tao_formula_api( "/lab_lotes_mp?id=eq.{$laudo['lote_id']}&select=nr_lote,status,qtd_atual,unidade&limit=1" ); $lote = $rl['data'][0] ?? null; }
+    $emp = null; $rc = tao_formula_api( "/empresa_config?cliente_id=eq.$cli&select=razao_social,nome_fantasia,cnpj,rt_nome,rt_crf,rt_uf&limit=1" );
+    if ( $rc['ok'] && ! empty( $rc['data'] ) ) $emp = $rc['data'][0];
+    wp_send_json_success( [ 'laudo' => $laudo, 'ensaios' => $ens, 'ativo' => $ativo, 'lote' => $lote, 'farmacia' => $emp ] );
 } );
 
 // ── DEFINIÇÃO do molde (Fase 2): IA propõe RÓTULOS 1x → constrói regex → preview → salva ──

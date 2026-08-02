@@ -92,6 +92,7 @@ add_action( 'template_redirect', function() {
         'formula-fornecedores' => 'tao-formula-fornecedores',
         'formula-estoque-nf'   => 'tao-formula-estoque-nf',
         'formula-laudo-modelos'=> 'tao-formula-laudo-modelos',
+        'formula-laudos'       => 'tao-formula-laudos',
         'formula-unidades'     => 'tao-formula-unidades',
         'formula-estoque-lotes'=> 'tao-formula-estoque-lotes',
         'formula-estoque-inventario'=> 'tao-formula-estoque-inventario',
