@@ -881,6 +881,21 @@ add_action( 'wp_ajax_tao_formula_update_orc_status', function() {
         'atualizado_em'=> gmdate( 'c' ),
     ];
     if ( $status === 'aprovado_farma' ) {
+        // GATE: não aprovar com item de matéria-prima SEM ativo associado — quebra estoque,
+        // custo e (crítico) o reconhecimento de controlado/SNGPC. Ex.: Sibutramina sem ativo
+        // era aprovada como não-controlada. Força associar antes de aprovar.
+        $rit = tao_formula_api( "/orcamentos?id=eq.$id&cliente_id=eq.$cliente_id&select=itens&limit=1" );
+        $itens_chk = ( $rit['ok'] && ! empty( $rit['data'] ) ) ? ( $rit['data'][0]['itens'] ?? [] ) : [];
+        if ( is_string( $itens_chk ) ) $itens_chk = json_decode( $itens_chk, true ) ?: [];
+        $sem_ativo = [];
+        foreach ( (array) $itens_chk as $it ) {
+            if ( ( $it['tipo'] ?? 'mp' ) === 'mp' && empty( $it['is_qsp'] ) && empty( $it['ativo_id'] ) )
+                $sem_ativo[] = $it['nome_prescricao'] ?? $it['nome'] ?? '?';
+        }
+        if ( $sem_ativo ) {
+            wp_send_json_error( 'Há item sem ativo associado: ' . implode( ', ', array_slice( $sem_ativo, 0, 3 ) )
+                . '. Associe o(s) ativo(s) na aba Sinônimos e reprocesse antes de aprovar (necessário para estoque, custo e SNGPC de controlados).', 409 );
+        }
         $data['farmaceutico_id'] = get_current_user_id();
         $data['aprovado_em']     = gmdate( 'c' );
         // Por ora, aprovar = enviar: marca o envio no mesmo ato.
@@ -1340,10 +1355,17 @@ add_action( 'wp_ajax_tao_formula_reprocessar_orc', function () {
     $sel_at    = 'id,codigo_fc,nome,unidade_padrao,preco_venda,custo_por_unidade,markup_preco,fator_perda,diluicao,teor';
     $motor_on  = get_option( 'tao_formula_motor_v2' ) === '1';
     $total_upd = 0;
+    $pulados_aprovados = 0;   // aprovados com item pendente que NÃO puderam ser tocados (imutáveis)
 
     foreach ( $ro['data'] as $orc ) {
         // Orçamento APROVADO é imutável — reprocessamento pula (estorne para reprocessar).
-        if ( in_array( (string) ( $orc['status'] ?? '' ), [ 'aprovado_farma', 'aceito_paciente' ], true ) ) continue;
+        if ( in_array( (string) ( $orc['status'] ?? '' ), [ 'aprovado_farma', 'aceito_paciente' ], true ) ) {
+            $it_ap = $orc['itens'] ?? []; if ( is_string( $it_ap ) ) $it_ap = json_decode( $it_ap, true ) ?: [];
+            foreach ( (array) $it_ap as $ia ) {
+                if ( ( $ia['tipo'] ?? 'mp' ) === 'mp' && empty( $ia['is_qsp'] ) && empty( $ia['ativo_id'] ) ) { $pulados_aprovados++; break; }
+            }
+            continue;
+        }
         $itens = $orc['itens'] ?? [];
         if ( is_string( $itens ) ) $itens = json_decode( $itens, true ) ?: [];
         if ( ! is_array( $itens ) ) continue;
@@ -1482,11 +1504,17 @@ add_action( 'wp_ajax_tao_formula_reprocessar_orc', function () {
         }
     }
 
+    $msg = $total_upd > 0
+        ? $total_upd . ' ativo(s) associado(s) e recalculado(s) com sucesso.'
+        : 'Nenhum ativo pendente encontrado nos orçamentos.';
+    if ( $pulados_aprovados > 0 ) {
+        $msg .= ' ⚠ ' . $pulados_aprovados . ' orçamento(s) APROVADO(S) com item pendente NÃO foram atualizados — '
+              . 'estorne a aprovação no card para associar o ativo (orçamento aprovado é imutável pela RDC 67).';
+    }
     wp_send_json_success( [
-        'atualizados' => $total_upd,
-        'message'     => $total_upd > 0
-            ? $total_upd . ' ativo(s) associado(s) e recalculado(s) com sucesso.'
-            : 'Nenhum ativo pendente encontrado nos orçamentos.',
+        'atualizados'       => $total_upd,
+        'pulados_aprovados' => $pulados_aprovados,
+        'message'           => $msg,
     ] );
 } );
 
