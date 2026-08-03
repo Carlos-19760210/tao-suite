@@ -1014,6 +1014,38 @@ add_action( 'wp_ajax_tao_formula_save_openai_key', function() {
 // ── Core: cria orçamento a partir de dados estruturados da IA ────────────────
 // Usada tanto pelo endpoint N8N quanto pelo upload do card.
 
+/**
+ * Resolve o prescritor extraído da receita (IA) → prescritor_id.
+ * Casa por nº de registro (+UF) — o identificador forte; senão por nome; cria se novo.
+ * Retorna ['id'=>uuid|null, 'nome'=>string|null].
+ */
+function tao_formula_resolver_prescritor( $cliente_id, $presc ) {
+    if ( ! is_array( $presc ) ) return [ 'id' => null, 'nome' => null ];
+    $nome = trim( (string) ( $presc['nome'] ?? '' ) );
+    $nr   = preg_replace( '/\D/', '', (string) ( $presc['numero'] ?? '' ) );
+    $cons = strtoupper( trim( (string) ( $presc['conselho'] ?? '' ) ) );
+    $uf   = strtoupper( trim( (string) ( $presc['uf'] ?? '' ) ) );
+    if ( ! $nome && ! $nr ) return [ 'id' => null, 'nome' => null ];
+
+    if ( $nr ) {   // 1) registro (+UF) — identificador forte
+        $q = "/prescritores?cliente_id=eq.$cliente_id&nr_registro=eq.$nr" . ( $uf ? "&uf_registro=eq.$uf" : '' ) . '&select=id,nome&limit=1';
+        $r = tao_formula_api( $q );
+        if ( $r['ok'] && ! empty( $r['data'] ) ) return [ 'id' => $r['data'][0]['id'], 'nome' => $r['data'][0]['nome'] ];
+    }
+    if ( $nome ) {   // 2) nome
+        $r = tao_formula_api( "/prescritores?cliente_id=eq.$cliente_id&nome=ilike." . rawurlencode( $nome ) . '&select=id,nome&limit=1' );
+        if ( $r['ok'] && ! empty( $r['data'] ) ) return [ 'id' => $r['data'][0]['id'], 'nome' => $r['data'][0]['nome'] ];
+    }
+    // 3) cria novo com o que tiver
+    $novo = array_filter( [
+        'cliente_id' => $cliente_id, 'nome' => $nome ?: 'Prescritor (receita)',
+        'nr_registro' => $nr ?: null, 'tipo_registro' => $cons ?: null, 'uf_registro' => $uf ?: null, 'ativo' => true,
+    ], function ( $v ) { return $v !== null; } );
+    $r = tao_formula_api( '/prescritores', 'POST', $novo );
+    if ( $r['ok'] && ! empty( $r['data'] ) ) return [ 'id' => $r['data'][0]['id'], 'nome' => $nome ?: null ];
+    return [ 'id' => null, 'nome' => $nome ?: null ];
+}
+
 function tao_formula_criar_orc_ia_core( $args ) {
     $cliente_id = tao_formula_cliente_id();
     if ( ! $cliente_id ) return [ 'ok' => false, 'message' => 'cliente_id não configurado' ];
@@ -1145,6 +1177,9 @@ function tao_formula_criar_orc_ia_core( $args ) {
         'tipo_entrada'        => 'texto',
         'nome_paciente'       => $nome_pac,
         'whatsapp'            => $whatsapp,
+        'prescritor_id'       => $args['prescritor_id']   ?? null,   // capturado da receita (IA)
+        'prescritor'          => $args['prescritor_nome'] ?? null,
+        'dt_prescricao'       => $args['dt_prescricao']   ?? null,
         'forma_id'            => $forma_id,
         'forma_nome'          => $forma_nome,
         'forma_vol'           => $volume,
@@ -1201,10 +1236,24 @@ function tao_formula_handler_criar_orcamento_ia() {
     $ativos_req = json_decode( $ativos_raw, true );
     if ( ! is_array( $ativos_req ) ) wp_send_json_error( [ 'message' => 'ativos inválido (JSON)' ], 400 );
 
+    // Prescritor + data (opcionais — canal WhatsApp/N8N pode enviar quando extrair da receita)
+    $presc_in = ( ! empty( $_POST['prescritor_nr'] ) || ! empty( $_POST['prescritor_nome'] ) ) ? [
+        'nome'     => sanitize_text_field( $_POST['prescritor_nome']     ?? '' ),
+        'conselho' => sanitize_text_field( $_POST['prescritor_conselho'] ?? '' ),
+        'numero'   => sanitize_text_field( $_POST['prescritor_nr']       ?? '' ),
+        'uf'       => sanitize_text_field( $_POST['prescritor_uf']       ?? '' ),
+    ] : null;
+    $presc_res = tao_formula_resolver_prescritor( tao_formula_cliente_id(), $presc_in );
+    $dtp_raw   = trim( (string) ( $_POST['data_prescricao'] ?? '' ) );
+    $dt_presc  = preg_match( '/^\d{4}-\d{2}-\d{2}$/', $dtp_raw ) ? $dtp_raw : null;
+
     $result = tao_formula_criar_orc_ia_core( [
         'card_id'            => sanitize_text_field( $_POST['card_id']           ?? '' ) ?: null,
         'nome_paciente'      => sanitize_text_field( $_POST['nome_paciente']     ?? '' ),
         'whatsapp'           => sanitize_text_field( $_POST['whatsapp']          ?? '' ),
+        'prescritor_id'      => $presc_res['id'],
+        'prescritor_nome'    => $presc_res['nome'],
+        'dt_prescricao'      => $dt_presc,
         'forma_farmaceutica' => sanitize_text_field( $_POST['forma_farmaceutica'] ?? '' ),
         'volume'             => (float) ( $_POST['volume']  ?? 30 ),
         'unidade'            => sanitize_text_field( $_POST['unidade']  ?? 'g' ),
@@ -1251,6 +1300,8 @@ Se não for uma receita médica, retorne {"eh_receita":false}.
 Extraia CADA formulação separadamente. Formato:
 {
   "eh_receita": true,
+  "prescritor": {"nome": "DR FULANO DE TAL", "conselho": "CRM", "numero": "123456", "uf": "SP"},
+  "data_prescricao": "2026-07-15",
   "formulacoes": [
     {
       "forma_farmaceutica": "Cápsulas",
@@ -1267,6 +1318,8 @@ Extraia CADA formulação separadamente. Formato:
 }
 
 Regras:
+- prescritor: nome do médico + conselho ("CRM" ou "CRO") + numero do registro + uf (sigla do estado). Campos que não conseguir ler = null. Se não houver médico, "prescritor": null
+- data_prescricao: data da receita no formato AAAA-MM-DD. null se não houver data legível
 - Uma entrada em "formulacoes" para CADA formulação da prescrição
 - dose: % se percentual, mg se miligramas, g se gramas, mcg se microgramas, UI se unidades internacionais
 - qsp:true apenas para excipiente/veículo (QSP)
@@ -1370,6 +1423,12 @@ Regras:
     $nome_pac   = sanitize_text_field( $_POST['nome_paciente'] ?? '' );
     $whatsapp   = sanitize_text_field( $_POST['whatsapp']      ?? '' );
 
+    // Prescritor + data da prescrição (nível raiz do JSON) — capturados p/ controlados (RDC 344).
+    // Resolvidos UMA vez e herdados por todas as formulações da mesma receita.
+    $presc_res = tao_formula_resolver_prescritor( tao_formula_cliente_id(), $extracted['prescritor'] ?? null );
+    $dtp_raw   = trim( (string) ( $extracted['data_prescricao'] ?? '' ) );
+    $dt_presc  = preg_match( '/^\d{4}-\d{2}-\d{2}$/', $dtp_raw ) ? $dtp_raw : null;
+
     $resultados    = [];
     $todos_nao_enc = [];
     $primeiro_erro = null;
@@ -1379,6 +1438,9 @@ Regras:
             'card_id'            => $card_id,
             'nome_paciente'      => $nome_pac,
             'whatsapp'           => $whatsapp,
+            'prescritor_id'      => $presc_res['id'],
+            'prescritor_nome'    => $presc_res['nome'],
+            'dt_prescricao'      => $dt_presc,
             'forma_farmaceutica' => $f['forma_farmaceutica'] ?? '',
             'volume'             => (float) ( $f['volume']   ?? 1 ),
             'unidade'            => $f['unidade']            ?? 'un',
