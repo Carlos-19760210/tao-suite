@@ -45,7 +45,7 @@ def capitulo_card(H, incluir_formula=True):
         para('No bloco "🧪 Orçamentos Fórmula" o atendente monta o(s) orçamento(s) direto no card, sem sair da conversa. Há três caminhos:')
         passo('Processar Receita (IA): no bloco "🔬 Processar Receita", arraste (ou cole) a FOTO ou o PDF da receita e clique em processar — a IA lê a prescrição e monta o orçamento sozinha; depois você só revisa os ativos e a dose.')
         passo('Nova fórmula (manual): abre o editor de orçamento (o mesmo do cap. 6) DENTRO do card, para montar item a item.')
-        passo('Importar (texto): botão "📋 Importar" — cola o texto de um orçamento do Formula Certa (formato ORC:…), durante a fase de convivência.')
+        passo('Importar (texto): botão "📋 Importar" — cola o texto de um orçamento do sistema de origem (formato ORC:…), durante a fase de convivência.')
         para('A lista mostra cada orçamento do card com o valor; dá para editar, selecionar e excluir. Botões da seção:')
         tab([
             ('🔗 Associar pendentes', False, 'Aparece quando um item não foi reconhecido (um sinônimo sem ativo). Abre a associação e salva o sinônimo para as próximas vezes.'),

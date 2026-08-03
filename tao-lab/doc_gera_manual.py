@@ -65,7 +65,7 @@ r = d.add_run('\nAcesso: portal solucoesetao.com.br/robos → menu Fórmulas\nVe
 doc.add_page_break()
 
 h1('Apresentação')
-para('Este manual descreve, tela a tela e campo a campo, como operar o TAO Lab — o conjunto de módulos que substitui o Formula Certa na farmácia de manipulação: cadastros, orçamento, entrada de notas fiscais, controle de estoque por lote, produção com rastreabilidade, rótulo e livro de receituário.')
+para('Este manual descreve, tela a tela e campo a campo, como operar o TAO Lab — o conjunto de módulos que substitui o sistema de origem na farmácia de manipulação: cadastros, orçamento, entrada de notas fiscais, controle de estoque por lote, produção com rastreabilidade, rótulo e livro de receituário.')
 para('As telas funcionam no computador e no celular, pelo portal (solucoesetao.com.br/robos → menu Fórmulas). As imagens deste manual foram capturadas do próprio portal.')
 h3('Convenções')
 para('• Campos marcados com * (asterisco) são obrigatórios.')
@@ -88,7 +88,7 @@ para('• Fórmulas — Novo Orçamento, Histórico, Produção, Estoque (Entrad
 para('• Entregas e Caixa — última milha e financeiro (capítulos 21 e 22).')
 nota('Em qualquer lista há uma busca no topo. Nos campos que buscam pessoas ou produtos, navegue pelo teclado: setas ↑↓ para percorrer e Enter para escolher.')
 h3('Quem faz o quê (perfis)')
-para('Cada pessoa vê apenas o que o seu perfil permite. O administrador/gestor tem acesso completo, inclusive Configurações e Controlados. O operador vê o dia a dia (orçamento, produção, estoque). Algumas ações são restritas ao responsável técnico/gestor: aprovar ou reprovar lote, aprovar orçamento e escriturar controlados.')
+para('Cada pessoa vê apenas o que o seu perfil permite (mesmos perfis do TAO Neo): Administrador e Gestor têm acesso completo, inclusive Configurações e Controlados; o perfil Operacional vê o dia a dia (orçamento, produção, estoque). Algumas ações são restritas ao responsável técnico / Gestor: aprovar ou reprovar lote, aprovar orçamento e escriturar controlados.')
 
 # ══════════ VISÃO GERAL DO FLUXO ══════════
 doc.add_page_break(); h1('Como o sistema funciona — o fluxo do dia a dia')
@@ -240,6 +240,7 @@ nota('Na lista, licenças (AFE/VISA) vencidas aparecem com selo vermelho, e a En
 _H = { 'h1': h1, 'h2': h2, 'h3': h3, 'para': para, 'passo': passo, 'nota': nota,
        'tabela_campos': tabela_campos, 'imagem': imagem, 'page_break': lambda: doc.add_page_break() }
 capitulo_card(_H, incluir_formula=True)
+nota('Este capítulo mostra apenas o essencial do card para a rotina da farmácia. A operação comercial completa — atendimento pelo WhatsApp, funil de vendas, automações, fechamento do negócio, pós-vendas e recebimento no Caixa — é detalhada no Manual do TAO Neo (operação da jornada), que é o dono desses capítulos.')
 
 # ══════════ 6. NOVO ORÇAMENTO ══════════
 doc.add_page_break(); h1('6. Novo Orçamento')
@@ -298,11 +299,11 @@ para('Botão "📊 Análise de Preços": abre, por item, o custo, o preço de ve
 h3('Salvar e enviar')
 passo('Clique em Salvar. Se o orçamento veio de um card, ele fica vinculado ao cliente e o valor aparece no Kanban.')
 passo('O envio ao cliente é feito pelo card do CRM (mensagem de WhatsApp com o resumo: valor, desconto e valor com desconto).')
-nota('Receita por foto: no card do cliente, o botão de importar receita usa IA para ler a imagem e já montar o orçamento — depois é só revisar aqui os ativos e a dose. O orçamento também pode ser importado do Formula Certa (texto), durante a fase de convivência.')
+nota('Receita por foto: no card do cliente, o botão de importar receita usa IA para ler a imagem e já montar o orçamento — depois é só revisar aqui os ativos e a dose. O orçamento também pode ser importado do sistema de origem (texto), durante a fase de convivência.')
 
 # ══════════ 7. HISTÓRICO E REPETIÇÃO ══════════
 doc.add_page_break(); h1('7. Histórico e Repetição')
-para('Menu Fórmulas → Histórico. Consulta as fórmulas passadas (base FCerta 2018–2026) e permite repetir.')
+para('Menu Fórmulas → Histórico. Consulta as fórmulas passadas (base sistema de origem 2018–2026) e permite repetir.')
 imagem('historico', 'Tela de Histórico')
 passo('Digite o nome do cliente (mín. 3 letras); navegue com as setas ↑↓ e Enter.')
 passo('A lista mostra data, resumo dos ativos e valor. Expanda para ver componentes e posologia.')
@@ -370,7 +371,7 @@ passo('Para gerar a OM: busque o orçamento (nº ou paciente) no topo e confirme
 passo('As OMs aparecem no kanban por etapa (Conferência → Pesagem → … → Entregue).')
 passo('Abra a OM: aparece a FICHA DE PESAGEM (ver detalhe abaixo). O sistema JÁ vem com o lote escolhido de cada componente (ver "escolha automática", cap. 9) — o selo "✓ escolhido pelo sistema" indica se foi por FEFO ou por lote em uso. Informe a quantidade pesada de cada componente; troque o lote só se precisar.')
 passo('Confira o "Modo de preparo / precauções" (herdado da forma) e ajuste se esta preparação exigir cuidado específico; Salvar.')
-passo('Mova a OM pelas etapas. Ao concluir (etapa final), o estoque é baixado dos lotes pesados e a VALIDADE é recalculada: passa a ser a MENOR entre o prazo da forma e a validade do lote usado — se o lote reduzir a validade, um alerta é exibido (regra RDC 67 / VALIDADELOTE do FCerta).')
+passo('Mova a OM pelas etapas. Ao concluir (etapa final), o estoque é baixado dos lotes pesados e a VALIDADE é recalculada: passa a ser a MENOR entre o prazo da forma e a validade do lote usado — se o lote reduzir a validade, um alerta é exibido (regra RDC 67 / VALIDADELOTE do sistema de origem).')
 passo('Botão "🖨 Ficha de Pesagem": abre a ficha imprimível para a bancada. Botão "🏷 Rótulo (RDC 67)": abre o rótulo pronto para impressão, já com a validade correta.')
 
 h3('A Ficha de Pesagem — o que orienta o manipulador')
@@ -508,7 +509,7 @@ nota('O CID é sempre OPCIONAL — nunca trava o orçamento.')
 
 # ══════════ 21. FORMAS FARMACÊUTICAS (PARÂMETROS) ══════════
 doc.add_page_break(); h1('20. Formas Farmacêuticas (parâmetros)')
-para('Menu Cadastros → Formas Farmacêuticas. Cada forma (Cápsula, Creme, Floral, Envelope…) tem parâmetros próprios que o sistema usa nos cálculos e na produção — nada fica fixo no código, tudo é cadastrado aqui (mesma filosofia dos Parâmetros do FCerta).')
+para('Menu Cadastros → Formas Farmacêuticas. Cada forma (Cápsula, Creme, Floral, Envelope…) tem parâmetros próprios que o sistema usa nos cálculos e na produção — nada fica fixo no código, tudo é cadastrado aqui (mesma filosofia dos Parâmetros do sistema de origem).')
 imagem('form_forma', 'Cadastro da forma — Validade padrão e Modo de preparo')
 tabela_campos([
  ('Nome / Tipo', True, 'Identificação e tipo da forma (cápsula, creme, envelope, floral, etc.).'),
