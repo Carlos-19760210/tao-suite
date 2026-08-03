@@ -24,12 +24,20 @@ function tao_formula_page_valor_estoque() {
     .ve-in:hover{border-color:#e5e7eb;background:#fff}
     .ve-in:focus{border-color:#2563eb;background:#fff;outline:none}
     .ve-tot{font-weight:600}
+    #ve-busca-wrap{position:relative}
+    #ve-clear{position:absolute;right:8px;bottom:7px;cursor:pointer;color:#94a3b8;font-weight:700;font-size:15px;line-height:1;display:none}
+    #ve-clear:hover{color:#475569}
+    #ve-ac{display:none;position:absolute;left:0;right:0;top:100%;z-index:30;background:#fff;border:1px solid #d1d5db;border-top:none;border-radius:0 0 6px 6px;max-height:280px;overflow:auto;box-shadow:0 8px 20px rgba(0,0,0,.10)}
+    .ve-ac-item{padding:6px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;gap:10px}
+    .ve-ac-item:last-child{border-bottom:none}
+    .ve-ac-item.hl,.ve-ac-item:hover{background:#eef2ff}
+    .ve-ac-item .qt{color:#94a3b8;font-size:11px;white-space:nowrap}
     </style>
     <div class="wrap taof-wrap ve-wrap">
     <h1>💰 Valor do Estoque <small style="font-size:12px;color:#94a3b8;font-weight:400">(saldo dos lotes aprovados × custo / venda — edite os unitários direto na tabela)</small></h1>
 
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin:10px 0">
-        <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:2px">Buscar produto</label><input id="ve-busca" style="width:240px;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px"></div>
+        <div id="ve-busca-wrap"><label style="font-size:11px;color:#64748b;display:block;margin-bottom:2px">Buscar produto</label><input id="ve-busca" autocomplete="off" placeholder="digite para filtrar…" style="width:240px;padding:6px 26px 6px 8px;border:1px solid #d1d5db;border-radius:6px"><span id="ve-clear" title="Limpar busca">×</span><div id="ve-ac"></div></div>
         <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:2px">Grupo</label>
             <select id="ve-grupo" style="padding:6px 8px;border:1px solid #d1d5db;border-radius:6px"><option value="">Todos</option><option value="M">Matéria-prima</option><option value="E">Embalagem</option></select></div>
         <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:2px">Status do lote</label>
@@ -58,7 +66,7 @@ function tao_formula_page_valor_estoque() {
 
     <script>
     jQuery(function($){
-        var ajaxUrl=taoFormula.ajaxUrl, nonce=taoFormula.nonce, ITENS=[];
+        var ajaxUrl=taoFormula.ajaxUrl, nonce=taoFormula.nonce, ITENS=[], TODOS=[], acIdx=-1;
         function esc(s){ return String(s==null?'':s).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];}); }
         function m(v,d){ d=(d==null?2:d); return parseFloat(v||0).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d}); }
         function R(v){ return 'R$ '+m(v,2); }
@@ -101,13 +109,32 @@ function tao_formula_page_valor_estoque() {
             });
             $('#ve-body').html(h); totais();
         }
+        // Servidor traz TODOS os itens do grupo/status; a BUSCA por texto é client-side (instantânea).
         function carregar(){
             $('#ve-msg').text('carregando…');
-            $.post(ajaxUrl,{action:'tao_formula_valor_estoque',nonce:nonce,busca:$('#ve-busca').val(),grupo:$('#ve-grupo').val(),status:$('#ve-status').val()},function(r){
+            $.post(ajaxUrl,{action:'tao_formula_valor_estoque',nonce:nonce,busca:'',grupo:$('#ve-grupo').val(),status:$('#ve-status').val()},function(r){
                 if(!r||!r.success){ $('#ve-msg').text('Erro.'); return; }
-                ITENS=r.data.itens||[]; render(); $('#ve-msg').text(ITENS.length+' item(ns)');
+                TODOS=r.data.itens||[]; aplicarBusca();
             });
         }
+        function aplicarBusca(){
+            var q=($('#ve-busca').val()||'').trim().toLowerCase();
+            ITENS = q ? TODOS.filter(function(x){ return String(x.nome||'').toLowerCase().indexOf(q)>=0; }) : TODOS.slice();
+            render();
+            $('#ve-msg').text(q ? (ITENS.length+' de '+TODOS.length) : (TODOS.length+' item(ns)'));
+            $('#ve-clear').css('display', q?'block':'none');
+        }
+        // autocomplete navegável (↑ ↓ Enter Esc)
+        function fecharAC(){ $('#ve-ac').hide().empty(); acIdx=-1; }
+        function abrirAC(){
+            var q=($('#ve-busca').val()||'').trim().toLowerCase();
+            if(!q){ fecharAC(); return; }
+            var sug=TODOS.filter(function(x){ return String(x.nome||'').toLowerCase().indexOf(q)>=0; }).slice(0,10);
+            if(!sug.length){ fecharAC(); return; }
+            $('#ve-ac').html(sug.map(function(x){ return '<div class="ve-ac-item" data-nome="'+esc(x.nome)+'"><span>'+esc(x.nome)+'</span><span class="qt">'+m(x.qtd,0)+' '+esc(x.un)+'</span></div>'; }).join('')).show();
+            acIdx=-1;
+        }
+        function selAC(nome){ $('#ve-busca').val(nome); fecharAC(); aplicarBusca(); }
         // edição inline: ao sair do campo, grava no ativo e recalcula
         $('#ve-body').on('change','.ve-in',function(){
             var $in=$(this), i=+$in.data('i'), campo=$in.data('campo'), val=num($in.val());
@@ -125,7 +152,17 @@ function tao_formula_page_valor_estoque() {
                 setTimeout(function(){ $in.css('background',''); },800);
             });
         });
-        $('#ve-busca').on('keydown',function(e){ if(e.which===13) carregar(); });
+        $('#ve-busca').on('input',function(){ aplicarBusca(); abrirAC(); });
+        $('#ve-busca').on('keydown',function(e){
+            var $it=$('#ve-ac .ve-ac-item');
+            if(e.which===40){ if(!$it.length){ abrirAC(); return; } acIdx=Math.min(acIdx+1,$it.length-1); $it.removeClass('hl').eq(acIdx).addClass('hl'); e.preventDefault(); }
+            else if(e.which===38){ if(!$it.length) return; acIdx=Math.max(acIdx-1,0); $it.removeClass('hl').eq(acIdx).addClass('hl'); e.preventDefault(); }
+            else if(e.which===13){ if(acIdx>=0 && $it.length){ selAC($it.eq(acIdx).data('nome')); } else { fecharAC(); aplicarBusca(); } e.preventDefault(); }
+            else if(e.which===27){ fecharAC(); }
+        });
+        $('#ve-ac').on('mousedown','.ve-ac-item',function(e){ e.preventDefault(); selAC($(this).data('nome')); });
+        $('#ve-clear').on('click',function(){ $('#ve-busca').val(''); fecharAC(); aplicarBusca(); $('#ve-busca').focus(); });
+        $(document).on('click',function(e){ if(!$(e.target).closest('#ve-busca-wrap').length) fecharAC(); });
         $('#ve-grupo').on('change',carregar);
         $('#ve-status').on('change',carregar);
         carregar();
