@@ -886,7 +886,7 @@
         var nItens = $('#crm-itens-list .crm-item-row').length;
         var nOrcs  = $('#crm-formulas-list tr').length;
         if (nItens + nOrcs < 1) {
-            alert('Adicione ao menos um item ou orçamento ao negócio antes de fechar como ganho.');
+            alert('Para fechar como ganho, adicione um item de negócio ou aprove ao menos um orçamento (que vira OM).');
             return;
         }
         // Confirma o Valor Final ANTES do formulário (negativa = card não é movimentado)
@@ -1541,7 +1541,7 @@
                 crmPost({ action:'tao_crm_get_ganho_campos', nonce:taoCrm.nonce, card_id: ids[0] },
                     function(resp){
                         var d = (resp && resp.success && resp.data) ? resp.data : {};
-                        if(d.tem_negocio === false){ alert('Adicione ao menos um item ou orçamento ao negócio antes de fechar como ganho.'); return; }
+                        if(d.tem_negocio === false){ alert('Para fechar como ganho, adicione um item de negócio ou aprove ao menos um orçamento (que vira OM).'); return; }
                         var campos = (d.campos && d.campos.length) ? d.campos
                                    : ((typeof taoCrmGanhoCampos !== 'undefined') ? taoCrmGanhoCampos : []);
                         if (!_confirmarValorGanho(d.valor || 0)) return;   // confirma ANTES do formulário
@@ -1631,7 +1631,7 @@
                 crmPost({ action:'tao_crm_get_ganho_campos', nonce:taoCrm.nonce, card_id: ids[0] },
                     function(resp){
                         var d = (resp && resp.success && resp.data) ? resp.data : {};
-                        if(d.tem_negocio === false){ alert('Adicione ao menos um item ou orçamento ao negócio antes de fechar como ganho.'); return; }
+                        if(d.tem_negocio === false){ alert('Para fechar como ganho, adicione um item de negócio ou aprove ao menos um orçamento (que vira OM).'); return; }
                         var campos = (d.campos && d.campos.length) ? d.campos
                                    : ((typeof taoCrmGanhoCampos !== 'undefined') ? taoCrmGanhoCampos : []);
                         if (!_confirmarValorGanho(d.valor || 0)) return;   // confirma ANTES do formulário

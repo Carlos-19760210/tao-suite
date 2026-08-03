@@ -1197,7 +1197,7 @@ function tao_crm_ajax_move_card() {
             }
             $dnome      = mb_strtoupper( $rde['data'][0]['nome'] ?? '' );
             $eh_analise = ( mb_strpos( $dnome, 'ANÁLISE TÉCNICA' ) !== false || mb_strpos( $dnome, 'ANALISE TECNICA' ) !== false );
-            if ( ! $eh_analise && $flw_ord >= 0 && $dord >= $flw_ord && ! tao_crm_card_tem_negocio( $card_id ) ) {
+            if ( ! $eh_analise && $flw_ord >= 0 && $dord >= $flw_ord && ! tao_crm_card_tem_negocio( $card_id, false ) ) {
                 wp_send_json_error( [
                     'code' => 'sem_negocio',
                     'msg'  => 'Adicione ao menos um item ou orçamento ao negócio antes de movimentar para essa fase.',
@@ -1358,11 +1358,15 @@ function tao_crm_ajax_get_campos_destino() {
  * Regra: ≥1 item do negócio OU ≥1 orçamento APROVADO (virou OM).
  * Orçamento só criado (não aprovado) e valor sozinho NÃO contam.
  */
-function tao_crm_card_tem_negocio( $card_id ) {
+function tao_crm_card_tem_negocio( $card_id, $exigir_aprovado = true ) {
     if ( ! $card_id ) return false;
     $ri = tao_crm_api( "/crm_card_itens?card_id=eq.$card_id&select=id&limit=1" );
     if ( $ri['ok'] && ! empty( $ri['data'] ) ) return true;
-    $ro = tao_crm_api( "/orcamentos?card_id=eq.$card_id&status=in.(aprovado_farma,aceito_paciente)&select=id&limit=1" );
+    // GANHO/OM ($exigir_aprovado=true): só conta orçamento aprovado (virou OM) — gate RDC 67.
+    // MOVIMENTAÇÃO no funil ($exigir_aprovado=false): basta ter orçamento VINCULADO (o importado,
+    // ainda pendente de revisão, conta) — negociar não exige aprovação da farmacêutica.
+    $filtro = $exigir_aprovado ? '&status=in.(aprovado_farma,aceito_paciente)' : '';
+    $ro = tao_crm_api( "/orcamentos?card_id=eq.$card_id{$filtro}&select=id&limit=1" );
     if ( $ro['ok'] && ! empty( $ro['data'] ) ) return true;
     return false;
 }
