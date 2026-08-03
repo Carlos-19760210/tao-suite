@@ -2328,6 +2328,7 @@ function tao_crm_renovacao_cron() {
         if ( ! get_option( 'tao_crm_renov_ativo_' . $ws_id, 1 ) ) continue;   // renovação desligada p/ este workspace
         $r_snooze  = (int) get_option( 'tao_crm_renov_snooze_'  . $ws_id, 5 );
         $r_semresp = (int) get_option( 'tao_crm_renov_semresp_' . $ws_id, 15 );
+        $r_antecip = max( 0, (int) get_option( 'tao_crm_renov_antecip_' . $ws_id, 5 ) );   // avisa N dias ANTES de a fórmula acabar
         // Anti-rajada: máx. N lembretes por ciclo do cron (resto fica p/ a próxima hora),
         // com pausa entre envios e somente dentro do horário comercial do workspace.
         $max_ciclo = max( 1, (int) get_option( 'tao_crm_renov_maxrun_' . $ws_id, 3 ) );
@@ -2355,7 +2356,7 @@ function tao_crm_renovacao_cron() {
             $enviado = $st['enviado_em'] ?? null;
             if ( ! $enviado ) {
                 $due = ! empty( $st['proximo'] ) ? strtotime( $st['proximo'] )
-                     : ( tao_crm_renov_base_ts( $card ) + tao_crm_formula_dias( $cid ) * DAY_IN_SECONDS );
+                     : ( tao_crm_renov_base_ts( $card ) + max( 1, tao_crm_formula_dias( $cid ) - $r_antecip ) * DAY_IN_SECONDS );
                 if ( time() >= $due ) {
                     if ( ! $em_horario || $env_ciclo >= $max_ciclo ) continue;   // fica pendente p/ o próximo ciclo
                     if ( $env_ciclo > 0 ) sleep( rand( 8, 20 ) );                // nunca 2 msgs no mesmo instante
@@ -3541,8 +3542,10 @@ function tao_crm_ajax_save_renov() {
     if ( $msg ) update_option( 'tao_crm_renov_msg_' . $ws_id, $msg, false );
     $snooze  = max( 1, min( 60, intval( $_POST['snooze']  ?? 5 ) ) );
     $semresp = max( 1, min( 90, intval( $_POST['semresp'] ?? 15 ) ) );
+    $antecip = max( 0, min( 30, intval( $_POST['antecip'] ?? 5 ) ) );
     update_option( 'tao_crm_renov_snooze_'  . $ws_id, $snooze,  false );
     update_option( 'tao_crm_renov_semresp_' . $ws_id, $semresp, false );
+    update_option( 'tao_crm_renov_antecip_' . $ws_id, $antecip, false );
     wp_send_json_success();
 }
 
