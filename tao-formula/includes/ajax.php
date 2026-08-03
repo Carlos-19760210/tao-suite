@@ -844,6 +844,75 @@ add_action( 'wp_ajax_tao_formula_save_config', function() {
     wp_send_json_success( 'Configurações salvas.' );
 } );
 
+// ── Validação de dispensação de CONTROLADO (RDC 344/98) ──────────────────────
+// Retorna a lista de PENDÊNCIAS (avisos). Só valida se o orçamento for controlado
+// (flag do orçamento OU algum ativo controlado nos itens). Modo INFORMATIVO por padrão;
+// vira bloqueio quando a option 'tao_formula_valida_ctl_bloqueia' === '1'.
+function tao_formula_validar_controlado( $cliente_id, $orc ) {
+    if ( is_string( $orc ) ) {
+        $r = tao_formula_api( "/orcamentos?id=eq.$orc&cliente_id=eq.$cliente_id&limit=1" );
+        $orc = ( $r['ok'] && ! empty( $r['data'] ) ) ? $r['data'][0] : null;
+    }
+    if ( ! is_array( $orc ) ) return [];
+    $itens = $orc['itens'] ?? [];
+    if ( is_string( $itens ) ) $itens = json_decode( $itens, true ) ?: [];
+    $aids = array_values( array_filter( array_map( function ( $i ) { return $i['ativo_id'] ?? null; }, (array) $itens ) ) );
+    $ctl = [];
+    if ( $aids ) {
+        $ra = tao_formula_api( '/ativos?id=in.(' . implode( ',', $aids ) . ')&cliente_id=eq.' . $cliente_id . '&controlado=eq.true&select=id,nome,dose_max_dia,uni_dose_max' );
+        foreach ( ( $ra['data'] ?? [] ) as $a ) $ctl[ $a['id'] ] = $a;
+    }
+    if ( empty( $orc['medicamento_controlado'] ) && empty( $ctl ) ) return [];   // não é controlado
+
+    $tem  = function ( $v ) { return is_string( $v ) ? trim( $v ) !== '' : ! empty( $v ); };
+    $pend = [];
+
+    // a) Cliente com CPF e endereço
+    $ct = null;
+    if ( ! empty( $orc['contato_id'] ) ) {
+        $rc = tao_formula_api( "/crm_contatos?id=eq.{$orc['contato_id']}&select=cpf,logradouro,cidade&limit=1" );
+        $ct = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? $rc['data'][0] : null;
+    }
+    if ( ! $ct || ! $tem( $ct['cpf'] ?? '' ) ) $pend[] = 'CPF do cliente não cadastrado';
+    if ( ! $ct || ! ( $tem( $ct['logradouro'] ?? '' ) && $tem( $ct['cidade'] ?? '' ) ) ) $pend[] = 'Endereço do cliente incompleto';
+
+    // b) Data da prescrição inferior a 30 dias
+    $dtp = $orc['dt_prescricao'] ?? '';
+    if ( ! $tem( $dtp ) ) {
+        $pend[] = 'Data da prescrição não informada';
+    } elseif ( ( $ts = strtotime( $dtp ) ) && ( time() - $ts ) > 30 * DAY_IN_SECONDS ) {
+        $pend[] = 'Prescrição com mais de 30 dias';
+    }
+
+    // c) Prescritor com registro válido (CRM/CRO)
+    $pr = null;
+    if ( ! empty( $orc['prescritor_id'] ) ) {
+        $rp = tao_formula_api( "/prescritores?id=eq.{$orc['prescritor_id']}&select=nr_registro&limit=1" );
+        $pr = ( $rp['ok'] && ! empty( $rp['data'] ) ) ? $rp['data'][0] : null;
+    }
+    if ( ! $pr || ! $tem( $pr['nr_registro'] ?? '' ) ) $pend[] = 'Prescritor sem registro (CRM/CRO) válido';
+
+    // d) Quantidade não pode exceder 60 dias na dose máxima (dose_max_dia × 60), por ativo controlado
+    $mult = max( 1.0, (float) ( $orc['forma_vol'] ?? 1 ) ) * max( 1, (int) ( $orc['qtde_potes'] ?? 1 ) );
+    foreach ( (array) $itens as $it ) {
+        $a = $ctl[ $it['ativo_id'] ?? '' ] ?? null;
+        if ( ! $a ) continue;
+        $dmax = (float) ( $a['dose_max_dia'] ?? 0 );
+        if ( $dmax <= 0 ) continue;   // sem parâmetro cadastrado → não valida a (d)
+        $u        = strtolower( $it['dose_unit'] ?? 'mg' );
+        $dose_mg  = $u === 'g' ? (float) ( $it['dose'] ?? 0 ) * 1000 : ( $u === 'mcg' ? (float) ( $it['dose'] ?? 0 ) / 1000 : (float) ( $it['dose'] ?? 0 ) );
+        $um       = strtoupper( $a['uni_dose_max'] ?? 'MG' );
+        $dmax_mg  = $um === 'G' ? $dmax * 1000 : ( $um === 'MCG' ? $dmax / 1000 : $dmax );
+        $total_mg = $dose_mg * $mult;
+        if ( $dmax_mg > 0 && $total_mg > $dmax_mg * 60 + 1e-6 ) {
+            $pend[] = sprintf( '%s: quantidade acima de 60 dias na dose máxima (%s > %s mg)', $a['nome'],
+                rtrim( rtrim( number_format( $total_mg, 2, '.', '' ), '0' ), '.' ),
+                rtrim( rtrim( number_format( $dmax_mg * 60, 2, '.', '' ), '0' ), '.' ) );
+        }
+    }
+    return $pend;
+}
+
 // ── Status do orçamento ───────────────────────────────────────────────────────
 
 add_action( 'wp_ajax_tao_formula_update_orc_status', function() {
@@ -896,6 +965,12 @@ add_action( 'wp_ajax_tao_formula_update_orc_status', function() {
             wp_send_json_error( 'Há item sem ativo associado: ' . implode( ', ', array_slice( $sem_ativo, 0, 3 ) )
                 . '. Associe o(s) ativo(s) na aba Sinônimos e reprocesse antes de aprovar (necessário para estoque, custo e SNGPC de controlados).', 409 );
         }
+        // Validações de dispensação de controlado (RDC 344/98) — INFORMATIVO por padrão;
+        // bloqueia só se a option 'tao_formula_valida_ctl_bloqueia' estiver ligada.
+        $avisos_ctl = tao_formula_validar_controlado( $cliente_id, $id );
+        if ( $avisos_ctl && get_option( 'tao_formula_valida_ctl_bloqueia' ) === '1' ) {
+            wp_send_json_error( 'Controlado — regularize antes de aprovar: ' . implode( '; ', $avisos_ctl ), 409 );
+        }
         $data['farmaceutico_id'] = get_current_user_id();
         $data['aprovado_em']     = gmdate( 'c' );
         // Por ora, aprovar = enviar: marca o envio no mesmo ato.
@@ -911,7 +986,7 @@ add_action( 'wp_ajax_tao_formula_update_orc_status', function() {
 
     $r = tao_formula_api( "/orcamentos?id=eq.$id&cliente_id=eq.$cliente_id", 'PATCH', $data );
     if ( $r['ok'] ) {
-        wp_send_json_success();
+        wp_send_json_success( [ 'avisos_controlado' => isset( $avisos_ctl ) ? $avisos_ctl : [] ] );
     } else {
         wp_send_json_error( $r['raw'], 500 );
     }

@@ -2248,7 +2248,7 @@ function tao_crm_page_card() {
                     }
                     listDiv.querySelectorAll('.taof-orc-aprovar').forEach(function(b){
                         b.addEventListener('click', function(){
-                            orcAcao('tao_formula_orc_aprovar', this.dataset.id).then(function(r){ if(r.success){ carregarFormulas(); window.postMessage({taofSaved:true},'*'); } else alert((r.data&&r.data.message)||'Erro ao aprovar'); });
+                            orcAcao('tao_formula_orc_aprovar', this.dataset.id).then(function(r){ if(r.success){ var av=r.data&&r.data.avisos_controlado; if(av&&av.length) alert('⚠ Controlado (RDC 344/98) — pendências:\n\n• '+av.join('\n• ')+'\n\nAprovado; regularize os itens acima.'); carregarFormulas(); window.postMessage({taofSaved:true},'*'); } else alert((r.data&&r.data.message)||'Erro ao aprovar'); });
                         });
                     });
                     listDiv.querySelectorAll('.taof-orc-rejeitar').forEach(function(b){
@@ -2602,16 +2602,18 @@ function tao_crm_page_card() {
                 aprovSelBtn.disabled = true; aprovSelBtn.textContent = 'Aprovando...';
                 var ids = checks.map(function(c){ return c.value; });
                 // sequencial (cada aprovação gera OM/baixa; evita corrida no fluxo de OM)
-                var falhas = [];
+                var falhas = [], avisosCtl = [];
                 (function proximo(i){
                     if (i >= ids.length) {
                         aprovSelBtn.disabled = false; aprovSelBtn.textContent = '✅ Aprovar selecionados';
                         carregarFormulas(); window.postMessage({taofSaved:true},'*');
+                        if (avisosCtl.length) alert('⚠ Controlado (RDC 344/98) — pendências em aprovado(s):\n\n• ' + avisosCtl.join('\n• '));
                         if (falhas.length) alert('Não aprovados: ' + falhas.length + ' (verifique se você é o farmacêutico responsável).');
                         return;
                     }
                     orcAcao('tao_formula_orc_aprovar', ids[i]).then(function(r){
                         if (!r || !r.success) falhas.push(ids[i]);
+                        else if (r.data && r.data.avisos_controlado && r.data.avisos_controlado.length) avisosCtl.push.apply(avisosCtl, r.data.avisos_controlado);
                         proximo(i+1);
                     }).catch(function(){ falhas.push(ids[i]); proximo(i+1); });
                 })(0);

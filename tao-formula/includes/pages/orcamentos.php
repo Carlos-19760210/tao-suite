@@ -194,7 +194,11 @@ function tao_formula_page_orcamentos() {
             $btn.prop('disabled', true).text('...');
             var payload = $.extend({ action:'tao_formula_update_orc_status', nonce:nonce, id:id, status:status }, extra||{});
             $.post(ajaxUrl, payload, function(r) {
-                if (r.success) location.reload();
+                if (r.success) {
+                    var av = r.data && r.data.avisos_controlado;
+                    if (av && av.length) alert('⚠ Controlado (RDC 344/98) — pendências:\n\n• ' + av.join('\n• ') + '\n\nO orçamento foi aprovado; regularize os itens acima.');
+                    location.reload();
+                }
                 else { alert('Erro: ' + (r.data||'?')); $btn.prop('disabled',false).text(txt); }
             });
         }
