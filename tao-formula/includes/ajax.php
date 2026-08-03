@@ -5639,9 +5639,24 @@ function tao_formula_criar_om( $cliente_id, $orc_id ) {
         }
     }
 
+    // A OM é de CONTROLADO se o orçamento está marcado OU se QUALQUER ativo dos itens é controlado.
+    // Sem isto a OM nascia controlado=false (176/176) e a escrituração SNGPC de saída (que começa com
+    // "if (! OM.controlado) return 0") nunca rodava — todo manipulado controlado passava fora do SNGPC.
+    $eh_controlado = ! empty( $o['medicamento_controlado'] );
+    if ( ! $eh_controlado ) {
+        $it_ctl = $o['itens'] ?? [];
+        if ( is_string( $it_ctl ) ) $it_ctl = json_decode( $it_ctl, true ) ?: [];
+        $aids_ctl = array_values( array_filter( array_map( function ( $i ) { return $i['ativo_id'] ?? null; }, (array) $it_ctl ) ) );
+        if ( $aids_ctl ) {
+            $rctl = tao_formula_api( '/ativos?id=in.(' . implode( ',', $aids_ctl ) . ')&cliente_id=eq.' . $cliente_id . '&controlado=eq.true&select=id&limit=1' );
+            $eh_controlado = ( $rctl['ok'] && ! empty( $rctl['data'] ) );
+        }
+    }
+
     $payload = [
         'cliente_id'    => $cliente_id,
         'orcamento_id'  => $orc_id,
+        'controlado'    => $eh_controlado,   // herdado do orçamento / detectado pelos ativos → habilita SNGPC de saída
         'numero'        => $o['numero_orcamento'] ?? null,   // OM = orçamento aprovado → mesmo número (único, ligado ao card)
         'card_id'       => $o['card_id'] ?? null,
         'contato_id'    => $o['contato_id'] ?? null,
