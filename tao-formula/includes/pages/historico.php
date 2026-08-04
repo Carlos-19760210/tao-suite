@@ -49,7 +49,7 @@ function tao_formula_page_historico() {
     <!-- Modal cliente -->
     <div id="taof-cli-modal" style="display:none">
         <div class="taof-cli-overlay"></div>
-        <div class="taof-cli-box"><div id="taof-cli-body"></div></div>
+        <div class="taof-cli-box"><button type="button" class="taof-cli-x" title="Fechar" aria-label="Fechar">&#x2715;</button><div id="taof-cli-body"></div></div>
     </div>
     </div>
 
@@ -68,6 +68,8 @@ function tao_formula_page_historico() {
     .taof-cli-saude-tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:10px;background:#fef3c7;color:#92400e;margin-left:4px}
     #taof-cli-modal .taof-cli-overlay{position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:9998}
     #taof-cli-modal .taof-cli-box{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border-radius:10px;padding:20px 22px;z-index:9999;width:560px;max-width:96vw;max-height:92vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,.25)}
+    #taof-cli-modal .taof-cli-x{position:absolute;top:10px;right:12px;border:none;background:transparent;font-size:20px;line-height:1;color:#64748b;cursor:pointer;padding:2px 6px;border-radius:6px}
+    #taof-cli-modal .taof-cli-x:hover{background:#f1f5f9;color:#0f172a}
     </style>
 
     <script>
@@ -338,7 +340,8 @@ function tao_formula_page_historico() {
             }
         });
         $('#taof-cli-novo').on('click', function(){ formCliente({}); });
-        $('#taof-cli-modal').on('click','.taof-cli-overlay',function(){ $('#taof-cli-modal').hide(); });
+        $('#taof-cli-modal').on('click','.taof-cli-overlay, .taof-cli-x',function(){ $('#taof-cli-modal').hide(); });
+        $(document).on('keydown', function(e){ if(e.key==='Escape' && $('#taof-cli-modal').is(':visible')) $('#taof-cli-modal').hide(); });
 
         // Ao abrir um cliente, mostra o selo de saúde (do contato vinculado)
         var _origAbrir = abrirCliente;

@@ -842,6 +842,8 @@ function tao_crm_page_card() {
             <div id="taof-crm-modal"
                  style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:99998;align-items:center;justify-content:center">
                 <div style="position:relative;width:98vw;max-width:1260px;height:93vh;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.45)">
+                    <button type="button" id="taof-crm-modal-x" title="Fechar (Esc)" aria-label="Fechar"
+                            style="position:absolute;top:8px;right:10px;z-index:5;width:34px;height:34px;border:none;border-radius:8px;background:rgba(15,23,42,.08);color:#334155;font-size:20px;line-height:1;cursor:pointer">&#x2715;</button>
                     <iframe id="taof-crm-iframe" src=""
                             style="width:100%;height:100%;border:none;display:block"></iframe>
                 </div>
@@ -1863,6 +1865,14 @@ function tao_crm_page_card() {
                 abrirModal(src);
             });
         }
+
+        // Botão ✕ do modal + tecla Esc — fecha QUALQUER conteúdo do iframe (editor OU Histórico).
+        // Necessário porque a página Histórico não tem botão de saída próprio e o clique-fora é bloqueado.
+        var modalX = document.getElementById('taof-crm-modal-x');
+        if (modalX) modalX.addEventListener('click', fecharModal);
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && modal && modal.style.display === 'flex') fecharModal();
+        });
 
         // Modal de verdade: clique fora NÃO fecha (evita perder edição sem confirmar/fechar).
         // Saída é pelo botão Fechar/Salvar do editor (postMessage abaixo).
