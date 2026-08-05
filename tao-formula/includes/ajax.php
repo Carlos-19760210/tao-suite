@@ -6765,3 +6765,221 @@ add_action( 'wp_ajax_tao_formula_sngpc_busca_ativo', function () {
     );
     wp_send_json_success( $r['ok'] ? ( $r['data'] ?? [] ) : [] );
 } );
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FASE A — XML OFICIAL (urn:sngpc-schema) + FECHAMENTO DE PERÍODO + CONFRONTO
+// Porta o mapeamento provado do migra.py (saída FC99S22 / perda FC99S24).
+// Tudo INERTE: gera, arquiva e confronta em sombra; NÃO transmite à ANVISA.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Mapeia os enums do TAO -> códigos do schema ANVISA (passa direto se já numérico).
+function tao_formula_sngpc_map_receita( $v ) {
+    $v = trim( (string) $v ); if ( $v === '' || ctype_digit( $v ) ) return $v;
+    $m = [ 'notif_A' => '1', 'notif_B' => '2', 'especial_branca' => '3', 'receita_2vias' => '4', 'antimicrobiano' => '5' ];
+    return $m[ $v ] ?? $v;
+}
+function tao_formula_sngpc_map_perda( $v ) {
+    $v = trim( (string) $v ); if ( $v === '' || ctype_digit( $v ) ) return $v;
+    $m = [ 'quebra' => '2', 'vencimento' => '3', 'roubo' => '5', 'desvio' => '6', 'inutilizacao' => '8' ];
+    return $m[ $v ] ?? $v;
+}
+function tao_formula_sngpc_map_uso( $v ) {
+    $v = strtolower( trim( (string) $v ) ); if ( $v === '' || ctype_digit( $v ) ) return $v;
+    return $v === 'externo' ? '2' : '1';
+}
+
+/** Gera o XML no schema oficial (urn:sngpc-schema) a partir de movimentos do TAO. Retorna [xml,ns,np,nent]. */
+function tao_formula_sngpc_xml_oficial( array $movs, array $emp, $DI, $DF ) {
+    $q6 = function ( $v ) { return number_format( (float) str_replace( ',', '.', (string) $v ), 6, '.', '' ); };
+    $qi = function ( $v ) { return (string) (int) round( (float) str_replace( ',', '.', (string) $v ) ); };
+    $e  = function ( $v ) { return htmlspecialchars( (string) $v, ENT_XML1 | ENT_QUOTES, 'UTF-8' ); };
+    $dt = function ( $v ) { return $v ? substr( (string) $v, 0, 10 ) : ''; };
+    $cn = function ( $v ) { return preg_replace( '/\D/', '', (string) $v ); };
+
+    $cnpj = $cn( $emp['cnpj'] ?? '' );
+    $cpf  = $cn( $emp['cpf_transmissor'] ?? ( $emp['cpf_responsavel'] ?? '' ) );
+
+    $X = [ '<?xml version="1.0" encoding="UTF-8"?>',
+        '<mensagemSNGPC xmlns="urn:sngpc-schema"><cabecalho>',
+        '<cnpjEmissor>' . $e( $cnpj ) . '</cnpjEmissor><cpfTransmissor>' . $e( $cpf ) . '</cpfTransmissor>',
+        '<dataInicio>' . $DI . '</dataInicio><dataFim>' . $DF . '</dataFim></cabecalho><corpo><medicamentos/><insumos>' ];
+    $ns = $np = $nent = 0;
+    foreach ( $movs as $m ) {
+        if ( ( $m['tipo'] ?? '' ) === 'saida' ) {
+            $ns++;
+            $X[] = '<saidaInsumoVendaAoConsumidor>'
+                . '<tipoReceituarioInsumo>' . $e( tao_formula_sngpc_map_receita( $m['tp_receita'] ?? '' ) ) . '</tipoReceituarioInsumo>'
+                . '<numeroNotificacaoInsumo>' . $e( $m['nr_notificacao'] ?? '' ) . '</numeroNotificacaoInsumo>'
+                . '<dataPrescricaoInsumo>' . $dt( $m['dt_prescricao'] ?? '' ) . '</dataPrescricaoInsumo>'
+                . '<prescritorInsumo><nomePrescritor>' . $e( $m['prescritor_nome'] ?? '' ) . '</nomePrescritor>'
+                . '<numeroRegistroProfissional>' . $e( $m['prescritor_nr'] ?? '' ) . '</numeroRegistroProfissional>'
+                . '<conselhoProfissional>' . $e( $m['prescritor_conselho'] ?? '' ) . '</conselhoProfissional>'
+                . '<UFConselho>' . $e( $m['prescritor_uf'] ?? '' ) . '</UFConselho></prescritorInsumo>'
+                . '<usoInsumo>' . $e( tao_formula_sngpc_map_uso( $m['uso_med'] ?? '' ) ) . '</usoInsumo>'
+                . '<compradorInsumo><nomeComprador>' . $e( $m['comprador_nome'] ?? '' ) . '</nomeComprador>'
+                . '<tipoDocumento>' . $e( $m['comprador_doc_tp'] ?? '' ) . '</tipoDocumento>'
+                . '<numeroDocumento>' . $e( $m['comprador_doc_nr'] ?? '' ) . '</numeroDocumento>'
+                . '<orgaoExpedidor>' . $e( $m['orgao_expedidor'] ?? '' ) . '</orgaoExpedidor>'
+                . '<UFEmissaoDocumento>' . $e( $m['comprador_uf'] ?? '' ) . '</UFEmissaoDocumento></compradorInsumo>'
+                . '<substanciaInsumoVendaAoConsumidor><usoProlongado>' . ( ! empty( $m['uso_prolongado'] ) ? 'true' : 'false' ) . '</usoProlongado>'
+                . '<insumoVendaAoConsumidor><codigoInsumo>' . $e( $m['dcb'] ?? '' ) . '</codigoInsumo>'
+                . '<numeroLoteInsumo>' . $e( $m['nr_lote'] ?? '' ) . '</numeroLoteInsumo>'
+                . '<insumoCNPJFornecedor>' . $e( $cn( $m['cnpj_forn_insumo'] ?? '' ) ) . '</insumoCNPJFornecedor></insumoVendaAoConsumidor>'
+                . '<quantidadeDeInsumoPorUnidadeFarmacotecnica>' . $q6( $m['quantidade'] ?? 0 ) . '</quantidadeDeInsumoPorUnidadeFarmacotecnica>'
+                . '<unidadeDeMedidaDoInsumo>' . $e( $m['unidade'] ?? '' ) . '</unidadeDeMedidaDoInsumo>'
+                . '<unidadeFarmacotecnica>' . $e( $m['unidade_farmac'] ?? '' ) . '</unidadeFarmacotecnica>'
+                . '<quantidadeDeUnidadesFarmacotecnicas>' . $qi( $m['qtd_unidades_farmac'] ?? 0 ) . '</quantidadeDeUnidadesFarmacotecnicas>'
+                . '</substanciaInsumoVendaAoConsumidor>'
+                . '<dataVendaInsumo>' . $dt( $m['dt_movimento'] ?? '' ) . '</dataVendaInsumo></saidaInsumoVendaAoConsumidor>';
+        } elseif ( ( $m['tipo'] ?? '' ) === 'perda' ) {
+            $np++;
+            $cf = $e( $cn( $m['cnpj_forn_insumo'] ?? '' ) );
+            $X[] = '<saidaInsumoPerda><motivoPerdaInsumo>' . $e( tao_formula_sngpc_map_perda( $m['tp_perda'] ?? '' ) ) . '</motivoPerdaInsumo>'
+                . '<substanciaInsumoPerda><insumoPerda><codigoInsumo>' . $e( $m['dcb'] ?? '' ) . '</codigoInsumo>'
+                . '<numeroLoteInsumo>' . $e( $m['nr_lote'] ?? '' ) . '</numeroLoteInsumo>'
+                . '<insumoCNPJFornecedor>' . $cf . '</insumoCNPJFornecedor></insumoPerda>'
+                . '<quantidadeInsumoPerda>' . $q6( $m['quantidade'] ?? 0 ) . '</quantidadeInsumoPerda>'
+                . '<tipoUnidadePerda>' . $e( $m['unidade'] ?? '' ) . '</tipoUnidadePerda></substanciaInsumoPerda>'
+                . '<dataPerdaInsumo>' . $dt( $m['dt_movimento'] ?? '' ) . '</dataPerdaInsumo>'
+                . '<insumoCNPJFornecedor>' . $cf . '</insumoCNPJFornecedor></saidaInsumoPerda>';
+        } elseif ( ( $m['tipo'] ?? '' ) === 'entrada' ) {
+            $nent++; // bloco de entrada do schema entra na Fase A.2 (após validar contra o FCerta)
+        }
+    }
+    $X[] = '</insumos></corpo></mensagemSNGPC>';
+    return [ implode( "\n", $X ), $ns, $np, $nent ];
+}
+
+/** Extrai registros de uma tag como assinaturas normalizadas (folhas ordenadas) p/ confronto. */
+function tao_formula_sngpc_recs( $xml_str, $tag ) {
+    $out = []; if ( ! trim( (string) $xml_str ) ) return $out;
+    $prev = libxml_use_internal_errors( true );
+    $doc = new DOMDocument();
+    if ( ! $doc->loadXML( $xml_str ) ) { libxml_clear_errors(); libxml_use_internal_errors( $prev ); return $out; }
+    libxml_clear_errors(); libxml_use_internal_errors( $prev );
+    foreach ( $doc->getElementsByTagName( $tag ) as $node ) {
+        $leaves = [];
+        $stack = [ $node ];
+        while ( $stack ) {
+            $n = array_pop( $stack ); $hasEl = false;
+            foreach ( $n->childNodes as $c ) {
+                if ( $c->nodeType === XML_ELEMENT_NODE ) { $hasEl = true; $stack[] = $c; }
+            }
+            if ( ! $hasEl ) $leaves[ $n->localName ] = trim( $n->textContent );
+        }
+        ksort( $leaves );
+        $out[] = json_encode( $leaves, JSON_UNESCAPED_UNICODE );
+    }
+    return $out;
+}
+
+// Fecha o período: gera XML oficial, arquiva (se a tabela existir) e devolve o resumo. INERTE.
+add_action( 'wp_ajax_tao_formula_sngpc_fechar', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_is_master() ) wp_send_json_error( [ 'message' => 'Só o administrador fecha o período' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+    $de  = sanitize_text_field( $_POST['de']  ?? '' );
+    $ate = sanitize_text_field( $_POST['ate'] ?? '' );
+    if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $de ) || ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $ate ) )
+        wp_send_json_error( [ 'message' => 'Informe o período (de/até).' ] );
+
+    $base = "/sngpc_movimentos?cliente_id=eq.$cliente_id&dt_movimento=gte.$de&dt_movimento=lte.$ate&tipo=in.(saida,perda,entrada)&order=dt_movimento.asc&limit=5000";
+    $rm = tao_formula_api( $base . '&arquivo_id=is.null' );
+    if ( ! $rm['ok'] && strpos( (string) $rm['raw'], 'arquivo_id' ) !== false )
+        $rm = tao_formula_api( $base . '&transmitido=eq.false' ); // migration ainda não rodada
+    $movs = $rm['ok'] ? ( $rm['data'] ?? [] ) : [];
+    if ( ! $rm['ok'] ) {
+        $msg = strpos( (string) $rm['raw'], 'does not exist' ) !== false ? 'Tabela SNGPC ainda não criada.' : mb_substr( (string) $rm['raw'], 0, 200 );
+        wp_send_json_error( [ 'message' => $msg ] );
+    }
+    if ( ! $movs ) wp_send_json_error( [ 'message' => 'Nenhum movimento pendente no período.' ] );
+
+    $rc  = tao_formula_api( "/empresa_config?cliente_id=eq.$cliente_id&limit=1" );
+    $emp = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? $rc['data'][0] : [];
+    list( $xml, $ns, $np, $nent ) = tao_formula_sngpc_xml_oficial( $movs, $emp, $de, $ate );
+    $hash = sha1( $xml );
+
+    // arquiva (best-effort; degrada se a migration ainda não rodou)
+    $persistido = false; $arq_id = null; $seq = null;
+    $rs = tao_formula_api( "/sngpc_arquivos?cliente_id=eq.$cliente_id&select=sequencial&order=sequencial.desc&limit=1" );
+    if ( $rs['ok'] ) {
+        $seq  = ( ! empty( $rs['data'] ) ? (int) $rs['data'][0]['sequencial'] : 0 ) + 1;
+        $nome = 'SNGPC' . gmdate( 'dmY', strtotime( $ate ) ) . $seq;
+        $ins  = tao_formula_api( '/sngpc_arquivos', 'POST', [
+            'cliente_id' => $cliente_id, 'periodo_ini' => $de, 'periodo_fim' => $ate, 'sequencial' => $seq,
+            'nome_arquivo' => $nome, 'hash' => $hash, 'xml' => $xml, 'qtd_saidas' => $ns, 'qtd_perdas' => $np,
+            'qtd_entradas' => $nent, 'status' => 'gerado', 'criado_por' => get_current_user_id(),
+        ] );
+        if ( $ins['ok'] && ! empty( $ins['data'][0]['id'] ) ) {
+            $persistido = true; $arq_id = $ins['data'][0]['id'];
+            $ids = array_values( array_filter( array_column( $movs, 'id' ) ) );
+            if ( $ids ) tao_formula_api( "/sngpc_movimentos?id=in.(" . implode( ',', $ids ) . ")", 'PATCH', [ 'arquivo_id' => $arq_id ] );
+        }
+    }
+    wp_send_json_success( [
+        'xml' => $xml, 'hash' => $hash, 'saidas' => $ns, 'perdas' => $np, 'entradas_pendentes' => $nent,
+        'sequencial' => $seq, 'arquivo_id' => $arq_id, 'persistido' => $persistido,
+        'aviso' => $persistido ? '' : 'XML gerado, mas não arquivado — rode migration_sngpc_arquivos_v1.sql para habilitar o arquivamento.',
+    ] );
+} );
+
+// Lista os arquivos de período já fechados
+add_action( 'wp_ajax_tao_formula_sngpc_arquivos', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    if ( ! $cliente_id ) wp_send_json_error( [ 'message' => 'Cliente não identificado' ] );
+    $r = tao_formula_api( "/sngpc_arquivos?cliente_id=eq.$cliente_id&select=id,periodo_ini,periodo_fim,sequencial,nome_arquivo,hash,qtd_saidas,qtd_perdas,qtd_entradas,status,dt_receb,protocolo,criado_em&order=periodo_ini.desc,sequencial.desc&limit=100" );
+    if ( ! $r['ok'] ) {
+        $msg = strpos( (string) $r['raw'], 'does not exist' ) !== false ? 'Tabela de arquivos ainda não criada (migration pendente).' : mb_substr( (string) $r['raw'], 0, 200 );
+        wp_send_json_error( [ 'message' => $msg ] );
+    }
+    wp_send_json_success( [ 'items' => $r['data'] ?? [] ] );
+} );
+
+// Baixa o XML de um arquivo fechado
+add_action( 'wp_ajax_tao_formula_sngpc_arquivo_baixar', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $id = sanitize_text_field( $_GET['id'] ?? '' );
+    if ( ! $cliente_id || ! $id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+    $r = tao_formula_api( "/sngpc_arquivos?id=eq.$id&cliente_id=eq.$cliente_id&select=nome_arquivo,xml&limit=1" );
+    if ( ! $r['ok'] || empty( $r['data'] ) ) wp_send_json_error( [ 'message' => 'Arquivo não encontrado' ] );
+    wp_send_json_success( [ 'nome' => $r['data'][0]['nome_arquivo'] ?? 'SNGPC.xml', 'xml' => $r['data'][0]['xml'] ?? '' ] );
+} );
+
+// Confronto SOMBRA: gera o oficial do período e compara registro-a-registro com o XML do FCerta (colado)
+add_action( 'wp_ajax_tao_formula_sngpc_confronto', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_is_master() ) wp_send_json_error( [ 'message' => 'Só o administrador confronta' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $de  = sanitize_text_field( $_POST['de']  ?? '' );
+    $ate = sanitize_text_field( $_POST['ate'] ?? '' );
+    $xml_fc = (string) ( $_POST['xml_fcerta'] ?? '' );
+    if ( ! $cliente_id || ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $de ) || ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $ate ) )
+        wp_send_json_error( [ 'message' => 'Informe período e XML do FCerta.' ] );
+    if ( strlen( $xml_fc ) < 30 ) wp_send_json_error( [ 'message' => 'Cole o XML do FCerta para comparar.' ] );
+
+    $rm = tao_formula_api( "/sngpc_movimentos?cliente_id=eq.$cliente_id&dt_movimento=gte.$de&dt_movimento=lte.$ate&tipo=in.(saida,perda,entrada)&order=dt_movimento.asc&limit=5000" );
+    $movs = $rm['ok'] ? ( $rm['data'] ?? [] ) : [];
+    $rc = tao_formula_api( "/empresa_config?cliente_id=eq.$cliente_id&limit=1" );
+    $emp = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? $rc['data'][0] : [];
+    list( $xml_tao ) = tao_formula_sngpc_xml_oficial( $movs, $emp, $de, $ate );
+
+    $res = [];
+    foreach ( [ 'saidaInsumoVendaAoConsumidor', 'saidaInsumoPerda' ] as $tag ) {
+        $G = tao_formula_sngpc_recs( $xml_tao, $tag );
+        $F = tao_formula_sngpc_recs( $xml_fc,  $tag );
+        $cg = array_count_values( $G ); $cf = array_count_values( $F );
+        $ident = 0; foreach ( $cg as $k => $n ) $ident += min( $n, $cf[ $k ] ?? 0 );
+        $res[] = [ 'tag' => $tag, 'gerado' => count( $G ), 'fcerta' => count( $F ),
+            'identicos' => $ident, 'so_gerado' => count( $G ) - $ident, 'so_fcerta' => count( $F ) - $ident ];
+    }
+    wp_send_json_success( [ 'periodo' => "$de a $ate", 'comparacao' => $res ] );
+} );

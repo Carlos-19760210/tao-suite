@@ -20,7 +20,10 @@ function tao_formula_page_sngpc() {
         <button type="button" class="button" id="taof-sg-filtrar">Filtrar</button>
         <button type="button" class="button button-primary" id="taof-sg-novo">+ Lançar movimento</button>
         <button type="button" class="button" id="taof-sg-balanco">📊 Balanço</button>
-        <button type="button" class="button" id="taof-sg-xml">📤 Gerar XML</button>
+        <button type="button" class="button" id="taof-sg-xml">📤 XML rascunho</button>
+        <button type="button" class="button button-primary" id="taof-sg-fechar" title="Gera o XML no schema oficial da ANVISA e fecha o período. Não transmite.">🔒 Fechar período (oficial)</button>
+        <button type="button" class="button" id="taof-sg-arquivos">📁 Arquivos</button>
+        <button type="button" class="button" id="taof-sg-confronto" title="Compara o XML gerado com o do FCerta (sombra)">🔬 Confronto FCerta</button>
         <button type="button" class="button" id="taof-sg-print">🖨</button>
         <span id="taof-sg-count" style="font-size:12px;color:#64748b"></span>
     </div>
@@ -174,6 +177,69 @@ function tao_formula_page_sngpc() {
                 var w=window.open('','sngpcxml','width=760,height=640');
                 w.document.write('<html><head><title>SNGPC — XML ('+r.data.movimentos+' mov.)</title></head><body style="margin:12px;font-family:monospace;font-size:12px"><p><b>'+r.data.movimentos+' movimento(s).</b> Salve/transmita à ANVISA e depois marque como transmitido no sistema.</p><pre style="white-space:pre-wrap;border:1px solid #ccc;padding:10px">'+$('<div>').text(r.data.xml).html()+'</pre></body></html>');
                 w.document.close();
+            });
+        });
+
+        // ── FASE A: Fechar período (XML oficial urn:sngpc-schema) ──
+        $('#taof-sg-fechar').on('click',function(){
+            if(!confirm('Fechar o período '+$('#taof-sg-de').val()+' a '+$('#taof-sg-ate').val()+' e gerar o XML OFICIAL (schema ANVISA)?\n\nNão transmite nada — apenas gera e arquiva para conferência/sombra.'))return;
+            $.post(ajaxUrl,{action:'tao_formula_sngpc_fechar',nonce:nonce,de:$('#taof-sg-de').val(),ate:$('#taof-sg-ate').val()},function(r){
+                if(!r.success){alert((r.data&&r.data.message)||'Erro');return;}
+                var d=r.data;
+                var w=window.open('','sngpcof','width=840,height=680');
+                w.document.write('<html><head><title>SNGPC oficial — '+d.saidas+' saídas · '+d.perdas+' perdas</title></head><body style="margin:12px;font-family:monospace;font-size:12px">'+
+                    '<p><b>Período fechado.</b> Saídas: '+d.saidas+' · Perdas: '+d.perdas+(d.entradas_pendentes?(' · <span style="color:#b45309">Entradas (bloco fora da Fase A): '+d.entradas_pendentes+'</span>'):'')+'<br>hash: '+d.hash+(d.sequencial?(' · sequencial: '+d.sequencial):'')+'</p>'+
+                    (d.aviso?'<p style="color:#b45309">'+$('<div>').text(d.aviso).html()+'</p>':'')+
+                    '<pre style="white-space:pre-wrap;border:1px solid #ccc;padding:10px">'+$('<div>').text(d.xml).html()+'</pre></body></html>');
+                w.document.close();
+                if(d.persistido)$('#taof-sg-arquivos').click();
+            });
+        });
+        // ── Arquivos de período fechados ──
+        $('#taof-sg-arquivos').on('click',function(){
+            $.getJSON(ajaxUrl,{action:'tao_formula_sngpc_arquivos',nonce:nonce},function(r){
+                if(!r.success){alert((r.data&&r.data.message)||'Erro');return;}
+                var l=(r.data&&r.data.items)||[];
+                var rows=l.map(function(x){
+                    return '<tr><td>'+fdata(x.periodo_ini)+' a '+fdata(x.periodo_fim)+'</td><td style="font-family:monospace">'+esc(x.nome_arquivo||'')+'</td>'+
+                        '<td style="text-align:right">'+(x.qtd_saidas||0)+'</td><td style="text-align:right">'+(x.qtd_perdas||0)+'</td>'+
+                        '<td>'+esc(x.status||'')+'</td><td><a href="#" data-id="'+esc(x.id)+'" class="taof-sg-dl">baixar XML</a></td></tr>';
+                }).join('');
+                $('#taof-sg-pagerbox').hide();
+                $('#taof-sg-area').html('<h3>Arquivos de período <small style="color:#94a3b8;font-weight:400">(SNGPC oficial — schema ANVISA)</small></h3>'+
+                    '<div class="taof-sg-twrap"><table class="taof-sg-tb"><tr><th>Período</th><th>Arquivo</th><th>Saídas</th><th>Perdas</th><th>Status</th><th></th></tr>'+(rows||'<tr><td colspan=6 style="color:#94a3b8">nenhum período fechado ainda</td></tr>')+'</table></div>'+
+                    '<p><button class="button" onclick="jQuery(\'#taof-sg-filtrar\').click()">← voltar ao livro</button></p>');
+            });
+        });
+        $('#taof-sg-area').on('click','.taof-sg-dl',function(e){
+            e.preventDefault(); var id=$(this).data('id');
+            $.getJSON(ajaxUrl,{action:'tao_formula_sngpc_arquivo_baixar',nonce:nonce,id:id},function(r){
+                if(!r.success){alert((r.data&&r.data.message)||'Erro');return;}
+                var blob=new Blob([r.data.xml],{type:'application/xml'});
+                var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(r.data.nome||'SNGPC')+'.xml';document.body.appendChild(a);a.click();a.remove();
+            });
+        });
+        // ── Confronto com o FCerta (sombra) ──
+        $('#taof-sg-confronto').on('click',function(){
+            var h='<h2 style="margin:0 0 8px;font-size:18px">🔬 Confronto com o FCerta (sombra)</h2>'+
+                '<p style="font-size:12px;color:#64748b;margin:0 0 8px">Gera o XML oficial do período <b>'+$('#taof-sg-de').val()+'</b> a <b>'+$('#taof-sg-ate').val()+'</b> e compara registro-a-registro com o XML real do FCerta.</p>'+
+                '<div class="taof-sg-fld"><label>Cole aqui o XML do FCerta (mensagemSNGPC)</label><textarea id="taof-sg-fcxml" style="width:100%;height:170px;font-family:monospace;font-size:11px"></textarea></div>'+
+                '<p><button type="button" class="button button-primary" id="taof-sg-confbtn">Comparar</button> <button type="button" class="button" id="taof-sg-cancel2">Fechar</button></p>'+
+                '<div id="taof-sg-confres"></div>';
+            $('#taof-sg-body').html(h);$('#taof-sg-modal').show();
+            $('#taof-sg-cancel2').on('click',function(){$('#taof-sg-modal').hide();});
+            $('#taof-sg-confbtn').on('click',function(){
+                $('#taof-sg-confres').html('<p style="color:#64748b">comparando…</p>');
+                $.post(ajaxUrl,{action:'tao_formula_sngpc_confronto',nonce:nonce,de:$('#taof-sg-de').val(),ate:$('#taof-sg-ate').val(),xml_fcerta:$('#taof-sg-fcxml').val()},function(r){
+                    if(!r.success){$('#taof-sg-confres').html('<p style="color:#dc2626">'+esc((r.data&&r.data.message)||'Erro')+'</p>');return;}
+                    var rows=(r.data.comparacao||[]).map(function(c){
+                        var ok=c.so_gerado===0&&c.so_fcerta===0;
+                        return '<tr><td>'+esc(c.tag)+'</td><td style="text-align:right">'+c.gerado+'</td><td style="text-align:right">'+c.fcerta+'</td>'+
+                            '<td style="text-align:right;color:#166534">'+c.identicos+'</td><td style="text-align:right;color:#b45309">'+c.so_gerado+'</td><td style="text-align:right;color:#991b1b">'+c.so_fcerta+'</td>'+
+                            '<td style="text-align:center">'+(ok?'✅':'⚠️')+'</td></tr>';
+                    }).join('');
+                    $('#taof-sg-confres').html('<table class="taof-sg-tb" style="margin-top:10px"><tr><th>Bloco</th><th>Gerado</th><th>FCerta</th><th>Idênticos</th><th>Só gerado</th><th>Só FCerta</th><th></th></tr>'+rows+'</table>');
+                });
             });
         });
 
