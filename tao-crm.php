@@ -4415,7 +4415,7 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
                         'conteudo'       => $conteudo,
                         'midia_url'      => $midia,
                         'remetente_nome' => $msg['pushName'] ?? $num,
-                        'enviado_em'     => gmdate( 'c' ),
+                        'enviado_em'     => tao_crm_msg_ts( $msg ),
                         'wamid'          => $msg['key']['id'] ?? null,
                     ];
                     set_transient( $_pk, $_pending, HOUR_IN_SECONDS );
@@ -4461,7 +4461,7 @@ function tao_crm_rest_dispatch( WP_REST_Request $req ) {
                     'conteudo'       => $conteudo,
                     'midia_url'      => $midia,
                     'remetente_nome' => $from_me ? $instancia : ( $msg['pushName'] ?? $num ),
-                    'enviado_em'     => gmdate( 'c' ),
+                    'enviado_em'     => tao_crm_msg_ts( $msg ),
                     'wamid'          => $msg['key']['id'] ?? null,
                     'status_entrega' => $from_me ? 'sent' : null,
                 ], [ 'Prefer' => 'return=minimal' ] );

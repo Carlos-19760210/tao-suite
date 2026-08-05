@@ -260,6 +260,23 @@ function tao_crm_brt( $utc_str, $format = 'd/m H:i' ) {
 }
 
 /**
+ * Horário REAL da mensagem no WhatsApp a partir do messageTimestamp do Evolution/Baileys,
+ * em ISO-8601 UTC. Sem isso, mensagens processadas em lote/atraso (ou pendentes flushadas)
+ * eram todas gravadas com a hora de ingestão — agrupando horários errados na conversa.
+ * Fallback: hora atual (comportamento anterior) se o timestamp faltar ou for implausível.
+ */
+function tao_crm_msg_ts( $msg ) {
+    $ts = is_array( $msg ) ? ( $msg['messageTimestamp'] ?? null ) : null;
+    if ( is_array( $ts ) ) $ts = $ts['low'] ?? ( reset( $ts ) ?: null ); // Baileys Long {low,high}
+    if ( is_numeric( $ts ) ) {
+        $ts = (int) $ts;
+        if ( $ts > 100000000000 ) $ts = (int) ( $ts / 1000 ); // veio em milissegundos
+        if ( $ts >= 1577836800 && $ts <= time() + 86400 ) return gmdate( 'c', $ts ); // plausível (>=2020, <=agora+1d)
+    }
+    return gmdate( 'c' );
+}
+
+/**
  * Limpa o historico do chatbot N8N para um número específico.
  *
  * O N8N Chatbot Generico v6 usa a tabela `historico` do Supabase como contexto de conversa.

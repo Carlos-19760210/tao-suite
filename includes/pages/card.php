@@ -1883,6 +1883,7 @@ function tao_crm_page_card() {
             if (!e.data || !e.data.taofSaved && !e.data.taofClosed) return;
             fecharModal();
             carregarFormulas();
+            if (window.taofRefreshAnalise) window.taofRefreshAnalise();
         });
 
         // ── Análise de preços do card (todos os orçamentos) ───────────
@@ -1987,6 +1988,11 @@ function tao_crm_page_card() {
             window.taofAbrirAnalise = function () {
                 if (anPanel.style.display === 'none') anPanel.style.display = 'block';
                 if (!anLoaded) carregarAnalise(false);
+            };
+            // Recarrega a análise após ajustes nos orçamentos (edição/aprovação/rejeição/exclusão).
+            // Sem isso o painel de cálculo abaixo ficava com valores velhos (preso no guard anLoaded).
+            window.taofRefreshAnalise = function () {
+                if (anLoaded) carregarAnalise(false);
             };
             anConc.addEventListener('input', function () {
                 renderCenario();
@@ -2105,6 +2111,14 @@ function tao_crm_page_card() {
                 return '<button class="button button-small taof-orc-reabrir" data-id="'+o.id+'" style="font-size:10px;padding:2px 6px" title="Voltar para pendente">↩</button> ';
             return '<button class="button button-small taof-orc-aprovar" data-id="'+o.id+'" style="font-size:10px;padding:2px 6px;color:#16a34a;border-color:#86efac" title="Aprovar — vira OM">✅</button> '
                  + '<button class="button button-small taof-orc-rejeitar" data-id="'+o.id+'" style="font-size:10px;padding:2px 6px;color:#dc2626;border-color:#fca5a5" title="Rejeitar — não vira OM">✕</button> ';
+        }
+        // orcAcao no escopo externo: acessível tanto pelos botões unitários (dentro de
+        // carregarFormulas) quanto pela aprovação EM LOTE (fora dela). Antes era local a
+        // carregarFormulas → o lote quebrava com ReferenceError e travava em "Aprovando...".
+        function orcAcao(action, id, extra){
+            var fd=new FormData(); fd.append('action',action); fd.append('nonce',taofNonce); fd.append('orc_id',id);
+            if(extra) Object.keys(extra).forEach(function(k){ fd.append(k, extra[k]); });
+            return fetch(ajaxUrl,{method:'POST',body:fd}).then(function(r){return r.json();});
         }
         function carregarFormulas() {
             if (!listDiv) return;
@@ -2245,17 +2259,12 @@ function tao_crm_page_card() {
                             fd.append('orc_id',  id);
                             fetch(ajaxUrl, { method:'POST', body:fd })
                                 .then(function(r){ return r.json(); })
-                                .then(function(r){ if (r.success) carregarFormulas(); else alert((r.data && r.data.message) || 'Não foi possível excluir o orçamento.'); })
+                                .then(function(r){ if (r.success) { carregarFormulas(); if (window.taofRefreshAnalise) window.taofRefreshAnalise(); } else alert((r.data && r.data.message) || 'Não foi possível excluir o orçamento.'); })
                                 .catch(function(){ alert('Falha de comunicação ao excluir.'); });
                         });
                     });
 
-                    // Botões aprovar / rejeitar / reabrir o ORÇAMENTO (só o aprovado vira OM)
-                    function orcAcao(action, id, extra){
-                        var fd=new FormData(); fd.append('action',action); fd.append('nonce',taofNonce); fd.append('orc_id',id);
-                        if(extra) Object.keys(extra).forEach(function(k){ fd.append(k, extra[k]); });
-                        return fetch(ajaxUrl,{method:'POST',body:fd}).then(function(r){return r.json();});
-                    }
+                    // Botões aprovar / rejeitar / reabrir o ORÇAMENTO (orcAcao vem do escopo externo)
                     listDiv.querySelectorAll('.taof-orc-aprovar').forEach(function(b){
                         b.addEventListener('click', function(){
                             orcAcao('tao_formula_orc_aprovar', this.dataset.id).then(function(r){ if(r.success){ var av=r.data&&r.data.avisos_controlado; if(av&&av.length) alert('⚠ Controlado (RDC 344/98) — pendências:\n\n• '+av.join('\n• ')+'\n\nAprovado; regularize os itens acima.'); carregarFormulas(); window.postMessage({taofSaved:true},'*'); } else alert((r.data&&r.data.message)||'Erro ao aprovar'); });
