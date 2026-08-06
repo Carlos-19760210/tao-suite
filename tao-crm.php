@@ -1088,6 +1088,7 @@ function tao_crm_ajax_move_card() {
     $card_id    = sanitize_text_field( $_POST['card_id']    ?? '' );
     $estagio_id = sanitize_text_field( $_POST['estagio_id'] ?? '' );
     if ( ! $card_id || ! $estagio_id ) wp_send_json_error( 'Dados inválidos' );
+    tao_crm_card_lock_guard( $card_id );
 
     $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=estagio_id,pipeline_id,workspace_id" );
     $card_atual  = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? $rc['data'][0] : [];
@@ -1488,6 +1489,23 @@ function tao_crm_ajax_send_message() {
     wp_send_json_success( [ 'msg' => $rm['ok'] ? $rm['data'][0] : null, 'responsavel_changed' => $responsavel_changed ] );
 }
 
+// ── LOCK de card: exclusividade enquanto aberto ──────────────────────────────
+// Guard reutilizável: se OUTRO atendente detém o lock ativo (<90s), bloqueia a ação
+// (json_error e encerra); senão assume/renova o lock. Degrada se a migration não rodou.
+function tao_crm_card_lock_guard( $card_id ) {
+    if ( ! $card_id ) return;
+    $me = get_current_user_id();
+    $r  = tao_crm_api( "/crm_cards?id=eq.$card_id&select=lock_user_id,lock_user_nome,lock_em" );
+    if ( ! $r['ok'] || empty( $r['data'] ) ) return; // colunas ausentes (migration pendente) → não trava
+    $lk  = $r['data'][0];
+    $uid = intval( $lk['lock_user_id'] ?? 0 );
+    $ts  = ! empty( $lk['lock_em'] ) ? strtotime( $lk['lock_em'] ) : 0;
+    if ( $uid && $uid !== $me && ( time() - $ts ) < 90 ) {
+        wp_send_json_error( '🔒 Card em atendimento por ' . ( $lk['lock_user_nome'] ?: 'outro atendente' ) . '. Só uma pessoa por vez neste card.' );
+    }
+    tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [ 'lock_user_id' => $me, 'lock_user_nome' => wp_get_current_user()->display_name, 'lock_em' => gmdate( 'c' ) ] );
+}
+
 // ── LOCK de card: adquirir / heartbeat / liberar (atendimento exclusivo) ─────
 add_action( 'wp_ajax_tao_crm_card_lock', 'tao_crm_ajax_card_lock' );
 function tao_crm_ajax_card_lock() {
@@ -1527,6 +1545,7 @@ function tao_crm_ajax_send_attachment() {
     $card_id = sanitize_text_field( $_POST['card_id'] ?? '' );
     $caption = sanitize_textarea_field( $_POST['caption'] ?? '' );
     if ( ! $card_id || empty( $_FILES['arquivo'] ) ) wp_send_json_error( 'Dados inválidos' );
+    tao_crm_card_lock_guard( $card_id );
 
     $file = $_FILES['arquivo'];
     if ( $file['error'] !== UPLOAD_ERR_OK ) wp_send_json_error( 'Erro no upload: ' . $file['error'] );
@@ -1694,6 +1713,7 @@ function tao_crm_ajax_save_valor() {
     $card_id  = sanitize_text_field( $_POST['card_id']  ?? '' );
     $campo_id = sanitize_text_field( $_POST['campo_id'] ?? '' );
     $valor    = sanitize_textarea_field( $_POST['valor'] ?? '' );
+    tao_crm_card_lock_guard( $card_id );
     if ( ! $card_id || ! $campo_id ) wp_send_json_error( 'Dados inválidos' );
 
     // UPSERT correto: PATCH se já existe, POST se não. O POST cru com
@@ -1721,6 +1741,7 @@ function tao_crm_ajax_save_responsavel() {
     $card_id  = sanitize_text_field( $_POST['card_id']       ?? '' );
     $resp_id  = intval( $_POST['responsavel_id'] ?? 0 );
     if ( ! $card_id ) wp_send_json_error( 'Dados inválidos' );
+    tao_crm_card_lock_guard( $card_id );
     $r = tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [ 'responsavel_id' => $resp_id ?: null ] );
     if ( ! $r['ok'] ) wp_send_json_error( $r['error'] );
     wp_send_json_success();
@@ -1969,6 +1990,7 @@ function tao_crm_ajax_fechar_card() {
     $card_id = sanitize_text_field( $_POST['card_id']   ?? '' );
     $tipo    = sanitize_key( $_POST['tipo']              ?? '' );
     $motivo  = sanitize_textarea_field( $_POST['motivo'] ?? '' );
+    tao_crm_card_lock_guard( $card_id );
     // O PHP converte "valores[uuid]=x" em $_POST['valores'][uuid] — ler o ARRAY.
     // (o formato antigo com chave literal nunca chega; era por isso que os campos
     //  preenchidos no modal de fechamento NÃO eram persistidos)
@@ -2824,6 +2846,7 @@ function tao_crm_ajax_save_nota() {
     $card_id  = sanitize_text_field( $_POST['card_id'] ?? '' );
     $conteudo = sanitize_textarea_field( $_POST['conteudo'] ?? '' );
     if ( ! $card_id || ! $conteudo ) wp_send_json_error( 'Dados inválidos' );
+    tao_crm_card_lock_guard( $card_id );
 
     $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=workspace_id&limit=1" );
     if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( 'Card não encontrado' );
@@ -2853,6 +2876,7 @@ function tao_crm_ajax_update_card_info() {
 
     $card_id = sanitize_text_field( $_POST['card_id'] ?? '' );
     if ( ! $card_id ) wp_send_json_error( 'card_id obrigatório' );
+    tao_crm_card_lock_guard( $card_id );
 
     $patch = [];
     if ( isset( $_POST['titulo'] ) )            $patch['titulo']            = sanitize_text_field( $_POST['titulo'] );
@@ -3299,6 +3323,7 @@ function tao_crm_ajax_devolver_chatbot() {
     if ( ! function_exists( 'cbpm_can_access' ) || ! cbpm_can_access() ) wp_send_json_error( 'Acesso negado' );
     $card_id = sanitize_text_field( $_POST['card_id'] ?? '' );
     if ( ! $card_id ) wp_send_json_error( 'Card inválido' );
+    tao_crm_card_lock_guard( $card_id );
     $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=contato_whatsapp,workspace_id&limit=1" );
     if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( 'Card não encontrado' );
     $card = $rc['data'][0];

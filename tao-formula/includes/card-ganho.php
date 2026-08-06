@@ -225,6 +225,12 @@ add_action( 'wp_ajax_tao_formula_orc_aprovar', function () {
 	if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
 	$cid = tao_formula_cliente_id(); $orc = sanitize_text_field( $_POST['orc_id'] ?? '' );
 	if ( ! $cid || ! $orc ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+	// LOCK de card: se OUTRO atendente está com o card aberto, bloqueia a aprovação
+	if ( function_exists( 'tao_crm_card_lock_guard' ) ) {
+		$_rcg = tao_formula_api( "/orcamentos?id=eq.$orc&cliente_id=eq.$cid&select=card_id&limit=1" );
+		$_cg  = ( $_rcg['ok'] && ! empty( $_rcg['data'] ) ) ? ( $_rcg['data'][0]['card_id'] ?? '' ) : '';
+		if ( $_cg ) tao_crm_card_lock_guard( $_cg );
+	}
 	// Validações de dispensação de controlado (RDC 344/98) — INFORMATIVO por padrão;
 	// bloqueia só se a option 'tao_formula_valida_ctl_bloqueia' estiver ligada.
 	$avisos_ctl = function_exists( 'tao_formula_validar_controlado' ) ? tao_formula_validar_controlado( $cid, $orc ) : [];
