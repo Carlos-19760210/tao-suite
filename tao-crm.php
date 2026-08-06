@@ -1429,6 +1429,21 @@ function tao_crm_ajax_send_message() {
     $evo_cfg    = tao_crm_get_evo_creds( $card );
     if ( ! $evo_cfg ) wp_send_json_error( 'Sem Evolution configurado para este card' );
 
+    // ── LOCK: um atendente por card ───────────────────────────────────────
+    // Impede dois atendentes de enviarem no MESMO card ao mesmo tempo.
+    // Se as colunas de lock ainda não existem (migration pendente), degrada (não trava).
+    $me = get_current_user_id();
+    $rl = tao_crm_api( "/crm_cards?id=eq.$card_id&select=lock_user_id,lock_user_nome,lock_em" );
+    if ( $rl['ok'] && ! empty( $rl['data'] ) ) {
+        $lk  = $rl['data'][0];
+        $uid = intval( $lk['lock_user_id'] ?? 0 );
+        $ts  = ! empty( $lk['lock_em'] ) ? strtotime( $lk['lock_em'] ) : 0;
+        if ( $uid && $uid !== $me && ( time() - $ts ) < 90 ) {
+            wp_send_json_error( '🔒 Card em atendimento por ' . ( $lk['lock_user_nome'] ?: 'outro atendente' ) . '. Só uma pessoa por vez neste card.' );
+        }
+        tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [ 'lock_user_id' => $me, 'lock_user_nome' => wp_get_current_user()->display_name, 'lock_em' => gmdate( 'c' ) ] );
+    }
+
     // Marca no cache: quando o dispatch receber o SEND_MESSAGE de volta, não duplica
     set_transient( 'tao_crm_fwd_' . md5( $card['contato_whatsapp'] . $mensagem ), 1, 60 );
 
@@ -1471,6 +1486,37 @@ function tao_crm_ajax_send_message() {
     }
 
     wp_send_json_success( [ 'msg' => $rm['ok'] ? $rm['data'][0] : null, 'responsavel_changed' => $responsavel_changed ] );
+}
+
+// ── LOCK de card: adquirir / heartbeat / liberar (atendimento exclusivo) ─────
+add_action( 'wp_ajax_tao_crm_card_lock', 'tao_crm_ajax_card_lock' );
+function tao_crm_ajax_card_lock() {
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+    if ( ! function_exists( 'cbpm_can_access' ) || ! cbpm_can_access() ) wp_send_json_error( 'Acesso negado' );
+    $card_id = sanitize_text_field( $_POST['card_id'] ?? '' );
+    $acao    = sanitize_text_field( $_POST['acao'] ?? 'adquirir' ); // adquirir | liberar
+    if ( ! $card_id ) wp_send_json_error( 'Card inválido' );
+    $user = wp_get_current_user();
+    $me   = $user->ID;
+    $TTL  = 90; // segundos sem heartbeat → lock liberado (aba foi fechada)
+
+    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=lock_user_id,lock_user_nome,lock_em" );
+    if ( ! $rc['ok'] ) wp_send_json_success( [ 'ok' => true, 'por_mim' => true, 'sem_lock' => true ] ); // migration pendente → degrada
+    $c   = ! empty( $rc['data'] ) ? $rc['data'][0] : [];
+    $uid = intval( $c['lock_user_id'] ?? 0 );
+    $ts  = ! empty( $c['lock_em'] ) ? strtotime( $c['lock_em'] ) : 0;
+    $ativo = $uid && ( time() - $ts < $TTL );
+
+    if ( $acao === 'liberar' ) {
+        if ( $uid === $me ) tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [ 'lock_user_id' => null, 'lock_user_nome' => null, 'lock_em' => null ] );
+        wp_send_json_success( [ 'liberado' => true ] );
+    }
+    // adquirir / heartbeat
+    if ( $ativo && $uid !== $me ) {
+        wp_send_json_success( [ 'ok' => false, 'por_mim' => false, 'nome' => $c['lock_user_nome'] ?: 'outro atendente', 'ha_seg' => time() - $ts ] );
+    }
+    tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [ 'lock_user_id' => $me, 'lock_user_nome' => $user->display_name, 'lock_em' => gmdate( 'c' ) ] );
+    wp_send_json_success( [ 'ok' => true, 'por_mim' => true ] );
 }
 
 add_action( 'wp_ajax_tao_crm_send_attachment', 'tao_crm_ajax_send_attachment' );

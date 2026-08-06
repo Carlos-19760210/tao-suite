@@ -885,6 +885,7 @@ function tao_crm_page_card() {
                     <?php endforeach; ?>
                 </div>
 
+                <div id="tao-crm-lock-banner" style="display:none;background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;padding:9px 12px;margin:0 0 8px;font-size:13px;color:#92400e;font-weight:600"></div>
                 <div class="chat-input-area">
                     <?php if ( empty( $card['fechado'] ) ) : ?>
                     <div class="chat-template-bar">
@@ -1350,6 +1351,41 @@ function tao_crm_page_card() {
 
     <script>
     var taoCrmCardId       = <?php echo wp_json_encode( $card_id ); ?>;
+
+    // ── LOCK de card: só uma pessoa por card (evita 2 atendentes ao mesmo tempo) ──
+    jQuery(function($){
+        var _lkCard  = taoCrmCardId;
+        var _lkUrl   = (window.taoCrm && taoCrm.ajaxUrl) || window.ajaxurl || '';
+        var _lkNonce = (window.taoCrm && taoCrm.nonce) || '';
+        if (!_lkCard || !_lkUrl || !_lkNonce) return;
+        var _lkTemLock = true;
+        var _lkSel = '#tao-crm-msg-input,#tao-crm-send-btn,#tao-crm-nota-toggle';
+        function _lkBloqueia(nome){
+            _lkTemLock = false;
+            $('#tao-crm-lock-banner').text('🔒 ' + nome + ' está com este card aberto. Modo leitura — só uma pessoa por vez.').show();
+            $(_lkSel).prop('disabled', true).css('opacity', .5);
+            $('#tao-crm-attach-wrap').css({ 'pointer-events':'none', 'opacity':.5 });
+        }
+        function _lkLibera(){
+            if (_lkTemLock) return;
+            _lkTemLock = true; $('#tao-crm-lock-banner').hide();
+            $(_lkSel).prop('disabled', false).css('opacity', 1);
+            $('#tao-crm-attach-wrap').css({ 'pointer-events':'', 'opacity':1 });
+        }
+        function _lkBate(){
+            $.post(_lkUrl, { action:'tao_crm_card_lock', nonce:_lkNonce, card_id:_lkCard, acao:'adquirir' }, function(r){
+                if (r && r.success) { (r.data && r.data.ok === false) ? _lkBloqueia(r.data.nome || 'Outro atendente') : _lkLibera(); }
+            });
+        }
+        _lkBate();
+        setInterval(_lkBate, 30000);
+        window.addEventListener('beforeunload', function(){
+            var params = 'action=tao_crm_card_lock&nonce=' + encodeURIComponent(_lkNonce) + '&card_id=' + encodeURIComponent(_lkCard) + '&acao=liberar';
+            if (navigator.sendBeacon) { navigator.sendBeacon(_lkUrl, new Blob([params], {type:'application/x-www-form-urlencoded'})); }
+            else { $.post(_lkUrl, { action:'tao_crm_card_lock', nonce:_lkNonce, card_id:_lkCard, acao:'liberar' }); }
+        });
+    });
+
     window._crmItensTotal    = 0;
     window._crmFormulasTotal = 0;
     window._crmDesconto      = <?php echo floatval( $card['desconto'] ?? 0 ); ?>;
