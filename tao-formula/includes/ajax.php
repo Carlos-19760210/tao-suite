@@ -1592,10 +1592,10 @@ add_action( 'wp_ajax_tao_formula_reprocessar_orc', function () {
             $subtotal  = 0.0;
             if ( ! $is_qsp && $dose > 0 && $preco > 0 ) {
                 if ( $dose_unit === '%' ) {
-                    // Percentual do peso total da fórmula (replica o editor JS e o criar_orc_ia).
-                    // Sem este ramo, '%' caía no default e era tratado como mg → pesagem 10× menor em cremes.
-                    $totalG    = ( $forma_unidade === 'ml' && $densidade > 0 ) ? $mult * $densidade : $mult;
-                    $qtd_tot_g = ( $dose / 100 ) * $totalG * ( $motor_on ? $equiv : 1 ) * $diluicao / max( 0.001, $teor / 100 ) * $fp;
+                    // Percentual é DIRETO sobre o volume total (volume × potes), SEM densidade —
+                    // é o modelo do FCerta (ex.: 5% de 15g = 0,75g; 10% de 100ml = 10g).
+                    // Sem este ramo, '%' caía no default e era tratado como mg → pesagem 10× menor.
+                    $qtd_tot_g = ( $dose / 100 ) * $mult * ( $motor_on ? $equiv : 1 ) * $diluicao / max( 0.001, $teor / 100 ) * $fp;
                 } else {
                     switch ( $dose_unit ) {
                         case 'g':   $dose_mg = $dose * 1000; break;
