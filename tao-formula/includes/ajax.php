@@ -1479,7 +1479,7 @@ add_action( 'wp_ajax_tao_formula_reprocessar_orc', function () {
     if ( ! $cliente_id || ( ! $card_id && ! $orc_id ) ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
 
     $filtro = $orc_id ? ( 'id=eq.' . $orc_id ) : ( 'card_id=eq.' . $card_id );
-    $ro = tao_formula_api( "/orcamentos?$filtro&cliente_id=eq.$cliente_id&select=id,forma_vol,qtde_potes,itens,status" );
+    $ro = tao_formula_api( "/orcamentos?$filtro&cliente_id=eq.$cliente_id&select=id,forma_vol,forma_unidade,qtde_potes,itens,status" );
     if ( ! $ro['ok'] ) {
         wp_send_json_error( [ 'message' => 'Erro ao buscar orçamentos: ' . ( $ro['raw'] ?? '' ) ] );
         return;
@@ -1489,7 +1489,7 @@ add_action( 'wp_ajax_tao_formula_reprocessar_orc', function () {
         return;
     }
 
-    $sel_at    = 'id,codigo_fc,nome,unidade_padrao,preco_venda,custo_por_unidade,markup_preco,fator_perda,diluicao,teor';
+    $sel_at    = 'id,codigo_fc,nome,unidade_padrao,preco_venda,custo_por_unidade,markup_preco,fator_perda,diluicao,teor,densidade';
     $motor_on  = get_option( 'tao_formula_motor_v2' ) === '1';
     $total_upd = 0;
     $pulados_aprovados = 0;   // aprovados com item pendente que NÃO puderam ser tocados (imutáveis)
@@ -1507,9 +1507,10 @@ add_action( 'wp_ajax_tao_formula_reprocessar_orc', function () {
         if ( is_string( $itens ) ) $itens = json_decode( $itens, true ) ?: [];
         if ( ! is_array( $itens ) ) continue;
 
-        $forma_vol  = max( 1.0, (float) ( $orc['forma_vol']  ?? 30 ) );
-        $qtde_potes = max( 1,   (int)   ( $orc['qtde_potes'] ?? 1  ) );
-        $mult       = $forma_vol * $qtde_potes;
+        $forma_vol     = max( 1.0, (float) ( $orc['forma_vol']  ?? 30 ) );
+        $qtde_potes    = max( 1,   (int)   ( $orc['qtde_potes'] ?? 1  ) );
+        $mult          = $forma_vol * $qtde_potes;
+        $forma_unidade = strtolower( (string) ( $orc['forma_unidade'] ?? 'g' ) );
 
         $modified = false;
         foreach ( $itens as &$item ) {
@@ -1585,19 +1586,26 @@ add_action( 'wp_ajax_tao_formula_reprocessar_orc', function () {
             $fp        = (float) ( $at['fator_perda']      ?? 1 );
             $diluicao  = (float) ( $at['diluicao']         ?? 1 );
             $teor      = (float) ( $at['teor']             ?? 100 );
+            $densidade = (float) ( $at['densidade']        ?? 1 ) ?: 1.0;
 
             $qtd_tot_g = 0.0;
             $subtotal  = 0.0;
             if ( ! $is_qsp && $dose > 0 && $preco > 0 ) {
-                switch ( $dose_unit ) {
-                    case 'g':   $dose_mg = $dose * 1000; break;
-                    case 'mcg': $dose_mg = $dose / 1000; break;
-                    default:    $dose_mg = $dose; break;
+                if ( $dose_unit === '%' ) {
+                    // Percentual do peso total da fórmula (replica o editor JS e o criar_orc_ia).
+                    // Sem este ramo, '%' caía no default e era tratado como mg → pesagem 10× menor em cremes.
+                    $totalG    = ( $forma_unidade === 'ml' && $densidade > 0 ) ? $mult * $densidade : $mult;
+                    $qtd_tot_g = ( $dose / 100 ) * $totalG * ( $motor_on ? $equiv : 1 ) * $diluicao / max( 0.001, $teor / 100 ) * $fp;
+                } else {
+                    switch ( $dose_unit ) {
+                        case 'g':   $dose_mg = $dose * 1000; break;
+                        case 'mcg': $dose_mg = $dose / 1000; break;
+                        default:    $dose_mg = $dose; break;
+                    }
+                    $dose_mg_real = $dose_mg * ( $motor_on ? $equiv : 1 ) * $diluicao / max( 0.001, $teor / 100 );
+                    $qtd_tot_g    = ( $dose_mg_real * $fp * $mult ) / 1000;
                 }
-                $dose_mg_real  = $dose_mg * ( $motor_on ? $equiv : 1 ) * $diluicao / max( 0.001, $teor / 100 );
-                $qtd_total_mg  = $dose_mg_real * $fp * $mult;
-                $qtd_tot_g     = $qtd_total_mg / 1000;
-                $qtd_em_padrao = strtolower( $unid_p ) === 'g' ? $qtd_tot_g : $qtd_total_mg;
+                $qtd_em_padrao = strtolower( $unid_p ) === 'g' ? $qtd_tot_g : $qtd_tot_g * 1000;
                 $subtotal      = round( $qtd_em_padrao * $preco, 4 );
             }
 
