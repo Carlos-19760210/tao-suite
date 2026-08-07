@@ -1,0 +1,26 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "WABA_SIM",
+      "changes": [
+        {
+          "field": "messages",
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": { "display_phone_number": "5511999990000", "phone_number_id": "123456" },
+            "statuses": [
+              {
+                "id": "wamid.SIMOUT0001",
+                "status": "failed",
+                "timestamp": "1754570500",
+                "recipient_id": "5511939342091",
+                "errors": [ { "code": 131047, "title": "Message failed to send because more than 24 hours have passed since the customer last replied." } ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "WABA_SIM",
+      "changes": [
+        {
+          "field": "messages",
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": { "display_phone_number": "5511999990000", "phone_number_id": "123456" },
+            "contacts": [ { "profile": { "name": "Cliente Simulado" }, "wa_id": "5511939342091" } ],
+            "messages": [
+              {
+                "from": "5511939342091",
+                "id": "wamid.SIMINT0001",
+                "timestamp": "1754570200",
+                "type": "interactive",
+                "interactive": {
+                  "type": "button_reply",
+                  "button_reply": { "id": "quero_finalizar", "title": "Quero finalizar" }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

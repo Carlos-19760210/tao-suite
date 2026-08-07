@@ -1429,8 +1429,14 @@ function tao_crm_ajax_send_message() {
     $card       = $rc['data'][0];
     $ws_id      = $card['workspace_id'];
     $resp_atual = intval( $card['responsavel_id'] ?? 0 );
-    $evo_cfg    = tao_crm_get_evo_creds( $card );
-    if ( ! $evo_cfg ) wp_send_json_error( 'Sem Evolution configurado para este card' );
+
+    // provider do card (tolerante: se a coluna 'provider' ainda não existe → degrada p/ evolution)
+    $prov = 'evolution';
+    $rp = tao_crm_api( "/crm_cards?id=eq.$card_id&select=provider" );
+    if ( ! empty( $rp['ok'] ) && ! empty( $rp['data'] ) && ! empty( $rp['data'][0]['provider'] ) ) $prov = $rp['data'][0]['provider'];
+
+    $evo_cfg = tao_crm_get_evo_creds( $card );
+    if ( $prov !== 'meta_cloud' && ! $evo_cfg ) wp_send_json_error( 'Sem Evolution configurado para este card' );
 
     // ── LOCK: um atendente por card ───────────────────────────────────────
     // Impede dois atendentes de enviarem no MESMO card ao mesmo tempo.
@@ -1447,14 +1453,28 @@ function tao_crm_ajax_send_message() {
         tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [ 'lock_user_id' => $me, 'lock_user_nome' => wp_get_current_user()->display_name, 'lock_em' => gmdate( 'c' ) ] );
     }
 
-    // Marca no cache: quando o dispatch receber o SEND_MESSAGE de volta, não duplica
-    set_transient( 'tao_crm_fwd_' . md5( $card['contato_whatsapp'] . $mensagem ), 1, 60 );
-
-    // Fire-and-forget: não bloqueia aguardando resposta da Evolution
-    tao_crm_evolution_send( $evo_cfg, $card['contato_whatsapp'], $mensagem, false );
+    // Envio pelo provider do card: Evolution como hoje; Meta via adapter (valida janela 24h).
+    $external_id = null;
+    if ( $prov === 'meta_cloud' && function_exists( 'tao_messaging_for_card' ) ) {
+        $rcard    = tao_crm_api( "/crm_cards?id=eq.$card_id&select=*&limit=1" );
+        $conversa = ( ! empty( $rcard['ok'] ) && ! empty( $rcard['data'] ) ) ? $rcard['data'][0] : $card;
+        $adapter  = tao_messaging_for_card( $conversa );
+        $res      = $adapter ? $adapter->sendText( $conversa, $mensagem ) : [ 'ok' => false, 'error' => 'provider indisponível' ];
+        if ( empty( $res['ok'] ) ) {
+            wp_send_json_error( ( $res['codigo'] ?? '' ) === 'janela_expirada'
+                ? '🕒 Janela de 24h expirada — envie um template aprovado para reabrir a conversa.'
+                : ( 'Falha no envio (Meta): ' . ( $res['error'] ?? 'erro' ) ) );
+        }
+        $external_id = $res['external_id'] ?? null;
+    } else {
+        // Marca no cache: quando o dispatch receber o SEND_MESSAGE de volta, não duplica
+        set_transient( 'tao_crm_fwd_' . md5( $card['contato_whatsapp'] . $mensagem ), 1, 60 );
+        // Fire-and-forget: não bloqueia aguardando resposta da Evolution
+        tao_crm_evolution_send( $evo_cfg, $card['contato_whatsapp'], $mensagem, false );
+    }
 
     $user = wp_get_current_user();
-    $rm   = tao_crm_api( '/crm_mensagens', 'POST', [
+    $msg_row = [
         'card_id'        => $card_id,
         'workspace_id'   => $ws_id,
         'direcao'        => 'out',
@@ -1462,7 +1482,10 @@ function tao_crm_ajax_send_message() {
         'conteudo'       => $mensagem,
         'remetente_nome' => $user->display_name,
         'enviado_em'     => gmdate( 'c' ),
-    ], [ 'Prefer' => 'return=representation' ] );
+    ];
+    // campos novos SÓ quando Meta (evita 400 se a migration ainda não rodou → Evolution intacto)
+    if ( $prov === 'meta_cloud' ) { $msg_row['provider'] = 'meta_cloud'; $msg_row['status_entrega'] = 'sent'; if ( $external_id ) $msg_row['wamid'] = $external_id; }
+    $rm = tao_crm_api( '/crm_mensagens', 'POST', $msg_row, [ 'Prefer' => 'return=representation' ] );
 
     // Quem responde assume a responsabilidade do card automaticamente
     $responsavel_changed = null;
