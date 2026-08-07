@@ -107,6 +107,16 @@ add_action( 'wp_ajax_tao_cot_search_ativos', function() {
     wp_send_json_success( $r['ok'] ? $r['data'] : [] );
 } );
 
+// Busca de fornecedores (para registrar retorno escolhendo qualquer fornecedor)
+add_action( 'wp_ajax_tao_cot_search_fornecedores', function() {
+    $cid = tao_cot_ajax_guard();
+    $q   = trim( sanitize_text_field( $_POST['q'] ?? '' ) );
+    if ( strlen( $q ) < 2 ) wp_send_json_success( [] );
+    $q_enc = rawurlencode( '*' . $q . '*' );
+    $r = tao_cot_api( "/fornecedores?cliente_id=eq.$cid&ativo=eq.true&nome=ilike.$q_enc&select=id,nome,contato,whatsapp&order=nome.asc&limit=12" );
+    wp_send_json_success( $r['ok'] ? $r['data'] : [] );
+} );
+
 // ── Parse da planilha de estoque mínimo (via N8N no Cloudfy) ─────────────────
 
 add_action( 'wp_ajax_tao_cot_parse_planilha', function() {

@@ -117,8 +117,11 @@ function tao_cotacoes_render_view( $cot_id ) {
             <?php if ( ! empty( $cot['enviado_em'] ) ) : ?>&nbsp;·&nbsp; Enviada: <?php echo esc_html( tao_cot_dt( $cot['enviado_em'] ) ); ?><?php endif; ?>
             </span>
             <div class="taocot-actions">
+                <?php if ( $aberta ) : ?>
+                <button class="taocot-btn taocot-btn-primary" id="taocot-btn-retorno">&#x1F4E5; Registrar retorno de fornecedor</button>
+                <?php endif; ?>
                 <?php if ( $aberta && $pend_env > 0 ) : ?>
-                <button class="taocot-btn taocot-btn-primary" id="taocot-btn-enviar">&#x1F4E4; Enviar aos fornecedores (<?php echo $pend_env; ?>)</button>
+                <button class="taocot-btn" id="taocot-btn-enviar">&#x1F4E4; Enviar aos fornecedores (<?php echo $pend_env; ?>)</button>
                 <?php endif; ?>
                 <?php if ( $aberta ) : ?>
                 <button class="taocot-btn" id="taocot-btn-concluir">✔ Marcar concluída</button>
@@ -239,7 +242,7 @@ function tao_cotacoes_render_view( $cot_id ) {
                 <?php if ( $tem_precos ) : ?><a class="taocot-btn" href="<?php echo esc_url( $export_url ); ?>">&#x2B07;&#xFE0F; Exportar XLSX</a><?php endif; ?>
             </div>
             <?php if ( ! $tem_precos ) : ?>
-                <p class="taocot-muted">Nenhuma proposta processada ainda. Clique em <strong>"📎 Proposta"</strong> em qualquer fornecedor acima para subir o PDF/foto da cotação — a IA extrai os preços e monta o comparativo. Também dá para digitar manualmente, ou processar um anexo recebido no chat.</p>
+                <p class="taocot-muted">Nenhuma proposta processada ainda. Clique em <strong>"📥 Registrar retorno de fornecedor"</strong> (no topo) — escolha o fornecedor e suba o PDF/foto (a IA extrai os preços) ou digite manualmente. Vale mesmo sem ter enviado pelo módulo. Também dá para processar um anexo recebido no chat.</p>
             <?php else : ?>
             <p class="taocot-muted">Preços normalizados (R$/g, R$/ml ou R$/milheiro). <span style="background:#dcfce7;padding:1px 6px;border-radius:4px">verde</span> = melhor preço do item; <span style="color:#b91c1c">vermelho</span> = melhor preço acima do último pago.</p>
             <div class="taocot-tscroll">
@@ -307,6 +310,50 @@ function tao_cotacoes_render_view( $cot_id ) {
                 <button class="taocot-btn taocot-btn-primary" id="taocot-manual-salvar">Salvar proposta</button>
                 <button class="taocot-btn" data-cot-cancel>Cancelar</button>
                 <span class="taocot-status-msg" id="taocot-manual-msg" style="margin:0"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: registrar retorno de fornecedor (escolher fornecedor -> processar) -->
+    <div id="taocot-retorno-modal" class="taocot-modal">
+        <div class="taocot-overlay"></div>
+        <div class="taocot-box" style="max-width:520px">
+            <h2>&#x1F4E5; Registrar retorno de fornecedor</h2>
+            <p class="taocot-muted">Escolha o fornecedor que respondeu e informe a proposta. Não precisa ter enviado pelo módulo — vale para negociações feitas por fora.</p>
+
+            <div id="taocot-ret-step1">
+                <?php if ( ! empty( $parts ) ) : ?>
+                <div style="margin-bottom:10px">
+                    <div class="taocot-muted" style="font-size:12px;margin-bottom:4px">Fornecedores desta cotação</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:6px">
+                        <?php foreach ( $parts as $p ) : $f = $p['fornecedores'] ?? []; ?>
+                        <button type="button" class="taocot-btn taocot-ret-forn"
+                            data-fid="<?php echo esc_attr( $p['fornecedor_id'] ); ?>"
+                            data-nome="<?php echo esc_attr( $f['nome'] ?? '' ); ?>"><?php echo esc_html( $f['nome'] ?? '' ); ?></button>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+                <?php endif; ?>
+                <div class="taocot-muted" style="font-size:12px;margin-bottom:4px">Ou busque qualquer fornecedor cadastrado</div>
+                <div class="taocot-combo">
+                    <input type="text" id="taocot-ret-busca" placeholder="Digite o nome do fornecedor...">
+                    <div class="taocot-combo-list"></div>
+                </div>
+            </div>
+
+            <div id="taocot-ret-step2" style="display:none">
+                <p style="margin:4px 0 12px">Fornecedor: <strong id="taocot-ret-nome"></strong></p>
+                <div style="display:flex;gap:10px;flex-wrap:wrap">
+                    <button type="button" class="taocot-btn taocot-btn-primary" id="taocot-ret-upload">&#x1F4CE; Subir arquivo (PDF/foto) — a IA lê</button>
+                    <button type="button" class="taocot-btn" id="taocot-ret-manual">&#x2328;&#xFE0F; Digitar manual</button>
+                </div>
+                <div class="taocot-actions" style="margin-top:14px">
+                    <button type="button" class="taocot-btn" id="taocot-ret-voltar">&larr; Trocar fornecedor</button>
+                </div>
+            </div>
+
+            <div class="taocot-actions" style="margin-top:14px">
+                <button class="taocot-btn" data-cot-cancel>Fechar</button>
             </div>
         </div>
     </div>
@@ -415,13 +462,16 @@ function tao_cotacoes_render_view( $cot_id ) {
                 tb.appendChild(tr);
             });
         }
+        function abrirManual(fid, nome){
+            manualFid = fid; manualItens = [];
+            document.getElementById('taocot-manual-forn').textContent = nome||'';
+            manualRender();
+            document.getElementById('taocot-manual-modal').style.display = 'block';
+        }
         document.addEventListener('click', function(e){
             var t = e.target.closest('.taocot-prop-manual');
             if(!t) return;
-            manualFid = t.getAttribute('data-fid'); manualItens = [];
-            document.getElementById('taocot-manual-forn').textContent = t.getAttribute('data-nome')||'';
-            manualRender();
-            document.getElementById('taocot-manual-modal').style.display = 'block';
+            abrirManual(t.getAttribute('data-fid'), t.getAttribute('data-nome'));
         });
         C.combo({ input: document.getElementById('taocot-manual-add'), permitirLivre: true, onPick: function(rr){
             manualItens.push({ item: rr.nome, ativo_id: rr.ativo_id, preco:'', preco_unidade:'kg', frac_min:'', validade:'' });
@@ -436,6 +486,65 @@ function tao_cotacoes_render_view( $cot_id ) {
                 if(r.success){ location.reload(); } else { st.textContent=''; alert('Erro: '+(r.data||'falha')); }
             });
         });
+
+        // ── Registrar retorno: escolher fornecedor -> subir arquivo / digitar ────
+        var retModal = document.getElementById('taocot-retorno-modal');
+        function retStep(n){
+            document.getElementById('taocot-ret-step1').style.display = n===1?'block':'none';
+            document.getElementById('taocot-ret-step2').style.display = n===2?'block':'none';
+        }
+        function retEscolher(fid, nome){
+            document.getElementById('taocot-ret-nome').textContent = nome||'';
+            retModal.dataset.fid = fid; retModal.dataset.nome = nome||'';
+            retStep(2);
+        }
+        if(b = document.getElementById('taocot-btn-retorno')) b.addEventListener('click', function(){
+            retStep(1); document.getElementById('taocot-ret-busca').value = '';
+            retModal.style.display = 'block';
+        });
+        document.addEventListener('click', function(e){
+            var t = e.target.closest('.taocot-ret-forn');
+            if(t) retEscolher(t.getAttribute('data-fid'), t.getAttribute('data-nome'));
+        });
+        if(b = document.getElementById('taocot-ret-voltar')) b.addEventListener('click', function(){ retStep(1); });
+        if(b = document.getElementById('taocot-ret-upload')) b.addEventListener('click', function(){
+            propFid = retModal.dataset.fid;
+            retModal.style.display = 'none';
+            fileInp.click();
+        });
+        if(b = document.getElementById('taocot-ret-manual')) b.addEventListener('click', function(){
+            retModal.style.display = 'none';
+            abrirManual(retModal.dataset.fid, retModal.dataset.nome);
+        });
+
+        // combo dedicado de fornecedor (busca em todos os cadastrados)
+        (function(){
+            var inp = document.getElementById('taocot-ret-busca');
+            if(!inp) return;
+            var box = inp.closest('.taocot-combo'), list = box.querySelector('.taocot-combo-list'), timer=null;
+            inp.addEventListener('input', function(){
+                clearTimeout(timer);
+                var q = inp.value.trim();
+                if(q.length < 2){ list.style.display='none'; list.innerHTML=''; return; }
+                timer = setTimeout(function(){
+                    C.post('tao_cot_search_fornecedores', { q:q }).then(function(r){
+                        var fs = r.success ? (r.data||[]) : [];
+                        list.innerHTML = '';
+                        fs.forEach(function(f){
+                            var d = document.createElement('div');
+                            d.className = 'taocot-opt';
+                            d.innerHTML = '<strong></strong><span class="cod"></span>';
+                            d.querySelector('strong').textContent = f.nome;
+                            d.querySelector('.cod').textContent = f.contato ? (' · '+f.contato) : '';
+                            d.addEventListener('mousedown', function(ev){ ev.preventDefault(); list.style.display='none'; retEscolher(f.id, f.nome); });
+                            list.appendChild(d);
+                        });
+                        list.style.display = fs.length ? 'block' : 'none';
+                    });
+                }, 280);
+            });
+            inp.addEventListener('blur', function(){ setTimeout(function(){ list.style.display='none'; }, 180); });
+        })();
     })();
     </script>
     <?php

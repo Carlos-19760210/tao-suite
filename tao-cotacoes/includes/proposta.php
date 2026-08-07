@@ -193,6 +193,20 @@ function tao_cot_match_ativo( $cid, $item_original ) {
 
 // ── Pipeline: processa itens extraídos/digitados de uma proposta ─────────────
 
+/**
+ * Garante que o fornecedor exista como participante da cotação.
+ * Permite registrar o retorno de um fornecedor mesmo que ele não tenha sido
+ * convidado no envio (ou que a cotação não tenha sido enviada pelo módulo).
+ */
+function tao_cot_ensure_participante( $cot_id, $fornecedor_id ) {
+    $r = tao_cot_api( "/cotacao_fornecedores?cotacao_id=eq.$cot_id&fornecedor_id=eq.$fornecedor_id&select=id&limit=1" );
+    if ( $r['ok'] && ! empty( $r['data'] ) ) return $r['data'][0]['id'];
+    $ins = tao_cot_api( '/cotacao_fornecedores', 'POST', [
+        'cotacao_id' => $cot_id, 'fornecedor_id' => $fornecedor_id, 'status' => 'pendente',
+    ] );
+    return ( $ins['ok'] && ! empty( $ins['data'] ) ) ? $ins['data'][0]['id'] : null;
+}
+
 function tao_cot_gravar_precos( $cid, $cotacao, $fornecedor_id, $proposta_id, $itens_raw ) {
     // mapa ativo_id -> cotacao_item_id (pra vincular ao item pedido)
     $rit = tao_cot_api( "/cotacao_itens?cotacao_id=eq.{$cotacao['id']}&select=id,ativo_id&limit=500" );
@@ -292,6 +306,7 @@ add_action( 'wp_ajax_tao_cot_proposta_processar', function() {
     $rc = tao_cot_api( "/cotacoes?id=eq.$cot_id&cliente_id=eq.$cid" );
     if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( 'Cotação não encontrada' );
     $cotacao = $rc['data'][0];
+    tao_cot_ensure_participante( $cot_id, $fid );
 
     // origem do arquivo: upload direto OU midia_url (anexo do chat)
     $bin = null; $mime = ''; $origem = 'pdf';
@@ -346,6 +361,7 @@ add_action( 'wp_ajax_tao_cot_proposta_manual', function() {
     $rc = tao_cot_api( "/cotacoes?id=eq.$cot_id&cliente_id=eq.$cid" );
     if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( 'Cotação não encontrada' );
     $cotacao = $rc['data'][0];
+    tao_cot_ensure_participante( $cot_id, $fid );
 
     $rp = tao_cot_api( '/cotacao_propostas', 'POST', [
         'cotacao_id' => $cot_id, 'fornecedor_id' => $fid, 'origem' => 'manual',
