@@ -8,10 +8,17 @@ function tao_cotacoes_page_nova() {
     $cid = tao_cot_cliente_id();
     $fornecedores = [];
     $instancias   = [];
+    $freq         = [];
     if ( $cid ) {
         $rf = tao_cot_api( "/fornecedores?cliente_id=eq.$cid&ativo=eq.true&order=nome.asc&limit=200" );
         $fornecedores = $rf['ok'] ? $rf['data'] : [];
         $instancias   = tao_cot_instancias( $cid );
+        // frequência de uso (nº de cotações em que o fornecedor participou) — p/ sugerir os frequentes
+        $rfq = tao_cot_api( "/cotacao_fornecedores?select=fornecedor_id&limit=5000" );
+        foreach ( ( $rfq['ok'] ? $rfq['data'] : [] ) as $x ) {
+            $fid = $x['fornecedor_id'] ?? '';
+            if ( $fid ) $freq[ $fid ] = ( $freq[ $fid ] ?? 0 ) + 1;
+        }
     }
     // Unidades de medida — fonte única do sistema (cadastro no Fórmula). Combo em vez de texto livre.
     $taocot_unidades = function_exists( 'tao_formula_unidades_opcoes' ) ? tao_formula_unidades_opcoes( $cid ) : [];
@@ -69,21 +76,32 @@ function tao_cotacoes_page_nova() {
             <?php if ( empty( $fornecedores ) ) : ?>
                 <p class="taocot-muted">Nenhum fornecedor ativo. <a href="<?php echo esc_url( tao_cot_url( 'cotacoes-fornecedores' ) ); ?>">Cadastre os fornecedores</a> antes de criar a cotação.</p>
             <?php else : ?>
-                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
-                    <input type="text" id="taocot-forn-busca" placeholder="filtrar fornecedor…" autocomplete="off"
-                           style="padding:5px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;width:200px">
-                    <button type="button" class="taocot-btn" id="taocot-forn-all" style="padding:4px 10px;font-size:12px">Marcar todos</button>
-                    <button type="button" class="taocot-btn" id="taocot-forn-none" style="padding:4px 10px;font-size:12px">Limpar</button>
-                    <span class="taocot-muted" id="taocot-forn-count">0 selecionado(s)</span>
+                <?php
+                $forn_js = array_map( function ( $f ) use ( $freq ) {
+                    return [ 'id' => $f['id'], 'nome' => $f['nome'], 'wa' => ! empty( $f['whatsapp'] ), 'freq' => (int) ( $freq[ $f['id'] ] ?? 0 ) ];
+                }, $fornecedores );
+                $frequentes = array_values( array_filter( $forn_js, function ( $f ) { return $f['freq'] > 0 && $f['wa']; } ) );
+                usort( $frequentes, function ( $a, $b ) { return $b['freq'] - $a['freq']; } );
+                $frequentes = array_slice( $frequentes, 0, 6 );
+                ?>
+                <div style="position:relative;max-width:460px">
+                    <input type="text" id="taocot-forn-busca" placeholder="&#x1F50E; buscar fornecedor pelo nome&hellip;" autocomplete="off"
+                           style="width:100%;padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:8px;font-size:14px">
+                    <div id="taocot-forn-dd" style="display:none;position:absolute;z-index:50;left:0;right:0;background:#fff;border:1px solid #cbd5e1;border-top:none;border-radius:0 0 8px 8px;max-height:260px;overflow:auto;box-shadow:0 8px 20px rgba(0,0,0,.12)"></div>
                 </div>
-                <div id="taocot-forn-chips" style="display:flex;flex-wrap:wrap;gap:6px">
-                <?php foreach ( $fornecedores as $f ) : ?>
-                    <span class="taocot-chip" data-nome="<?php echo esc_attr( strtolower( $f['nome'] ) ); ?>"<?php echo empty( $f['whatsapp'] ) ? ' data-semwa="1" title="fornecedor sem WhatsApp — não recebe o envio"' : ''; ?>>
-                        <input type="checkbox" class="taocot-forn-chk" value="<?php echo esc_attr( $f['id'] ); ?>" style="display:none">
-                        <?php echo esc_html( $f['nome'] ); ?><?php echo empty( $f['whatsapp'] ) ? ' ⚠' : ''; ?>
-                    </span>
-                <?php endforeach; ?>
+                <div id="taocot-forn-selected" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px"></div>
+                <div id="taocot-forn-count" class="taocot-muted" style="margin-top:6px;font-size:12px">Nenhum fornecedor selecionado</div>
+                <?php if ( $frequentes ) : ?>
+                <div style="margin-top:12px">
+                    <p class="taocot-muted" style="margin:0 0 5px;font-size:11px;text-transform:uppercase;letter-spacing:.05em">Seus fornecedores frequentes &mdash; toque para adicionar</p>
+                    <div id="taocot-forn-sugeridos" style="display:flex;flex-wrap:wrap;gap:6px">
+                    <?php foreach ( $frequentes as $fq ) : ?>
+                        <button type="button" class="taocot-sugg" data-id="<?php echo esc_attr( $fq['id'] ); ?>" style="border:1px dashed #cbd5e1;border-radius:20px;padding:4px 11px;font-size:12px;background:transparent;cursor:pointer;color:#475569">+ <?php echo esc_html( $fq['nome'] ); ?> <span style="color:#94a3b8">&middot; <?php echo (int) $fq['freq']; ?>&times;</span></button>
+                    <?php endforeach; ?>
+                    </div>
                 </div>
+                <?php endif; ?>
+                <script>window.TAOCOT_FORN = <?php echo wp_json_encode( $forn_js ); ?>;</script>
             <?php endif; ?>
         </div>
 
@@ -243,25 +261,55 @@ function tao_cotacoes_page_nova() {
         var _cotId = null;
         function irParaCotacao(id){ location.href = COT_URL + (COT_URL.indexOf('?')>=0?'&':'?') + 'cot=' + id; }
 
-        // Chips de fornecedores participantes (seleção discreta)
+        // Seletor de fornecedor: busca com autocomplete + selecionados (chips) + frequentes.
+        // Cada selecionado mantém um checkbox oculto marcado (.taocot-forn-chk) — compatível com o submit.
         (function(){
-            var box = document.getElementById('taocot-forn-chips');
-            if(!box) return;
-            var cnt = document.getElementById('taocot-forn-count');
-            var chips = Array.prototype.slice.call(box.querySelectorAll('.taocot-chip'));
-            function upd(){ cnt.textContent = box.querySelectorAll('.taocot-forn-chk:checked').length + ' selecionado(s)'; }
-            chips.forEach(function(ch){
-                var chk = ch.querySelector('input');
-                ch.addEventListener('click', function(){ chk.checked = !chk.checked; ch.classList.toggle('on', chk.checked); upd(); });
-            });
             var busca = document.getElementById('taocot-forn-busca');
-            if(busca) busca.addEventListener('input', function(){
-                var q = this.value.trim().toLowerCase();
-                chips.forEach(function(ch){ ch.style.display = (!q || ch.getAttribute('data-nome').indexOf(q) >= 0) ? '' : 'none'; });
+            if(!busca) return;
+            var dd  = document.getElementById('taocot-forn-dd');
+            var sel = document.getElementById('taocot-forn-selected');
+            var cnt = document.getElementById('taocot-forn-count');
+            var TODOS = window.TAOCOT_FORN || [];
+            var escolhidos = {};
+            function esc(t){ var d=document.createElement('div'); d.textContent=(t==null?'':t); return d.innerHTML; }
+            function upd(){ var n=Object.keys(escolhidos).length; cnt.textContent = n? (n+' fornecedor(es) selecionado(s)') : 'Nenhum fornecedor selecionado'; }
+            function addForn(f){
+                if(!f || escolhidos[f.id]) return;
+                escolhidos[f.id]=true;
+                var chip=document.createElement('span');
+                chip.style.cssText='background:#eef1fd;color:#3b5bdb;border:1px solid #dfe4ff;border-radius:20px;padding:4px 8px 4px 11px;font-size:12.5px;font-weight:600;display:inline-flex;align-items:center;gap:7px';
+                chip.innerHTML = esc(f.nome) + (f.wa?'':' <span title="sem WhatsApp — não recebe" style="color:#b45309">⚠</span>')
+                    + ' <input type="checkbox" class="taocot-forn-chk" value="'+esc(f.id)+'" checked style="display:none">'
+                    + '<span class="taocot-chip-x" style="cursor:pointer;color:#94a3b8;font-weight:700">✕</span>';
+                chip.querySelector('.taocot-chip-x').addEventListener('click', function(){
+                    delete escolhidos[f.id]; chip.remove(); upd();
+                    var sg=document.querySelector('.taocot-sugg[data-id="'+f.id+'"]'); if(sg) sg.style.display='';
+                });
+                sel.appendChild(chip); upd();
+            }
+            function render(q){
+                q=(q||'').trim().toLowerCase();
+                var lista = TODOS.filter(function(f){ return !escolhidos[f.id] && (!q || f.nome.toLowerCase().indexOf(q)>=0); }).slice(0,20);
+                if(!lista.length){ dd.style.display='none'; return; }
+                dd.innerHTML = lista.map(function(f){
+                    var meta=(f.wa?'✓ WhatsApp':'⚠ sem WhatsApp')+(f.freq?(' · cotou '+f.freq+'×'):'');
+                    return '<div class="taocot-dd-opt" data-id="'+esc(f.id)+'" style="padding:8px 12px;font-size:13px;border-top:1px solid #f1f5f9;cursor:pointer;display:flex;justify-content:space-between;gap:10px"><span>'+esc(f.nome)+'</span><span style="font-size:11px;color:#94a3b8;white-space:nowrap">'+meta+'</span></div>';
+                }).join('');
+                dd.style.display='block';
+                Array.prototype.forEach.call(dd.querySelectorAll('.taocot-dd-opt'), function(o){
+                    o.addEventListener('mousedown', function(e){ e.preventDefault();
+                        var id=o.getAttribute('data-id'), f=TODOS.filter(function(x){return String(x.id)===String(id);})[0];
+                        addForn(f); busca.value=''; render('');
+                        var sg=document.querySelector('.taocot-sugg[data-id="'+id+'"]'); if(sg) sg.style.display='none';
+                    });
+                });
+            }
+            busca.addEventListener('input', function(){ render(this.value); });
+            busca.addEventListener('focus', function(){ render(this.value); });
+            document.addEventListener('click', function(e){ if(e.target!==busca && !dd.contains(e.target)) dd.style.display='none'; });
+            Array.prototype.forEach.call(document.querySelectorAll('.taocot-sugg'), function(b){
+                b.addEventListener('click', function(){ var id=b.getAttribute('data-id'); addForn(TODOS.filter(function(x){return String(x.id)===String(id);})[0]); b.style.display='none'; });
             });
-            var all = document.getElementById('taocot-forn-all'), none = document.getElementById('taocot-forn-none');
-            if(all) all.addEventListener('click', function(){ chips.forEach(function(ch){ if(ch.style.display!=='none'){ ch.querySelector('input').checked=true; ch.classList.add('on'); } }); upd(); });
-            if(none) none.addEventListener('click', function(){ chips.forEach(function(ch){ ch.querySelector('input').checked=false; ch.classList.remove('on'); }); upd(); });
             upd();
         })();
 
