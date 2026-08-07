@@ -156,11 +156,13 @@ function tao_cotacoes_render_view( $cot_id ) {
                                 data-cot="<?php echo esc_attr( $cot_id ); ?>">&#x1F4AC; Conversa
                                 <?php $u = $unread[ $p['fornecedor_id'] ] ?? 0; if ( $u ) : ?><span class="taocot-badge"><?php echo $u; ?></span><?php endif; ?>
                             </button>
-                            <button class="taocot-btn taocot-prop-upload" title="Anexar proposta (PDF/foto) e processar"
-                                data-fid="<?php echo esc_attr( $p['fornecedor_id'] ); ?>">&#x1F4CE; Proposta</button>
-                            <button class="taocot-btn taocot-prop-manual" title="Digitar proposta manualmente"
-                                data-fid="<?php echo esc_attr( $p['fornecedor_id'] ); ?>"
-                                data-nome="<?php echo esc_attr( $f['nome'] ?? '' ); ?>">&#x2328;&#xFE0F;</button>
+                            <span class="taocot-prop-wrap" style="position:relative;display:inline-block">
+                                <button type="button" class="taocot-btn taocot-prop-toggle" data-fid="<?php echo esc_attr( $p['fornecedor_id'] ); ?>">&#x1F4E5; Proposta &#x25BE;</button>
+                                <div class="taocot-prop-menu" style="display:none;position:absolute;right:0;top:calc(100% + 2px);z-index:45;background:#fff;border:1px solid #cbd5e1;border-radius:8px;box-shadow:0 8px 22px rgba(0,0,0,.14);min-width:210px;overflow:hidden;text-align:left">
+                                    <button type="button" class="taocot-prop-upload" data-fid="<?php echo esc_attr( $p['fornecedor_id'] ); ?>" style="display:block;width:100%;text-align:left;border:0;background:transparent;padding:10px 13px;font-size:13px;cursor:pointer;line-height:1.3">&#x1F4CE; Subir arquivo (PDF/foto)<br><span style="font-size:11px;color:#94a3b8">a IA lê e vira preço</span></button>
+                                    <button type="button" class="taocot-prop-manual" data-fid="<?php echo esc_attr( $p['fornecedor_id'] ); ?>" data-nome="<?php echo esc_attr( $f['nome'] ?? '' ); ?>" style="display:block;width:100%;text-align:left;border:0;border-top:1px solid #f1f5f9;background:transparent;padding:10px 13px;font-size:13px;cursor:pointer">&#x2328;&#xFE0F; Digitar manual</button>
+                                </div>
+                            </span>
                         </td>
                     </tr>
                 <?php endforeach; ?>
@@ -331,6 +333,15 @@ function tao_cotacoes_render_view( $cot_id ) {
         if(b = document.getElementById('taocot-btn-concluir')) b.addEventListener('click', function(){ run(b, 'tao_cot_set_status', {status:'concluida'}, 'Marcar esta cotação como concluída?'); });
         if(b = document.getElementById('taocot-btn-cancelar')) b.addEventListener('click', function(){ run(b, 'tao_cot_set_status', {status:'cancelada'}, 'Cancelar esta cotação?'); });
         if(b = document.getElementById('taocot-btn-excluir')) b.addEventListener('click', function(){ run(b, 'tao_cot_excluir_cotacao', {}, 'Excluir definitivamente este rascunho?'); });
+
+        // ── Menu "Proposta" por fornecedor: abre/fecha o dropdown (upload/manual vêm por delegação) ──
+        document.addEventListener('click', function(e){
+            var tg = e.target.closest ? e.target.closest('.taocot-prop-toggle') : null;
+            var alvo = tg ? tg.parentElement.querySelector('.taocot-prop-menu') : null;
+            var menus = document.querySelectorAll('.taocot-prop-menu');
+            for(var i=0;i<menus.length;i++){ if(menus[i]!==alvo) menus[i].style.display='none'; }
+            if(alvo){ alvo.style.display = (alvo.style.display==='block'?'none':'block'); }
+        });
 
         // ── Proposta por arquivo (upload direto da lista de fornecedores) ──────
         var propFid = null, fileInp = document.getElementById('taocot-prop-file');
