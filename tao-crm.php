@@ -61,6 +61,7 @@ define( 'TAO_CRM_URL',     plugin_dir_url( __FILE__ ) );
 
 require_once TAO_CRM_DIR . 'includes/functions.php';
 require_once TAO_CRM_DIR . 'includes/messaging.php';
+require_once TAO_CRM_DIR . 'includes/meta-webhook.php';
 require_once TAO_CRM_DIR . 'includes/perfis.php';
 require_once TAO_CRM_DIR . 'includes/pages/dashboard.php';
 require_once TAO_CRM_DIR . 'includes/pages/kanban.php';
