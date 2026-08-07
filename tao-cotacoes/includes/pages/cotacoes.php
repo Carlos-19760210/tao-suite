@@ -182,14 +182,14 @@ function tao_cotacoes_render_view( $cot_id ) {
                 <thead><tr><th style="width:30px">⭐</th><th>Item</th><th>Cód. FC</th><th style="text-align:right">Qtde</th><th>Un.</th><th style="text-align:right">Últ. pago</th><th>Origem</th></tr></thead>
                 <tbody>
                 <?php foreach ( $itens as $it ) : ?>
-                    <tr class="<?php echo ! empty( $it['urgente'] ) ? 'taocot-urgente' : ''; ?>">
+                    <tr class="<?php echo ! empty( $it['urgente'] ) ? 'taocot-urgente' : ''; ?>" data-item-id="<?php echo esc_attr( $it['id'] ); ?>">
                         <td><?php echo ! empty( $it['urgente'] ) ? '⭐' : ''; ?></td>
                         <td><strong><?php echo esc_html( $it['descricao'] ); ?></strong>
                             <?php if ( empty( $it['ativo_id'] ) ) : ?><span class="taocot-muted">(item livre)</span><?php endif; ?>
                         </td>
                         <td><?php echo esc_html( $it['codigo_fc'] ?? '' ); ?></td>
-                        <td style="text-align:right"><?php echo esc_html( number_format( (float) ( $it['qtd'] ?? 0 ), 2, ',', '.' ) ); ?></td>
-                        <td><?php echo esc_html( $it['unidade'] ?? '' ); ?></td>
+                        <td style="text-align:right"><input class="taocot-it-qtd" type="number" step="0.01" min="0" value="<?php echo esc_attr( round( (float) ( $it['qtd'] ?? 0 ), 2 ) ); ?>" style="width:76px;text-align:right;padding:3px 5px;border:1px solid #e2e8f0;border-radius:5px"></td>
+                        <td><input class="taocot-it-un" value="<?php echo esc_attr( $it['unidade'] ?? '' ); ?>" style="width:64px;padding:3px 5px;border:1px solid #e2e8f0;border-radius:5px"></td>
                         <td style="text-align:right"><?php echo $it['ult_preco_pago'] !== null ? 'R$ ' . esc_html( number_format( (float) $it['ult_preco_pago'], 2, ',', '.' ) ) : '—'; ?></td>
                         <td><span class="taocot-muted"><?php echo esc_html( $it['origem'] ?? '' ); ?></span></td>
                     </tr>
@@ -267,6 +267,13 @@ function tao_cotacoes_render_view( $cot_id ) {
                         <?php foreach ( $fids as $f ) : $p = $l['cells'][ $f ] ?? null; ?>
                         <td style="text-align:right;border-left:2px solid #f1f5f9;<?php echo ( $p && $f === $mfid ) ? 'background:#dcfce7' : ''; ?>">
                             <?php if ( $p ) : ?>
+                                <button type="button" class="taocot-preco-edit" title="Editar este preço"
+                                    data-id="<?php echo esc_attr( $p['id'] ); ?>"
+                                    data-vl="<?php echo esc_attr( $p['vl_unit'] ); ?>"
+                                    data-unid="<?php echo esc_attr( $p['unid'] ); ?>"
+                                    data-qtde="<?php echo esc_attr( $p['qtde_min'] ?? '' ); ?>"
+                                    data-val="<?php echo esc_attr( $p['validade'] ?? '' ); ?>"
+                                    style="float:left;border:0;background:transparent;cursor:pointer;color:#94a3b8;font-size:12px;padding:0 2px">✎</button>
                                 <strong><?php echo number_format( (float) $p['vl_unit'], 4, ',', '.' ); ?></strong> <span class="taocot-muted">/<?php echo esc_html( $p['unid'] ); ?></span>
                                 <div class="taocot-muted">
                                     <?php if ( $p['qtde_min'] ) echo 'mín ' . number_format( (float) $p['qtde_min'], 0, ',', '.' ) . ' · '; ?>
@@ -354,6 +361,30 @@ function tao_cotacoes_render_view( $cot_id ) {
 
             <div class="taocot-actions" style="margin-top:14px">
                 <button class="taocot-btn" data-cot-cancel>Fechar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: editar um preço do comparativo a qualquer momento -->
+    <div id="taocot-preco-modal" class="taocot-modal">
+        <div class="taocot-overlay"></div>
+        <div class="taocot-box" style="max-width:420px">
+            <h2>✎ Editar preço</h2>
+            <input type="hidden" id="taocot-pe-id">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                <label>Valor unit. R$<br><input id="taocot-pe-vl" type="number" step="0.0001" min="0" style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:5px"></label>
+                <label>Unidade<br>
+                    <select id="taocot-pe-unid" style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:5px">
+                        <?php foreach ( [ 'g', 'ml', 'milheiro', 'kg', 'l', 'unidade' ] as $u ) : ?><option value="<?php echo $u; ?>"><?php echo $u; ?></option><?php endforeach; ?>
+                    </select>
+                </label>
+                <label>Qtde mín<br><input id="taocot-pe-qtde" type="number" step="0.01" min="0" style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:5px"></label>
+                <label>Validade<br><input id="taocot-pe-val" type="text" placeholder="MM/AAAA" style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:5px"></label>
+            </div>
+            <div class="taocot-actions" style="margin-top:14px">
+                <button class="taocot-btn taocot-btn-primary" id="taocot-pe-salvar">Salvar</button>
+                <button class="taocot-btn" data-cot-cancel>Cancelar</button>
+                <span class="taocot-status-msg" id="taocot-pe-msg" style="margin:0"></span>
             </div>
         </div>
     </div>
@@ -560,6 +591,42 @@ function tao_cotacoes_render_view( $cot_id ) {
             C.post('tao_cot_proposta_manual', { fornecedor_id: manualFid, cotacao_id: ID, itens: JSON.stringify(validos) }).then(function(r){
                 if(r.success){ location.reload(); } else { st.textContent=''; alert('Erro: '+(r.data||'falha')); }
             });
+        });
+
+        // ── Editar ITENS da cotação (qtde/unidade) a qualquer momento ───────────
+        function salvarItem(tr, campo, valor){
+            var id = tr.getAttribute('data-item-id'); if(!id) return;
+            var d = { id: id }; d[campo] = valor;
+            C.post('tao_cot_item_editar', d).then(function(r){
+                var el = tr.querySelector(campo==='qtd'?'.taocot-it-qtd':'.taocot-it-un');
+                if(el){ el.style.borderColor = r.success ? '#16a34a' : '#dc2626'; setTimeout(function(){ el.style.borderColor='#e2e8f0'; }, 1200); }
+            });
+        }
+        document.querySelectorAll('.taocot-it-qtd').forEach(function(inp){ inp.addEventListener('change', function(){ salvarItem(inp.closest('tr'),'qtd',inp.value); }); });
+        document.querySelectorAll('.taocot-it-un').forEach(function(inp){ inp.addEventListener('change', function(){ salvarItem(inp.closest('tr'),'unidade',inp.value); }); });
+
+        // ── Editar PREÇO do comparativo a qualquer momento ──────────────────────
+        document.addEventListener('click', function(e){
+            var t = e.target.closest('.taocot-preco-edit'); if(!t) return;
+            document.getElementById('taocot-pe-id').value = t.getAttribute('data-id');
+            document.getElementById('taocot-pe-vl').value = t.getAttribute('data-vl')||'';
+            var us=document.getElementById('taocot-pe-unid'); us.value = (t.getAttribute('data-unid')||'g');
+            document.getElementById('taocot-pe-qtde').value = t.getAttribute('data-qtde')||'';
+            document.getElementById('taocot-pe-val').value = t.getAttribute('data-val')||'';
+            document.getElementById('taocot-pe-msg').textContent = '';
+            document.getElementById('taocot-preco-modal').style.display = 'block';
+        });
+        document.getElementById('taocot-pe-salvar').addEventListener('click', function(){
+            var st = document.getElementById('taocot-pe-msg'); st.textContent='Salvando…';
+            C.post('tao_cot_preco_editar', {
+                id: document.getElementById('taocot-pe-id').value,
+                vl_unit: document.getElementById('taocot-pe-vl').value,
+                unid: document.getElementById('taocot-pe-unid').value,
+                qtde_min: document.getElementById('taocot-pe-qtde').value,
+                validade: document.getElementById('taocot-pe-val').value
+            }).then(function(r){
+                if(r.success){ location.reload(); } else { st.textContent=''; alert('Erro: '+(r.data||'falha')); }
+            }).catch(function(){ st.textContent=''; alert('Falha de rede'); });
         });
 
         // ── Registrar retorno: escolher fornecedor -> subir arquivo / digitar ────

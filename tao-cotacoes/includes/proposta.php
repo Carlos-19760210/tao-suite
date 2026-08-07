@@ -489,6 +489,53 @@ add_action( 'wp_ajax_tao_cot_proposta_preview', function() {
     wp_send_json_success( [ 'via' => $via, 'itens' => $out, 'total' => count( $out ) ] );
 } );
 
+// Verifica se uma cotação pertence ao cliente (scoping p/ edições).
+function tao_cot_cotacao_do_cliente( $cot_id, $cid ) {
+    if ( ! $cot_id ) return false;
+    $r = tao_cot_api( "/cotacoes?id=eq.$cot_id&cliente_id=eq.$cid&select=id&limit=1" );
+    return $r['ok'] && ! empty( $r['data'] );
+}
+
+// ── AJAX: editar item da cotação (qtde / unidade) a qualquer momento ──────────
+add_action( 'wp_ajax_tao_cot_item_editar', function() {
+    $cid = tao_cot_ajax_guard();
+    $id  = sanitize_text_field( $_POST['id'] ?? '' );
+    if ( ! $id ) wp_send_json_error( 'id' );
+    $r = tao_cot_api( "/cotacao_itens?id=eq.$id&select=cotacao_id&limit=1" );
+    if ( ! $r['ok'] || empty( $r['data'] ) ) wp_send_json_error( 'Item não encontrado' );
+    if ( ! tao_cot_cotacao_do_cliente( $r['data'][0]['cotacao_id'], $cid ) ) wp_send_json_error( 'Sem permissão', 403 );
+    $patch = [];
+    if ( isset( $_POST['qtd'] ) )     $patch['qtd']     = (float) str_replace( ',', '.', preg_replace( '/[^\d,.\-]/', '', (string) $_POST['qtd'] ) );
+    if ( isset( $_POST['unidade'] ) ) $patch['unidade'] = strtolower( trim( sanitize_text_field( $_POST['unidade'] ) ) );
+    if ( ! $patch ) wp_send_json_error( 'Nada a alterar' );
+    $u = tao_cot_api( "/cotacao_itens?id=eq.$id", 'PATCH', $patch );
+    $u['ok'] ? wp_send_json_success( $patch ) : wp_send_json_error( 'Falha ao salvar' );
+} );
+
+// ── AJAX: editar preço processado (vl_unit / unid / qtde_min / validade) ──────
+add_action( 'wp_ajax_tao_cot_preco_editar', function() {
+    $cid = tao_cot_ajax_guard();
+    $id  = sanitize_text_field( $_POST['id'] ?? '' );
+    if ( ! $id ) wp_send_json_error( 'id' );
+    $r = tao_cot_api( "/cotacao_precos?id=eq.$id&select=cotacao_id,vl_unit,qtde_min&limit=1" );
+    if ( ! $r['ok'] || empty( $r['data'] ) ) wp_send_json_error( 'Preço não encontrado' );
+    $atual = $r['data'][0];
+    if ( ! tao_cot_cotacao_do_cliente( $atual['cotacao_id'], $cid ) ) wp_send_json_error( 'Sem permissão', 403 );
+    $patch = [];
+    $numf = function( $v ) { return (float) str_replace( ',', '.', preg_replace( '/[^\d,.\-]/', '', (string) $v ) ); };
+    if ( isset( $_POST['vl_unit'] ) )  $patch['vl_unit']  = $numf( $_POST['vl_unit'] );
+    if ( isset( $_POST['unid'] ) )     $patch['unid']     = strtolower( trim( sanitize_text_field( $_POST['unid'] ) ) );
+    if ( isset( $_POST['qtde_min'] ) ) $patch['qtde_min'] = $_POST['qtde_min'] === '' ? null : $numf( $_POST['qtde_min'] );
+    if ( isset( $_POST['validade'] ) ) $patch['validade'] = sanitize_text_field( $_POST['validade'] ) ?: null;
+    if ( ! $patch ) wp_send_json_error( 'Nada a alterar' );
+    // recalcula vl_total = vl_unit × qtde_min quando ambos disponíveis
+    $vl  = array_key_exists( 'vl_unit', $patch )  ? $patch['vl_unit']  : (float) $atual['vl_unit'];
+    $qm  = array_key_exists( 'qtde_min', $patch ) ? $patch['qtde_min'] : ( $atual['qtde_min'] ?? null );
+    $patch['vl_total'] = ( $vl > 0 && $qm > 0 ) ? round( $vl * $qm, 2 ) : null;
+    $u = tao_cot_api( "/cotacao_precos?id=eq.$id", 'PATCH', $patch );
+    $u['ok'] ? wp_send_json_success( $patch ) : wp_send_json_error( 'Falha ao salvar' );
+} );
+
 // ── AJAX: resolver divergência (vincula ativo e vira sinônimo) ────────────────
 
 add_action( 'wp_ajax_tao_cot_divergencia_resolver', function() {
