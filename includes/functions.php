@@ -32,6 +32,39 @@ function tao_crm_api( $endpoint, $method = 'GET', $body = null, $extra_headers =
     return [ 'ok' => true, 'status' => $status, 'data' => $data, 'error' => '' ];
 }
 
+// ─── NORMALIZAÇÃO DE TELEFONE (E.164) ─────────────────────────────────────────
+// Função ÚNICA de normalização para todo o projeto. Devolve "+5511999999999"
+// (E.164) ou '' se não der p/ normalizar. NÃO altera nenhum fluxo existente —
+// é utilitária; código novo (Meta/campanhas) passa a usar esta.
+// $default_ddi = DDI assumido quando o número vem sem código de país (Brasil=55).
+function tao_crm_e164( $numero, $default_ddi = '55' ) {
+    $d = preg_replace( '/\D/', '', (string) $numero );
+    if ( $d === '' ) return '';
+    // remove sufixo de dispositivo/jid caso venha algo tipo "5511...@s.whatsapp.net" já sem \D
+    // (o preg_replace acima já tira @, :, etc.)
+    if ( strlen( $d ) <= 11 ) {
+        // veio sem DDI (10 = fixo c/ DDD, 11 = celular c/ DDD) → prefixa o DDI padrão
+        $d = $default_ddi . $d;
+    }
+    // Brasil: normaliza o 9º dígito de celular (o Evolution às vezes entrega sem o 9)
+    if ( substr( $d, 0, 2 ) === '55' ) {
+        $resto = substr( $d, 2 );                 // DDD + assinante
+        if ( strlen( $resto ) === 10 ) {          // DDD(2) + 8 dígitos → celular sem o 9
+            $ddd = substr( $resto, 0, 2 );
+            $ass = substr( $resto, 2 );
+            if ( $ass[0] >= '6' ) {               // 6-9 no 1º dígito = celular → insere o 9
+                $d = '55' . $ddd . '9' . $ass;
+            }
+        }
+    }
+    return '+' . $d;
+}
+
+// Só os dígitos em E.164 (sem o '+') — útil p/ Evolution/PostgREST.
+function tao_crm_e164_digits( $numero, $default_ddi = '55' ) {
+    return ltrim( tao_crm_e164( $numero, $default_ddi ), '+' );
+}
+
 // ─── EVOLUTION API ────────────────────────────────────────────────────────────
 
 function tao_crm_evolution_send( $workspace, $numero, $texto, $blocking = false ) {
