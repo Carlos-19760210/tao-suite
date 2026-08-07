@@ -46,6 +46,8 @@ function tao_cot_extrair_por_modelo( array $paginas, array $regras ) {
     $tipo = $regras['tipo'] ?? 'linha';
     $texto = implode( "\n", $paginas );
     $linhas = preg_split( '/\r\n|\r|\n/', $texto );
+    // remove ruído de fontes sem mapeamento unicode (ex.: "(cid:1)" em PDFs tipo Sixty)
+    $linhas = array_map( function( $l ) { return trim( preg_replace( '/\(cid:\d+\)/', '', (string) $l ) ); }, $linhas );
     $out = [];
 
     if ( $tipo === 'linha' ) {
