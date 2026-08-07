@@ -308,6 +308,28 @@ add_action( 'wp_ajax_tao_cot_proposta_processar', function() {
     $cotacao = $rc['data'][0];
     tao_cot_ensure_participante( $cot_id, $fid );
 
+    // ── Caminho DETERMINÍSTICO (sem IA): se veio o texto do PDF e há modelo do fornecedor ──
+    $paginas = json_decode( wp_unslash( $_POST['paginas'] ?? '[]' ), true );
+    if ( is_array( $paginas ) && $paginas ) {
+        $md = tao_cot_modelo_do_fornecedor( $cid, $fid, mb_substr( implode( "\n", array_slice( $paginas, 0, 4 ) ), 0, 4000 ) );
+        if ( $md && ! empty( $md['regras'] ) ) {
+            $itens = tao_cot_extrair_por_modelo( $paginas, $md['regras'] );
+            if ( $itens ) {
+                $rp = tao_cot_api( '/cotacao_propostas', 'POST', [
+                    'cotacao_id' => $cot_id, 'fornecedor_id' => $fid, 'origem' => 'pdf-modelo',
+                    'arquivo_url' => $_POST['midia_url'] ?? null, 'status' => 'pendente',
+                ] );
+                $prop = ( $rp['ok'] && ! empty( $rp['data'] ) ) ? $rp['data'][0] : null;
+                if ( $prop ) {
+                    $res = tao_cot_gravar_precos( $cid, $cotacao, $fid, $prop['id'], $itens );
+                    tao_cot_api( "/cotacao_propostas?id=eq.{$prop['id']}", 'PATCH', [ 'status' => 'processada', 'processado_em' => gmdate( 'c' ) ] );
+                    tao_cot_api( "/cotacao_fornecedores?cotacao_id=eq.$cot_id&fornecedor_id=eq.$fid", 'PATCH', [ 'status' => 'processado' ] );
+                    wp_send_json_success( [ 'extraidos' => count( $itens ), 'gravados' => $res['gravados'], 'divergencias' => $res['divergencias'], 'cotacao_id' => $cot_id, 'via' => 'modelo', 'modelo' => $md['nome'] ?? '' ] );
+                }
+            }
+        }
+    }
+
     // origem do arquivo: upload direto OU midia_url (anexo do chat)
     $bin = null; $mime = ''; $origem = 'pdf';
     if ( ! empty( $_FILES['file']['tmp_name'] ) ) {
@@ -397,6 +419,74 @@ add_action( 'wp_ajax_tao_cot_proposta_manual', function() {
     }
     tao_cot_api( "/cotacao_fornecedores?cotacao_id=eq.$cot_id&fornecedor_id=eq.$fid", 'PATCH', [ 'status' => 'processado' ] );
     wp_send_json_success( [ 'gravados' => $grav, 'divergencias' => $diverg ] );
+} );
+
+// ── AJAX: PRÉVIA (extrai por modelo OU IA, mostra o ativo casado, NÃO grava) ──
+// O farmacêutico valida/ajusta e só então confirma (via tao_cot_proposta_manual).
+add_action( 'wp_ajax_tao_cot_proposta_preview', function() {
+    $cid = tao_cot_ajax_guard();
+    @set_time_limit( 120 );
+    $fid    = sanitize_text_field( $_POST['fornecedor_id'] ?? '' );
+    $cot_id = sanitize_text_field( $_POST['cotacao_id'] ?? '' );
+    if ( ! $fid || ! $cot_id ) wp_send_json_error( 'Dados inválidos' );
+
+    // marca o retorno: fornecedor participante + cotação entra em "recebendo" (a importar)
+    tao_cot_ensure_participante( $cot_id, $fid );
+    tao_cot_api( "/cotacao_fornecedores?cotacao_id=eq.$cot_id&fornecedor_id=eq.$fid&status=in.(pendente,enviado)", 'PATCH', [ 'status' => 'respondeu', 'respondeu_em' => gmdate( 'c' ) ] );
+    $rcs = tao_cot_api( "/cotacoes?id=eq.$cot_id&cliente_id=eq.$cid&select=status" );
+    $st_cot = ( $rcs['ok'] && ! empty( $rcs['data'] ) ) ? ( $rcs['data'][0]['status'] ?? '' ) : '';
+    if ( in_array( $st_cot, [ 'rascunho', 'enviada' ], true ) ) {
+        tao_cot_api( "/cotacoes?id=eq.$cot_id", 'PATCH', [ 'status' => 'recebendo' ] );
+    }
+
+    $itens = []; $via = 'ia';
+    // 1) tentar caminho determinístico (texto + modelo do fornecedor)
+    $paginas = json_decode( wp_unslash( $_POST['paginas'] ?? '[]' ), true );
+    if ( is_array( $paginas ) && $paginas ) {
+        $md = tao_cot_modelo_do_fornecedor( $cid, $fid, mb_substr( implode( "\n", array_slice( $paginas, 0, 4 ) ), 0, 4000 ) );
+        if ( $md && ! empty( $md['regras'] ) ) {
+            $itens = tao_cot_extrair_por_modelo( $paginas, $md['regras'] );
+            if ( $itens ) $via = 'modelo';
+        }
+    }
+    // 2) fallback IA (precisa do arquivo)
+    if ( ! $itens ) {
+        if ( empty( $_FILES['file']['tmp_name'] ) ) wp_send_json_error( 'Sem modelo para este fornecedor — anexe o arquivo (PDF/foto) para a IA ler.' );
+        $bin  = file_get_contents( $_FILES['file']['tmp_name'] );
+        $mime = mime_content_type( $_FILES['file']['tmp_name'] ) ?: 'application/pdf';
+        if ( strlen( $bin ) > 15 * 1024 * 1024 ) wp_send_json_error( 'Arquivo acima de 15 MB' );
+        if ( strpos( $mime, 'image/' ) !== 0 && $mime !== 'application/pdf' ) wp_send_json_error( "Tipo não suportado ($mime)" );
+        $ex = tao_cot_extrair_arquivo( $bin, $mime );
+        if ( empty( $ex['ok'] ) ) wp_send_json_error( 'Extração falhou: ' . ( $ex['error'] ?? '' ) );
+        $itens = $ex['itens'];
+    }
+
+    // normaliza + casa ativo (sem gravar) para o farmacêutico conferir
+    $out = [];
+    foreach ( $itens as $it ) {
+        $nome = trim( (string) ( $it['item'] ?? '' ) );
+        if ( $nome === '' ) continue;
+        $norm = tao_cot_normalizar_item( $it );
+        list( $vl, $unid ) = $norm ?: [ null, '' ];
+        $ativo_id = tao_cot_match_ativo( $cid, $nome );
+        $out[] = [
+            'item'          => $nome,
+            'preco'         => $it['preco'] ?? null,
+            'preco_unidade' => $it['preco_unidade'] ?? '',
+            'frac_min'      => $it['qtde_min'] ?? ( $it['frac_min'] ?? '' ),
+            'validade'      => $it['validade'] ?? '',
+            'ativo_id'      => $ativo_id,
+            'vl_norm'       => $vl,
+            'unid_norm'     => $unid,
+        ];
+    }
+    // nomes dos ativos casados
+    $aids = array_values( array_unique( array_filter( array_column( $out, 'ativo_id' ) ) ) );
+    $anome = [];
+    if ( $aids ) { $ra = tao_cot_api( "/ativos?id=in.(" . implode( ',', $aids ) . ")&select=id,nome" ); foreach ( ( $ra['ok'] ? $ra['data'] : [] ) as $a ) $anome[ $a['id'] ] = $a['nome']; }
+    foreach ( $out as &$o ) $o['ativo_nome'] = $o['ativo_id'] ? ( $anome[ $o['ativo_id'] ] ?? '' ) : '';
+
+    wp_send_json_success( [ 'via' => $via, 'itens' => $out, 'total' => count( $out ) ] );
 } );
 
 // ── AJAX: resolver divergência (vincula ativo e vira sinônimo) ────────────────

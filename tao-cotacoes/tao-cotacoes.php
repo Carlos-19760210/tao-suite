@@ -17,9 +17,11 @@ require_once TAOCOT_PLUGIN_DIR . 'includes/api.php';
 require_once TAOCOT_PLUGIN_DIR . 'includes/ajax.php';
 require_once TAOCOT_PLUGIN_DIR . 'includes/dispatch.php';
 require_once TAOCOT_PLUGIN_DIR . 'includes/proposta.php';
+require_once TAOCOT_PLUGIN_DIR . 'includes/modelos.php';
 require_once TAOCOT_PLUGIN_DIR . 'includes/pages/cotacoes.php';
 require_once TAOCOT_PLUGIN_DIR . 'includes/pages/cotacao-nova.php';
 require_once TAOCOT_PLUGIN_DIR . 'includes/pages/fornecedores.php';
+require_once TAOCOT_PLUGIN_DIR . 'includes/pages/cotacao-modelos.php';
 
 // ── Admin menu ────────────────────────────────────────────────────────────────
 add_action( 'admin_menu', function() {
@@ -33,4 +35,5 @@ add_action( 'admin_menu', function() {
     add_submenu_page( 'tao-cotacoes', 'Cotações',     'Cotações',      'read', 'tao-cotacoes',              'tao_cotacoes_page_lista' );
     add_submenu_page( 'tao-cotacoes', 'Nova Cotação', 'Nova Cotação',  'read', 'tao-cotacoes-nova',         'tao_cotacoes_page_nova' );
     add_submenu_page( 'tao-cotacoes', 'Fornecedores', 'Fornecedores',  'read', 'tao-cotacoes-fornecedores', 'tao_cotacoes_page_fornecedores' );
+    add_submenu_page( 'tao-cotacoes', 'Modelos de Proposta', 'Modelos de Proposta', 'read', 'tao-cotacoes-modelos', 'tao_cotacoes_page_modelos' );
 } );

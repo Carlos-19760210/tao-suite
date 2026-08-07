@@ -358,6 +358,26 @@ function tao_cotacoes_render_view( $cot_id ) {
         </div>
     </div>
 
+    <!-- Modal: revisão do farmacêutico ANTES de gravar no BD -->
+    <div id="taocot-rev-modal" class="taocot-modal">
+        <div class="taocot-overlay"></div>
+        <div class="taocot-box" style="max-width:900px">
+            <h2>✔ Conferir antes de importar — <span id="taocot-rev-forn"></span> <span id="taocot-rev-via" style="font-size:12px;color:#64748b;font-weight:400"></span></h2>
+            <p class="taocot-muted">Revise os preços e o ativo casado. Nada é gravado até você clicar em <b>Importar</b>. Ajuste o que precisar; itens sem ativo aparecem em <span style="color:#b45309">laranja</span> — associe ou desmarque.</p>
+            <div class="taocot-tscroll" style="max-height:52vh;overflow:auto">
+            <table class="taocot-table" id="taocot-rev-grid">
+                <thead><tr><th style="width:30px"></th><th style="min-width:210px">Item (fornecedor)</th><th>Preço R$</th><th>Por</th><th>Qtde mín</th><th>Validade</th><th style="min-width:230px">Ativo casado</th></tr></thead>
+                <tbody></tbody>
+            </table>
+            </div>
+            <div class="taocot-actions" style="margin-top:12px">
+                <button class="taocot-btn taocot-btn-primary" id="taocot-rev-importar">📥 Importar <span id="taocot-rev-cnt"></span></button>
+                <button class="taocot-btn" data-cot-cancel>Cancelar</button>
+                <span class="taocot-status-msg" id="taocot-rev-msg" style="margin:0"></span>
+            </div>
+        </div>
+    </div>
+
     <script>
     (function(){
         var C = window.taoCot, ID = <?php echo wp_json_encode( $cot_id ); ?>;
@@ -390,22 +410,77 @@ function tao_cotacoes_render_view( $cot_id ) {
             if(alvo){ alvo.style.display = (alvo.style.display==='block'?'none':'block'); }
         });
 
-        // ── Proposta por arquivo (upload direto da lista de fornecedores) ──────
-        var propFid = null, fileInp = document.getElementById('taocot-prop-file');
+        // ── Proposta por arquivo → PRÉVIA → revisão do farmacêutico → importar ──
+        var propFid = null, propNome = '', fileInp = document.getElementById('taocot-prop-file');
         document.addEventListener('click', function(e){
             var t = e.target.closest('.taocot-prop-upload');
-            if(t){ propFid = t.getAttribute('data-fid'); fileInp.click(); }
+            if(t){ propFid = t.getAttribute('data-fid'); var tr=t.closest('tr'); propNome = tr? (tr.querySelector('td strong')||{}).textContent||'' : ''; fileInp.click(); }
         });
+
+        // pdf.js lazy — extrai o texto no navegador p/ o caminho determinístico (sem IA)
+        var _pdf=null;
+        function pdfjs(){ if(_pdf) return _pdf; _pdf=new Promise(function(res,rej){
+            var s=document.createElement('script'); s.src='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';
+            s.onload=function(){ try{ pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js'; res(); }catch(e){ rej(e);} }; s.onerror=rej; document.head.appendChild(s); }); return _pdf; }
+        function pdfText(file){ if(!/\.pdf$/i.test(file.name)) return Promise.resolve(null); return pdfjs().then(function(){ return new Promise(function(res){
+            var fr=new FileReader(); fr.onload=function(){ pdfjsLib.getDocument({data:new Uint8Array(fr.result)}).promise.then(function(pdf){
+                var out=[], ch=Promise.resolve(); for(var i=1;i<=pdf.numPages;i++){ (function(n){ ch=ch.then(function(){ return pdf.getPage(n).then(function(p){ return p.getTextContent().then(function(tc){ out[n-1]=tc.items.map(function(it){return it.str;}).join(' '); }); }); }); })(i); }
+                ch.then(function(){ res(out); }).catch(function(){ res(null); }); }).catch(function(){ res(null); }); }; fr.onerror=function(){ res(null); }; fr.readAsArrayBuffer(file);
+        }); }).catch(function(){ return null; }); }
+
         fileInp.addEventListener('change', function(){
             var f = fileInp.files[0]; if(!f || !propFid) return;
-            msg.textContent = 'Extraindo a proposta com IA (pode levar ~30s)...';
-            C.postFile('tao_cot_proposta_processar', f, { fornecedor_id: propFid, cotacao_id: ID }).then(function(r){
-                if(r.success){
-                    msg.textContent = r.data.gravados+' itens processados ('+r.data.divergencias+' divergências).';
-                    setTimeout(function(){ location.reload(); }, 800);
-                } else { msg.textContent = ''; alert('Erro: '+(r.data||'falha')); }
-            }).catch(function(){ msg.textContent=''; alert('Falha de rede'); });
-            fileInp.value = '';
+            msg.textContent = 'Lendo a proposta…';
+            pdfText(f).then(function(pags){
+                var extra = { fornecedor_id: propFid, cotacao_id: ID };
+                if(pags && pags.join('').replace(/\s/g,'').length >= 50){ extra.paginas = JSON.stringify(pags); }
+                msg.textContent = extra.paginas ? 'Aplicando o modelo do fornecedor…' : 'Extraindo com IA (pode levar ~30s)…';
+                C.postFile('tao_cot_proposta_preview', f, extra).then(function(r){
+                    fileInp.value = '';
+                    if(!r.success){ msg.textContent=''; alert('Erro: '+(r.data||'falha')); return; }
+                    msg.textContent = '';
+                    abrirRevisao(propFid, propNome, r.data.itens||[], r.data.via);
+                }).catch(function(){ msg.textContent=''; alert('Falha de rede'); fileInp.value=''; });
+            });
+        });
+
+        // ── Revisão do farmacêutico (edição inline) — grava só ao Importar ──────
+        var revFid=null, revItens=[];
+        function revRender(){
+            var tb=document.querySelector('#taocot-rev-grid tbody'); tb.innerHTML='';
+            revItens.forEach(function(it, idx){
+                var tr=document.createElement('tr');
+                if(!it.ativo_id) tr.style.background='#fff7ed';
+                var tdX=document.createElement('td'); var bx=document.createElement('button'); bx.className='taocot-btn taocot-btn-danger'; bx.textContent='✕'; bx.style.padding='2px 7px';
+                bx.addEventListener('click', function(){ revItens.splice(idx,1); revRender(); }); tdX.appendChild(bx); tr.appendChild(tdX);
+                var tdN=document.createElement('td'); tdN.innerHTML='<strong></strong>'; tdN.querySelector('strong').textContent=it.item; tr.appendChild(tdN);
+                function inp(prop,type,w){ var td=document.createElement('td'),el=document.createElement('input'); el.type=type; el.value=it[prop]==null?'':it[prop]; if(type==='number'){el.step='0.0001';el.min='0';} el.style.cssText='width:'+w+'px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:5px'; el.addEventListener('change',function(){ it[prop]=el.value; }); td.appendChild(el); return td; }
+                tr.appendChild(inp('preco','number',90));
+                var tdU=document.createElement('td'),sel=document.createElement('select'); ['kg','g','L','ml','milheiro','unidade'].forEach(function(u){ var o=document.createElement('option'); o.value=u;o.textContent=u; if((it.preco_unidade||'g')===u)o.selected=true; sel.appendChild(o); }); sel.style.cssText='padding:4px 6px;border:1px solid #cbd5e1;border-radius:5px'; sel.addEventListener('change',function(){ it.preco_unidade=sel.value; }); tdU.appendChild(sel); tr.appendChild(tdU);
+                tr.appendChild(inp('frac_min','text',70));
+                tr.appendChild(inp('validade','text',70));
+                var tdA=document.createElement('td'); var box=document.createElement('div'); box.className='taocot-combo'; box.style.maxWidth='230px';
+                var ai=document.createElement('input'); ai.type='text'; ai.placeholder='buscar ativo…'; ai.value=it.ativo_nome||''; box.appendChild(ai);
+                var dl=document.createElement('div'); dl.className='taocot-combo-list'; box.appendChild(dl); tdA.appendChild(box); tr.appendChild(tdA);
+                C.combo({ input: ai, permitirLivre:false, onPick:function(rr){ it.ativo_id=rr.ativo_id; it.ativo_nome=rr.nome; ai.value=rr.nome; tr.style.background=''; } });
+                tb.appendChild(tr);
+            });
+            document.getElementById('taocot-rev-cnt').textContent = '('+revItens.length+')';
+        }
+        function abrirRevisao(fid, nome, itens, via){
+            revFid=fid; revItens=itens.map(function(i){ return { item:i.item, preco:i.preco, preco_unidade:i.preco_unidade||'g', frac_min:i.frac_min||'', validade:i.validade||'', ativo_id:i.ativo_id||null, ativo_nome:i.ativo_nome||'' }; });
+            document.getElementById('taocot-rev-forn').textContent = nome||'';
+            document.getElementById('taocot-rev-via').textContent = via==='modelo' ? '· lido pelo modelo (sem IA)' : '· lido pela IA';
+            revRender();
+            document.getElementById('taocot-rev-modal').style.display='block';
+        }
+        document.getElementById('taocot-rev-importar').addEventListener('click', function(){
+            var validos = revItens.filter(function(i){ return parseFloat(i.preco)>0; });
+            if(!validos.length){ alert('Nenhum item com preço válido.'); return; }
+            var st=document.getElementById('taocot-rev-msg'); st.textContent='Importando…';
+            C.post('tao_cot_proposta_manual', { fornecedor_id: revFid, cotacao_id: ID, itens: JSON.stringify(validos) }).then(function(r){
+                if(r.success){ location.reload(); } else { st.textContent=''; alert('Erro: '+(r.data||'falha')); }
+            }).catch(function(){ st.textContent=''; alert('Falha de rede'); });
         });
 
         // ── Divergências: combo por linha + excluir ─────────────────────────────

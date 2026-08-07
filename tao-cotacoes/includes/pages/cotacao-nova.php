@@ -41,6 +41,26 @@ function tao_cotacoes_page_nova() {
                 <div><strong>&#x1F4C4; Subir planilha de "Estoque mínimo"</strong></div>
                 <div class="taocot-muted">.xls — os itens entram já vinculados pelo código. Você também pode montar a lista manualmente abaixo.</div>
             </label>
+            <details style="margin:8px 0 4px">
+                <summary style="cursor:pointer;font-size:13px;color:#334155;font-weight:600">📋 Layout esperado do arquivo (relação de ativos para compra)</summary>
+                <div style="margin-top:8px;font-size:13px;color:#475569;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;background:#f8fafc">
+                    Planilha <b>.xls/.xlsx</b> (exportação do "Estoque mínimo"). Cada linha = um ativo a cotar. Colunas usadas:
+                    <div class="taocot-tscroll" style="margin-top:8px">
+                    <table class="taocot-table" style="font-size:12px">
+                        <thead><tr><th>Coluna</th><th>Obrigatória</th><th>Descrição</th></tr></thead>
+                        <tbody>
+                            <tr><td><b>codigo</b></td><td>Sim</td><td>Código FC do ativo — é a chave de vínculo com o cadastro (casamento direto).</td></tr>
+                            <tr><td><b>descricao</b></td><td>Recomendada</td><td>Nome do ativo (usado quando o código não casa).</td></tr>
+                            <tr><td><b>unidade</b></td><td>Recomendada</td><td>Unidade de compra (g, kg, ml, milheiro…).</td></tr>
+                            <tr><td><b>qtd_sugerida</b></td><td>Recomendada</td><td>Quantidade a cotar (sugestão de compra).</td></tr>
+                            <tr><td><b>preco_compra</b></td><td>Opcional</td><td>Último preço pago; se informado e divergir, atualiza o benchmark do ativo.</td></tr>
+                            <tr><td><b>curva</b></td><td>Opcional</td><td>Curva ABC do item (só informativo na lista).</td></tr>
+                        </tbody>
+                    </table>
+                    </div>
+                    <div class="taocot-muted" style="margin-top:6px">Itens sem <b>codigo</b> são ignorados. O que não casar por código entra como item livre para você associar.</div>
+                </div>
+            </details>
             <div class="taocot-status-msg" id="taocot-parse-msg"></div>
 
             <div class="taocot-tscroll">
