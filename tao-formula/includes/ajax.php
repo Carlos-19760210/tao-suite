@@ -480,6 +480,20 @@ function tao_formula_build_descricao( $forma_nome, $forma_vol, $forma_unidade, $
     $header  = 'FORMULA MANIPULADA' . ( $forma_nome ? ' - ' . strtoupper( $forma_nome ) : '' );
     if ( $vol_str ) $header .= ': ' . $vol_str;
 
+    // Informa nº de frascos e cápsulas/dose no texto (derivados; antes ficavam implícitos).
+    // Formato parseável na reimportação: "(N frascos)" / "(N caps/dose)".
+    $extras = [];
+    $potes  = max( 1, (int) $qtde_potes );
+    if ( $potes > 1 ) $extras[] = $potes . ' frascos';
+    $eh_cap = in_array( strtolower( (string) $forma_unidade ), [ 'cap', 'caps' ], true )
+              || preg_match( '/c[aá]psula/i', (string) $forma_nome );
+    if ( $eh_cap ) {
+        $ncd = 0;
+        foreach ( (array) $itens as $it ) $ncd = max( $ncd, (int) ( $it['n_caps_por_dose'] ?? 0 ) );
+        if ( $ncd > 0 ) $extras[] = $ncd . ' caps/dose';
+    }
+    if ( $extras ) $header .= ' (' . implode( ', ', $extras ) . ')';
+
     $parts = [];
     foreach ( (array) $itens as $item ) {
         if ( ( $item['tipo'] ?? 'mp' ) !== 'mp' ) continue;
@@ -2648,7 +2662,9 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
         }
 
         list( $forma_vol, $forma_unidade, $itens_mp ) = tao_formula_parse_descricao_itens( $descr, $cliente_id );
+        // Nº de frascos vem do texto quando informado "(N frascos)"; senão 1 (padrão FCerta calcula pelo volume).
         $qtde_potes = 1;
+        if ( preg_match( '/\((\d+)\s*frascos?\)/i', $descr, $fm ) ) $qtde_potes = max( 1, (int) $fm[1] );
 
         // ── 2. Busca forma farmacêutica por nome ─────────────────────────────────────
         // Mapeamento FCerta→TAO: a forma 9 "Comprimido" do FCerta = forma sublingual/orodispersível
