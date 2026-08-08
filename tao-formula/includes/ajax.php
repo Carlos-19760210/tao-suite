@@ -2803,6 +2803,13 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
                 elseif ( strtoupper( $unid_pad ) === $unit_up )    $qtd_em_padrao = $dose * $mult;
                 else                                               $qtd_em_padrao = $qtd_total_g;
                 $subtotal = round( $qtd_em_padrao * $preco, 4 );
+            } elseif ( $dose > 0 && $preco > 0 && $dose_unit === '%' ) {
+                // % é DIRETO sobre o volume total (volume × potes), SEM densidade — modelo FCerta.
+                // Sem este ramo, '%' caía no default e era tratado como mg → pesagem 10× menor.
+                $qtd_total_g   = ( $dose / 100 ) * $mult * $equiv * $diluicao / max( 0.001, $teor / 100 ) * $fp;
+                $qtd_total_mg  = $qtd_total_g * 1000;
+                $qtd_em_padrao = $unid_pad === 'g' ? $qtd_total_g : $qtd_total_mg;
+                $subtotal      = round( $qtd_em_padrao * $preco, 4 );
             } elseif ( $dose > 0 && $preco > 0 ) {
                 switch ( $dose_unit ) {
                     case 'g':   $dose_mg = $dose * 1000; break;
