@@ -68,6 +68,7 @@ require_once TAO_CRM_DIR . 'includes/pages/kanban.php';
 require_once TAO_CRM_DIR . 'includes/pages/card.php';
 require_once TAO_CRM_DIR . 'includes/pages/settings.php';
 require_once TAO_CRM_DIR . 'includes/pages/analise.php';
+require_once TAO_CRM_DIR . 'includes/pages/whatsapp-oficial.php';
 // tao_crm_page_conversas is defined inline below (no separate file needed)
 
 // ─── CRON: AUTOMAÇÕES ─────────────────────────────────────────────────────────
@@ -271,6 +272,7 @@ function tao_crm_register_menus() {
     add_submenu_page( 'tao-crm', 'Pipelines e Estágios','↳ Pipelines e Estágios',$cap_gestor, 'tao-crm-pipelines',   'tao_crm_settings_pipelines' );
     add_submenu_page( 'tao-crm', 'Campos',              '↳ Campos',              $cap_gestor, 'tao-crm-campos',      'tao_crm_settings_campos' );
     add_submenu_page( 'tao-crm', 'Automações',          '↳ Automações',          $cap_gestor, 'tao-crm-automacoes',  'tao_crm_settings_automacoes' );
+    add_submenu_page( 'tao-crm', 'WhatsApp Oficial',    '↳ WhatsApp Oficial',    $cap_gestor, 'tao-crm-whatsapp',    'tao_crm_page_whatsapp_oficial' );
 
     // Admin-only
     if ( current_user_can( 'manage_options' ) ) {
