@@ -599,8 +599,8 @@ function tao_crm_page_analise() {
             var out=[newMeta]; order.forEach(function(k){ out.push(map[k]); }); return out;
         }
         function cubeRows(){
-            if(curCube==='perdas'){ return [META_PERDA].concat(perdasData.map(function(r){
-                return {'Data':r['Data'],'Mes':r['Mes'],'Motivo':r['Motivo'],'Motivo Base':r['Motivo Base'],'Insumo/Medic.':r['Insumo/Medic.'],'Fase':r['Fase'],'Responsavel':r['Responsavel'],'Classificação':r['Classificação'],'Valor':r['Valor'],'Cards':1}; })); }
+            if(curCube==='perdas'){ return aggCube(META_PERDA, perdasData.map(function(r){
+                return {'Mes':r['Mes'],'Motivo':r['Motivo'],'Motivo Base':r['Motivo Base'],'Insumo/Medic.':r['Insumo/Medic.'],'Fase':r['Fase'],'Responsavel':r['Responsavel'],'Classificação':r['Classificação'],'Valor':(parseFloat(r['Valor'])||0),'Cards':1}; }), ['Data']); }
             if(curCube==='leads'){
                 var _lr = opData.map(function(r){
                     return {'Mes':r['Mes'],'Como nos Conheceu':r['Como nos Conheceu'],'Tipo de Fechamento':r['Tipo de Fechamento'],'Origem':r['Origem'],'Funil':r['Funil'],'Fase':r['Fase'],'Classe':r['Classe'],'Status':r['Status'],'Classificação':r['Classificação'],'Forma de Entrega':r['Forma de Entrega'],'Responsavel':r['Responsavel'],'Valor':(parseFloat(r['Valor'])||0),'Leads':1}; });
@@ -608,7 +608,9 @@ function tao_crm_page_analise() {
                 return aggCube(META_LEADS, _lr, ['Data']);
             }
             if(curCube==='cards'||curCube==='itens'){ var k=curCube==='itens'?'itens':'cards'; return relCube[k]?relCube[k].data:[{}]; }
-            return [META].concat(finData);
+            // Consumo (grão ativo × OM): pré-agrega dropando identificadores (OM/paciente/telefone/lote/data)
+            // — mantém Ativo + todas as dimensões das visões; soma idêntica, cabe no 1 MB do WebDataRocks.
+            return aggCube(META, finData, ['OM','Telefone','Paciente','Lote','Data']);
         }
         function buildReport(slice){ return { dataSource:{type:'json',data:cubeRows()}, slice:slice,
             formats:[{name:'brl',decimalPlaces:2,decimalSeparator:',',thousandsSeparator:'.',currencySymbol:'R$ ',currencySymbolAlign:'left',nullValue:''},{name:'qtd',decimalPlaces:2,decimalSeparator:',',thousandsSeparator:'.',nullValue:''},{name:'int',decimalPlaces:0,decimalSeparator:',',thousandsSeparator:'.',nullValue:''},{name:'pct',decimalPlaces:1,decimalSeparator:',',thousandsSeparator:'.',currencySymbol:'%',currencySymbolAlign:'right',nullValue:''}],
