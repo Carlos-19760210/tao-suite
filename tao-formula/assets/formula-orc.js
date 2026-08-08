@@ -150,11 +150,10 @@
 
         // ── % (percentual do peso total da fórmula) ──────────────────────
         if (doseUnit === '%') {
-            var unid_pct = getUnidade();
-            var dens_pct = densidade;
-            var totalG_pct = unid_pct === 'ml'
-                ? getVol() * getPotes() * dens_pct
-                : getVol() * getPotes();
+            // % é DIRETO sobre o volume total (volume × potes), SEM densidade — modelo FCerta
+            // (ex.: 20% de 500ml = 100g). Igual ao backend (reprocessar/importar). Não usar densidade
+            // aqui: senão líquidos saíam massa = %×volume×densidade (ex.: 5% de 150ml × 0,61 = 4,575 no lugar de 7,5).
+            var totalG_pct = getVol() * getPotes();
             var qty_g_nom  = (dose / 100) * totalG_pct;
             var qty_g_real = qty_g_nom * equiv * diluicao / (teor / 100);
             var qty_g_fp   = qty_g_real * fp;
