@@ -577,11 +577,36 @@ function tao_crm_page_analise() {
         }
         var wdr=null, wdrReady=false, curCube='consumo', curView='ativo', fieldsOpen=false, pivChartOn=false;
         function curViews(){ return curCube==='perdas'?VIEWS_PERDA : curCube==='leads'?VIEWS_LEADS : curCube==='cards'?VIEWS_CARDS : curCube==='itens'?VIEWS_ITENS : VIEWS; }
+        // Pré-agrega o cubo p/ caber no limite de 1 MB do WebDataRocks (grátis): colapsa as linhas
+        // por combinação das DIMENSÕES (strings) somando as MEDIDAS (numbers). Resultado do pivô é
+        // idêntico (soma/contagem são associativas). `drop` = campos identificadores a remover
+        // (alta cardinalidade, ex.: Data por-dia) — reduz drasticamente o nº de linhas.
+        function aggCube(meta, rows, drop){
+            drop = drop || [];
+            var dims=[], meas=[];
+            Object.keys(meta).forEach(function(k){
+                if(meta[k].type==='number') meas.push(k);
+                else if(drop.indexOf(k)<0) dims.push(k);
+            });
+            var map={}, order=[];
+            rows.forEach(function(r){
+                var key=dims.map(function(d){ return r[d]==null?'':r[d]; }).join('');
+                var o=map[key];
+                if(!o){ o={}; dims.forEach(function(d){ o[d]=r[d]; }); meas.forEach(function(m){ o[m]=0; }); map[key]=o; order.push(key); }
+                meas.forEach(function(m){ o[m]=(o[m]||0)+(parseFloat(r[m])||0); });
+            });
+            var newMeta={}; Object.keys(meta).forEach(function(k){ if(drop.indexOf(k)<0) newMeta[k]=meta[k]; });
+            var out=[newMeta]; order.forEach(function(k){ out.push(map[k]); }); return out;
+        }
         function cubeRows(){
             if(curCube==='perdas'){ return [META_PERDA].concat(perdasData.map(function(r){
                 return {'Data':r['Data'],'Mes':r['Mes'],'Motivo':r['Motivo'],'Motivo Base':r['Motivo Base'],'Insumo/Medic.':r['Insumo/Medic.'],'Fase':r['Fase'],'Responsavel':r['Responsavel'],'Classificação':r['Classificação'],'Valor':r['Valor'],'Cards':1}; })); }
-            if(curCube==='leads'){ return [META_LEADS].concat(opData.map(function(r){
-                return {'Data':r['Data'],'Mes':r['Mes'],'Como nos Conheceu':r['Como nos Conheceu'],'Tipo de Fechamento':r['Tipo de Fechamento'],'Origem':r['Origem'],'Funil':r['Funil'],'Fase':r['Fase'],'Classe':r['Classe'],'Status':r['Status'],'Classificação':r['Classificação'],'Forma de Entrega':r['Forma de Entrega'],'Responsavel':r['Responsavel'],'Valor':r['Valor'],'Leads':1}; })); }
+            if(curCube==='leads'){
+                var _lr = opData.map(function(r){
+                    return {'Mes':r['Mes'],'Como nos Conheceu':r['Como nos Conheceu'],'Tipo de Fechamento':r['Tipo de Fechamento'],'Origem':r['Origem'],'Funil':r['Funil'],'Fase':r['Fase'],'Classe':r['Classe'],'Status':r['Status'],'Classificação':r['Classificação'],'Forma de Entrega':r['Forma de Entrega'],'Responsavel':r['Responsavel'],'Valor':(parseFloat(r['Valor'])||0),'Leads':1}; });
+                // 'Data' (por-dia) sai do cubo (fica o 'Mes') → pré-agrega e cabe no 1 MB.
+                return aggCube(META_LEADS, _lr, ['Data']);
+            }
             if(curCube==='cards'||curCube==='itens'){ var k=curCube==='itens'?'itens':'cards'; return relCube[k]?relCube[k].data:[{}]; }
             return [META].concat(finData);
         }
