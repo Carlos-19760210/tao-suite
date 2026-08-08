@@ -889,14 +889,26 @@
             alert('Para fechar como ganho, adicione um item de negócio ou aprove ao menos um orçamento (que vira OM).');
             return;
         }
-        // Confirma o Valor Final ANTES do formulário (negativa = card não é movimentado)
-        var _vEl = document.getElementById('crm-valor-oportunidade');
-        if (!_confirmarValorGanho(_vEl ? _vEl.value : 0)) return;
         var cardId = (typeof taoCrmCardId !== 'undefined') ? taoCrmCardId : '';
-        _fecharCardId = cardId;
-        var campos = (typeof taoCrmGanhoCampos !== 'undefined') ? taoCrmGanhoCampos : [];
-        var valores = (typeof taoCrmGanhoValores !== 'undefined') ? taoCrmGanhoValores : {};
-        _abrirModalFechar('ganho', campos, valores);
+        var $b = $(this).prop('disabled', true);
+        // 1º) TODAS as validações do card (orçamento aprovado, item sem ativo, estágio configurado)
+        //     ANTES do questionário — se houver pendência, o atendente corrige sem ter preenchido
+        //     os campos obrigatórios (evita retrabalho). Só depois abre o modal de campos.
+        crmPost({ action:'tao_crm_fechar_card', nonce:taoCrm.nonce, card_id:cardId, tipo:'ganho', apenas_validar:1 },
+            function(r){
+                $b.prop('disabled', false);
+                if (!r.success) { alert((r.data && r.data.msg) ? r.data.msg : (r.data || 'Pendência antes de fechar como ganho.')); return; }
+                // 2º) validado → confirma o Valor Final (negativa = card não é movimentado)
+                var _vEl = document.getElementById('crm-valor-oportunidade');
+                if (!_confirmarValorGanho(_vEl ? _vEl.value : 0)) return;
+                // 3º) por último, o questionário de campos obrigatórios
+                _fecharCardId = cardId;
+                var campos = (typeof taoCrmGanhoCampos !== 'undefined') ? taoCrmGanhoCampos : [];
+                var valores = (typeof taoCrmGanhoValores !== 'undefined') ? taoCrmGanhoValores : {};
+                _abrirModalFechar('ganho', campos, valores);
+            },
+            function(err){ $b.prop('disabled', false); alert('Erro: ' + err); }
+        );
     });
 
     $('#tao-crm-btn-perdido').on('click', function() {

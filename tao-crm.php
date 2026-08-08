@@ -2053,6 +2053,24 @@ function tao_crm_ajax_fechar_card() {
         ] );
     }
 
+    // ── PRÉ-VALIDAÇÃO (apenas_validar): roda TODAS as travas do card ANTES do questionário ──
+    //    de campos obrigatórios, para o atendente corrigir o card sem perder o que preencheria.
+    //    NÃO move/fecha nada; NÃO exige valor_ok nem os campos (esses são o passo do modal).
+    if ( ! empty( $_POST['apenas_validar'] ) ) {
+        if ( $tipo === 'ganho' ) {
+            $veto_pv = apply_filters( 'tao_crm_veto_fechar_ganho', null, $card_id, $card );
+            if ( is_array( $veto_pv ) && ! empty( $veto_pv['veto'] ) ) {
+                wp_send_json_error( [ 'code' => $veto_pv['code'] ?? 'veto_ganho', 'msg' => $veto_pv['msg'] ?? 'Pendência antes de fechar como ganho.' ] );
+            }
+        }
+        $re_chk = tao_crm_api( "/crm_estagios?pipeline_id=eq.{$card['pipeline_id']}&tipo=eq.$tipo&limit=1" );
+        if ( ! $re_chk['ok'] || empty( $re_chk['data'] ) ) {
+            $label = $tipo === 'ganho' ? 'Ganho (✅)' : 'Perdido (✗)';
+            wp_send_json_error( "Nenhum estágio do tipo $label configurado. Configurações → Pipelines e Estágios." );
+        }
+        wp_send_json_success( [ 'ok' => true ] );
+    }
+
     // Ganho exige confirmação explícita do Valor Final pelo usuário (o front mostra
     // o valor e só envia valor_ok=1 após o "Sim"; sem isso o card não é movimentado)
     if ( $tipo === 'ganho' && empty( $_POST['valor_ok'] ) ) {
