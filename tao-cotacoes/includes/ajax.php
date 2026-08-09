@@ -283,13 +283,27 @@ add_action( 'wp_ajax_tao_cot_preview_msg', function() {
     $rn = tao_cot_api( "/clientes?id=eq.$cid&select=nome_negocio" );
     $nome_negocio = ( $rn['ok'] && ! empty( $rn['data'] ) ) ? ( $rn['data'][0]['nome_negocio'] ?? 'nossa farmácia' ) : 'nossa farmácia';
     $msg = tao_cot_montar_msg( $cot, $itens, $nome_negocio, '{fornecedor}' );
-    $rf  = tao_cot_api( "/cotacao_fornecedores?cotacao_id=eq.$id&select=fornecedores(nome,whatsapp)" );
+    $rf  = tao_cot_api( "/cotacao_fornecedores?cotacao_id=eq.$id&select=status,fornecedores(nome,whatsapp)" );
     $dest = [];
     foreach ( ( $rf['ok'] ? $rf['data'] : [] ) as $p ) {
         $fn = $p['fornecedores']['nome'] ?? '';
-        if ( $fn ) $dest[] = [ 'nome' => $fn, 'tem_wa' => ! empty( $p['fornecedores']['whatsapp'] ) ];
+        if ( $fn ) $dest[] = [ 'nome' => $fn, 'tem_wa' => ! empty( $p['fornecedores']['whatsapp'] ), 'status' => $p['status'] ?? '' ];
     }
-    wp_send_json_success( [ 'msg' => $msg, 'fornecedores' => $dest ] );
+    // rascunho salvo (revisão anterior do farmacêutico) tem prioridade sobre o gerado
+    $salvo = trim( (string) ( $cot['msg_texto'] ?? '' ) );
+    wp_send_json_success( [ 'msg' => $msg, 'msg_texto' => $salvo, 'fornecedores' => $dest ] );
+} );
+
+// Salvar o texto revisado SEM enviar (permite copiar e enviar manualmente depois)
+add_action( 'wp_ajax_tao_cot_salvar_msg', function() {
+    $cid = tao_cot_ajax_guard();
+    $id  = sanitize_text_field( $_POST['id'] ?? '' );
+    if ( ! $id ) wp_send_json_error( 'ID inválido' );
+    $rc = tao_cot_api( "/cotacoes?id=eq.$id&cliente_id=eq.$cid&select=id" );
+    if ( ! $rc['ok'] || empty( $rc['data'] ) ) wp_send_json_error( 'Cotação não encontrada' );
+    $txt = trim( (string) wp_unslash( $_POST['msg_texto'] ?? '' ) );
+    $u = tao_cot_api( "/cotacoes?id=eq.$id", 'PATCH', [ 'msg_texto' => $txt ] );
+    $u['ok'] ? wp_send_json_success( true ) : wp_send_json_error( 'Falha ao salvar o texto' );
 } );
 
 /**
@@ -300,6 +314,8 @@ function tao_cot_do_envio( $cotacao_id, $cid, $msg_custom = null ) {
     if ( ! $rc['ok'] || empty( $rc['data'] ) ) return [ 'erro_fatal' => 'Cotação não encontrada' ];
     $cot = $rc['data'][0];
     if ( in_array( $cot['status'], [ 'concluida', 'cancelada' ], true ) ) return [ 'erro_fatal' => 'Cotação já encerrada' ];
+    // persiste o texto revisado na cotação (para reuso/cópia)
+    if ( $msg_custom !== null && trim( $msg_custom ) !== '' ) tao_cot_api( "/cotacoes?id=eq.$cotacao_id", 'PATCH', [ 'msg_texto' => trim( $msg_custom ) ] );
 
     $ri = tao_cot_api( "/crm_instancias?id=eq.{$cot['instancia_id']}" );
     if ( ! $ri['ok'] || empty( $ri['data'] ) ) return [ 'erro_fatal' => 'Instância WhatsApp não encontrada' ];

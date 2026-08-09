@@ -297,16 +297,78 @@ function tao_cot_comparativo_dados( $cid, $cotacao_id ) {
     }
     asort( $fornecedores );
 
+    // ── Frete por fornecedor (rateio proporcional ao VALOR) ──────────────────
+    $frete = [];
+    $rf = tao_cot_api( "/cotacao_fornecedores?cotacao_id=eq.$cotacao_id&select=fornecedor_id,frete&limit=500" );
+    if ( $rf['ok'] ) foreach ( $rf['data'] as $x ) if ( (float) ( $x['frete'] ?? 0 ) > 0 ) $frete[ $x['fornecedor_id'] ] = (float) $x['frete'];
+    // valor total por fornecedor = Σ (vl_unit × qtd do item) sobre os itens casados que ele cotou
+    $qtd_item = [];
+    foreach ( $itens as $it ) $qtd_item[ $it['id'] ] = (float) ( $it['qtd'] ?? 0 );
+    $valor_forn = [];
+    foreach ( $por_item as $iid => $porfid ) {
+        $q = $qtd_item[ $iid ] ?? 0;
+        foreach ( $porfid as $fid => $p ) {
+            $base = $q > 0 ? $q : (float) ( $p['qtde_min'] ?? 0 );   // sem qtd do item, usa o fracionamento
+            $valor_forn[ $fid ] = ( $valor_forn[ $fid ] ?? 0 ) + (float) $p['vl_unit'] * $base;
+        }
+    }
+    // fator uniforme por fornecedor (rateio por valor ⇒ mesmo % em cada item)
+    $fator = [];
+    foreach ( $fornecedores as $fid => $nome ) {
+        $fr = $frete[ $fid ] ?? 0; $tv = $valor_forn[ $fid ] ?? 0;
+        $fator[ $fid ] = ( $fr > 0 && $tv > 0 ) ? ( 1 + $fr / $tv ) : 1.0;
+    }
+
     $linhas = [];
     foreach ( $itens as $it ) {
         $cells  = $por_item[ $it['id'] ] ?? [];
+        foreach ( $cells as $fid => $p ) $cells[ $fid ]['vl_com_frete'] = round( (float) $p['vl_unit'] * ( $fator[ $fid ] ?? 1 ), 6 );
+        // melhor = menor preço COM frete (empate/sem frete cai no vl_unit puro pelo fator=1)
         $melhor = null;
         foreach ( $cells as $fid => $p ) {
-            if ( ! $melhor || (float) $p['vl_unit'] < (float) $cells[ $melhor ]['vl_unit'] ) $melhor = $fid;
+            if ( ! $melhor || (float) $p['vl_com_frete'] < (float) $cells[ $melhor ]['vl_com_frete'] ) $melhor = $fid;
         }
         $linhas[] = [ 'item' => $it, 'cells' => $cells, 'melhor_fid' => $melhor ];
     }
-    return [ 'linhas' => $linhas, 'fornecedores' => $fornecedores, 'divergencias' => $diverg, 'extras' => $extras ];
+
+    // ── Conferência do farmacêutico: todos os preços com o ativo atual + status ──
+    $aids = [];
+    foreach ( $precos as $p ) if ( ! empty( $p['ativo_id'] ) ) $aids[ $p['ativo_id'] ] = 1;
+    $anomes = [];
+    if ( $aids ) {
+        $ra = tao_cot_api( '/ativos?id=in.(' . implode( ',', array_keys( $aids ) ) . ')&select=id,nome&limit=1000' );
+        if ( $ra['ok'] ) foreach ( $ra['data'] as $a ) $anomes[ $a['id'] ] = $a['nome'];
+    }
+    $itmap = [];
+    foreach ( $itens as $it ) $itmap[ $it['id'] ] = $it['descricao'];
+    $conferencia = [];
+    foreach ( $precos as $p ) {
+        $aid = $p['ativo_id'] ?? null;
+        if ( ! $aid )                               $status = 'nao_assoc';   // sem ativo (divergência)
+        elseif ( empty( $p['cotacao_item_id'] ) )   $status = 'fora';        // ativo fora dos itens da cotação (possível erro)
+        else                                        $status = 'ok';          // casado a um item da cotação
+        $conferencia[] = [
+            'id'             => $p['id'],
+            'fornecedor'     => $fornecedores[ $p['fornecedor_id'] ] ?? '',
+            'fornecedor_id'  => $p['fornecedor_id'],
+            'item_original'  => $p['item_original'],
+            'vl_unit'        => $p['vl_unit'],
+            'unid'           => $p['unid'],
+            'qtde_min'       => $p['qtde_min'] ?? null,
+            'validade'       => $p['validade'] ?? null,
+            'ativo_id'       => $aid,
+            'ativo_nome'     => $aid ? ( $anomes[ $aid ] ?? '—' ) : null,
+            'item_desc'      => ! empty( $p['cotacao_item_id'] ) ? ( $itmap[ $p['cotacao_item_id'] ] ?? '' ) : '',
+            'status'         => $status,
+        ];
+    }
+    // ordena: não associados e fora primeiro, depois ok
+    usort( $conferencia, function( $a, $b ) {
+        $ord = [ 'nao_assoc' => 0, 'fora' => 1, 'ok' => 2 ];
+        return ( $ord[ $a['status'] ] <=> $ord[ $b['status'] ] ) ?: strcmp( $a['fornecedor'], $b['fornecedor'] );
+    } );
+
+    return [ 'linhas' => $linhas, 'fornecedores' => $fornecedores, 'divergencias' => $diverg, 'extras' => $extras, 'conferencia' => $conferencia, 'frete' => $frete, 'fator' => $fator ];
 }
 
 // ── AJAX: processar proposta (arquivo do chat ou upload) ─────────────────────
@@ -528,11 +590,52 @@ add_action( 'wp_ajax_tao_cot_item_editar', function() {
     if ( ! $r['ok'] || empty( $r['data'] ) ) wp_send_json_error( 'Item não encontrado' );
     if ( ! tao_cot_cotacao_do_cliente( $r['data'][0]['cotacao_id'], $cid ) ) wp_send_json_error( 'Sem permissão', 403 );
     $patch = [];
-    if ( isset( $_POST['qtd'] ) )     $patch['qtd']     = (float) str_replace( ',', '.', preg_replace( '/[^\d,.\-]/', '', (string) $_POST['qtd'] ) );
-    if ( isset( $_POST['unidade'] ) ) $patch['unidade'] = strtolower( trim( sanitize_text_field( $_POST['unidade'] ) ) );
+    if ( isset( $_POST['qtd'] ) )       $patch['qtd']       = (float) str_replace( ',', '.', preg_replace( '/[^\d,.\-]/', '', (string) $_POST['qtd'] ) );
+    if ( isset( $_POST['unidade'] ) )   $patch['unidade']   = strtolower( trim( sanitize_text_field( $_POST['unidade'] ) ) );
+    if ( isset( $_POST['descricao'] ) ) $patch['descricao'] = trim( sanitize_text_field( $_POST['descricao'] ) );
+    if ( isset( $_POST['codigo_fc'] ) ) $patch['codigo_fc'] = sanitize_text_field( $_POST['codigo_fc'] ) ?: null;
+    if ( isset( $_POST['urgente'] ) )   $patch['urgente']   = ( $_POST['urgente'] === '1' || $_POST['urgente'] === 'true' );
+    if ( isset( $_POST['ativo_id'] ) )  $patch['ativo_id']  = sanitize_text_field( $_POST['ativo_id'] ) ?: null;
     if ( ! $patch ) wp_send_json_error( 'Nada a alterar' );
     $u = tao_cot_api( "/cotacao_itens?id=eq.$id", 'PATCH', $patch );
     $u['ok'] ? wp_send_json_success( $patch ) : wp_send_json_error( 'Falha ao salvar' );
+} );
+
+// ── AJAX: incluir item avulso na cotação ─────────────────────────────────────
+add_action( 'wp_ajax_tao_cot_item_add', function() {
+    $cid    = tao_cot_ajax_guard();
+    $cot_id = sanitize_text_field( $_POST['cotacao_id'] ?? '' );
+    $desc   = trim( sanitize_text_field( $_POST['descricao'] ?? '' ) );
+    if ( ! $cot_id ) wp_send_json_error( 'cotação' );
+    if ( $desc === '' ) wp_send_json_error( 'Informe a descrição do item' );
+    if ( ! tao_cot_cotacao_do_cliente( $cot_id, $cid ) ) wp_send_json_error( 'Sem permissão', 403 );
+    $row = [
+        'cotacao_id'     => $cot_id,
+        'ativo_id'       => ! empty( $_POST['ativo_id'] ) ? sanitize_text_field( $_POST['ativo_id'] ) : null,
+        'codigo_fc'      => sanitize_text_field( $_POST['codigo_fc'] ?? '' ) ?: null,
+        'descricao'      => $desc,
+        'unidade'        => strtolower( trim( sanitize_text_field( $_POST['unidade'] ?? '' ) ) ),
+        'qtd'            => round( (float) str_replace( ',', '.', preg_replace( '/[^\d,.\-]/', '', (string) ( $_POST['qtd'] ?? 0 ) ) ), 2 ),
+        'urgente'        => ( ( $_POST['urgente'] ?? '' ) === '1' || ( $_POST['urgente'] ?? '' ) === 'true' ),
+        'ult_preco_pago' => null,
+        'origem'         => 'manual',
+    ];
+    $u = tao_cot_api( '/cotacao_itens', 'POST', [ $row ] );
+    $u['ok'] ? wp_send_json_success( is_array( $u['data'] ) ? ( $u['data'][0] ?? [] ) : [] ) : wp_send_json_error( 'Falha ao incluir' );
+} );
+
+// ── AJAX: excluir item da cotação (remove também os preços vinculados) ────────
+add_action( 'wp_ajax_tao_cot_item_excluir', function() {
+    $cid = tao_cot_ajax_guard();
+    $id  = sanitize_text_field( $_POST['id'] ?? '' );
+    if ( ! $id ) wp_send_json_error( 'id' );
+    $r = tao_cot_api( "/cotacao_itens?id=eq.$id&select=cotacao_id&limit=1" );
+    if ( ! $r['ok'] || empty( $r['data'] ) ) wp_send_json_error( 'Item não encontrado' );
+    if ( ! tao_cot_cotacao_do_cliente( $r['data'][0]['cotacao_id'], $cid ) ) wp_send_json_error( 'Sem permissão', 403 );
+    // desvincula os preços deste item (não apaga o histórico do fornecedor)
+    tao_cot_api( "/cotacao_precos?cotacao_item_id=eq.$id", 'PATCH', [ 'cotacao_item_id' => null ] );
+    $u = tao_cot_api( "/cotacao_itens?id=eq.$id", 'DELETE' );
+    $u['ok'] ? wp_send_json_success( true ) : wp_send_json_error( 'Falha ao excluir' );
 } );
 
 // ── AJAX: editar preço processado (vl_unit / unid / qtde_min / validade) ──────
@@ -559,6 +662,73 @@ add_action( 'wp_ajax_tao_cot_preco_editar', function() {
     $u['ok'] ? wp_send_json_success( $patch ) : wp_send_json_error( 'Falha ao salvar' );
 } );
 
+// ── AJAX: incluir nova LINHA de preço (retorno do fornecedor) manualmente ────
+add_action( 'wp_ajax_tao_cot_preco_add', function() {
+    $cid    = tao_cot_ajax_guard();
+    $cot_id = sanitize_text_field( $_POST['cotacao_id'] ?? '' );
+    $fid    = sanitize_text_field( $_POST['fornecedor_id'] ?? '' );
+    if ( ! $cot_id || ! $fid ) wp_send_json_error( 'Selecione a cotação e o fornecedor' );
+    if ( ! tao_cot_cotacao_do_cliente( $cot_id, $cid ) ) wp_send_json_error( 'Sem permissão', 403 );
+    $it = [
+        'item'          => sanitize_text_field( $_POST['item'] ?? '' ),
+        'preco'         => str_replace( ',', '.', preg_replace( '/[^\d,.\-]/', '', (string) ( $_POST['preco'] ?? '' ) ) ),
+        'preco_unidade' => strtolower( trim( sanitize_text_field( $_POST['preco_unidade'] ?? '' ) ) ),
+        'frac_min'      => str_replace( ',', '.', preg_replace( '/[^\d,.\-]/', '', (string) ( $_POST['frac_min'] ?? '' ) ) ),
+        'frac_unidade'  => strtolower( trim( sanitize_text_field( $_POST['frac_unidade'] ?? '' ) ) ),
+        'validade'      => sanitize_text_field( $_POST['validade'] ?? '' ),
+        'ativo_id'      => sanitize_text_field( $_POST['ativo_id'] ?? '' ),
+    ];
+    if ( $it['item'] === '' && empty( $it['ativo_id'] ) ) wp_send_json_error( 'Informe o item ou o ativo' );
+    $norm = tao_cot_normalizar_item( $it );
+    if ( ! $norm ) wp_send_json_error( 'Informe um preço válido' );
+    list( $vl, $unid, $qtde, $log ) = $norm;
+
+    tao_cot_ensure_participante( $cot_id, $fid );
+    $rp = tao_cot_api( '/cotacao_propostas', 'POST', [
+        'cotacao_id' => $cot_id, 'fornecedor_id' => $fid, 'origem' => 'manual',
+        'status' => 'processada', 'processado_em' => gmdate( 'c' ),
+    ] );
+    $prop_id = $rp['ok'] && ! empty( $rp['data'] ) ? $rp['data'][0]['id'] : null;
+
+    $explicit = ! empty( $it['ativo_id'] );
+    $ativo_id = $explicit ? $it['ativo_id'] : tao_cot_match_ativo( $cid, $it['item'] );
+    if ( $explicit && $ativo_id && $it['item'] !== '' ) tao_cot_salvar_sinonimo( $cid, $it['item'], $ativo_id );
+    $cit = null; $anome = '';
+    if ( $ativo_id ) {
+        $ri  = tao_cot_api( "/cotacao_itens?cotacao_id=eq.$cot_id&ativo_id=eq.$ativo_id&select=id&limit=1" );
+        $cit = ( $ri['ok'] && ! empty( $ri['data'] ) ) ? $ri['data'][0]['id'] : null;
+        if ( $it['item'] === '' ) {
+            $ra = tao_cot_api( "/ativos?id=eq.$ativo_id&select=nome&limit=1" );
+            if ( $ra['ok'] && ! empty( $ra['data'] ) ) $anome = $ra['data'][0]['nome'];
+        }
+    }
+    $r = tao_cot_api( '/cotacao_precos', 'POST', [
+        'cotacao_id' => $cot_id, 'fornecedor_id' => $fid, 'proposta_id' => $prop_id, 'cotacao_item_id' => $cit,
+        'ativo_id' => $ativo_id ?: null, 'item_original' => $it['item'] ?: $anome,
+        'vl_unit' => $vl, 'unid' => $unid, 'qtde_min' => $qtde ?: null,
+        'vl_total' => $qtde > 0 ? round( $vl * $qtde, 2 ) : null,
+        'validade' => $it['validade'] ?: null, 'conversao' => $log ?: 'manual',
+    ] );
+    if ( ! $r['ok'] ) wp_send_json_error( 'Falha ao incluir a linha' );
+    if ( $ativo_id && (float) $vl > 0 ) tao_cot_api( '/precos_historico', 'POST', [
+        'cliente_id' => $cid, 'ativo_id' => $ativo_id, 'fornecedor_id' => $fid, 'cotacao_id' => $cot_id, 'preco' => $vl, 'unid' => $unid ] );
+    wp_send_json_success( true );
+} );
+
+// ── AJAX: salvar FRETE da proposta de um fornecedor ──────────────────────────
+add_action( 'wp_ajax_tao_cot_frete_salvar', function() {
+    $cid    = tao_cot_ajax_guard();
+    $cot_id = sanitize_text_field( $_POST['cotacao_id'] ?? '' );
+    $fid    = sanitize_text_field( $_POST['fornecedor_id'] ?? '' );
+    if ( ! $cot_id || ! $fid ) wp_send_json_error( 'Dados inválidos' );
+    if ( ! tao_cot_cotacao_do_cliente( $cot_id, $cid ) ) wp_send_json_error( 'Sem permissão', 403 );
+    $frete = (float) str_replace( ',', '.', preg_replace( '/[^\d,.\-]/', '', (string) ( $_POST['frete'] ?? '0' ) ) );
+    if ( $frete < 0 ) $frete = 0;
+    tao_cot_ensure_participante( $cot_id, $fid );
+    $u = tao_cot_api( "/cotacao_fornecedores?cotacao_id=eq.$cot_id&fornecedor_id=eq.$fid", 'PATCH', [ 'frete' => $frete ] );
+    $u['ok'] ? wp_send_json_success( [ 'frete' => $frete ] ) : wp_send_json_error( 'Falha ao salvar o frete' );
+} );
+
 // ── AJAX: resolver divergência (vincula ativo e vira sinônimo) ────────────────
 
 add_action( 'wp_ajax_tao_cot_divergencia_resolver', function() {
@@ -578,12 +748,15 @@ add_action( 'wp_ajax_tao_cot_divergencia_resolver', function() {
 
     tao_cot_api( "/cotacao_precos?id=eq.$preco_id", 'PATCH', [ 'ativo_id' => $ativo_id, 'cotacao_item_id' => $cit ] );
 
-    // sinônimo acumulativo (termo como veio do fornecedor)
+    // sinônimo acumulativo (termo como veio do fornecedor) — associação do farmacêutico é AUTORITATIVA
     $termo = trim( (string) $p['item_original'] );
     if ( $termo !== '' ) {
-        $rs = tao_cot_api( "/ativos_sinonimos?cliente_id=eq.$cid&sinonimo=eq." . rawurlencode( $termo ) . "&select=id&limit=1" );
+        $rs = tao_cot_api( "/ativos_sinonimos?cliente_id=eq.$cid&sinonimo=eq." . rawurlencode( $termo ) . "&select=id,ativo_id&limit=1" );
         if ( $rs['ok'] && empty( $rs['data'] ) ) {
             tao_cot_api( '/ativos_sinonimos', 'POST', [ 'cliente_id' => $cid, 'ativo_id' => $ativo_id, 'sinonimo' => $termo ] );
+        } elseif ( $rs['ok'] && ! empty( $rs['data'] ) && ( $rs['data'][0]['ativo_id'] ?? '' ) !== $ativo_id ) {
+            // corrige um sinônimo antes mapeado para o ativo errado
+            tao_cot_api( "/ativos_sinonimos?id=eq.{$rs['data'][0]['id']}", 'PATCH', [ 'ativo_id' => $ativo_id ] );
         }
         delete_transient( 'tao_cot_cat_' . $cid );
     }
