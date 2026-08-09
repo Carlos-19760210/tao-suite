@@ -280,16 +280,18 @@ function tao_cot_gravar_precos( $cid, $cotacao, $fornecedor_id, $proposta_id, $i
 function tao_cot_comparativo_dados( $cid, $cotacao_id ) {
     $rit   = tao_cot_api( "/cotacao_itens?cotacao_id=eq.$cotacao_id&order=prioridade.asc,descricao.asc&limit=500" );
     $itens = $rit['ok'] ? $rit['data'] : [];
-    $rp    = tao_cot_api( "/cotacao_precos?cotacao_id=eq.$cotacao_id&select=*,fornecedores(nome)&order=criado_em.asc&limit=2000" );
+    $rp    = tao_cot_api( "/cotacao_precos?cotacao_id=eq.$cotacao_id&select=*,fornecedores(nome,pedido_minimo)&order=criado_em.asc&limit=2000" );
     $precos = $rp['ok'] ? $rp['data'] : [];
 
     $fornecedores = [];                       // fid => nome (só quem tem preço)
+    $pedido_min   = [];                       // fid => pedido mínimo (R$)
     $por_item     = [];                       // cotacao_item_id => [fid => melhor preço row]
     $extras       = [];                       // matched a ativo fora da lista
     $diverg       = [];
     foreach ( $precos as $p ) {
         $fid = $p['fornecedor_id'];
         $fornecedores[ $fid ] = $p['fornecedores']['nome'] ?? substr( $fid, 0, 8 );
+        $pedido_min[ $fid ]   = (float) ( $p['fornecedores']['pedido_minimo'] ?? 0 );
         if ( ! $p['ativo_id'] ) { $diverg[] = $p; continue; }
         $key = $p['cotacao_item_id'] ?: null;
         if ( ! $key ) { $extras[] = $p; continue; }
@@ -369,7 +371,7 @@ function tao_cot_comparativo_dados( $cid, $cotacao_id ) {
         return ( $ord[ $a['status'] ] <=> $ord[ $b['status'] ] ) ?: strcmp( $a['fornecedor'], $b['fornecedor'] );
     } );
 
-    return [ 'linhas' => $linhas, 'fornecedores' => $fornecedores, 'divergencias' => $diverg, 'extras' => $extras, 'conferencia' => $conferencia, 'frete' => $frete, 'fator' => $fator ];
+    return [ 'linhas' => $linhas, 'fornecedores' => $fornecedores, 'divergencias' => $diverg, 'extras' => $extras, 'conferencia' => $conferencia, 'frete' => $frete, 'fator' => $fator, 'pedido_minimo' => $pedido_min ];
 }
 
 // ── AJAX: processar proposta (arquivo do chat ou upload) ─────────────────────

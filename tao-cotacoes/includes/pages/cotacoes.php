@@ -331,6 +331,33 @@ function tao_cotacoes_render_view( $cot_id ) {
             </div>
             <?php endif; ?>
         </div>
+
+        <?php if ( $tem_precos ) :
+            $sug = [ 'itens' => [], 'forn' => [] ];
+            foreach ( $comp['fornecedores'] as $sfid => $snome ) {
+                $sug['forn'][ $sfid ] = [ 'nome' => $snome, 'frete' => (float) ( $comp['frete'][ $sfid ] ?? 0 ), 'pedido_minimo' => (float) ( $comp['pedido_minimo'][ $sfid ] ?? 0 ) ];
+            }
+            foreach ( $comp['linhas'] as $l ) {
+                if ( empty( $l['cells'] ) ) continue;
+                $scells = [];
+                foreach ( $l['cells'] as $cfid => $p ) $scells[ $cfid ] = [ 'vl_unit' => (float) $p['vl_unit'], 'frac' => (float) ( $p['qtde_min'] ?? 0 ), 'validade' => $p['validade'] ?? '', 'unid' => $p['unid'] ];
+                $sug['itens'][] = [ 'id' => $l['item']['id'], 'desc' => $l['item']['descricao'], 'prioridade' => (int) ( $l['item']['prioridade'] ?? 3 ), 'qtd' => (float) ( $l['item']['qtd'] ?? 0 ), 'unid' => $l['item']['unidade'] ?? '', 'cells' => $scells ];
+            }
+        ?>
+        <div class="taocot-card">
+            <div class="taocot-bar" style="margin:0 0 10px">
+                <h2 style="margin:0">🧾 Sugestão de pedido</h2>
+                <div style="display:flex;gap:6px;align-items:center">
+                    <span class="taocot-muted" style="font-size:12px">Distribuição:</span>
+                    <button type="button" class="taocot-btn taocot-btn-primary taocot-sug-mode" data-mode="preco">Por preço</button>
+                    <button type="button" class="taocot-btn taocot-sug-mode" data-mode="consolidado">Consolidado</button>
+                </div>
+            </div>
+            <p class="taocot-muted">Melhor preço é o critério; a prioridade organiza a distribuição. <strong>Por preço</strong>: cada item no fornecedor mais barato. <strong>Consolidado</strong>: os favoritos (⭐) definem os fornecedores principais e puxam os demais itens. Dá para <strong>mover</strong> um item de fornecedor e ajustar a <strong>qtde</strong> — os valores recalculam (frete rateado por valor na cesta de cada fornecedor).</p>
+            <div id="taocot-sug-box"></div>
+        </div>
+        <script>window.TAOCOT_SUG = <?php echo wp_json_encode( $sug ); ?>;</script>
+        <?php endif; ?>
     </div>
 
     <!-- input oculto p/ anexar proposta pela lista de fornecedores -->
@@ -1013,6 +1040,79 @@ function tao_cotacoes_render_view( $cot_id ) {
                     else alert('Erro: '+(r.data||'falha'));
                 });
             });
+        })();
+
+        // ── Motor de SUGESTÃO DE PEDIDO (100% no navegador; recalcula ao ajustar) ─
+        (function(){
+            var data = window.TAOCOT_SUG; if(!data || !data.itens || !data.itens.length) return;
+            var box = document.getElementById('taocot-sug-box'); if(!box) return;
+            var mode='preco', manualForn={}, manualQtd={};
+            var PRIOLBL=['⭐ Urgente','15 dias','30 dias','+30 dias'];
+            function esc(s){ var d=document.createElement('div'); d.textContent=(s==null?'':s); return d.innerHTML; }
+            function nf(v,d){ return (Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d}); }
+            function best(it, allowed){ var b=null;
+                for(var fid in it.cells){ if(allowed && allowed.indexOf(fid)<0) continue;
+                    if(b===null || it.cells[fid].vl_unit < it.cells[b].vl_unit) b=fid; } return b; }
+            function principais(){ var ps=[]; data.itens.forEach(function(it){ if(it.prioridade===0){ var f=best(it); if(f && ps.indexOf(f)<0) ps.push(f); } }); return ps; }
+            function assign(){ var a={}, ps=(mode==='consolidado')?principais():[];
+                data.itens.forEach(function(it){
+                    if(manualForn[it.id] && it.cells[manualForn[it.id]]){ a[it.id]=manualForn[it.id]; return; }
+                    if(mode==='consolidado' && it.prioridade!==0 && ps.length){ a[it.id]=best(it,ps)||best(it); }
+                    else a[it.id]=best(it);
+                }); return a; }
+            function qtde(it, fid){ if(manualQtd[it.id]!=null) return manualQtd[it.id];
+                var need=it.qtd||0, frac=(it.cells[fid]||{}).frac||0;
+                if(frac>0 && need>0) return Math.ceil(need/frac)*frac; return need||frac||0; }
+            function render(){
+                var a=assign(), porF={};
+                data.itens.forEach(function(it){ var fid=a[it.id]; if(!fid) return; (porF[fid]=porF[fid]||[]).push(it); });
+                var html='', totalGeral=0;
+                Object.keys(porF).forEach(function(fid){
+                    var F=data.forn[fid]||{}, itens=porF[fid], totalVal=0;
+                    itens.forEach(function(it){ totalVal += it.cells[fid].vl_unit*qtde(it,fid); });
+                    var frete=F.frete||0, subProd=0, subTot=0, rows='';
+                    itens.forEach(function(it){
+                        var c=it.cells[fid], q=qtde(it,fid), valProd=c.vl_unit*q;
+                        var freteItem = (frete>0 && totalVal>0) ? frete*(valProd/totalVal) : 0;
+                        var vlTot=valProd+freteItem; subProd+=valProd; subTot+=vlTot;
+                        var sel='<select class="taocot-sug-mv" data-item="'+it.id+'" style="font-size:11px;padding:2px 4px;border:1px solid #cbd5e1;border-radius:4px">';
+                        for(var of in it.cells){ sel+='<option value="'+of+'"'+(of===fid?' selected':'')+'>'+esc(data.forn[of]?data.forn[of].nome:of)+'</option>'; }
+                        sel+='</select>';
+                        rows+='<tr>'+
+                            '<td>'+esc(it.desc)+' <span class="taocot-muted" style="font-size:11px">'+PRIOLBL[it.prioridade]+'</span></td>'+
+                            '<td style="text-align:right">'+nf(it.qtd,2)+' '+esc(it.unid||c.unid)+'</td>'+
+                            '<td style="text-align:right"><input type="number" step="0.01" min="0" class="taocot-sug-q" data-item="'+it.id+'" value="'+q+'" style="width:76px;text-align:right;padding:2px 4px;border:1px solid #cbd5e1;border-radius:4px"> '+esc(c.unid)+'</td>'+
+                            '<td style="text-align:right">'+nf(c.vl_unit,4)+'</td>'+
+                            '<td style="text-align:right">'+nf(freteItem,2)+'</td>'+
+                            '<td style="text-align:right">'+nf(c.vl_unit+(q>0?freteItem/q:0),4)+'</td>'+
+                            '<td style="text-align:right"><strong>'+nf(vlTot,2)+'</strong></td>'+
+                            '<td>'+sel+(c.validade?'<div class="taocot-muted" style="font-size:11px">val '+esc(c.validade)+'</div>':'')+'</td>'+
+                        '</tr>';
+                    });
+                    totalGeral+=subTot;
+                    var abaixo = (F.pedido_minimo>0 && subProd < F.pedido_minimo);
+                    html+='<div style="margin:0 0 16px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">'+
+                        '<div style="background:#f8fafc;padding:8px 12px;font-weight:700;display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px">'+
+                            '<span>'+esc(F.nome)+' <span class="taocot-muted" style="font-weight:400;font-size:12px">'+itens.length+' item(ns)</span></span>'+
+                            '<span>Produtos R$ '+nf(subProd,2)+(frete>0?' · Frete R$ '+nf(frete,2):'')+' · <strong>Total R$ '+nf(subTot,2)+'</strong></span>'+
+                        '</div>'+
+                        (abaixo?'<div style="background:#fef2f2;color:#b91c1c;padding:6px 12px;font-size:12px">⚠️ Abaixo do pedido mínimo (R$ '+nf(F.pedido_minimo,2)+') — faltam R$ '+nf(F.pedido_minimo-subProd,2)+' em produtos</div>':'')+
+                        '<div class="taocot-tscroll"><table class="taocot-table" style="border:0">'+
+                        '<thead><tr><th>Produto</th><th style="text-align:right">Qtde nec.</th><th style="text-align:right">Qtde compra</th><th style="text-align:right">Vl unit (s/ frete)</th><th style="text-align:right">Frete item</th><th style="text-align:right">Vl unit c/ frete</th><th style="text-align:right">Vl total</th><th>Fornecedor / val</th></tr></thead>'+
+                        '<tbody>'+rows+'</tbody></table></div>'+
+                    '</div>';
+                });
+                if(html) html+='<div style="text-align:right;font-weight:700;font-size:15px">Total geral do pedido: R$ '+nf(totalGeral,2)+'</div>';
+                box.innerHTML = html || '<p class="taocot-muted">Sem itens com preço para sugerir.</p>';
+                box.querySelectorAll('.taocot-sug-mv').forEach(function(s){ s.addEventListener('change', function(){ manualForn[s.getAttribute('data-item')]=s.value; delete manualQtd[s.getAttribute('data-item')]; render(); }); });
+                box.querySelectorAll('.taocot-sug-q').forEach(function(inp){ inp.addEventListener('change', function(){ manualQtd[inp.getAttribute('data-item')] = parseFloat(String(inp.value).replace(',','.'))||0; render(); }); });
+            }
+            document.querySelectorAll('.taocot-sug-mode').forEach(function(b){ b.addEventListener('click', function(){
+                mode=b.getAttribute('data-mode'); manualForn={};
+                document.querySelectorAll('.taocot-sug-mode').forEach(function(x){ x.classList.toggle('taocot-btn-primary', x===b); });
+                render();
+            }); });
+            render();
         })();
 
         // ── Linha de inclusão (rodapé) — combo de ativo por teclado ─────────────
