@@ -46,8 +46,14 @@ function tao_cot_extrair_por_modelo( array $paginas, array $regras ) {
     $tipo = $regras['tipo'] ?? 'linha';
     $texto = implode( "\n", $paginas );
     $linhas = preg_split( '/\r\n|\r|\n/', $texto );
-    // remove ruído de fontes sem mapeamento unicode (ex.: "(cid:1)" em PDFs tipo Sixty)
-    $linhas = array_map( function( $l ) { return trim( preg_replace( '/\(cid:\d+\)/', '', (string) $l ) ); }, $linhas );
+    // Normaliza cada linha: remove ruído "(cid:N)"; cola "R$ 123" → "R$123" (pdf.js às vezes separa
+    // o símbolo do número); junta "1.234, 56"/dígitos quebrados raramente ocorrem — foco no R$.
+    $linhas = array_map( function( $l ) {
+        $l = preg_replace( '/\(cid:\d+\)/', '', (string) $l );
+        $l = preg_replace( '/R\$\s+/u', 'R$', $l );          // "R$ 236,00" → "R$236,00"
+        $l = preg_replace( '/[ \t]{2,}/', ' ', $l );          // colapsa espaços múltiplos
+        return trim( $l );
+    }, $linhas );
     $out = [];
 
     if ( $tipo === 'linha' ) {
