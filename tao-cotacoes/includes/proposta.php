@@ -216,6 +216,17 @@ function tao_cot_ensure_participante( $cot_id, $fornecedor_id ) {
     return ( $ins['ok'] && ! empty( $ins['data'] ) ) ? $ins['data'][0]['id'] : null;
 }
 
+// Salva a associação item→ativo como sinônimo (aprendizado): próximas importações casam sozinhas.
+// Não sobrescreve associação existente (respeita o que já foi ensinado).
+function tao_cot_salvar_sinonimo( $cid, $termo, $ativo_id ) {
+    $termo = trim( (string) $termo );
+    if ( $termo === '' || ! $ativo_id ) return;
+    $rs = tao_cot_api( "/ativos_sinonimos?cliente_id=eq.$cid&sinonimo=eq." . rawurlencode( $termo ) . "&select=id&limit=1" );
+    if ( ! empty( $rs['ok'] ) && ! empty( $rs['data'] ) ) return;   // já existe
+    tao_cot_api( '/ativos_sinonimos', 'POST', [ 'cliente_id' => $cid, 'ativo_id' => $ativo_id, 'sinonimo' => $termo ] );
+    delete_transient( 'tao_cot_cat_' . $cid );   // invalida o cache do catálogo p/ o match ver o novo sinônimo
+}
+
 function tao_cot_gravar_precos( $cid, $cotacao, $fornecedor_id, $proposta_id, $itens_raw ) {
     // mapa ativo_id -> cotacao_item_id (pra vincular ao item pedido)
     $rit = tao_cot_api( "/cotacao_itens?cotacao_id=eq.{$cotacao['id']}&select=id,ativo_id&limit=500" );
@@ -410,7 +421,10 @@ add_action( 'wp_ajax_tao_cot_proposta_manual', function() {
         $norm = tao_cot_normalizar_item( $it );
         if ( ! $norm ) continue;
         list( $vl, $unid, $qtde, $log ) = $norm;
-        $ativo_id = ! empty( $it['ativo_id'] ) ? sanitize_text_field( $it['ativo_id'] ) : tao_cot_match_ativo( $cid, $it['item'] ?? '' );
+        $explicit_ativo = ! empty( $it['ativo_id'] );
+        $ativo_id = $explicit_ativo ? sanitize_text_field( $it['ativo_id'] ) : tao_cot_match_ativo( $cid, $it['item'] ?? '' );
+        // Aprendizado: associação feita pelo atendente vira sinônimo → próximo import casa sozinho.
+        if ( $explicit_ativo && $ativo_id ) tao_cot_salvar_sinonimo( $cid, $it['item'] ?? '', $ativo_id );
         $r = tao_cot_api( '/cotacao_precos', 'POST', [
             'cotacao_id' => $cot_id, 'fornecedor_id' => $fid, 'proposta_id' => $prop_id,
             'cotacao_item_id' => $ativo_id ? ( $item_por_ativo[ $ativo_id ] ?? null ) : null,

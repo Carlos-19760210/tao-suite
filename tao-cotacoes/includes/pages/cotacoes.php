@@ -498,12 +498,16 @@ function tao_cotacoes_render_view( $cot_id ) {
         function place(inp){ var r=inp.getBoundingClientRect(); var p=acPop(); p.style.left=r.left+'px'; p.style.top=(r.bottom+2)+'px'; p.style.minWidth=r.width+'px'; }
         function taocotAtivoCombo(inp, onPick){
             var pop=acPop(), results=[], sel=-1, timer=null;
-            function paint(){ Array.prototype.forEach.call(pop.children,function(c,i){ c.style.background=(i===sel?'#eef2ff':'#fff'); }); var e=pop.children[sel]; if(e&&e.scrollIntoView) e.scrollIntoView({block:'nearest'}); }
-            function render(){ pop.innerHTML=''; results.forEach(function(a,i){ var d=document.createElement('div'); d.style.cssText='padding:7px 10px;cursor:pointer;'+(i===sel?'background:#eef2ff':'');
+            function paint(){ Array.prototype.forEach.call(pop.children,function(c,i){ var on=(i===sel);
+                c.style.background=on?'#2563eb':'#fff'; c.style.color=on?'#fff':'#334155';
+                var sp=c.querySelector('span'); if(sp) sp.style.color=on?'#dbeafe':'#94a3b8'; });
+                var e=pop.children[sel]; if(e){ var pt=e.offsetTop, pb=pt+e.offsetHeight;
+                    if(pt<pop.scrollTop) pop.scrollTop=pt; else if(pb>pop.scrollTop+pop.clientHeight) pop.scrollTop=pb-pop.clientHeight; } }
+            function render(){ pop.innerHTML=''; results.forEach(function(a,i){ var d=document.createElement('div'); d.style.cssText='padding:7px 10px;cursor:pointer;color:#334155';
                 d.innerHTML='<strong></strong><span style="color:#94a3b8"></span>'; d.querySelector('strong').textContent=a.nome; d.querySelector('span').textContent=a.codigo_fc?(' #'+a.codigo_fc):'';
                 d.addEventListener('mousedown', function(ev){ ev.preventDefault(); choose(i); });
                 d.addEventListener('mousemove', function(){ if(sel!==i){ sel=i; paint(); } });
-                pop.appendChild(d); }); place(inp); pop.style.display=results.length?'block':'none'; }
+                pop.appendChild(d); }); place(inp); pop.style.display=results.length?'block':'none'; paint(); }
             function close(){ pop.style.display='none'; results=[]; sel=-1; if(_acInp===inp)_acInp=null; }
             function choose(i){ var a=results[i]; if(!a) return; close(); onPick({ativo_id:a.id, nome:a.nome, codigo_fc:a.codigo_fc}); }
             inp.addEventListener('input', function(){ clearTimeout(timer); var q=inp.value.trim(); if(q.length<2){ close(); return; }
