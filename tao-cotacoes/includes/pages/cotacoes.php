@@ -176,13 +176,17 @@ function tao_cotacoes_render_view( $cot_id ) {
         </div>
 
         <div class="taocot-card">
-            <h2>Itens (<?php echo count( $itens ); ?>)</h2>
+            <div class="taocot-bar" style="margin:0 0 10px">
+                <h2 style="margin:0">Itens (<?php echo count( $itens ); ?>)</h2>
+                <button type="button" class="taocot-btn taocot-btn-danger" id="taocot-itens-del-sel" style="display:none">🗑 Excluir selecionados (<span id="taocot-itens-sel-n">0</span>)</button>
+            </div>
             <div class="taocot-tscroll">
             <table class="taocot-table">
-                <thead><tr><th style="width:34px" title="Urgente / mandatório">⭐</th><th style="min-width:220px">Item</th><th>Cód. FC</th><th style="text-align:right">Qtde</th><th>Un.</th><th style="text-align:right">Últ. pago</th><th>Origem</th><th style="width:36px"></th></tr></thead>
+                <thead><tr><th style="width:28px;text-align:center"><input type="checkbox" id="taocot-itens-chkall" title="Selecionar todos"></th><th style="width:34px" title="Urgente / mandatório">⭐</th><th style="min-width:220px">Item</th><th>Cód. FC</th><th style="text-align:right">Qtde</th><th>Un.</th><th style="text-align:right">Últ. pago</th><th>Origem</th><th style="width:36px"></th></tr></thead>
                 <tbody id="taocot-itens-tbody">
                 <?php foreach ( $itens as $it ) : ?>
                     <tr class="<?php echo ! empty( $it['urgente'] ) ? 'taocot-urgente' : ''; ?>" data-item-id="<?php echo esc_attr( $it['id'] ); ?>" data-ativo-id="<?php echo esc_attr( $it['ativo_id'] ?? '' ); ?>">
+                        <td style="text-align:center"><input type="checkbox" class="taocot-it-chk"></td>
                         <td style="text-align:center"><button type="button" class="taocot-it-star" title="Marcar/desmarcar urgente" style="border:0;background:transparent;cursor:pointer;font-size:15px;opacity:<?php echo ! empty( $it['urgente'] ) ? '1' : '.3'; ?>">⭐</button></td>
                         <td><input class="taocot-it-desc" value="<?php echo esc_attr( $it['descricao'] ); ?>" style="width:100%;min-width:180px;font-weight:600;padding:3px 5px;border:1px solid #e2e8f0;border-radius:5px">
                             <?php if ( empty( $it['ativo_id'] ) ) : ?><span class="taocot-muted taocot-it-livre">(item livre)</span><?php endif; ?>
@@ -198,6 +202,7 @@ function tao_cotacoes_render_view( $cot_id ) {
                 </tbody>
                 <tfoot>
                     <tr style="background:#f8fafc">
+                        <td></td>
                         <td style="text-align:center"><button type="button" id="taocot-add-star" title="Urgente" style="border:0;background:transparent;cursor:pointer;font-size:15px;opacity:.3">⭐</button></td>
                         <td><input id="taocot-add-desc" placeholder="incluir item… (digite p/ buscar ativo ↑/↓ Enter)" autocomplete="off" style="width:100%;min-width:180px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:5px"></td>
                         <td><input id="taocot-add-cod" placeholder="cód." style="width:80px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:5px"></td>
@@ -971,6 +976,36 @@ function tao_cotacoes_render_view( $cot_id ) {
             });
         }
         document.querySelectorAll('#taocot-itens-tbody tr').forEach(bindLinha);
+
+        // ── Seleção múltipla de itens + excluir vários de uma vez ───────────────
+        (function(){
+            var tbody=document.getElementById('taocot-itens-tbody'); if(!tbody) return;
+            var chkAll=document.getElementById('taocot-itens-chkall'),
+                btnDel=document.getElementById('taocot-itens-del-sel'),
+                nSpan=document.getElementById('taocot-itens-sel-n');
+            function chks(){ return Array.prototype.slice.call(tbody.querySelectorAll('.taocot-it-chk')); }
+            function selecionados(){ return chks().filter(function(c){ return c.checked; }); }
+            function atualiza(){
+                var n=selecionados().length;
+                if(nSpan) nSpan.textContent=n;
+                if(btnDel) btnDel.style.display = n>0 ? '' : 'none';
+                if(chkAll){ var todos=chks(); chkAll.checked = todos.length>0 && n===todos.length; chkAll.indeterminate = n>0 && n<todos.length; }
+            }
+            tbody.addEventListener('change', function(e){ if(e.target.classList.contains('taocot-it-chk')) atualiza(); });
+            if(chkAll) chkAll.addEventListener('change', function(){ chks().forEach(function(c){ c.checked=chkAll.checked; }); atualiza(); });
+            if(btnDel) btnDel.addEventListener('click', function(){
+                var trs=selecionados().map(function(c){ return c.closest('tr'); });
+                var ids=trs.map(function(tr){ return tr.getAttribute('data-item-id'); });
+                if(!ids.length) return;
+                if(!confirm('Excluir '+ids.length+' item(ns) selecionado(s) da cotação?')) return;
+                btnDel.disabled=true;
+                C.post('tao_cot_itens_excluir', { ids: JSON.stringify(ids) }).then(function(r){
+                    btnDel.disabled=false;
+                    if(r.success){ trs.forEach(function(tr){ tr.remove(); }); atualiza(); }
+                    else alert('Erro: '+(r.data||'falha'));
+                });
+            });
+        })();
 
         // ── Linha de inclusão (rodapé) — combo de ativo por teclado ─────────────
         (function(){

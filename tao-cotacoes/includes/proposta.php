@@ -638,6 +638,27 @@ add_action( 'wp_ajax_tao_cot_item_excluir', function() {
     $u['ok'] ? wp_send_json_success( true ) : wp_send_json_error( 'Falha ao excluir' );
 } );
 
+// ── AJAX: excluir VÁRIOS itens de uma vez ────────────────────────────────────
+add_action( 'wp_ajax_tao_cot_itens_excluir', function() {
+    $cid = tao_cot_ajax_guard();
+    $ids = json_decode( wp_unslash( $_POST['ids'] ?? '[]' ), true );
+    if ( ! is_array( $ids ) || ! $ids ) wp_send_json_error( 'Nenhum item selecionado' );
+    $ids = array_values( array_unique( array_filter( array_map( 'sanitize_text_field', $ids ) ) ) );
+    if ( ! $ids ) wp_send_json_error( 'Nenhum item válido' );
+    $in = implode( ',', $ids );
+    // confirma que TODOS pertencem a cotações deste cliente
+    $r = tao_cot_api( "/cotacao_itens?id=in.($in)&select=id,cotacao_id,cotacoes(cliente_id)&limit=1000" );
+    if ( ! $r['ok'] ) wp_send_json_error( 'Falha ao validar itens' );
+    $ok_ids = [];
+    foreach ( $r['data'] as $row ) if ( ( $row['cotacoes']['cliente_id'] ?? '' ) === $cid ) $ok_ids[] = $row['id'];
+    if ( ! $ok_ids ) wp_send_json_error( 'Sem permissão', 403 );
+    $inok = implode( ',', $ok_ids );
+    // desvincula os preços vinculados (mantém histórico) e exclui os itens
+    tao_cot_api( "/cotacao_precos?cotacao_item_id=in.($inok)", 'PATCH', [ 'cotacao_item_id' => null ] );
+    $u = tao_cot_api( "/cotacao_itens?id=in.($inok)", 'DELETE' );
+    $u['ok'] ? wp_send_json_success( [ 'excluidos' => count( $ok_ids ) ] ) : wp_send_json_error( 'Falha ao excluir' );
+} );
+
 // ── AJAX: editar preço processado (vl_unit / unid / qtde_min / validade) ──────
 add_action( 'wp_ajax_tao_cot_preco_editar', function() {
     $cid = tao_cot_ajax_guard();
