@@ -51,6 +51,7 @@ add_action( 'wp_ajax_tao_cot_save_fornecedor', function() {
         'telefone'        => $txt( 'telefone' ),
         'email'           => $txt( 'email' ),
         'prazo_pagamento' => $txt( 'prazo_pagamento' ),
+        'pedido_minimo'   => (float) str_replace( ',', '.', preg_replace( '/[^\d,.\-]/', '', (string) ( $_POST['pedido_minimo'] ?? '0' ) ) ),
     ];
 
     $salvar = function( $body ) use ( $id, $cid ) {

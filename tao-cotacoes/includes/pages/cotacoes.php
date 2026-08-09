@@ -91,7 +91,7 @@ function tao_cotacoes_render_view( $cot_id ) {
     }
     $cot = $rc['data'][0];
 
-    $rit   = tao_cot_api( "/cotacao_itens?cotacao_id=eq.$cot_id&order=urgente.desc,descricao.asc&limit=500" );
+    $rit   = tao_cot_api( "/cotacao_itens?cotacao_id=eq.$cot_id&order=prioridade.asc,descricao.asc&limit=500" );
     $itens = $rit['ok'] ? $rit['data'] : [];
 
     $rf    = tao_cot_api( "/cotacao_fornecedores?cotacao_id=eq.$cot_id&select=*,fornecedores(nome,whatsapp,contato)&order=enviado_em.asc" );
@@ -182,12 +182,19 @@ function tao_cotacoes_render_view( $cot_id ) {
             </div>
             <div class="taocot-tscroll">
             <table class="taocot-table">
-                <thead><tr><th style="width:28px;text-align:center"><input type="checkbox" id="taocot-itens-chkall" title="Selecionar todos"></th><th style="width:34px" title="Urgente / mandatório">⭐</th><th style="min-width:220px">Item</th><th>Cód. FC</th><th style="text-align:right">Qtde</th><th>Un.</th><th style="text-align:right">Últ. pago</th><th>Origem</th><th style="width:36px"></th></tr></thead>
+                <thead><tr><th style="width:28px;text-align:center"><input type="checkbox" id="taocot-itens-chkall" title="Selecionar todos"></th><th style="width:104px" title="0-Urgente ⭐ / 1-15 dias / 2-30 dias / 3-Acima 30">Prioridade</th><th style="min-width:220px">Item</th><th>Cód. FC</th><th style="text-align:right">Qtde</th><th>Un.</th><th style="text-align:right">Últ. pago</th><th>Origem</th><th style="width:36px"></th></tr></thead>
                 <tbody id="taocot-itens-tbody">
                 <?php foreach ( $itens as $it ) : ?>
                     <tr class="<?php echo ! empty( $it['urgente'] ) ? 'taocot-urgente' : ''; ?>" data-item-id="<?php echo esc_attr( $it['id'] ); ?>" data-ativo-id="<?php echo esc_attr( $it['ativo_id'] ?? '' ); ?>">
                         <td style="text-align:center"><input type="checkbox" class="taocot-it-chk"></td>
-                        <td style="text-align:center"><button type="button" class="taocot-it-star" title="Marcar/desmarcar urgente" style="border:0;background:transparent;cursor:pointer;font-size:15px;opacity:<?php echo ! empty( $it['urgente'] ) ? '1' : '.3'; ?>">⭐</button></td>
+                        <td><?php $prio = isset( $it['prioridade'] ) ? (int) $it['prioridade'] : ( ! empty( $it['urgente'] ) ? 0 : 3 ); ?>
+                            <select class="taocot-it-prio" style="padding:3px 4px;border:1px solid #e2e8f0;border-radius:5px;font-size:12px">
+                                <option value="0" <?php selected( $prio, 0 ); ?>>⭐ Urgente</option>
+                                <option value="1" <?php selected( $prio, 1 ); ?>>15 dias</option>
+                                <option value="2" <?php selected( $prio, 2 ); ?>>30 dias</option>
+                                <option value="3" <?php selected( $prio, 3 ); ?>>+30 dias</option>
+                            </select>
+                        </td>
                         <td><input class="taocot-it-desc" value="<?php echo esc_attr( $it['descricao'] ); ?>" style="width:100%;min-width:180px;font-weight:600;padding:3px 5px;border:1px solid #e2e8f0;border-radius:5px">
                             <?php if ( empty( $it['ativo_id'] ) ) : ?><span class="taocot-muted taocot-it-livre">(item livre)</span><?php endif; ?>
                         </td>
@@ -203,7 +210,9 @@ function tao_cotacoes_render_view( $cot_id ) {
                 <tfoot>
                     <tr style="background:#f8fafc">
                         <td></td>
-                        <td style="text-align:center"><button type="button" id="taocot-add-star" title="Urgente" style="border:0;background:transparent;cursor:pointer;font-size:15px;opacity:.3">⭐</button></td>
+                        <td><select id="taocot-add-prio" style="padding:4px;border:1px solid #cbd5e1;border-radius:5px;font-size:12px">
+                            <option value="0">⭐ Urgente</option><option value="1">15 dias</option><option value="2">30 dias</option><option value="3" selected>+30 dias</option>
+                        </select></td>
                         <td><input id="taocot-add-desc" placeholder="incluir item… (digite p/ buscar ativo ↑/↓ Enter)" autocomplete="off" style="width:100%;min-width:180px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:5px"></td>
                         <td><input id="taocot-add-cod" placeholder="cód." style="width:80px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:5px"></td>
                         <td style="text-align:right"><input id="taocot-add-qtd" type="number" step="0.01" min="0" placeholder="0" style="width:76px;text-align:right;padding:4px 6px;border:1px solid #cbd5e1;border-radius:5px"></td>
@@ -957,15 +966,14 @@ function tao_cotacoes_render_view( $cot_id ) {
         function bindLinha(tr){
             var q=tr.querySelector('.taocot-it-qtd'), u=tr.querySelector('.taocot-it-un'),
                 de=tr.querySelector('.taocot-it-desc'), co=tr.querySelector('.taocot-it-cod'),
-                st=tr.querySelector('.taocot-it-star'), dl=tr.querySelector('.taocot-it-del');
+                pr=tr.querySelector('.taocot-it-prio'), dl=tr.querySelector('.taocot-it-del');
             if(q)  q.addEventListener('change', function(){ salvarItem(tr,'qtd',q.value,q); });
             if(u)  u.addEventListener('change', function(){ salvarItem(tr,'unidade',u.value,u); });
             if(de) de.addEventListener('change', function(){ salvarItem(tr,'descricao',de.value,de); });
             if(co) co.addEventListener('change', function(){ salvarItem(tr,'codigo_fc',co.value,co); });
-            if(st) st.addEventListener('click', function(){
-                var novo = st.style.opacity!=='1';
-                C.post('tao_cot_item_editar', { id: tr.getAttribute('data-item-id'), urgente: novo?'1':'0' }).then(function(r){
-                    if(r.success){ st.style.opacity = novo?'1':'.3'; tr.classList.toggle('taocot-urgente', novo); }
+            if(pr) pr.addEventListener('change', function(){
+                C.post('tao_cot_item_editar', { id: tr.getAttribute('data-item-id'), prioridade: pr.value }).then(function(r){
+                    if(r.success){ tr.classList.toggle('taocot-urgente', pr.value==='0'); flash(pr, true); } else flash(pr, false);
                 });
             });
             if(dl) dl.addEventListener('click', function(){
@@ -1011,11 +1019,10 @@ function tao_cotacoes_render_view( $cot_id ) {
         (function(){
             var desc=document.getElementById('taocot-add-desc'), cod=document.getElementById('taocot-add-cod'),
                 qtd=document.getElementById('taocot-add-qtd'), un=document.getElementById('taocot-add-un'),
-                star=document.getElementById('taocot-add-star'), btn=document.getElementById('taocot-add-btn'),
+                prio=document.getElementById('taocot-add-prio'), btn=document.getElementById('taocot-add-btn'),
                 hint=document.getElementById('taocot-add-hint');
             if(!desc||!btn) return;
-            var novoAtivoId='', urg=false;
-            star.addEventListener('click', function(){ urg=!urg; star.style.opacity=urg?'1':'.3'; });
+            var novoAtivoId='';
             // ao escolher um ativo do combo, guarda o id, casa código/unidade e nome
             taocotAtivoCombo(desc, function(rr){ novoAtivoId=rr.ativo_id; desc.value=rr.nome; if(rr.codigo_fc) cod.value=rr.codigo_fc; hint.textContent='vinculado ao ativo'; });
             desc.addEventListener('input', function(){ novoAtivoId=''; hint.textContent='novo item manual'; });
@@ -1024,7 +1031,7 @@ function tao_cotacoes_render_view( $cot_id ) {
                 btn.disabled=true;
                 C.post('tao_cot_item_add', {
                     cotacao_id: ID, descricao: d, ativo_id: novoAtivoId, codigo_fc: cod.value,
-                    qtd: qtd.value, unidade: un.value, urgente: urg?'1':'0'
+                    qtd: qtd.value, unidade: un.value, prioridade: prio ? prio.value : '3'
                 }).then(function(r){ btn.disabled=false; if(r.success){ location.reload(); } else { alert('Erro: '+(r.data||'falha')); } });
             });
             desc.addEventListener('keydown', function(e){ if(e.key==='Enter' && !novoAtivoId){ /* deixa o combo tratar quando há seleção */ } });

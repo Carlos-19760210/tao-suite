@@ -278,7 +278,7 @@ function tao_cot_gravar_precos( $cid, $cotacao, $fornecedor_id, $proposta_id, $i
 // ── Dados do comparativo (usado pela tela e pelo export) ─────────────────────
 
 function tao_cot_comparativo_dados( $cid, $cotacao_id ) {
-    $rit   = tao_cot_api( "/cotacao_itens?cotacao_id=eq.$cotacao_id&order=urgente.desc,descricao.asc&limit=500" );
+    $rit   = tao_cot_api( "/cotacao_itens?cotacao_id=eq.$cotacao_id&order=prioridade.asc,descricao.asc&limit=500" );
     $itens = $rit['ok'] ? $rit['data'] : [];
     $rp    = tao_cot_api( "/cotacao_precos?cotacao_id=eq.$cotacao_id&select=*,fornecedores(nome)&order=criado_em.asc&limit=2000" );
     $precos = $rp['ok'] ? $rp['data'] : [];
@@ -597,6 +597,11 @@ add_action( 'wp_ajax_tao_cot_item_editar', function() {
     if ( isset( $_POST['codigo_fc'] ) ) $patch['codigo_fc'] = sanitize_text_field( $_POST['codigo_fc'] ) ?: null;
     if ( isset( $_POST['urgente'] ) )   $patch['urgente']   = ( $_POST['urgente'] === '1' || $_POST['urgente'] === 'true' );
     if ( isset( $_POST['ativo_id'] ) )  $patch['ativo_id']  = sanitize_text_field( $_POST['ativo_id'] ) ?: null;
+    if ( isset( $_POST['prioridade'] ) ) {
+        $pr = max( 0, min( 3, (int) $_POST['prioridade'] ) );
+        $patch['prioridade'] = $pr;
+        $patch['urgente']    = ( $pr === 0 );   // 0 = Urgente (⭐) mantém compatibilidade
+    }
     if ( ! $patch ) wp_send_json_error( 'Nada a alterar' );
     $u = tao_cot_api( "/cotacao_itens?id=eq.$id", 'PATCH', $patch );
     $u['ok'] ? wp_send_json_success( $patch ) : wp_send_json_error( 'Falha ao salvar' );
@@ -610,6 +615,7 @@ add_action( 'wp_ajax_tao_cot_item_add', function() {
     if ( ! $cot_id ) wp_send_json_error( 'cotação' );
     if ( $desc === '' ) wp_send_json_error( 'Informe a descrição do item' );
     if ( ! tao_cot_cotacao_do_cliente( $cot_id, $cid ) ) wp_send_json_error( 'Sem permissão', 403 );
+    $pr_add = isset( $_POST['prioridade'] ) ? max( 0, min( 3, (int) $_POST['prioridade'] ) ) : ( ( ( $_POST['urgente'] ?? '' ) === '1' || ( $_POST['urgente'] ?? '' ) === 'true' ) ? 0 : 3 );
     $row = [
         'cotacao_id'     => $cot_id,
         'ativo_id'       => ! empty( $_POST['ativo_id'] ) ? sanitize_text_field( $_POST['ativo_id'] ) : null,
@@ -617,7 +623,8 @@ add_action( 'wp_ajax_tao_cot_item_add', function() {
         'descricao'      => $desc,
         'unidade'        => strtolower( trim( sanitize_text_field( $_POST['unidade'] ?? '' ) ) ),
         'qtd'            => round( (float) str_replace( ',', '.', preg_replace( '/[^\d,.\-]/', '', (string) ( $_POST['qtd'] ?? 0 ) ) ), 2 ),
-        'urgente'        => ( ( $_POST['urgente'] ?? '' ) === '1' || ( $_POST['urgente'] ?? '' ) === 'true' ),
+        'prioridade'     => $pr_add,
+        'urgente'        => ( $pr_add === 0 ),
         'ult_preco_pago' => null,
         'origem'         => 'manual',
     ];

@@ -56,6 +56,7 @@ function tao_cotacoes_page_fornecedores() {
                     'telefone'        => $f['telefone'] ?? '',
                     'email'           => $f['email'] ?? '',
                     'prazo_pagamento' => $f['prazo_pagamento'] ?? '',
+                    'pedido_minimo'   => $f['pedido_minimo'] ?? '',
                     'ativo'           => ! empty( $f['ativo'] ) ? '1' : '0',
                 ] );
                 $ativo = ! empty( $f['ativo'] );
@@ -150,9 +151,15 @@ function tao_cotacoes_page_fornecedores() {
                         <input type="text" name="cep">
                     </div>
                 </div>
-                <div class="taocot-field">
-                    <label>Prazo de pagamento</label>
-                    <input type="text" name="prazo_pagamento" placeholder="Ex: 28/35/42 dias, boleto">
+                <div style="display:grid;grid-template-columns:2fr 1fr;gap:0 12px">
+                    <div class="taocot-field">
+                        <label>Prazo de pagamento</label>
+                        <input type="text" name="prazo_pagamento" placeholder="Ex: 28/35/42 dias, boleto">
+                    </div>
+                    <div class="taocot-field">
+                        <label>Pedido mínimo (R$)</label>
+                        <input type="number" step="0.01" min="0" name="pedido_minimo" placeholder="Ex: 500,00">
+                    </div>
                 </div>
                 <div class="taocot-field">
                     <label>Observações</label>
