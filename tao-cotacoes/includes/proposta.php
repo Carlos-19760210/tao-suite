@@ -97,12 +97,13 @@ function tao_cot_eh_capsula( $nome ) {
  * Retorna [vl_unit, unid, qtde_min_norm, conversao_log] ou null se não normalizável.
  */
 function tao_cot_normalizar_item( $it ) {
-    $preco = (float) ( $it['preco'] ?? 0 );
+    // parse numérico tolerante à vírgula decimal BR ("0,100"→0.1, "1.200,00"→1200)
+    $preco = (float) ( tao_cot_to_float( $it['preco'] ?? '' ) ?? 0 );
     if ( $preco <= 0 ) return null;
     $pu   = strtolower( trim( (string) ( $it['preco_unidade'] ?? '' ) ) );
-    $pq   = (float) ( $it['pacote_qtde'] ?? 0 );
+    $pq   = (float) ( tao_cot_to_float( $it['pacote_qtde'] ?? '' ) ?? 0 );
     $fu   = strtolower( trim( (string) ( $it['frac_unidade'] ?? '' ) ) );
-    $fmin = (float) ( $it['frac_min'] ?? 0 );
+    $fmin = (float) ( tao_cot_to_float( $it['frac_min'] ?? '' ) ?? 0 );
     $caps = tao_cot_eh_capsula( $it['item'] ?? '' );
     $log  = '';
 
