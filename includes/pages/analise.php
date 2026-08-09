@@ -598,19 +598,31 @@ function tao_crm_page_analise() {
             var newMeta={}; Object.keys(meta).forEach(function(k){ if(drop.indexOf(k)<0) newMeta[k]=meta[k]; });
             var out=[newMeta]; order.forEach(function(k){ out.push(map[k]); }); return out;
         }
+        // Dimensões usadas pela VISÃO atual (linhas+colunas) + 'Mes' (permite cruzar por tempo).
+        function viewKeepDims(){
+            var vs=curViews(), v=(vs&&(vs[curView]||vs[Object.keys(vs)[0]]))||null, keep=['Mes'];
+            if(v&&v.slice){ ['rows','columns'].forEach(function(kk){ (v.slice[kk]||[]).forEach(function(f){ if(f.uniqueName&&f.uniqueName!=='[Measures]'&&keep.indexOf(f.uniqueName)<0) keep.push(f.uniqueName); }); }); }
+            return keep;
+        }
+        // Drop = todas as dimensões (strings) do cubo que NÃO são usadas pela visão atual → cubo mínimo,
+        // cabe no 1 MB em qualquer período. (Medidas são somadas; resultado idêntico ao cubo completo.)
+        function dropForView(meta){ var keep=viewKeepDims(), drop=[]; Object.keys(meta).forEach(function(k){ if(meta[k].type!=='number'&&keep.indexOf(k)<0) drop.push(k); }); return drop; }
         function cubeRows(){
             if(curCube==='perdas'){ return aggCube(META_PERDA, perdasData.map(function(r){
-                return {'Mes':r['Mes'],'Motivo':r['Motivo'],'Motivo Base':r['Motivo Base'],'Insumo/Medic.':r['Insumo/Medic.'],'Fase':r['Fase'],'Responsavel':r['Responsavel'],'Classificação':r['Classificação'],'Valor':(parseFloat(r['Valor'])||0),'Cards':1}; }), ['Data']); }
+                return {'Mes':r['Mes'],'Motivo':r['Motivo'],'Motivo Base':r['Motivo Base'],'Insumo/Medic.':r['Insumo/Medic.'],'Fase':r['Fase'],'Responsavel':r['Responsavel'],'Classificação':r['Classificação'],'Valor':(parseFloat(r['Valor'])||0),'Cards':1}; }), dropForView(META_PERDA)); }
             if(curCube==='leads'){
                 var _lr = opData.map(function(r){
                     return {'Mes':r['Mes'],'Como nos Conheceu':r['Como nos Conheceu'],'Tipo de Fechamento':r['Tipo de Fechamento'],'Origem':r['Origem'],'Funil':r['Funil'],'Fase':r['Fase'],'Classe':r['Classe'],'Status':r['Status'],'Classificação':r['Classificação'],'Forma de Entrega':r['Forma de Entrega'],'Responsavel':r['Responsavel'],'Valor':(parseFloat(r['Valor'])||0),'Leads':1}; });
-                // 'Data' (por-dia) sai do cubo (fica o 'Mes') → pré-agrega e cabe no 1 MB.
-                return aggCube(META_LEADS, _lr, ['Data']);
+                return aggCube(META_LEADS, _lr, dropForView(META_LEADS));
             }
-            if(curCube==='cards'||curCube==='itens'){ var k=curCube==='itens'?'itens':'cards'; return relCube[k]?relCube[k].data:[{}]; }
-            // Consumo (grão ativo × OM): pré-agrega dropando identificadores (OM/paciente/telefone/lote/data)
-            // — mantém Ativo + todas as dimensões das visões; soma idêntica, cabe no 1 MB do WebDataRocks.
-            return aggCube(META, finData, ['OM','Telefone','Paciente','Lote','Data']);
+            if(curCube==='cards'||curCube==='itens'){ var k=curCube==='itens'?'itens':'cards';
+                if(!relCube[k]) return [{}];
+                var d=relCube[k].data; // [meta, ...rows]; agrega pelas dimensões da visão (a "por card" mantém Card = detalhado)
+                return aggCube(d[0], d.slice(1), dropForView(d[0]));
+            }
+            // Consumo (grão ativo × OM): agrega pelas dimensões da VISÃO atual (+Mes) → cabe no 1 MB
+            // em qualquer período; soma idêntica ao cubo completo.
+            return aggCube(META, finData, dropForView(META));
         }
         function buildReport(slice){ return { dataSource:{type:'json',data:cubeRows()}, slice:slice,
             formats:[{name:'brl',decimalPlaces:2,decimalSeparator:',',thousandsSeparator:'.',currencySymbol:'R$ ',currencySymbolAlign:'left',nullValue:''},{name:'qtd',decimalPlaces:2,decimalSeparator:',',thousandsSeparator:'.',nullValue:''},{name:'int',decimalPlaces:0,decimalSeparator:',',thousandsSeparator:'.',nullValue:''},{name:'pct',decimalPlaces:1,decimalSeparator:',',thousandsSeparator:'.',currencySymbol:'%',currencySymbolAlign:'right',nullValue:''}],
