@@ -453,9 +453,19 @@ function tao_cotacoes_render_view( $cot_id ) {
         function pdfjs(){ if(_pdf) return _pdf; _pdf=new Promise(function(res,rej){
             var s=document.createElement('script'); s.src='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';
             s.onload=function(){ try{ pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js'; res(); }catch(e){ rej(e);} }; s.onerror=rej; document.head.appendChild(s); }); return _pdf; }
+        // Reconstrói LINHAS por posição vertical (Y) — pdf.js entrega fragmentos por célula;
+        // sem isto a página vira uma linha só e os modelos (1 regex por linha de produto) não casam.
+        function itemsToLines(items){
+            var arr=[]; items.forEach(function(it){ var s=it.str; if(s&&s.trim()!==''){ arr.push({x:it.transform[4], y:it.transform[5], s:s}); } });
+            arr.sort(function(a,b){ return (b.y-a.y) || (a.x-b.x); });   // topo→base, esq→dir
+            var lines=[], cur=[], lastY=null;
+            arr.forEach(function(o){ if(lastY===null || Math.abs(o.y-lastY)<=3){ cur.push(o); } else { lines.push(cur); cur=[o]; } lastY=o.y; });
+            if(cur.length) lines.push(cur);
+            return lines.map(function(row){ return row.sort(function(a,b){return a.x-b.x;}).map(function(o){return o.s;}).join(' '); }).join('\n');
+        }
         function pdfText(file){ if(!/\.pdf$/i.test(file.name)) return Promise.resolve(null); return pdfjs().then(function(){ return new Promise(function(res){
             var fr=new FileReader(); fr.onload=function(){ pdfjsLib.getDocument({data:new Uint8Array(fr.result)}).promise.then(function(pdf){
-                var out=[], ch=Promise.resolve(); for(var i=1;i<=pdf.numPages;i++){ (function(n){ ch=ch.then(function(){ return pdf.getPage(n).then(function(p){ return p.getTextContent().then(function(tc){ out[n-1]=tc.items.map(function(it){return it.str;}).join(' '); }); }); }); })(i); }
+                var out=[], ch=Promise.resolve(); for(var i=1;i<=pdf.numPages;i++){ (function(n){ ch=ch.then(function(){ return pdf.getPage(n).then(function(p){ return p.getTextContent().then(function(tc){ out[n-1]=itemsToLines(tc.items); }); }); }); })(i); }
                 ch.then(function(){ res(out); }).catch(function(){ res(null); }); }).catch(function(){ res(null); }); }; fr.onerror=function(){ res(null); }; fr.readAsArrayBuffer(file);
         }); }).catch(function(){ return null; }); }
 
@@ -659,31 +669,47 @@ function tao_cotacoes_render_view( $cot_id ) {
             abrirManual(retModal.dataset.fid, retModal.dataset.nome);
         });
 
-        // combo dedicado de fornecedor (busca em todos os cadastrados)
+        // combo dedicado de fornecedor (busca em todos) — COM navegação por setas (↑/↓/Enter/Esc).
+        // REGRA do projeto: todo combo/autocomplete deve navegar e selecionar pelo teclado.
         (function(){
             var inp = document.getElementById('taocot-ret-busca');
             if(!inp) return;
             var box = inp.closest('.taocot-combo'), list = box.querySelector('.taocot-combo-list'), timer=null;
+            var results=[], sel=-1;
+            function render(){
+                list.innerHTML='';
+                results.forEach(function(f,i){
+                    var d=document.createElement('div');
+                    d.className='taocot-opt'+(i===sel?' sel':'');
+                    d.innerHTML='<strong></strong><span class="cod"></span>';
+                    d.querySelector('strong').textContent=f.nome;
+                    d.querySelector('.cod').textContent=f.contato?(' · '+f.contato):'';
+                    d.addEventListener('mousedown', function(ev){ ev.preventDefault(); pick(i); });
+                    d.addEventListener('mousemove', function(){ if(sel!==i){ sel=i; paint(); } });
+                    list.appendChild(d);
+                });
+                list.style.display=results.length?'block':'none';
+            }
+            function paint(){ Array.prototype.forEach.call(list.children,function(c,i){ c.className='taocot-opt'+(i===sel?' sel':''); }); var el=list.children[sel]; if(el&&el.scrollIntoView) el.scrollIntoView({block:'nearest'}); }
+            function pick(i){ var f=results[i]; if(!f) return; list.style.display='none'; results=[]; sel=-1; retEscolher(f.id, f.nome); }
             inp.addEventListener('input', function(){
                 clearTimeout(timer);
                 var q = inp.value.trim();
-                if(q.length < 2){ list.style.display='none'; list.innerHTML=''; return; }
+                if(q.length < 2){ list.style.display='none'; list.innerHTML=''; results=[]; sel=-1; return; }
                 timer = setTimeout(function(){
                     C.post('tao_cot_search_fornecedores', { q:q }).then(function(r){
-                        var fs = r.success ? (r.data||[]) : [];
-                        list.innerHTML = '';
-                        fs.forEach(function(f){
-                            var d = document.createElement('div');
-                            d.className = 'taocot-opt';
-                            d.innerHTML = '<strong></strong><span class="cod"></span>';
-                            d.querySelector('strong').textContent = f.nome;
-                            d.querySelector('.cod').textContent = f.contato ? (' · '+f.contato) : '';
-                            d.addEventListener('mousedown', function(ev){ ev.preventDefault(); list.style.display='none'; retEscolher(f.id, f.nome); });
-                            list.appendChild(d);
-                        });
-                        list.style.display = fs.length ? 'block' : 'none';
+                        results = r.success ? (r.data||[]) : [];
+                        sel = results.length ? 0 : -1;
+                        render();
                     });
                 }, 280);
+            });
+            inp.addEventListener('keydown', function(e){
+                if(list.style.display==='none' || !results.length) return;
+                if(e.key==='ArrowDown'){ e.preventDefault(); sel=Math.min(sel+1,results.length-1); paint(); }
+                else if(e.key==='ArrowUp'){ e.preventDefault(); sel=Math.max(sel-1,0); paint(); }
+                else if(e.key==='Enter'){ e.preventDefault(); if(sel>=0) pick(sel); }
+                else if(e.key==='Escape'){ list.style.display='none'; }
             });
             inp.addEventListener('blur', function(){ setTimeout(function(){ list.style.display='none'; }, 180); });
         })();

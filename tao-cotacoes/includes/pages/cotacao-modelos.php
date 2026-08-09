@@ -64,9 +64,18 @@ function tao_cotacoes_page_modelos() {
         function pdfjs(){ if(_pdf) return _pdf; _pdf=new Promise(function(res,rej){
             var s=document.createElement('script'); s.src='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';
             s.onload=function(){ try{ pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js'; res(); }catch(e){ rej(e);} }; s.onerror=rej; document.head.appendChild(s); }); return _pdf; }
+        // Reconstrói LINHAS por posição vertical (Y) — pdf.js entrega fragmentos por célula.
+        function itemsToLines(items){
+            var arr=[]; items.forEach(function(it){ var s=it.str; if(s&&s.trim()!==''){ arr.push({x:it.transform[4], y:it.transform[5], s:s}); } });
+            arr.sort(function(a,b){ return (b.y-a.y) || (a.x-b.x); });
+            var lines=[], cur=[], lastY=null;
+            arr.forEach(function(o){ if(lastY===null || Math.abs(o.y-lastY)<=3){ cur.push(o); } else { lines.push(cur); cur=[o]; } lastY=o.y; });
+            if(cur.length) lines.push(cur);
+            return lines.map(function(row){ return row.sort(function(a,b){return a.x-b.x;}).map(function(o){return o.s;}).join(' '); }).join('\n');
+        }
         function extrair(file){ return pdfjs().then(function(){ return new Promise(function(res,rej){
             var fr=new FileReader(); fr.onload=function(){ pdfjsLib.getDocument({data:new Uint8Array(fr.result)}).promise.then(function(pdf){
-                var out=[], ch=Promise.resolve(); for(var i=1;i<=pdf.numPages;i++){ (function(n){ ch=ch.then(function(){ return pdf.getPage(n).then(function(p){ return p.getTextContent().then(function(tc){ out[n-1]=tc.items.map(function(it){return it.str;}).join(' '); }); }); }); })(i); }
+                var out=[], ch=Promise.resolve(); for(var i=1;i<=pdf.numPages;i++){ (function(n){ ch=ch.then(function(){ return pdf.getPage(n).then(function(p){ return p.getTextContent().then(function(tc){ out[n-1]=itemsToLines(tc.items); }); }); }); })(i); }
                 ch.then(function(){ res(out); }).catch(rej); }).catch(rej); }; fr.onerror=rej; fr.readAsArrayBuffer(file);
         }); }); }
 
