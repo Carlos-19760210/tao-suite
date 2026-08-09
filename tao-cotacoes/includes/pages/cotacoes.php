@@ -480,7 +480,12 @@ function tao_cotacoes_render_view( $cot_id ) {
                     fileInp.value = '';
                     if(!r.success){ msg.textContent=''; alert('Erro: '+(r.data||'falha')); return; }
                     msg.textContent = '';
-                    abrirRevisao(propFid, propNome, r.data.itens||[], r.data.via);
+                    var itens = r.data.itens||[];
+                    if(!itens.length){
+                        alert('Nenhum item de preço foi encontrado neste arquivo.\n\nConfira se é a cotação com a TABELA DE PRODUTOS — arquivos que são só carta/aviso, capa ou imagem sem texto não têm itens para importar. Você também pode digitar manualmente.');
+                        return;
+                    }
+                    abrirRevisao(propFid, propNome, itens, r.data.via);
                 }).catch(function(){ msg.textContent=''; alert('Falha de rede'); fileInp.value=''; });
             });
         });
