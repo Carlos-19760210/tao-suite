@@ -485,6 +485,37 @@ function tao_cotacoes_render_view( $cot_id ) {
             });
         });
 
+        // ── Combo de ativo com dropdown FIXO no body (escapa do overflow da tabela) + teclado ──
+        //    Setas ↑/↓ navegam, Enter escolhe, Esc fecha; reposiciona no scroll. Regra: [[combo teclado]].
+        var _acPop=null, _acInp=null;
+        function acPop(){ if(_acPop) return _acPop;
+            _acPop=document.createElement('div');
+            _acPop.style.cssText='position:fixed;z-index:100001;background:#fff;border:1px solid #cbd5e1;border-radius:8px;box-shadow:0 10px 26px rgba(0,0,0,.18);max-height:240px;overflow:auto;display:none;font-size:13px;min-width:180px';
+            document.body.appendChild(_acPop);
+            window.addEventListener('scroll', function(){ if(_acPop.style.display!=='none'&&_acInp) place(_acInp); }, true);
+            window.addEventListener('resize', function(){ if(_acPop.style.display!=='none'&&_acInp) place(_acInp); });
+            return _acPop; }
+        function place(inp){ var r=inp.getBoundingClientRect(); var p=acPop(); p.style.left=r.left+'px'; p.style.top=(r.bottom+2)+'px'; p.style.minWidth=r.width+'px'; }
+        function taocotAtivoCombo(inp, onPick){
+            var pop=acPop(), results=[], sel=-1, timer=null;
+            function paint(){ Array.prototype.forEach.call(pop.children,function(c,i){ c.style.background=(i===sel?'#eef2ff':'#fff'); }); var e=pop.children[sel]; if(e&&e.scrollIntoView) e.scrollIntoView({block:'nearest'}); }
+            function render(){ pop.innerHTML=''; results.forEach(function(a,i){ var d=document.createElement('div'); d.style.cssText='padding:7px 10px;cursor:pointer;'+(i===sel?'background:#eef2ff':'');
+                d.innerHTML='<strong></strong><span style="color:#94a3b8"></span>'; d.querySelector('strong').textContent=a.nome; d.querySelector('span').textContent=a.codigo_fc?(' #'+a.codigo_fc):'';
+                d.addEventListener('mousedown', function(ev){ ev.preventDefault(); choose(i); });
+                d.addEventListener('mousemove', function(){ if(sel!==i){ sel=i; paint(); } });
+                pop.appendChild(d); }); place(inp); pop.style.display=results.length?'block':'none'; }
+            function close(){ pop.style.display='none'; results=[]; sel=-1; if(_acInp===inp)_acInp=null; }
+            function choose(i){ var a=results[i]; if(!a) return; close(); onPick({ativo_id:a.id, nome:a.nome, codigo_fc:a.codigo_fc}); }
+            inp.addEventListener('input', function(){ clearTimeout(timer); var q=inp.value.trim(); if(q.length<2){ close(); return; }
+                _acInp=inp; timer=setTimeout(function(){ C.post('tao_cot_search_ativos',{q:q}).then(function(r){ if(_acInp!==inp) return; results=r.success?(r.data||[]):[]; sel=results.length?0:-1; render(); }); }, 250); });
+            inp.addEventListener('keydown', function(e){ if(pop.style.display==='none'||_acInp!==inp||!results.length) return;
+                if(e.key==='ArrowDown'){ e.preventDefault(); sel=Math.min(sel+1,results.length-1); paint(); }
+                else if(e.key==='ArrowUp'){ e.preventDefault(); sel=Math.max(sel-1,0); paint(); }
+                else if(e.key==='Enter'){ e.preventDefault(); if(sel>=0) choose(sel); }
+                else if(e.key==='Escape'){ close(); } });
+            inp.addEventListener('blur', function(){ setTimeout(function(){ if(_acInp===inp) close(); }, 180); });
+        }
+
         // ── Revisão do farmacêutico (edição inline) — grava só ao Importar ──────
         var revFid=null, revItens=[];
         function revRender(){
@@ -500,10 +531,11 @@ function tao_cotacoes_render_view( $cot_id ) {
                 var tdU=document.createElement('td'),sel=document.createElement('select'); ['kg','g','L','ml','milheiro','unidade'].forEach(function(u){ var o=document.createElement('option'); o.value=u;o.textContent=u; if((it.preco_unidade||'g')===u)o.selected=true; sel.appendChild(o); }); sel.style.cssText='padding:4px 6px;border:1px solid #cbd5e1;border-radius:5px'; sel.addEventListener('change',function(){ it.preco_unidade=sel.value; }); tdU.appendChild(sel); tr.appendChild(tdU);
                 tr.appendChild(inp('frac_min','text',70));
                 tr.appendChild(inp('validade','text',70));
-                var tdA=document.createElement('td'); var box=document.createElement('div'); box.className='taocot-combo'; box.style.maxWidth='230px';
-                var ai=document.createElement('input'); ai.type='text'; ai.placeholder='buscar ativo…'; ai.value=it.ativo_nome||''; box.appendChild(ai);
-                var dl=document.createElement('div'); dl.className='taocot-combo-list'; box.appendChild(dl); tdA.appendChild(box); tr.appendChild(tdA);
-                C.combo({ input: ai, permitirLivre:false, onPick:function(rr){ it.ativo_id=rr.ativo_id; it.ativo_nome=rr.nome; ai.value=rr.nome; tr.style.background=''; } });
+                var tdA=document.createElement('td');
+                var ai=document.createElement('input'); ai.type='text'; ai.placeholder='buscar ativo… (↑/↓ e Enter)'; ai.value=it.ativo_nome||'';
+                ai.style.cssText='width:230px;max-width:100%;padding:4px 6px;border:1px solid #cbd5e1;border-radius:5px';
+                tdA.appendChild(ai); tr.appendChild(tdA);
+                taocotAtivoCombo(ai, function(rr){ it.ativo_id=rr.ativo_id; it.ativo_nome=rr.nome; ai.value=rr.nome; tr.style.background=''; });
                 tb.appendChild(tr);
             });
             document.getElementById('taocot-rev-cnt').textContent = '('+revItens.length+')';
