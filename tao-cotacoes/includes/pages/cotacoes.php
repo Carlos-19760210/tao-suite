@@ -776,7 +776,7 @@ function tao_cotacoes_render_view( $cot_id ) {
             document.getElementById('taocot-rev-cnt').textContent = '('+revItens.length+')';
         }
         function abrirRevisao(fid, nome, itens, via){
-            revFid=fid; revItens=itens.map(function(i){ return { item:i.item, preco:i.preco, preco_unidade:i.preco_unidade||'g', frac_min:i.frac_min||'', validade:i.validade||'', ativo_id:i.ativo_id||null, ativo_nome:i.ativo_nome||'' }; });
+            revFid=fid; revItens=itens.map(function(i){ return { item:i.item, preco:i.preco, preco_unidade:i.preco_unidade||'g', frac_min:i.frac_min||'', frac_unidade:i.frac_unidade||'', validade:i.validade||'', ativo_id:i.ativo_id||null, ativo_nome:i.ativo_nome||'' }; });
             document.getElementById('taocot-rev-forn').textContent = nome||'';
             document.getElementById('taocot-rev-via').textContent = via==='modelo' ? '· lido pelo modelo (sem IA)' : '· lido pela IA';
             revRender();

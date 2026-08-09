@@ -555,13 +555,15 @@ add_action( 'wp_ajax_tao_cot_proposta_preview', function() {
         $nome = trim( (string) ( $it['item'] ?? '' ) );
         if ( $nome === '' ) continue;
         $norm = tao_cot_normalizar_item( $it );
-        list( $vl, $unid ) = $norm ?: [ null, '' ];
+        list( $vl, $unid, $qtde_norm ) = $norm ?: [ null, '', 0 ];
         $ativo_id = tao_cot_match_ativo( $cid, $nome );
         $out[] = [
             'item'          => $nome,
             'preco'         => $it['preco'] ?? null,
             'preco_unidade' => $it['preco_unidade'] ?? '',
-            'frac_min'      => $it['qtde_min'] ?? ( $it['frac_min'] ?? '' ),
+            // fracionamento JÁ normalizado na base (g/ml/milheiro) + unidade base → evita ×1000 no confirm
+            'frac_min'      => ( $qtde_norm > 0 ) ? $qtde_norm : '',
+            'frac_unidade'  => ( $qtde_norm > 0 ) ? $unid : '',
             'validade'      => $it['validade'] ?? '',
             'ativo_id'      => $ativo_id,
             'vl_norm'       => $vl,

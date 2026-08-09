@@ -39,6 +39,16 @@ function tao_cot_is_capsula( $nome ) {
 // Compila regex do modelo de forma segura (delimitador # escapado, unicode + case-insensitive).
 function tao_cot_rx( $pat ) { return '#' . str_replace( '#', '\#', (string) $pat ) . '#ui'; }
 
+// Detecta a unidade DENTRO do texto do fracionamento (ex.: "250 g"→g, "1 KG"→kg).
+// Vazio quando não há unidade explícita (aí o normalizador cai na unidade do preço).
+function tao_cot_det_unidade( $s ) {
+    if ( preg_match( '/\b(kg|gr|g|mg|ml|l|milheiro|mil|un)\b/ui', (string) $s, $m ) ) {
+        $u = mb_strtolower( $m[1] );
+        return $u === 'gr' ? 'g' : $u;
+    }
+    return '';
+}
+
 // ── Extração DETERMINÍSTICA por MODELO (sem IA) ──────────────────────────────
 // $paginas = array de strings (texto por página, como o pdf.js extrai).
 // Retorna array de itens: { item, preco, preco_unidade, qtde_min, validade }.
@@ -75,12 +85,13 @@ function tao_cot_extrair_por_modelo( array $paginas, array $regras ) {
             $un = $unfixa;
             if ( isset( $g['unidade'] ) && ! empty( $m[ $g['unidade'] ] ) ) $un = trim( $m[ $g['unidade'] ] );
             if ( $capm && tao_cot_is_capsula( $nome ) ) $un = 'milheiro';
+            $qm = isset( $g['qtde_min'] ) ? trim( $m[ $g['qtde_min'] ] ?? '' ) : '';
             $out[] = [
                 'item'          => $nome,
                 'preco'         => $preco,
                 'preco_unidade' => $un ?: 'g',
-                'qtde_min'      => isset( $g['qtde_min'] ) ? trim( $m[ $g['qtde_min'] ] ?? '' ) : '',
-                'frac_unidade'  => '',
+                'qtde_min'      => $qm,
+                'frac_unidade'  => tao_cot_det_unidade( $qm ),   // unidade do fracionamento (evita ×1000 quando vem em g)
                 'validade'      => isset( $g['validade'] ) ? tao_cot_parse_validade( $m[ $g['validade'] ] ?? '' ) : '',
             ];
         }
@@ -123,12 +134,13 @@ function tao_cot_extrair_por_modelo( array $paginas, array $regras ) {
         if ( $use_kg ) { $um = mb_strtolower( $cells[ $ci_un ] ?? '' ); $un = preg_match( '/\bmil/', $um ) ? 'milheiro' : 'kg'; }
         elseif ( $ci_un >= 0 ) $un = trim( $cells[ $ci_un ] ?? '' );
         if ( $capm && tao_cot_is_capsula( $nome ) ) $un = 'milheiro';
+        $qmc = $ci_qtd >= 0 ? trim( $cells[ $ci_qtd ] ?? '' ) : '';
         $out[] = [
             'item'          => $nome,
             'preco'         => $preco,
             'preco_unidade' => $un ?: 'g',
-            'qtde_min'      => $ci_qtd >= 0 ? trim( $cells[ $ci_qtd ] ?? '' ) : '',
-            'frac_unidade'  => '',
+            'qtde_min'      => $qmc,
+            'frac_unidade'  => tao_cot_det_unidade( $qmc ),
             'validade'      => $ci_val >= 0 ? tao_cot_parse_validade( $cells[ $ci_val ] ?? '' ) : '',
         ];
     }
