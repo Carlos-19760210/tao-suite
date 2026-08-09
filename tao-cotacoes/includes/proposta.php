@@ -55,14 +55,23 @@ function tao_cot_extrair_arquivo( $binario, $mime ) {
         'generationConfig' => [ 'response_mime_type' => 'application/json', 'temperature' => 0.1, 'maxOutputTokens' => 16384 ],
     ];
     $model = tao_cot_gemini_model();
-    $resp  = wp_remote_post(
-        "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=" . rawurlencode( $key ),
-        [ 'timeout' => 120, 'headers' => [ 'Content-Type' => 'application/json' ], 'body' => wp_json_encode( $body ) ]
-    );
-    if ( is_wp_error( $resp ) ) return [ 'ok' => false, 'error' => $resp->get_error_message() ];
-    $code = wp_remote_retrieve_response_code( $resp );
-    $out  = json_decode( wp_remote_retrieve_body( $resp ), true );
-    if ( $code >= 400 ) return [ 'ok' => false, 'error' => 'Gemini HTTP ' . $code . ': ' . substr( wp_remote_retrieve_body( $resp ), 0, 200 ) ];
+    $url   = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=" . rawurlencode( $key );
+    // Retry em erros transitórios (connection reset/timeout de rede, 5xx, 429) — o Google
+    // às vezes derruba a conexão (cURL 56). Backoff 0s → 2s → 5s.
+    $resp = null; $code = 0; $errmsg = ''; $last_body = '';
+    foreach ( [ 0, 2, 5 ] as $i => $espera ) {
+        if ( $espera ) sleep( $espera );
+        $resp = wp_remote_post( $url, [ 'timeout' => 120, 'headers' => [ 'Content-Type' => 'application/json' ], 'body' => wp_json_encode( $body ) ] );
+        if ( is_wp_error( $resp ) ) { $errmsg = $resp->get_error_message(); continue; }   // rede caiu → tenta de novo
+        $code = wp_remote_retrieve_response_code( $resp );
+        $last_body = wp_remote_retrieve_body( $resp );
+        if ( $code >= 500 || $code === 429 ) { $errmsg = 'Gemini HTTP ' . $code; continue; } // transitório → tenta de novo
+        $errmsg = '';
+        break;
+    }
+    if ( is_wp_error( $resp ) || $errmsg ) return [ 'ok' => false, 'error' => 'IA indisponível no momento (' . ( $errmsg ?: 'rede' ) . '). Tente novamente em instantes ou processe manualmente.' ];
+    $out  = json_decode( $last_body, true );
+    if ( $code >= 400 ) return [ 'ok' => false, 'error' => 'Gemini HTTP ' . $code . ': ' . substr( $last_body, 0, 200 ) ];
 
     $txt   = $out['candidates'][0]['content']['parts'][0]['text'] ?? '';
     $itens = json_decode( $txt, true );
