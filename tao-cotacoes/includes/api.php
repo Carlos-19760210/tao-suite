@@ -142,10 +142,8 @@ function tao_cot_montar_msg( $cotacao, $itens, $nome_negocio, $nome_fornecedor )
         return ( empty( $b['urgente'] ) ? 0 : 1 ) <=> ( empty( $a['urgente'] ) ? 0 : 1 );
     } );
     foreach ( $itens as $it ) {
-        $qtd  = (float) ( $it['qtd'] ?? 0 );
-        $un   = trim( $it['unidade'] ?? '' );
-        $lin  = '- ' . $it['descricao'];
-        if ( $qtd > 0 ) $lin .= ' — ' . rtrim( rtrim( number_format( $qtd, 2, ',', '.' ), '0' ), ',' ) . ( $un ? " $un" : '' );
+        // texto ao fornecedor lista SOMENTE os itens (sem quantidades)
+        $lin = '- ' . $it['descricao'];
         if ( ! empty( $it['urgente'] ) ) $lin .= ' ⭐';
         $linhas[] = $lin;
     }
