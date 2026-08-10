@@ -98,7 +98,9 @@ P("Dê um título à cotação e escolha a instância de WhatsApp de envio. Ao s
 
 # 4 Prioridades
 PB(); H1("Prioridade dos itens")
-P("Na tela de detalhe da cotação, a seção Itens lista tudo que será cotado. Cada item tem um seletor de PRIORIDADE, que organiza a distribuição na sugestão de pedido:")
+P("Ao abrir uma cotação (botão Abrir na lista), você chega à tela de detalhe — de onde faz tudo: registrar retorno, enviar aos fornecedores, conferir, comparar e gerar a sugestão de pedido.")
+IMG("real_cot_detalhe_topo.png", "Tela da cotação — topo, com as ações principais.")
+P("A seção Itens lista tudo que será cotado. Cada item tem um seletor de PRIORIDADE, que organiza a distribuição na sugestão de pedido:")
 B("0 – Urgente (⭐): item mandatório; equivale ao “favorito”. Determina os fornecedores principais na visão Consolidado.")
 B("1 – 15 dias / 2 – 30 dias / 3 – Acima de 30 dias: urgência decrescente.")
 IMG("real_cot_itens.png", "Seção Itens — prioridade, edição e seleção múltipla.")
@@ -140,7 +142,7 @@ P("Para não usar IA a cada importação, o módulo aprende o layout de cada for
 N("Suba um PDF de exemplo do fornecedor.")
 N("Clique em “🤖 Analisar (IA propõe o layout)” — a IA identifica as colunas (item, preço, unidade, fracionamento, validade).")
 N("Revise e salve. A partir daí, as próximas propostas daquele fornecedor são lidas sem IA.")
-IMG("real_cot_modelos.png", "Modelos de Proposta — layout aprendido por fornecedor.")
+P("Observação: a tela de Modelos de Proposta é gerenciada pelo painel administrativo (não aparece no menu do portal). No dia a dia da operação, ela é opcional — sem um modelo, a leitura é feita pela IA normalmente.")
 
 # 8 Conferência
 PB(); H1("Conferência do Farmacêutico")
