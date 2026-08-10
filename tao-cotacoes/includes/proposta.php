@@ -103,7 +103,8 @@ function tao_cot_normalizar_item( $it ) {
     $pu   = strtolower( trim( (string) ( $it['preco_unidade'] ?? '' ) ) );
     $pq   = (float) ( tao_cot_to_float( $it['pacote_qtde'] ?? '' ) ?? 0 );
     $fu   = strtolower( trim( (string) ( $it['frac_unidade'] ?? '' ) ) );
-    $fmin = (float) ( tao_cot_to_float( $it['frac_min'] ?? '' ) ?? 0 );
+    // modelo entrega o fracionamento em 'qtde_min'; manual/preview em 'frac_min' — aceita os dois
+    $fmin = (float) ( tao_cot_to_float( $it['frac_min'] ?? ( $it['qtde_min'] ?? '' ) ) ?? 0 );
     $caps = tao_cot_eh_capsula( $it['item'] ?? '' );
     $log  = '';
 
