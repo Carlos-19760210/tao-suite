@@ -175,10 +175,19 @@ function tao_cotacoes_render_view( $cot_id ) {
             <?php endif; ?>
         </div>
 
+        <?php
+        $comp   = tao_cot_comparativo_dados( $cid, $cot_id );
+        $fids   = array_keys( $comp['fornecedores'] );
+        $tem_precos = ! empty( $fids );
+        $export_url = wp_nonce_url( admin_url( 'admin-post.php?action=tao_cot_export_xlsx&cot=' . $cot_id ), 'tao_cot_export_' . $cot_id );
+        ?>
         <div class="taocot-card">
             <div class="taocot-bar" style="margin:0 0 10px">
                 <h2 style="margin:0">Itens (<?php echo count( $itens ); ?>)</h2>
-                <button type="button" class="taocot-btn taocot-btn-danger" id="taocot-itens-del-sel" style="display:none">🗑 Excluir selecionados (<span id="taocot-itens-sel-n">0</span>)</button>
+                <div style="display:flex;gap:8px">
+                    <?php if ( ! empty( $comp['conferencia'] ) ) : ?><button type="button" class="taocot-btn taocot-btn-primary" id="taocot-conf-abrir">&#x1F50D; Conferência do farmacêutico</button><?php endif; ?>
+                    <button type="button" class="taocot-btn taocot-btn-danger" id="taocot-itens-del-sel" style="display:none">🗑 Excluir selecionados (<span id="taocot-itens-sel-n">0</span>)</button>
+                </div>
             </div>
             <div class="taocot-tscroll">
             <table class="taocot-table">
@@ -225,13 +234,6 @@ function tao_cotacoes_render_view( $cot_id ) {
             </div>
         </div>
 
-        <?php
-        $comp   = tao_cot_comparativo_dados( $cid, $cot_id );
-        $fids   = array_keys( $comp['fornecedores'] );
-        $tem_precos = ! empty( $fids );
-        $export_url = wp_nonce_url( admin_url( 'admin-post.php?action=tao_cot_export_xlsx&cot=' . $cot_id ), 'tao_cot_export_' . $cot_id );
-        ?>
-
         <?php if ( ! empty( $comp['divergencias'] ) ) : ?>
         <div class="taocot-card" style="border-left:4px solid #f59e0b">
             <h2>&#x26A0;&#xFE0F; Divergências — itens do fornecedor sem correspondência (<?php echo count( $comp['divergencias'] ); ?>)</h2>
@@ -266,7 +268,6 @@ function tao_cotacoes_render_view( $cot_id ) {
             <div class="taocot-bar" style="margin:0 0 10px">
                 <h2 style="margin:0">&#x1F4CA; Comparativo</h2>
                 <div style="display:flex;gap:8px">
-                <?php if ( ! empty( $comp['conferencia'] ) ) : ?><button type="button" class="taocot-btn taocot-btn-primary" id="taocot-conf-abrir">&#x1F50D; Conferência do farmacêutico</button><?php endif; ?>
                 <?php if ( $tem_precos ) : ?><a class="taocot-btn" href="<?php echo esc_url( $export_url ); ?>">&#x2B07;&#xFE0F; Exportar XLSX</a><?php endif; ?>
                 </div>
             </div>
