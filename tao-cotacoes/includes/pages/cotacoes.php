@@ -671,19 +671,29 @@ function tao_cotacoes_render_view( $cot_id ) {
         if(b = document.getElementById('taocot-btn-excluir')) b.addEventListener('click', function(){ run(b, 'tao_cot_excluir_cotacao', {}, 'Excluir definitivamente este rascunho?'); });
 
         // ── Menu "Proposta" por fornecedor: abre/fecha o dropdown (upload/manual vêm por delegação) ──
+        // Abre em position:fixed p/ NÃO ser cortado pelo overflow da tabela (.taocot-tscroll).
         document.addEventListener('click', function(e){
             var tg = e.target.closest ? e.target.closest('.taocot-prop-toggle') : null;
             var alvo = tg ? tg.parentElement.querySelector('.taocot-prop-menu') : null;
             var menus = document.querySelectorAll('.taocot-prop-menu');
             for(var i=0;i<menus.length;i++){ if(menus[i]!==alvo) menus[i].style.display='none'; }
-            if(alvo){ alvo.style.display = (alvo.style.display==='block'?'none':'block'); }
+            if(alvo){
+                if(alvo.style.display==='block'){ alvo.style.display='none'; return; }
+                var r = tg.getBoundingClientRect();
+                alvo.style.position='fixed';
+                alvo.style.top=(r.bottom+2)+'px';
+                alvo.style.right=(Math.max(6, window.innerWidth-r.right))+'px';
+                alvo.style.left='auto';
+                alvo.style.zIndex='100002';
+                alvo.style.display='block';
+            }
         });
 
         // ── Proposta por arquivo → PRÉVIA → revisão do farmacêutico → importar ──
         var propFid = null, propNome = '', fileInp = document.getElementById('taocot-prop-file');
         document.addEventListener('click', function(e){
             var t = e.target.closest('.taocot-prop-upload');
-            if(t){ propFid = t.getAttribute('data-fid'); var tr=t.closest('tr'); propNome = tr? (tr.querySelector('td strong')||{}).textContent||'' : ''; fileInp.click(); }
+            if(t){ var mn=t.closest('.taocot-prop-menu'); if(mn) mn.style.display='none'; propFid = t.getAttribute('data-fid'); var tr=t.closest('tr'); propNome = tr? (tr.querySelector('td strong')||{}).textContent||'' : ''; fileInp.click(); }
         });
 
         // pdf.js lazy — extrai o texto no navegador p/ o caminho determinístico (sem IA)
@@ -979,6 +989,7 @@ function tao_cotacoes_render_view( $cot_id ) {
         document.addEventListener('click', function(e){
             var t = e.target.closest('.taocot-prop-manual');
             if(!t) return;
+            var mn=t.closest('.taocot-prop-menu'); if(mn) mn.style.display='none';
             abrirManual(t.getAttribute('data-fid'), t.getAttribute('data-nome'));
         });
         C.combo({ input: document.getElementById('taocot-manual-add'), permitirLivre: true, onPick: function(rr){
