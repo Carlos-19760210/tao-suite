@@ -783,6 +783,27 @@ add_action( 'wp_ajax_tao_cot_frete_salvar', function() {
     $u['ok'] ? wp_send_json_success( [ 'frete' => $frete ] ) : wp_send_json_error( 'Falha ao salvar o frete' );
 } );
 
+// ── AJAX: enviar o PEDIDO (formalização) ao fornecedor pelo WhatsApp da cotação ──
+add_action( 'wp_ajax_tao_cot_pedido_enviar', function() {
+    $cid    = tao_cot_ajax_guard();
+    $cot_id = sanitize_text_field( $_POST['cotacao_id'] ?? '' );
+    $fid    = sanitize_text_field( $_POST['fornecedor_id'] ?? '' );
+    $msg    = trim( (string) wp_unslash( $_POST['msg'] ?? '' ) );
+    if ( ! $cot_id || ! $fid || $msg === '' ) wp_send_json_error( 'Dados inválidos' );
+    if ( ! tao_cot_cotacao_do_cliente( $cot_id, $cid ) ) wp_send_json_error( 'Sem permissão', 403 );
+    $rc = tao_cot_api( "/cotacoes?id=eq.$cot_id&select=instancia_id&limit=1" );
+    $inst_id = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? ( $rc['data'][0]['instancia_id'] ?? '' ) : '';
+    if ( ! $inst_id ) wp_send_json_error( 'Cotação sem instância de WhatsApp configurada' );
+    $ri = tao_cot_api( "/crm_instancias?id=eq.$inst_id&limit=1" );
+    if ( ! $ri['ok'] || empty( $ri['data'] ) ) wp_send_json_error( 'Instância de WhatsApp não encontrada' );
+    $rf = tao_cot_api( "/fornecedores?id=eq.$fid&cliente_id=eq.$cid&select=whatsapp,nome&limit=1" );
+    if ( ! $rf['ok'] || empty( $rf['data'] ) ) wp_send_json_error( 'Fornecedor não encontrado' );
+    $wa = preg_replace( '/\D/', '', $rf['data'][0]['whatsapp'] ?? '' );
+    if ( strlen( $wa ) < 10 ) wp_send_json_error( 'Fornecedor sem WhatsApp cadastrado' );
+    $rs = tao_cot_evolution_send( $ri['data'][0], $wa, $msg );
+    $rs['ok'] ? wp_send_json_success( true ) : wp_send_json_error( 'Falha no envio: ' . substr( ( $rs['error'] ?? '' ) . ' ' . ( $rs['raw'] ?? '' ), 0, 200 ) );
+} );
+
 // ── AJAX: excluir o PROCESSAMENTO de um fornecedor (apaga os preços p/ reprocessar) ──
 add_action( 'wp_ajax_tao_cot_proposta_limpar', function() {
     $cid    = tao_cot_ajax_guard();

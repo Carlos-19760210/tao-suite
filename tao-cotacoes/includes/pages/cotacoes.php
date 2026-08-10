@@ -346,7 +346,9 @@ function tao_cotacoes_render_view( $cot_id ) {
         </div>
 
         <?php if ( $tem_precos ) :
-            $sug = [ 'itens' => [], 'forn' => [] ];
+            $rneg = tao_cot_api( "/clientes?id=eq.$cid&select=nome_negocio" );
+            $neg  = ( $rneg['ok'] && ! empty( $rneg['data'] ) ) ? ( $rneg['data'][0]['nome_negocio'] ?? 'nossa farmácia' ) : 'nossa farmácia';
+            $sug  = [ 'itens' => [], 'forn' => [], 'negocio' => $neg ];
             foreach ( $comp['fornecedores'] as $sfid => $snome ) {
                 $sug['forn'][ $sfid ] = [ 'nome' => $snome, 'frete' => (float) ( $comp['frete'][ $sfid ] ?? 0 ), 'pedido_minimo' => (float) ( $comp['pedido_minimo'][ $sfid ] ?? 0 ) ];
             }
@@ -370,6 +372,22 @@ function tao_cotacoes_render_view( $cot_id ) {
             <div id="taocot-sug-box"></div>
         </div>
         <script>window.TAOCOT_SUG = <?php echo wp_json_encode( $sug ); ?>;</script>
+
+        <!-- Modal FORMALIZAR PEDIDO (por fornecedor) -->
+        <div id="taocot-pedido-modal" class="taocot-modal">
+            <div class="taocot-overlay"></div>
+            <div class="taocot-box" style="max-width:640px;max-height:90vh;display:flex;flex-direction:column">
+                <h2 style="flex:0 0 auto">📤 Formalizar pedido — <span id="taocot-pedido-forn"></span></h2>
+                <p class="taocot-muted" style="flex:0 0 auto">Revise o texto do pedido. O envio só ocorre ao clicar <strong>Enviar</strong>; você também pode apenas copiar.</p>
+                <textarea id="taocot-pedido-msg" spellcheck="false" style="flex:1 1 auto;min-height:220px;width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
+                <div class="taocot-actions" style="flex:0 0 auto;flex-wrap:wrap;gap:8px">
+                    <button class="taocot-btn" id="taocot-pedido-cancel">Cancelar</button>
+                    <button class="taocot-btn" id="taocot-pedido-copiar">📋 Copiar texto</button>
+                    <button class="taocot-btn taocot-btn-primary" id="taocot-pedido-enviar">✅ Enviar pelo WhatsApp</button>
+                </div>
+                <div class="taocot-status-msg" id="taocot-pedido-status" style="flex:0 0 auto"></div>
+            </div>
+        </div>
         <?php endif; ?>
     </div>
 
@@ -1160,13 +1178,50 @@ function tao_cotacoes_render_view( $cot_id ) {
                         '<div class="taocot-tscroll"><table class="taocot-table" style="border:0">'+
                         '<thead><tr><th>Produto</th><th style="text-align:right">Qtde nec.</th><th style="text-align:right">Qtde compra</th><th style="text-align:right">Vl unit (s/ frete)</th><th style="text-align:right">Frete item</th><th style="text-align:right">Vl unit c/ frete</th><th style="text-align:right">Vl total</th><th>Fornecedor / val</th></tr></thead>'+
                         '<tbody>'+rows+'</tbody></table></div>'+
+                        '<div style="padding:8px 12px;text-align:right;border-top:1px solid #f1f5f9">'+
+                            '<button type="button" class="taocot-btn taocot-btn-primary taocot-pedido-btn" data-fid="'+fid+'">📤 Formalizar pedido</button>'+
+                        '</div>'+
                     '</div>';
                 });
                 if(html) html+='<div style="text-align:right;font-weight:700;font-size:15px">Total geral do pedido: R$ '+nf(totalGeral,2)+'</div>';
                 box.innerHTML = html || '<p class="taocot-muted">Sem itens com preço para sugerir.</p>';
                 box.querySelectorAll('.taocot-sug-mv').forEach(function(s){ s.addEventListener('change', function(){ manualForn[s.getAttribute('data-item')]=s.value; delete manualQtd[s.getAttribute('data-item')]; render(); }); });
                 box.querySelectorAll('.taocot-sug-q').forEach(function(inp){ inp.addEventListener('change', function(){ manualQtd[inp.getAttribute('data-item')] = parseFloat(String(inp.value).replace(',','.'))||0; render(); }); });
+                box.querySelectorAll('.taocot-pedido-btn').forEach(function(b){ b.addEventListener('click', function(){ abrirPedido(b.getAttribute('data-fid')); }); });
             }
+            // ── Formalizar pedido: monta o texto (ativo + qtde de compra) e abre o modal ──
+            function abrirPedido(fid){
+                var a=assign(), itens=data.itens.filter(function(it){ return a[it.id]===fid; });
+                var d=data.forn[fid]||{};
+                var linhas=itens.map(function(it){ var c=it.cells[fid]||{}; return '- '+it.desc+' — '+nf(qtde(it,fid),2)+' '+(c.unid||''); });
+                var t='Olá'+(d.nome?', '+d.nome:'')+'! Aqui é a '+(data.negocio||'nossa farmácia')+'.\n\n';
+                t+='Segue o nosso pedido de compra:\n\n'+linhas.join('\n');
+                t+='\n\nPor favor, confirme a disponibilidade e nos envie o *espelho do pedido* para conferência. Obrigado!';
+                document.getElementById('taocot-pedido-forn').textContent=d.nome||'';
+                document.getElementById('taocot-pedido-msg').value=t;
+                document.getElementById('taocot-pedido-status').textContent='';
+                var pm=document.getElementById('taocot-pedido-modal'); pm.dataset.fid=fid; pm.style.display='block';
+            }
+            (function(){
+                var pm=document.getElementById('taocot-pedido-modal'); if(!pm) return;
+                var ta=document.getElementById('taocot-pedido-msg'), st=document.getElementById('taocot-pedido-status');
+                function close(){ pm.style.display='none'; }
+                document.getElementById('taocot-pedido-cancel').addEventListener('click', close);
+                pm.querySelector('.taocot-overlay').addEventListener('click', function(e){ e.stopPropagation(); }); // não fecha ao clicar atrás
+                document.getElementById('taocot-pedido-copiar').addEventListener('click', function(){
+                    ta.focus(); ta.select(); var ok=false; try{ ok=document.execCommand('copy'); }catch(e){}
+                    if(navigator.clipboard){ navigator.clipboard.writeText(ta.value); ok=true; }
+                    st.textContent = ok ? 'Texto copiado.' : 'Copie manualmente (Ctrl+C).';
+                });
+                document.getElementById('taocot-pedido-enviar').addEventListener('click', function(){
+                    var fid=pm.dataset.fid; if(!fid) return;
+                    if(!confirm('Enviar este pedido pelo WhatsApp da cotação?')) return;
+                    var bt=this; bt.disabled=true; st.textContent='Enviando…';
+                    C.post('tao_cot_pedido_enviar', { cotacao_id: ID, fornecedor_id: fid, msg: ta.value }).then(function(r){
+                        bt.disabled=false; st.textContent = r.success ? '✅ Pedido enviado.' : ('Erro: '+(r.data||'falha'));
+                    }).catch(function(){ bt.disabled=false; st.textContent='Falha de rede'; });
+                });
+            })();
             document.querySelectorAll('.taocot-sug-mode').forEach(function(b){ b.addEventListener('click', function(){
                 mode=b.getAttribute('data-mode'); manualForn={};
                 document.querySelectorAll('.taocot-sug-mode').forEach(function(x){ x.classList.toggle('taocot-btn-primary', x===b); });
