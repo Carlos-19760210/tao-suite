@@ -268,6 +268,7 @@ function tao_cotacoes_render_view( $cot_id ) {
             <div class="taocot-bar" style="margin:0 0 10px">
                 <h2 style="margin:0">&#x1F4CA; Comparativo</h2>
                 <div style="display:flex;gap:8px">
+                <?php if ( $tem_precos ) : ?><button type="button" class="taocot-btn" id="taocot-restaurar-forn" title="Voltar todos os itens para o fornecedor sugerido pelo sistema (menor preço)">&#x21BA; Restaurar sugestões</button><?php endif; ?>
                 <?php if ( $tem_precos ) : ?><a class="taocot-btn" href="<?php echo esc_url( $export_url ); ?>">&#x2B07;&#xFE0F; Exportar XLSX</a><?php endif; ?>
                 </div>
             </div>
@@ -299,7 +300,17 @@ function tao_cotacoes_render_view( $cot_id ) {
                     <tr class="<?php echo ! empty( $l['item']['urgente'] ) ? 'taocot-urgente' : ''; ?>">
                         <td><strong><?php echo esc_html( $l['item']['descricao'] ); ?></strong><?php echo ! empty( $l['item']['urgente'] ) ? ' ⭐' : ''; ?></td>
                         <td style="text-align:right"><?php echo $ult !== null ? number_format( (float) $ult, 4, ',', '.' ) : '—'; ?></td>
-                        <td><?php if ( $mfid ) : ?><strong style="<?php echo $acima ? 'color:#b91c1c' : 'color:#166534'; ?>"><?php echo esc_html( $comp['fornecedores'][ $mfid ] ); ?></strong><?php else : ?>—<?php endif; ?></td>
+                        <td>
+                            <?php if ( ! empty( $l['cells'] ) ) : $auto = $l['auto_fid']; ?>
+                            <select class="taocot-melhor-sel" data-item="<?php echo esc_attr( $l['item']['id'] ); ?>"
+                                style="max-width:150px;padding:3px 5px;border:1px solid <?php echo $l['escolhido_manual'] ? '#2563eb' : '#e2e8f0'; ?>;border-radius:5px;font-size:12px;font-weight:700;color:<?php echo $acima ? '#b91c1c' : '#166534'; ?>">
+                                <option value="" <?php selected( ! $l['escolhido_manual'] ); ?>>Auto: <?php echo $auto ? esc_html( $comp['fornecedores'][ $auto ] ) : '—'; ?></option>
+                                <?php foreach ( array_keys( $l['cells'] ) as $cf ) : ?>
+                                    <option value="<?php echo esc_attr( $cf ); ?>" <?php selected( $l['escolhido_manual'] && $mfid === $cf ); ?>><?php echo esc_html( $comp['fornecedores'][ $cf ] ); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <?php else : ?>—<?php endif; ?>
+                        </td>
                         <?php foreach ( $fids as $f ) : $p = $l['cells'][ $f ] ?? null; ?>
                         <td style="text-align:right;border-left:2px solid #f1f5f9;<?php echo ( $p && $f === $mfid ) ? 'background:#dcfce7' : ''; ?>">
                             <?php if ( $p ) : ?>
@@ -342,7 +353,7 @@ function tao_cotacoes_render_view( $cot_id ) {
                 if ( empty( $l['cells'] ) ) continue;
                 $scells = [];
                 foreach ( $l['cells'] as $cfid => $p ) $scells[ $cfid ] = [ 'vl_unit' => (float) $p['vl_unit'], 'frac' => (float) ( $p['qtde_min'] ?? 0 ), 'validade' => $p['validade'] ?? '', 'unid' => $p['unid'] ];
-                $sug['itens'][] = [ 'id' => $l['item']['id'], 'desc' => $l['item']['descricao'], 'prioridade' => (int) ( $l['item']['prioridade'] ?? 3 ), 'qtd' => (float) ( $l['item']['qtd'] ?? 0 ), 'unid' => $l['item']['unidade'] ?? '', 'cells' => $scells ];
+                $sug['itens'][] = [ 'id' => $l['item']['id'], 'desc' => $l['item']['descricao'], 'prioridade' => (int) ( $l['item']['prioridade'] ?? 3 ), 'qtd' => (float) ( $l['item']['qtd'] ?? 0 ), 'unid' => $l['item']['unidade'] ?? '', 'escolhido' => $l['escolhido_manual'] ? $l['melhor_fid'] : '', 'cells' => $scells ];
             }
         ?>
         <div class="taocot-card">
@@ -1043,6 +1054,25 @@ function tao_cotacoes_render_view( $cot_id ) {
             });
         })();
 
+        // ── Comparativo: trocar o fornecedor escolhido por item + restaurar auto ─
+        document.querySelectorAll('.taocot-melhor-sel').forEach(function(sel){
+            sel.addEventListener('change', function(){
+                C.post('tao_cot_item_editar', { id: sel.getAttribute('data-item'), fornecedor_escolhido: sel.value }).then(function(r){
+                    if(r.success){ location.reload(); } else { alert('Erro: '+(r.data||'falha')); }
+                });
+            });
+        });
+        (function(){
+            var b=document.getElementById('taocot-restaurar-forn'); if(!b) return;
+            b.addEventListener('click', function(){
+                if(!confirm('Voltar TODOS os itens para o fornecedor sugerido pelo sistema (menor preço)?')) return;
+                b.disabled=true;
+                C.post('tao_cot_restaurar_fornecedores', { cotacao_id: ID }).then(function(r){
+                    if(r.success){ location.reload(); } else { b.disabled=false; alert('Erro: '+(r.data||'falha')); }
+                });
+            });
+        })();
+
         // ── Motor de SUGESTÃO DE PEDIDO (100% no navegador; recalcula ao ajustar) ─
         (function(){
             var data = window.TAOCOT_SUG; if(!data || !data.itens || !data.itens.length) return;
@@ -1054,10 +1084,13 @@ function tao_cotacoes_render_view( $cot_id ) {
             function best(it, allowed){ var b=null;
                 for(var fid in it.cells){ if(allowed && allowed.indexOf(fid)<0) continue;
                     if(b===null || it.cells[fid].vl_unit < it.cells[b].vl_unit) b=fid; } return b; }
-            function principais(){ var ps=[]; data.itens.forEach(function(it){ if(it.prioridade===0){ var f=best(it); if(f && ps.indexOf(f)<0) ps.push(f); } }); return ps; }
+            function escolhidoDe(it){ return (it.escolhido && it.cells[it.escolhido]) ? it.escolhido : null; }
+            function principais(){ var ps=[]; data.itens.forEach(function(it){ if(it.prioridade===0){ var f=escolhidoDe(it)||best(it); if(f && ps.indexOf(f)<0) ps.push(f); } }); return ps; }
             function assign(){ var a={}, ps=(mode==='consolidado')?principais():[];
                 data.itens.forEach(function(it){
                     if(manualForn[it.id] && it.cells[manualForn[it.id]]){ a[it.id]=manualForn[it.id]; return; }
+                    var esc=escolhidoDe(it);                                  // override persistente do comparativo
+                    if(esc){ a[it.id]=esc; return; }
                     if(mode==='consolidado' && it.prioridade!==0 && ps.length){ a[it.id]=best(it,ps)||best(it); }
                     else a[it.id]=best(it);
                 }); return a; }

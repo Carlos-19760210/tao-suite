@@ -326,12 +326,16 @@ function tao_cot_comparativo_dados( $cid, $cotacao_id ) {
     foreach ( $itens as $it ) {
         $cells  = $por_item[ $it['id'] ] ?? [];
         foreach ( $cells as $fid => $p ) $cells[ $fid ]['vl_com_frete'] = round( (float) $p['vl_unit'] * ( $fator[ $fid ] ?? 1 ), 6 );
-        // melhor = menor preço COM frete (empate/sem frete cai no vl_unit puro pelo fator=1)
-        $melhor = null;
+        // melhor automático = menor preço COM frete (empate/sem frete cai no vl_unit puro pelo fator=1)
+        $auto = null;
         foreach ( $cells as $fid => $p ) {
-            if ( ! $melhor || (float) $p['vl_com_frete'] < (float) $cells[ $melhor ]['vl_com_frete'] ) $melhor = $fid;
+            if ( ! $auto || (float) $p['vl_com_frete'] < (float) $cells[ $auto ]['vl_com_frete'] ) $auto = $fid;
         }
-        $linhas[] = [ 'item' => $it, 'cells' => $cells, 'melhor_fid' => $melhor ];
+        // override manual do farmacêutico (se o fornecedor escolhido cotou o item)
+        $esc     = $it['fornecedor_escolhido'] ?? null;
+        $manual  = ( $esc && isset( $cells[ $esc ] ) );
+        $melhor  = $manual ? $esc : $auto;
+        $linhas[] = [ 'item' => $it, 'cells' => $cells, 'melhor_fid' => $melhor, 'auto_fid' => $auto, 'escolhido_manual' => $manual ];
     }
 
     // ── Conferência do farmacêutico: todos os preços com o ativo atual + status ──
@@ -606,6 +610,7 @@ add_action( 'wp_ajax_tao_cot_item_editar', function() {
         $patch['prioridade'] = $pr;
         $patch['urgente']    = ( $pr === 0 );   // 0 = Urgente (⭐) mantém compatibilidade
     }
+    if ( isset( $_POST['fornecedor_escolhido'] ) ) $patch['fornecedor_escolhido'] = sanitize_text_field( $_POST['fornecedor_escolhido'] ) ?: null;
     if ( ! $patch ) wp_send_json_error( 'Nada a alterar' );
     $u = tao_cot_api( "/cotacao_itens?id=eq.$id", 'PATCH', $patch );
     $u['ok'] ? wp_send_json_success( $patch ) : wp_send_json_error( 'Falha ao salvar' );
@@ -648,6 +653,16 @@ add_action( 'wp_ajax_tao_cot_item_excluir', function() {
     tao_cot_api( "/cotacao_precos?cotacao_item_id=eq.$id", 'PATCH', [ 'cotacao_item_id' => null ] );
     $u = tao_cot_api( "/cotacao_itens?id=eq.$id", 'DELETE' );
     $u['ok'] ? wp_send_json_success( true ) : wp_send_json_error( 'Falha ao excluir' );
+} );
+
+// ── AJAX: restaurar sugestão automática de fornecedores (limpa overrides) ────
+add_action( 'wp_ajax_tao_cot_restaurar_fornecedores', function() {
+    $cid    = tao_cot_ajax_guard();
+    $cot_id = sanitize_text_field( $_POST['cotacao_id'] ?? '' );
+    if ( ! $cot_id ) wp_send_json_error( 'cotação' );
+    if ( ! tao_cot_cotacao_do_cliente( $cot_id, $cid ) ) wp_send_json_error( 'Sem permissão', 403 );
+    $u = tao_cot_api( "/cotacao_itens?cotacao_id=eq.$cot_id&fornecedor_escolhido=not.is.null", 'PATCH', [ 'fornecedor_escolhido' => null ] );
+    $u['ok'] ? wp_send_json_success( true ) : wp_send_json_error( 'Falha ao restaurar' );
 } );
 
 // ── AJAX: excluir VÁRIOS itens de uma vez ────────────────────────────────────
