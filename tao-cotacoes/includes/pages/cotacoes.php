@@ -805,6 +805,11 @@ function tao_cotacoes_render_view( $cot_id ) {
             revRender();
             document.getElementById('taocot-rev-modal').style.display='block';
         }
+        // clicar fora NÃO fecha (evita perder a revisão/digitação) — use Cancelar/Importar
+        ['taocot-rev-modal','taocot-manual-modal'].forEach(function(id){
+            var m=document.getElementById(id); if(!m) return;
+            var ov=m.querySelector('.taocot-overlay'); if(ov) ov.addEventListener('click', function(e){ e.stopPropagation(); });
+        });
         document.getElementById('taocot-rev-importar').addEventListener('click', function(){
             var validos = revItens.filter(function(i){ return parseFloat(i.preco)>0; });
             if(!validos.length){ alert('Nenhum item com preço válido.'); return; }
