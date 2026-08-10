@@ -475,6 +475,11 @@ add_action( 'wp_ajax_tao_cot_proposta_manual', function() {
     $cotacao = $rc['data'][0];
     tao_cot_ensure_participante( $cot_id, $fid );
 
+    // Reprocessamento: um novo processamento SUBSTITUI a proposta anterior deste fornecedor
+    // (apaga preços e propostas antigas desta cotação — não duplica). Histórico de preço permanece.
+    tao_cot_api( "/cotacao_precos?cotacao_id=eq.$cot_id&fornecedor_id=eq.$fid", 'DELETE' );
+    tao_cot_api( "/cotacao_propostas?cotacao_id=eq.$cot_id&fornecedor_id=eq.$fid", 'DELETE' );
+
     $rp = tao_cot_api( '/cotacao_propostas', 'POST', [
         'cotacao_id' => $cot_id, 'fornecedor_id' => $fid, 'origem' => 'manual',
         'status' => 'processada', 'processado_em' => gmdate( 'c' ),
@@ -776,6 +781,23 @@ add_action( 'wp_ajax_tao_cot_frete_salvar', function() {
     tao_cot_ensure_participante( $cot_id, $fid );
     $u = tao_cot_api( "/cotacao_fornecedores?cotacao_id=eq.$cot_id&fornecedor_id=eq.$fid", 'PATCH', [ 'frete' => $frete ] );
     $u['ok'] ? wp_send_json_success( [ 'frete' => $frete ] ) : wp_send_json_error( 'Falha ao salvar o frete' );
+} );
+
+// ── AJAX: excluir o PROCESSAMENTO de um fornecedor (apaga os preços p/ reprocessar) ──
+add_action( 'wp_ajax_tao_cot_proposta_limpar', function() {
+    $cid    = tao_cot_ajax_guard();
+    $cot_id = sanitize_text_field( $_POST['cotacao_id'] ?? '' );
+    $fid    = sanitize_text_field( $_POST['fornecedor_id'] ?? '' );
+    if ( ! $cot_id || ! $fid ) wp_send_json_error( 'Dados inválidos' );
+    if ( ! tao_cot_cotacao_do_cliente( $cot_id, $cid ) ) wp_send_json_error( 'Sem permissão', 403 );
+    // apaga preços e propostas deste fornecedor nesta cotação (histórico de preço permanece)
+    tao_cot_api( "/cotacao_precos?cotacao_id=eq.$cot_id&fornecedor_id=eq.$fid", 'DELETE' );
+    tao_cot_api( "/cotacao_propostas?cotacao_id=eq.$cot_id&fornecedor_id=eq.$fid", 'DELETE' );
+    // volta o participante para "a processar" e zera o frete da proposta
+    $r = tao_cot_api( "/cotacao_fornecedores?cotacao_id=eq.$cot_id&fornecedor_id=eq.$fid&select=enviado_em&limit=1" );
+    $status = ( $r['ok'] && ! empty( $r['data'] ) && ! empty( $r['data'][0]['enviado_em'] ) ) ? 'enviado' : 'pendente';
+    tao_cot_api( "/cotacao_fornecedores?cotacao_id=eq.$cot_id&fornecedor_id=eq.$fid", 'PATCH', [ 'status' => $status, 'respondeu_em' => null, 'frete' => 0 ] );
+    wp_send_json_success( true );
 } );
 
 // ── AJAX: resolver divergência (vincula ativo e vira sinônimo) ────────────────

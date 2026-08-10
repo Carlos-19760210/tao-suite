@@ -164,6 +164,7 @@ function tao_cotacoes_render_view( $cot_id ) {
                                 <div class="taocot-prop-menu" style="display:none;position:absolute;right:0;top:calc(100% + 2px);z-index:45;background:#fff;border:1px solid #cbd5e1;border-radius:8px;box-shadow:0 8px 22px rgba(0,0,0,.14);min-width:210px;overflow:hidden;text-align:left">
                                     <button type="button" class="taocot-prop-upload" data-fid="<?php echo esc_attr( $p['fornecedor_id'] ); ?>" style="display:block;width:100%;text-align:left;border:0;background:transparent;padding:10px 13px;font-size:13px;cursor:pointer;line-height:1.3">&#x1F4CE; Subir arquivo (PDF/foto)<br><span style="font-size:11px;color:#94a3b8">a IA lê e vira preço</span></button>
                                     <button type="button" class="taocot-prop-manual" data-fid="<?php echo esc_attr( $p['fornecedor_id'] ); ?>" data-nome="<?php echo esc_attr( $f['nome'] ?? '' ); ?>" style="display:block;width:100%;text-align:left;border:0;border-top:1px solid #f1f5f9;background:transparent;padding:10px 13px;font-size:13px;cursor:pointer">&#x2328;&#xFE0F; Digitar manual</button>
+                                    <button type="button" class="taocot-prop-limpar" data-fid="<?php echo esc_attr( $p['fornecedor_id'] ); ?>" data-nome="<?php echo esc_attr( $f['nome'] ?? '' ); ?>" style="display:block;width:100%;text-align:left;border:0;border-top:1px solid #f1f5f9;background:transparent;padding:10px 13px;font-size:13px;cursor:pointer;color:#b91c1c">&#x1F5D1;&#xFE0F; Excluir processamento<br><span style="font-size:11px;color:#f0a0a0">apaga os preços p/ processar de novo</span></button>
                                 </div>
                             </span>
                         </td>
@@ -991,6 +992,15 @@ function tao_cotacoes_render_view( $cot_id ) {
             if(!t) return;
             var mn=t.closest('.taocot-prop-menu'); if(mn) mn.style.display='none';
             abrirManual(t.getAttribute('data-fid'), t.getAttribute('data-nome'));
+        });
+        document.addEventListener('click', function(e){
+            var t = e.target.closest('.taocot-prop-limpar');
+            if(!t) return;
+            var mn=t.closest('.taocot-prop-menu'); if(mn) mn.style.display='none';
+            if(!confirm('Excluir o processamento de '+(t.getAttribute('data-nome')||'')+' nesta cotação?\nOs preços deste fornecedor serão apagados para você processar novamente (não duplica).')) return;
+            C.post('tao_cot_proposta_limpar', { cotacao_id: ID, fornecedor_id: t.getAttribute('data-fid') }).then(function(r){
+                if(r.success){ location.reload(); } else { alert('Erro: '+(r.data||'falha')); }
+            });
         });
         C.combo({ input: document.getElementById('taocot-manual-add'), permitirLivre: true, onPick: function(rr){
             manualItens.push({ item: rr.nome, ativo_id: rr.ativo_id, preco:'', preco_unidade:'kg', frac_min:'', validade:'' });
