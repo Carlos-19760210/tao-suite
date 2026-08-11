@@ -1000,6 +1000,10 @@ add_action( 'wp_ajax_tao_formula_update_orc_status', function() {
 
     $r = tao_formula_api( "/orcamentos?id=eq.$id&cliente_id=eq.$cliente_id", 'PATCH', $data );
     if ( $r['ok'] ) {
+        // aprovar/rejeitar/enviar muda o que conta pro valor do card → recalcula o valor da oportunidade
+        $rcd = tao_formula_api( "/orcamentos?id=eq.$id&cliente_id=eq.$cliente_id&select=card_id&limit=1" );
+        $card_id_sync = ( $rcd['ok'] && ! empty( $rcd['data'] ) ) ? ( $rcd['data'][0]['card_id'] ?? '' ) : '';
+        if ( $card_id_sync && function_exists( 'tao_crm_sync_valor_oportunidade' ) ) tao_crm_sync_valor_oportunidade( $card_id_sync );
         wp_send_json_success( [ 'avisos_controlado' => isset( $avisos_ctl ) ? $avisos_ctl : [] ] );
     } else {
         wp_send_json_error( $r['raw'], 500 );
