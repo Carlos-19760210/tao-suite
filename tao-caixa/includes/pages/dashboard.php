@@ -31,7 +31,7 @@ function tao_caixa_page_dashboard() {
     if ( $cid ) {
         $rv = tao_caixa_api( "/caixa_vendas?cliente_id=eq.$cid&criado_em=gte.$de_iso&criado_em=lte.$ate_iso&select=valor_total,valor_pago,status,origem&limit=2000" );
         $vendas = $rv['ok'] ? ( $rv['data'] ?? [] ) : [];
-        $rp = tao_caixa_api( "/caixa_pagamentos?cliente_id=eq.$cid&criado_em=gte.$de_iso&criado_em=lte.$ate_iso&estornado=eq.false&select=forma_pagamento_id,valor_bruto,valor_taxa,valor_liquido,data_prevista_receb&limit=5000" );
+        $rp = tao_caixa_api( "/caixa_pagamentos?cliente_id=eq.$cid&criado_em=gte.$de_iso&criado_em=lte.$ate_iso&estornado=eq.false&select=forma_pagamento_id,modalidade,parcelas,bandeira,valor_bruto,valor_taxa,valor_liquido,data_prevista_receb,conciliado,criado_em,caixa_recibos(pagador_nome,data_pagamento)&order=criado_em.desc&limit=5000" );
         $pagtos = $rp['ok'] ? ( $rp['data'] ?? [] ) : [];
         $rf = tao_caixa_api( "/caixa_formas_pagamento?cliente_id=eq.$cid&select=id,nome,canal" );
         foreach ( ( $rf['ok'] ? ( $rf['data'] ?? [] ) : [] ) as $f ) $formas_map[ $f['id'] ] = $f['nome'];
@@ -48,9 +48,9 @@ function tao_caixa_page_dashboard() {
         $por_origem[ $o ]['n']++; $por_origem[ $o ]['v'] += $vt;
     }
 
-    // Pagamentos por forma + a receber das operadoras por data prevista
+    // Pagamentos por forma + a receber das operadoras por data prevista + lista de recebimentos
     $por_forma = []; $tot_bruto = 0.0; $tot_taxa = 0.0; $tot_liq = 0.0;
-    $a_cair = []; $hoje_d = $hoje;
+    $a_cair = []; $hoje_d = $hoje; $recebimentos = [];
     foreach ( $pagtos as $pg ) {
         $fid = $pg['forma_pagamento_id'] ?? ''; $nome = $formas_map[ $fid ] ?? '—';
         if ( ! isset( $por_forma[ $nome ] ) ) $por_forma[ $nome ] = [ 'n' => 0, 'bruto' => 0.0, 'taxa' => 0.0, 'liq' => 0.0 ];
@@ -59,6 +59,18 @@ function tao_caixa_page_dashboard() {
         $tot_bruto += $b; $tot_taxa += $t; $tot_liq += $l;
         $dp = $pg['data_prevista_receb'] ?? '';
         if ( $dp && $dp >= $hoje_d ) { if ( ! isset( $a_cair[ $dp ] ) ) $a_cair[ $dp ] = 0.0; $a_cair[ $dp ] += $l; }
+        $rec = $pg['caixa_recibos'] ?? [];
+        $mod = $pg['modalidade'] ?? ''; $par = (int) ( $pg['parcelas'] ?? 1 );
+        $mlabel = $mod ? ucfirst( $mod ) : '—';
+        if ( in_array( $mod, [ 'credito', 'debito' ], true ) ) { if ( $pg['bandeira'] ?? '' ) $mlabel .= ' ' . $pg['bandeira']; if ( $par > 1 ) $mlabel .= " ({$par}x)"; }
+        $recebimentos[] = [
+            'data'     => $rec['data_pagamento'] ?? substr( (string) ( $pg['criado_em'] ?? '' ), 0, 10 ),
+            'pagador'  => $rec['pagador_nome'] ?? '—',
+            'forma'    => $nome,
+            'modal'    => $mlabel,
+            'bruto'    => $b, 'taxa' => $t, 'liq' => $l,
+            'concil'   => ! empty( $pg['conciliado'] ),
+        ];
     }
     arsort( $por_forma ); // por valor? mantém ordem de inserção; ok
     ksort( $a_cair );
@@ -120,6 +132,42 @@ function tao_caixa_page_dashboard() {
             </div>
             <?php endforeach; ?>
         </div>
+
+        <!-- Recebimentos no período (o que entrou) -->
+        <h2 style="font-size:15px;margin:0 0 8px">&#x1F4E5; Recebimentos no período (<?php echo count( $recebimentos ); ?>)</h2>
+        <?php if ( empty( $recebimentos ) ) : ?>
+        <p style="font-size:13px;color:#94a3b8;margin-bottom:20px">Nenhum recebimento no período.</p>
+        <?php else : ?>
+        <div style="max-height:360px;overflow:auto;border:1px solid #e2e8f0;border-radius:10px;margin-bottom:22px">
+        <table class="taoc-table" style="margin:0">
+            <thead><tr>
+                <th>Data</th><th>Pagador</th><th>Forma</th><th>Modalidade</th>
+                <th style="text-align:right">Bruto</th><th style="text-align:right">Taxa</th><th style="text-align:right">Líquido</th><th style="text-align:center" title="Conciliado">&#x2705;</th>
+            </tr></thead>
+            <tbody>
+            <?php foreach ( $recebimentos as $r ) : ?>
+                <tr>
+                    <td><?php echo esc_html( $r['data'] ? date_i18n( 'd/m/Y', strtotime( $r['data'] ) ) : '—' ); ?></td>
+                    <td><strong><?php echo esc_html( $r['pagador'] ); ?></strong></td>
+                    <td><?php echo esc_html( $r['forma'] ); ?></td>
+                    <td style="color:#64748b"><?php echo esc_html( $r['modal'] ); ?></td>
+                    <td style="text-align:right"><?php echo $brl( $r['bruto'] ); ?></td>
+                    <td style="text-align:right;color:#dc2626"><?php echo $brl( $r['taxa'] ); ?></td>
+                    <td style="text-align:right;color:#16a34a;font-weight:600"><?php echo $brl( $r['liq'] ); ?></td>
+                    <td style="text-align:center"><?php echo $r['concil'] ? '&#x2705;' : '—'; ?></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+            <tfoot><tr style="background:#f8fafc;font-weight:700">
+                <td colspan="4">Total (<?php echo count( $recebimentos ); ?>)</td>
+                <td style="text-align:right"><?php echo $brl( $tot_bruto ); ?></td>
+                <td style="text-align:right;color:#dc2626"><?php echo $brl( $tot_taxa ); ?></td>
+                <td style="text-align:right;color:#16a34a"><?php echo $brl( $tot_liq ); ?></td>
+                <td></td>
+            </tr></tfoot>
+        </table>
+        </div>
+        <?php endif; ?>
 
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px">
             <!-- Por forma de pagamento -->
