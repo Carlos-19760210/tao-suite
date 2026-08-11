@@ -786,7 +786,8 @@ function tao_formula_page_ativos() {
                     if(r.success) reloadSinonimos(aid);
                 });
             });
-            $(document).on('click','#taof-ativo-modal-close, #taof-ativo-modal .taof-overlay',function(){
+            // fecha só pelo botão X — clicar fora (overlay) NÃO fecha (evita perder edição)
+            $(document).on('click','#taof-ativo-modal-close',function(){
                 $('#taof-ativo-modal').hide();
             });
         }
