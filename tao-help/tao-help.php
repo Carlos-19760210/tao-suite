@@ -15,8 +15,13 @@ define( 'TAOH_KB_URL', plugins_url( 'kb/', __FILE__ ) );  // base p/ imagens (![
 function tao_help_manifest() {
     return [
         [ 'Começe aqui', false, [ [ 'INDEX', 'Visão geral' ] ] ],
-        [ 'O sistema',   false, [ [ 'arquitetura/mer', 'Visão do sistema (modelo de dados)' ] ] ],
-        [ 'Módulos',     false, [ [ 'modulos/cotacoes', 'Cotações (compras)' ] ] ],
+        [ 'Operação',    false, [ [ 'operacao/geral', 'Guia completo (configuração + dia a dia)' ] ] ],
+        [ 'Módulos',     false, [
+            [ 'modulos/crm', 'CRM — Atendimento (Kanban + WhatsApp)' ],
+            [ 'modulos/formula-lab', 'Fórmula / Lab (manipulação)' ],
+            [ 'modulos/cotacoes', 'Cotações (compras)' ],
+        ] ],
+        [ 'O sistema',   false, [ [ 'arquitetura/mer', 'Modelo de dados (MER)' ] ] ],
         // ↓ internos — só admin
         [ 'Comercial (interno)', true, [
             [ 'comercial/comparativo-texs', 'TAO Neo × TEXs' ],
