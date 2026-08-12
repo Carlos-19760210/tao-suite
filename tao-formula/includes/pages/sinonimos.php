@@ -218,9 +218,13 @@ function tao_formula_page_sinonimos() {
             var nome = $('tr[data-id="'+id+'"]').data('nome') || '';
             var $td = $('#det-'+id+' td');
             var tags = sins.map(function(s){
-                return '<span style="display:inline-flex;align-items:center;gap:4px;background:#e0f2fe;color:#0369a1;border-radius:12px;padding:2px 10px;margin:2px;font-size:12px">' +
+                var cap = s.cap_ativo
+                    ? '<button class="taof-sin-cap-btn" data-sid="'+s.id+'" data-aid="'+id+'" title="Ativo usado quando a fórmula for cápsula. Clique para alterar/limpar." style="background:#fef3c7;border:1px solid #fde68a;color:#92400e;border-radius:10px;font-size:10px;line-height:1;padding:2px 6px;margin-left:4px;cursor:pointer">💊 '+escHtml((s.cap_ativo.codigo_fc||'')+' '+(s.cap_ativo.nome||''))+'</button>'
+                    : '<button class="taof-sin-cap-btn" data-sid="'+s.id+'" data-aid="'+id+'" title="Definir um ativo diferente para quando a fórmula for cápsula" style="background:none;border:1px dashed #cbd5e1;color:#94a3b8;border-radius:10px;font-size:10px;line-height:1;padding:2px 6px;margin-left:4px;cursor:pointer">💊 + cáp</button>';
+                return '<span style="display:inline-flex;align-items:center;gap:4px;background:#e0f2fe;color:#0369a1;border-radius:12px;padding:2px 6px 2px 10px;margin:2px;font-size:12px">' +
                     escHtml(s.sinonimo) +
                     '<button class="taof-sin-del-btn" data-sid="'+s.id+'" data-aid="'+id+'" style="background:none;border:none;cursor:pointer;color:#ef4444;font-size:14px;line-height:1;padding:0 2px">&times;</button>' +
+                    cap +
                     '</span>';
             }).join('');
             var html = '<div style="margin-bottom:8px">' + (tags || '<span style="color:#94a3b8;font-size:12px">Nenhum sinônimo cadastrado.</span>') + '</div>' +
@@ -236,6 +240,16 @@ function tao_formula_page_sinonimos() {
                 if (!confirm('Remover este sinônimo?')) return;
                 $.post(ajaxurl, { action:'tao_formula_excluir_sinonimo', nonce:nonce, sin_id:sid }, function(r){
                     if (r.success) carregarContagem(aid);
+                });
+            });
+
+            $td.find('.taof-sin-cap-btn').on('click', function(){
+                var sid = $(this).data('sid'), aid = $(this).data('aid');
+                var ref = prompt('Ativo a usar quando a fórmula for CÁPSULA (código FC ou parte do nome).\nDeixe em branco para limpar.');
+                if (ref === null) return; // cancelou
+                $.post(ajaxurl, { action:'tao_formula_sinonimo_set_cap', nonce:nonce, sin_id:sid, cap_ref:ref.trim() }, function(r){
+                    if (r.success) carregarContagem(aid);
+                    else alert(r.data && r.data.message ? r.data.message : 'Erro ao salvar.');
                 });
             });
 

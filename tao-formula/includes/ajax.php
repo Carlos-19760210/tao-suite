@@ -1080,20 +1080,26 @@ function tao_formula_criar_orc_ia_core( $args ) {
     // Busca forma farmacêutica — tenta match exato, depois progressivamente mais curto
     $forma_id   = null;
     $forma_nome = $forma_txt;
+    $forma_tipo = '';
     if ( $forma_txt ) {
         $words = preg_split( '/\s+/', trim( $forma_txt ) );
         for ( $wi = count( $words ); $wi >= 1 && ! $forma_id; $wi-- ) {
             $term = implode( ' ', array_slice( $words, 0, $wi ) );
             $rf = tao_formula_api(
                 '/formas_farmaceuticas?cliente_id=eq.' . $cliente_id .
-                '&nome=ilike.*' . rawurlencode( $term ) . '*&select=id,nome&limit=1'
+                '&nome=ilike.*' . rawurlencode( $term ) . '*&select=id,nome,tipo&limit=1'
             );
             if ( $rf['ok'] && ! empty( $rf['data'] ) ) {
                 $forma_id   = $rf['data'][0]['id'];
                 $forma_nome = $rf['data'][0]['nome'];
+                $forma_tipo = strtolower( (string) ( $rf['data'][0]['tipo'] ?? '' ) );
             }
         }
     }
+    // Forma é cápsula? decide o alvo do sinônimo com variante p/ cápsula (ativo_id_cap)
+    $eh_cap = in_array( $forma_tipo, [ 'cap', 'caps' ], true )
+              || in_array( strtolower( (string) $unidade ), [ 'cap', 'caps' ], true )
+              || preg_match( '/c[aá]psul/i', (string) $forma_nome . ' ' . (string) $forma_txt );
 
     // Monta itens
     $itens           = [];
@@ -1105,24 +1111,51 @@ function tao_formula_criar_orc_ia_core( $args ) {
         $dose_unit = $a['unidade'] ?? 'mg';
         $is_qsp    = ! empty( $a['qsp'] );
 
-        $ra = tao_formula_api(
-            '/ativos?cliente_id=eq.' . $cliente_id .
-            '&or=(nome.ilike.*' . rawurlencode( $nome_a ) . '*,codigo_fc.ilike.*' . rawurlencode( $nome_a ) . '*)' .
-            '&select=id,codigo_fc,nome,unidade_padrao,preco_venda,custo_por_unidade,markup_preco,diluicao,teor&limit=1'
-        );
-        $at    = ( $ra['ok'] && ! empty( $ra['data'] ) ) ? $ra['data'][0] : null;
+        $at    = null;
         $equiv = 1.0;   // equivalência sal↔base quando o match vem de sinônimo (motor v2)
+
+        // Fallback 0 (prioritário): termo sensível à forma — sinônimo exato COM ativo_id_cap.
+        // Ex.: "vitamina c"/"vit c" resolve p/ REVESTIDA (cápsula) ou LIPOSSOMAL (gel/creme),
+        // de forma determinística, antes do match por nome (que seria arbitrário entre os "VIT C …").
+        if ( $nome_a ) {
+            $rs0 = tao_formula_api(
+                '/ativos_sinonimos?cliente_id=eq.' . $cliente_id .
+                '&sinonimo=ilike.' . rawurlencode( strtolower( $nome_a ) ) .
+                '&ativo_id_cap=not.is.null&select=ativo_id,ativo_id_cap,fator_equiv&limit=1'
+            );
+            if ( $rs0['ok'] && ! empty( $rs0['data'] ) ) {
+                $alvo_id = $eh_cap ? $rs0['data'][0]['ativo_id_cap'] : $rs0['data'][0]['ativo_id'];
+                $ra0 = tao_formula_api(
+                    '/ativos?id=eq.' . $alvo_id . '&cliente_id=eq.' . $cliente_id .
+                    '&select=id,codigo_fc,nome,unidade_padrao,preco_venda,custo_por_unidade,markup_preco,diluicao,teor&limit=1'
+                );
+                $at = ( $ra0['ok'] && ! empty( $ra0['data'] ) ) ? $ra0['data'][0] : null;
+                if ( $at ) $equiv = (float) ( $rs0['data'][0]['fator_equiv'] ?? 1 ) ?: 1.0;
+            }
+        }
+
+        // Fallback 1: nome OU codigo_fc direto
+        if ( ! $at ) {
+            $ra = tao_formula_api(
+                '/ativos?cliente_id=eq.' . $cliente_id .
+                '&or=(nome.ilike.*' . rawurlencode( $nome_a ) . '*,codigo_fc.ilike.*' . rawurlencode( $nome_a ) . '*)' .
+                '&select=id,codigo_fc,nome,unidade_padrao,preco_venda,custo_por_unidade,markup_preco,diluicao,teor&limit=1'
+            );
+            $at = ( $ra['ok'] && ! empty( $ra['data'] ) ) ? $ra['data'][0] : null;
+        }
 
         // Fallback 2: sinônimo exato (case-insensitive)
         if ( ! $at && $nome_a ) {
             $rs = tao_formula_api(
                 '/ativos_sinonimos?cliente_id=eq.' . $cliente_id .
                 '&sinonimo=ilike.' . rawurlencode( strtolower( $nome_a ) ) .
-                '&select=ativo_id,fator_equiv&limit=1'
+                '&select=ativo_id,ativo_id_cap,fator_equiv&limit=1'
             );
             if ( $rs['ok'] && ! empty( $rs['data'] ) ) {
+                $alvo_id = ( $eh_cap && ! empty( $rs['data'][0]['ativo_id_cap'] ) )
+                         ? $rs['data'][0]['ativo_id_cap'] : $rs['data'][0]['ativo_id'];
                 $ra2 = tao_formula_api(
-                    '/ativos?id=eq.' . $rs['data'][0]['ativo_id'] .
+                    '/ativos?id=eq.' . $alvo_id .
                     '&cliente_id=eq.' . $cliente_id .
                     '&select=id,codigo_fc,nome,unidade_padrao,preco_venda,custo_por_unidade,markup_preco,diluicao,teor&limit=1'
                 );
@@ -1136,11 +1169,13 @@ function tao_formula_criar_orc_ia_core( $args ) {
             $rs = tao_formula_api(
                 '/ativos_sinonimos?cliente_id=eq.' . $cliente_id .
                 '&sinonimo=ilike.*' . rawurlencode( $nome_a ) . '*' .
-                '&select=ativo_id,fator_equiv&limit=1'
+                '&select=ativo_id,ativo_id_cap,fator_equiv&limit=1'
             );
             if ( $rs['ok'] && ! empty( $rs['data'] ) ) {
+                $alvo_id = ( $eh_cap && ! empty( $rs['data'][0]['ativo_id_cap'] ) )
+                         ? $rs['data'][0]['ativo_id_cap'] : $rs['data'][0]['ativo_id'];
                 $ra2 = tao_formula_api(
-                    '/ativos?id=eq.' . $rs['data'][0]['ativo_id'] .
+                    '/ativos?id=eq.' . $alvo_id .
                     '&cliente_id=eq.' . $cliente_id .
                     '&select=id,codigo_fc,nome,unidade_padrao,preco_venda,custo_por_unidade,markup_preco,diluicao,teor&limit=1'
                 );
@@ -1827,9 +1862,48 @@ add_action( 'wp_ajax_tao_formula_listar_sinonimos', function () {
     $r = tao_formula_api(
         '/ativos_sinonimos?cliente_id=eq.' . $cliente_id .
         '&ativo_id=eq.' . $ativo_id .
-        '&select=id,sinonimo&order=sinonimo.asc'
+        '&select=id,sinonimo,ativo_id_cap&order=sinonimo.asc'
     );
-    wp_send_json_success( $r['data'] ?? [] );
+    $rows = $r['data'] ?? [];
+    // Junta nome/código do ativo-variante p/ cápsula (quando houver)
+    $capids = array_values( array_unique( array_filter( array_column( $rows, 'ativo_id_cap' ) ) ) );
+    $cmap = [];
+    if ( $capids ) {
+        $rc = tao_formula_api( '/ativos?id=in.(' . implode( ',', $capids ) . ')&select=id,nome,codigo_fc' );
+        foreach ( ( $rc['data'] ?? [] ) as $a ) $cmap[ $a['id'] ] = $a;
+    }
+    foreach ( $rows as &$row ) { $row['cap_ativo'] = $row['ativo_id_cap'] ? ( $cmap[ $row['ativo_id_cap'] ] ?? null ) : null; }
+    unset( $row );
+    wp_send_json_success( $rows );
+} );
+
+// ── Sinônimo: define/limpa o ativo-variante para CÁPSULA (ativo_id_cap) ───────
+// Ex.: "VITAMINA C" aponta p/ LIPOSSOMAL (gel/creme) e, em cápsula, usa REVESTIDA.
+add_action( 'wp_ajax_tao_formula_sinonimo_set_cap', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( 'Acesso negado', 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $sin_id     = sanitize_text_field( $_POST['sin_id'] ?? '' );
+    $cap_ref    = trim( sanitize_text_field( $_POST['cap_ref'] ?? '' ) ); // código FC ou nome; vazio = limpar
+    if ( ! $sin_id || ! $cliente_id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+
+    $cap_id = null;
+    if ( $cap_ref !== '' ) {
+        $ra = tao_formula_api(
+            '/ativos?cliente_id=eq.' . $cliente_id . '&ativo=eq.true' .
+            '&or=(codigo_fc.eq.' . rawurlencode( $cap_ref ) . ',nome.ilike.*' . rawurlencode( $cap_ref ) . '*)' .
+            '&select=id,nome,codigo_fc&order=codigo_fc.asc&limit=1'
+        );
+        if ( ! $ra['ok'] || empty( $ra['data'] ) ) {
+            wp_send_json_error( [ 'message' => 'Ativo para cápsula não encontrado: ' . $cap_ref ] );
+        }
+        $cap_id = $ra['data'][0]['id'];
+    }
+    $r = tao_formula_api( "/ativos_sinonimos?id=eq.$sin_id&cliente_id=eq.$cliente_id", 'PATCH', [
+        'ativo_id_cap' => $cap_id,
+    ] );
+    $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => 'Erro: ' . $r['raw'] ] );
 } );
 
 // ── Sinônimos: lista geral (centrada no sinônimo) — busca + filtro sem associação ─
