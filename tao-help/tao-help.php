@@ -21,6 +21,7 @@ function tao_help_manifest() {
             [ 'modulos/formula-lab', 'Fórmula / Lab (manipulação)' ],
             [ 'modulos/cotacoes', 'Cotações (compras)' ],
         ] ],
+        [ 'O sistema',   false, [ [ 'arquitetura/mer', 'Modelo de dados (MER)' ] ] ],
         // ↓ interno — só admin
         [ 'Roadmap (interno)',   true, [ [ 'roadmap/gaps', 'Gaps vs concorrência' ] ] ],
     ];
@@ -69,11 +70,15 @@ function tao_help_md( $md ) {
     };
     while ( $i < $n ) {
         $l = $lines[ $i ];
-        // fenced code
-        if ( preg_match( '/^```/', $l ) ) {
+        // fenced code (```mermaid vira diagrama)
+        if ( preg_match( '/^```(\w*)/', $l, $fm ) ) {
+            $lang = strtolower( $fm[1] ?? '' );
             $buf = ''; $i++;
             while ( $i < $n && ! preg_match( '/^```/', $lines[ $i ] ) ) { $buf .= esc_html( $lines[ $i ] ) . "\n"; $i++; }
-            $i++; $html .= '<pre class="taoh-code"><code>' . $buf . '</code></pre>'; continue;
+            $i++;
+            if ( $lang === 'mermaid' ) $html .= '<div class="taoh-diag"><pre class="mermaid">' . $buf . '</pre></div>';
+            else $html .= '<pre class="taoh-code"><code>' . $buf . '</code></pre>';
+            continue;
         }
         // heading
         if ( preg_match( '/^(#{1,6})\s+(.*)$/', $l, $m ) ) {
@@ -174,6 +179,15 @@ function tao_help_page() {
     .taoh-main img.taoh-img{max-width:100%;border:1px solid #e2e8f0;border-radius:8px;margin:10px 0;display:block;box-shadow:0 2px 10px rgba(0,0,0,.07);cursor:zoom-in}
     #taoh-lb{display:none;position:fixed;inset:0;z-index:99999;background:rgba(6,10,16,.92);align-items:center;justify-content:center;padding:24px;cursor:zoom-out}
     #taoh-lb img{max-width:96%;max-height:94%;border-radius:8px;box-shadow:0 10px 40px rgba(0,0,0,.5)}
+    .taoh-main .taoh-diag{overflow:auto;max-height:72vh;border:1px dashed #e2e8f0;border-radius:8px;padding:10px;background:#fff;cursor:zoom-in;position:relative;margin:12px 0}
+    .taoh-main .taoh-diag:after{content:'\26F6 clique para ampliar';position:absolute;top:8px;right:10px;font-size:11px;color:#64748b;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:2px 8px;pointer-events:none}
+    .taoh-main .taoh-diag pre.mermaid{margin:0;background:none;border:0;padding:0}
+    .taoh-main .taoh-diag svg{max-width:none !important;height:auto !important}
+    #taoh-dz{display:none;position:fixed;inset:0;z-index:100000;background:rgba(6,10,16,.93);flex-direction:column}
+    #taoh-dz .tz{display:flex;gap:8px;justify-content:center;padding:10px;flex:0 0 auto}
+    #taoh-dz .tz button{background:#1e2b3e;color:#fff;border:1px solid #35485f;border-radius:6px;padding:6px 12px;cursor:pointer}
+    #taoh-dz .zp{flex:1 1 auto;overflow:auto;padding:18px}
+    #taoh-dz .zw{transform-origin:top left;display:inline-block;background:#fff;border-radius:8px;padding:14px}
     @media(max-width:820px){.taoh{flex-direction:column}.taoh-side{position:static;flex-basis:auto;width:100%}}
     </style>
     <div class="taoh">
@@ -191,6 +205,22 @@ function tao_help_page() {
     <script>(function(){var lb=document.getElementById('taoh-lb'),im=lb.querySelector('img');
         document.querySelectorAll('.taoh-main img.taoh-img').forEach(function(g){g.addEventListener('click',function(){im.src=g.src;lb.style.display='flex';});});
         lb.addEventListener('click',function(){lb.style.display='none';im.src='';});})();</script>
+    <div id="taoh-dz"><div class="tz"><button data-z="-">&minus; zoom</button><span id="tzl">100%</span><button data-z="+">+ zoom</button><button data-z="0">Reset</button><button id="tzc">Fechar &times;</button></div><div class="zp"><div class="zw"></div></div></div>
+    <script>(function(){
+        if(!document.querySelector('.mermaid')) return;
+        function initZoom(){
+            var ov=document.getElementById('taoh-dz'),zw=ov.querySelector('.zw'),lvl=document.getElementById('tzl'),z=1;
+            function ap(){zw.style.transform='scale('+z+')';lvl.textContent=Math.round(z*100)+'%';}
+            document.querySelectorAll('.taoh-diag').forEach(function(d){d.addEventListener('click',function(){var s=d.querySelector('svg');if(!s)return;zw.innerHTML='';zw.appendChild(s.cloneNode(true));z=1;ap();ov.style.display='flex';});});
+            document.getElementById('tzc').addEventListener('click',function(){ov.style.display='none';});
+            ov.addEventListener('click',function(e){if(e.target===ov||e.target.classList.contains('zp'))ov.style.display='none';});
+            ov.querySelectorAll('[data-z]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var v=b.getAttribute('data-z');z=v==='+'?Math.min(6,z+0.25):v==='-'?Math.max(0.4,z-0.25):1;ap();});});
+            document.addEventListener('keydown',function(e){if(e.key==='Escape')ov.style.display='none';});
+        }
+        var s=document.createElement('script'); s.src='https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js';
+        s.onload=function(){ try{ mermaid.initialize({startOnLoad:false,securityLevel:'loose',theme:'default'}); mermaid.run({querySelector:'.mermaid'}).then(initZoom).catch(initZoom); }catch(e){ initZoom(); } };
+        document.head.appendChild(s);
+    })();</script>
     <?php
 }
 
