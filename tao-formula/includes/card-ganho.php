@@ -258,6 +258,8 @@ add_action( 'wp_ajax_tao_formula_orc_aprovar', function () {
 			}
 		}
 	}
+	// Aprovar muda o que conta pro valor do card (card ganho só soma aprovados) → recalcula.
+	if ( $card_id && function_exists( 'tao_crm_sync_valor_oportunidade' ) ) tao_crm_sync_valor_oportunidade( $card_id );
 	wp_send_json_success( [ 'om_criada' => $om_criada, 'avisos_controlado' => $avisos_ctl ] );
 } );
 
@@ -272,7 +274,12 @@ add_action( 'wp_ajax_tao_formula_orc_rejeitar', function () {
 		'status' => 'rejeitado', 'motivo_rejeicao' => ( $motivo !== '' ? $motivo : 'Não aprovado' ), 'aprovado_em' => null,
 		'farmaceutico_id' => get_current_user_id(),   // rastro de auditoria: quem avaliou (RDC 67)
 	] );
-	$r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => 'Erro ao rejeitar' ] );
+	if ( ! $r['ok'] ) wp_send_json_error( [ 'message' => 'Erro ao rejeitar' ] );
+	// Rejeitar tira o orçamento da conta do card ganho → recalcula o valor.
+	$rqr = tao_formula_api( "/orcamentos?id=eq.$orc&cliente_id=eq.$cid&select=card_id&limit=1" );
+	$card_id_r = ( $rqr['ok'] && ! empty( $rqr['data'] ) ) ? ( $rqr['data'][0]['card_id'] ?? '' ) : '';
+	if ( $card_id_r && function_exists( 'tao_crm_sync_valor_oportunidade' ) ) tao_crm_sync_valor_oportunidade( $card_id_r );
+	wp_send_json_success();
 } );
 
 add_action( 'wp_ajax_tao_formula_orc_reabrir', function () {
@@ -298,5 +305,10 @@ add_action( 'wp_ajax_tao_formula_orc_reabrir', function () {
 	$r = tao_formula_api( "/orcamentos?id=eq.$orc&cliente_id=eq.$cid", 'PATCH', [
 		'status' => 'pendente_revisao', 'aprovado_em' => null, 'motivo_rejeicao' => null,
 	] );
-	$r['ok'] ? wp_send_json_success( [ 'oms_canceladas' => count( $oms ) ] ) : wp_send_json_error( [ 'message' => 'Erro' ] );
+	if ( ! $r['ok'] ) wp_send_json_error( [ 'message' => 'Erro' ] );
+	// Reabrir/estornar tira o orçamento da conta do card ganho → recalcula o valor.
+	$rqe = tao_formula_api( "/orcamentos?id=eq.$orc&cliente_id=eq.$cid&select=card_id&limit=1" );
+	$card_id_e = ( $rqe['ok'] && ! empty( $rqe['data'] ) ) ? ( $rqe['data'][0]['card_id'] ?? '' ) : '';
+	if ( $card_id_e && function_exists( 'tao_crm_sync_valor_oportunidade' ) ) tao_crm_sync_valor_oportunidade( $card_id_e );
+	wp_send_json_success( [ 'oms_canceladas' => count( $oms ) ] );
 } );
