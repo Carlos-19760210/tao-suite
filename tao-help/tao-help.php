@@ -7,6 +7,7 @@
 if ( ! defined( 'ABSPATH' ) ) exit;
 
 define( 'TAOH_DIR', plugin_dir_path( __FILE__ ) );
+define( 'TAOH_KB_URL', plugins_url( 'kb/', __FILE__ ) );  // base p/ imagens (![alt](img/...))
 
 /* ─── Manifesto da KB (sidebar). Cada grupo: [ label, admin_only, itens[[slug,titulo]] ].
  * slug = caminho relativo em kb/ sem .md. Só o que está aqui é acessível (whitelist).
@@ -52,6 +53,12 @@ function tao_help_md( $md ) {
     $inline = function ( $t ) {
         $t = esc_html( $t );
         $t = preg_replace_callback( '/`([^`]+)`/', fn( $m ) => '<code>' . $m[1] . '</code>', $t );
+        // imagem: ![alt](src)  — src relativo a kb/ (ou URL absoluta)
+        $t = preg_replace_callback( '/!\[([^\]]*)\]\(([^)]+)\)/', function ( $m ) {
+            $src = $m[2];
+            if ( ! preg_match( '#^https?://#', $src ) ) $src = TAOH_KB_URL . ltrim( $src, '/' );
+            return '<img class="taoh-img" src="' . esc_attr( $src ) . '" alt="' . esc_attr( $m[1] ) . '" loading="lazy">';
+        }, $t );
         $t = preg_replace( '/\*\*([^*]+)\*\*/', '<strong>$1</strong>', $t );
         $t = preg_replace( '/(?<!\*)\*([^*]+)\*(?!\*)/', '<em>$1</em>', $t );
         $t = preg_replace_callback( '/\[([^\]]+)\]\(([^)]+)\)/', function ( $m ) {
@@ -165,6 +172,9 @@ function tao_help_page() {
     .taoh-table th{background:#f8fafc}
     .taoh-main hr{border:0;border-top:1px solid #eef2f7;margin:22px 0}
     .taoh-main a{color:#2563eb}
+    .taoh-main img.taoh-img{max-width:100%;border:1px solid #e2e8f0;border-radius:8px;margin:10px 0;display:block;box-shadow:0 2px 10px rgba(0,0,0,.07);cursor:zoom-in}
+    #taoh-lb{display:none;position:fixed;inset:0;z-index:99999;background:rgba(6,10,16,.92);align-items:center;justify-content:center;padding:24px;cursor:zoom-out}
+    #taoh-lb img{max-width:96%;max-height:94%;border-radius:8px;box-shadow:0 10px 40px rgba(0,0,0,.5)}
     @media(max-width:820px){.taoh{flex-direction:column}.taoh-side{position:static;flex-basis:auto;width:100%}}
     </style>
     <div class="taoh">
@@ -178,6 +188,10 @@ function tao_help_page() {
         </nav>
         <article class="taoh-main"><?php echo $body; // já sanitizado no parser ?></article>
     </div>
+    <div id="taoh-lb"><img src="" alt=""></div>
+    <script>(function(){var lb=document.getElementById('taoh-lb'),im=lb.querySelector('img');
+        document.querySelectorAll('.taoh-main img.taoh-img').forEach(function(g){g.addEventListener('click',function(){im.src=g.src;lb.style.display='flex';});});
+        lb.addEventListener('click',function(){lb.style.display='none';im.src='';});})();</script>
     <?php
 }
 
