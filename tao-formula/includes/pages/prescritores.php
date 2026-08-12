@@ -165,7 +165,7 @@ function tao_formula_page_prescritores() {
             var v = $(this).val().trim();
             timer = setTimeout(function(){ q = v; carregar(true); }, 300);
         });
-        $('#taof-pr-modal').on('click','.taof-overlay',function(){ $('#taof-pr-modal').hide(); });
+        /* clicar no overlay NÃO fecha (evita perder edição) — fecha só por Cancelar */
 
         carregar(true);
     });

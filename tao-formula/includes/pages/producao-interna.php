@@ -75,7 +75,7 @@ function tao_formula_page_producao_interna() {
             $('#pi-cancel').on('click',function(){$('#taof-pi-modal').hide();});
             $('#pi-ativo').focus();
         });
-        $('#taof-pi-modal').on('click','.taof-overlay',function(){$('#taof-pi-modal').hide();});
+        /* clicar no overlay NÃO fecha (evita perder edição) — fecha só por Cancelar/Fechar */
 
         // autocomplete ativo produzido
         $(document).on('input','#pi-ativo',function(){

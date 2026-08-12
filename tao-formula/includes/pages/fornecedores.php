@@ -223,7 +223,7 @@ function tao_formula_page_fornecedores() {
             var v = $(this).val().trim();
             timer = setTimeout(function(){ q = v; carregar(true); }, 300);
         });
-        $('#taof-fn-modal').on('click','.taof-overlay',function(){ $('#taof-fn-modal').hide(); });
+        /* clicar no overlay NÃO fecha (evita perder edição) — fecha só por Cancelar */
 
         carregar(true);
     });
