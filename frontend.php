@@ -117,6 +117,7 @@ add_action( 'template_redirect', function() {
         'cotacoes'              => 'tao-cotacoes',
         'cotacoes-nova'         => 'tao-cotacoes-nova',
         'cotacoes-fornecedores' => 'tao-cotacoes-fornecedores',
+        'ajuda'                 => 'tao-ajuda',
     ];
 
     $page_slug = $map[ $cbpm_page ] ?? 'chatbot-platform-dashboard';

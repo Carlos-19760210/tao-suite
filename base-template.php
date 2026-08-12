@@ -92,6 +92,11 @@ if ( $has_cotacoes ) {
     $secoes['tao-cotacoes-fornecedores'] = [ 'fn' => 'tao_cotacoes_page_fornecedores', 'label' => 'Cotações — Fornecedores' ];
 }
 
+$has_help = function_exists( 'tao_help_page' );
+if ( $has_help ) {
+    $secoes['tao-ajuda'] = [ 'fn' => 'tao_help_page', 'label' => 'Ajuda' ];
+}
+
 $page_atual = $_GET['page'] ?? 'chatbot-platform';
 // O plugin mapeia slug 'negocios' → 'chatbot-platform', mas queremos Negócios e não Visão Geral
 if ( get_query_var( 'cbpm_page', '' ) === 'negocios' ) $page_atual = 'chatbot-platform-negocios';
@@ -318,6 +323,15 @@ $nav['config'] = [
     'icon'  => '&#x2699;&#xFE0F;',
     'subs'  => $cfg_subs,
 ];
+
+if ( $has_help ) {
+    $nav['ajuda'] = [
+        'label' => 'Ajuda',
+        'icon'  => '&#x2753;',
+        'slug'  => 'tao-ajuda',
+        'url'   => cbpm_url('ajuda'),
+    ];
+}
 
 // ─── Perfis de Acesso: esconde do menu itens/grupos cuja tela está oculta ────
 if ( $tem_perfis ) {
