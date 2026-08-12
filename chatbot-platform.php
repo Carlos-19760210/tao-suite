@@ -195,7 +195,7 @@ function cbpm_enqueue_assets( $hook ) {
         'ajax_url'     => admin_url( 'admin-ajax.php' ),
         'nonce'        => wp_create_nonce( 'cbpm_nonce' ),
         'supabase_url' => CBPM_SUPABASE_URL,
-        'supabase_key' => CBPM_SUPABASE_KEY,
+        'supabase_key' => '', // SEGURANÇA: nunca expor a chave no frontend — acesso ao Supabase é server-side (AJAX/PHP)
     ]);
 }
 

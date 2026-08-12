@@ -663,7 +663,7 @@ function tao_crm_enqueue_assets( $hook ) {
         'ajax_url'     => admin_url( 'admin-ajax.php' ),
         'nonce'        => wp_create_nonce( 'tao_crm_nonce' ),
         'supabase_url' => function_exists( 'cbpm_supabase_url' ) ? cbpm_supabase_url() : get_option( 'cbpm_supabase_url', '' ),
-        'supabase_key' => function_exists( 'cbpm_supabase_key' ) ? cbpm_supabase_key() : get_option( 'cbpm_supabase_key', '' ),
+        'supabase_key' => '', // SEGURANÇA: nunca expor a chave no frontend — acesso ao Supabase é server-side (AJAX/PHP)
         // Ficha do card abre SEMPRE no portal /robos/ (não no wp-admin)
         'card_base_url'=> function_exists( 'cbpm_url' )
             ? cbpm_url( 'crm-kanban', [ 'action' => 'card', 'id' => '' ] )
