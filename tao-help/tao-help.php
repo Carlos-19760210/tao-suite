@@ -21,13 +21,7 @@ function tao_help_manifest() {
             [ 'modulos/formula-lab', 'Fórmula / Lab (manipulação)' ],
             [ 'modulos/cotacoes', 'Cotações (compras)' ],
         ] ],
-        [ 'O sistema',   false, [ [ 'arquitetura/mer', 'Modelo de dados (MER)' ] ] ],
-        // ↓ internos — só admin
-        [ 'Comercial (interno)', true, [
-            [ 'comercial/comparativo-texs', 'TAO Neo × TEXs' ],
-            [ 'comercial/precificacao', 'Precificação' ],
-        ] ],
-        [ 'Segurança (interno)', true, [ [ 'seguranca/supabase', 'Supabase / RLS / LGPD' ] ] ],
+        // ↓ interno — só admin
         [ 'Roadmap (interno)',   true, [ [ 'roadmap/gaps', 'Gaps vs concorrência' ] ] ],
     ];
 }
