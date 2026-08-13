@@ -1283,22 +1283,30 @@
         if (_loadingEdit) return;
         if (!formaAtual || formaAtual.tipo !== 'envelope') return;
         if (!$('#taof-itens-body .taof-item-row:not(.taof-row-qsp)').length) return;   // ainda sem ativos
-        var $qsp = $('#taof-itens-body .taof-item-row.taof-row-qsp').first();
-        if ($qsp.length && $qsp.find('.taof-orc-ativo-id').val()) return;              // já associada
+        // Regra Carlos 13/08: se a fórmula JÁ TEM base (efervescente/sachê), NÃO adiciona nada.
+        // Sem base: entra BASE P/SACHE (12903) como item NORMAL com dose 1 g/env — não é QSP
+        // (sachê não completa peso; a base é volume fixo de 1 g por envelope).
+        var temBase = false;
+        $('#taof-itens-body .taof-item-row').each(function () {
+            var n = String($(this).data('ativo-nome') || '').toUpperCase();
+            if (n.indexOf('EFERVESC') !== -1 || (n.indexOf('BASE') !== -1 && n.indexOf('SACHE') !== -1)) temBase = true;
+        });
+        if (temBase) return;
 
         var aplicar = function (ativo) {
             if (!ativo) return;
-            var $row = $('#taof-itens-body .taof-item-row.taof-row-qsp').first();
-            if (!$row.length) $row = adicionarLinha();
-            if (!$row.hasClass('taof-row-qsp')) toggleQSP($row, true);
-            selecionarAtivo($row, ativo, 'EXCIPIENTE BASE');
+            var $row = adicionarLinha();
+            selecionarAtivo($row, ativo, 'BASE P/ SACHE');
+            $row.find('.taof-orc-dose').val(1);
+            $row.find('.taof-orc-dose-unit').val('g');
+            calcularLinha($row);
             calcularTotais();
         };
         if (_excipienteEnv) { aplicar(_excipienteEnv); return; }
-        $.getJSON(ajaxUrl, { action: 'tao_formula_search_ativos', nonce: nonce, q: '10577', grupo: '' }, function (resp) {
+        $.getJSON(ajaxUrl, { action: 'tao_formula_search_ativos', nonce: nonce, q: '12903', grupo: '' }, function (resp) {
             var lista = (resp && Array.isArray(resp.data)) ? resp.data : [];
             var ativo = null;
-            for (var i = 0; i < lista.length; i++) { if (String(lista[i].codigo_fc) === '10577') { ativo = lista[i]; break; } }
+            for (var i = 0; i < lista.length; i++) { if (String(lista[i].codigo_fc) === '12903') { ativo = lista[i]; break; } }
             if (!ativo && lista.length) ativo = lista[0];
             _excipienteEnv = ativo;
             aplicar(ativo);

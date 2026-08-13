@@ -2403,13 +2403,17 @@ function tao_formula_parse_descricao_itens( $descr, $cliente_id ) {
             $ra = tao_formula_api( "/ativos?cliente_id=eq.{$cliente_id}&nome=ilike.{$nome_enc}&select={$sel_ativo}&limit=1" );
         }
 
-        // 2) sinônimo EXATO cadastrado
+        // 2) sinônimo EXATO cadastrado — carrega também o FATOR DE EQUIVALÊNCIA do sinônimo
+        //    (ex.: AC PANTOTENICO → PANTOTENATO DE CALCIO ×1,09; sem ele a pesagem sai menor
+        //    que o FCerta, que aplica EQUIV — confronto 13/08, caso A1)
+        $equiv_syn = 1.0;
         if ( ! ( $ra['ok'] && ! empty( $ra['data'] ) ) ) {
             $rs = tao_formula_api(
-                "/ativos_sinonimos?cliente_id=eq.{$cliente_id}&sinonimo=ilike.{$nome_enc}&ativo_id=not.is.null&select=ativo_id&limit=1"
+                "/ativos_sinonimos?cliente_id=eq.{$cliente_id}&sinonimo=ilike.{$nome_enc}&ativo_id=not.is.null&select=ativo_id,fator_equiv&limit=1"
             );
             if ( $rs['ok'] && ! empty( $rs['data'] ) ) {
-                $aid = $rs['data'][0]['ativo_id'];
+                $aid       = $rs['data'][0]['ativo_id'];
+                $equiv_syn = (float) ( $rs['data'][0]['fator_equiv'] ?? 1 ) ?: 1.0;
                 $ra  = tao_formula_api( "/ativos?id=eq.{$aid}&cliente_id=eq.{$cliente_id}&select={$sel_ativo}&limit=1" );
             }
         }
@@ -2481,6 +2485,7 @@ function tao_formula_parse_descricao_itens( $descr, $cliente_id ) {
             'is_qsp'            => $is_qsp,
             'dose'              => $dose,
             'dose_unit'         => $dose_unit,
+            'equiv'             => $equiv_syn,
             'multiplicador'     => $forma_vol ?? 1,
             'qtde_potes'        => 1,
             'n_caps_por_dose'   => 1,
@@ -2550,11 +2555,23 @@ function tao_formula_calc_capsula_import( array &$itens_mp, $forma, $forma_vol, 
     unset( $item );
     if ( $sum_volapa <= 0 ) return $out;
 
-    // 2) Cápsulas gelatinosas + preço (cdpro_fc → ativo preco_venda)
-    $rc = tao_formula_api(
-        "/tipos_capsula?cliente_id=eq.{$cliente_id}&ativo=eq.true&tipo=ilike.gelatinosa&select=numero,vol_ul,cdpro_fc&order=vol_ul.asc"
-    );
-    $caps_raw = $rc['ok'] ? ( $rc['data'] ?? [] ) : [];
+    // 2) Cápsulas + preço (cdpro_fc → ativo preco_venda).
+    //    Cápsula OLEOSA (veículo líquido "X 1 cap" = QSP): usa cápsula LIPOFÍLICA (fallback
+    //    VEGETAL) — é a prática do FCerta (ex.: CAP VEGETAL nº1 500µL). Senão: gelatinosa.
+    $oleosa = false;
+    foreach ( $itens_mp as $it_ol ) {
+        if ( ( $it_ol['tipo'] ?? 'mp' ) === 'mp' && ! empty( $it_ol['is_qsp'] )
+             && strtolower( (string) ( $it_ol['dose_unit'] ?? '' ) ) === 'cap' ) { $oleosa = true; break; }
+    }
+    $tipos_cap = $oleosa ? [ 'lipofilica', 'vegetal', 'gelatinosa' ] : [ 'gelatinosa' ];
+    $caps_raw  = [];
+    foreach ( $tipos_cap as $tcap ) {
+        $rc = tao_formula_api(
+            "/tipos_capsula?cliente_id=eq.{$cliente_id}&ativo=eq.true&tipo=ilike.{$tcap}&select=numero,vol_ul,cdpro_fc&order=vol_ul.asc"
+        );
+        $caps_raw = $rc['ok'] ? ( $rc['data'] ?? [] ) : [];
+        if ( ! empty( $caps_raw ) ) break;
+    }
     if ( empty( $caps_raw ) ) return $out;
 
     $cdpros = array_filter( array_map( fn($c) => (string) ( $c['cdpro_fc'] ?? '' ), $caps_raw ) );
@@ -2891,6 +2908,38 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
                      && $forma_vol && $forma_vol > 0 ) {
                     $mult = ( $forma_vol / (float) $it['dose'] ) * $qtde_potes;
                     break;
+                }
+            }
+        } elseif ( $forma && $forma_tipo === 'envelope' ) {
+            // Base do sachê (Carlos 13/08): se a fórmula JÁ TEM base (efervescente/sachê),
+            // nada a acrescentar; sem base, entra 1 g/env de BASE P/SACHE como item NORMAL
+            // (não é QSP — sachê não completa peso).
+            $tem_base = false;
+            foreach ( $itens_mp as $it_b ) {
+                if ( ( $it_b['tipo'] ?? 'mp' ) !== 'mp' ) continue;
+                $nm_up = mb_strtoupper( (string) ( $it_b['nome'] ?? '' ) . ' ' . (string) ( $it_b['nome_prescricao'] ?? '' ) );
+                if ( mb_strpos( $nm_up, 'EFERVESC' ) !== false
+                     || ( mb_strpos( $nm_up, 'BASE' ) !== false && mb_strpos( $nm_up, 'SACHE' ) !== false ) ) { $tem_base = true; break; }
+            }
+            if ( ! $tem_base ) {
+                $sel_b = 'id,nome,codigo_fc,preco_venda,custo_por_unidade,densidade,unidade_padrao';
+                $rb2 = tao_formula_api( "/ativos?cliente_id=eq.{$cliente_id}&codigo_fc=eq.12903&select={$sel_b}&limit=1" );
+                if ( ! ( $rb2['ok'] && ! empty( $rb2['data'] ) ) )
+                    $rb2 = tao_formula_api( "/ativos?cliente_id=eq.{$cliente_id}&nome=ilike.*BASE*SACHE*&select={$sel_b}&limit=1" );
+                if ( $rb2['ok'] && ! empty( $rb2['data'] ) ) {
+                    $ab = $rb2['data'][0];
+                    $itens_mp[] = [
+                        'tipo' => 'mp', 'ativo_id' => $ab['id'], 'nome' => strtoupper( (string) $ab['nome'] ),
+                        'nome_prescricao' => strtoupper( (string) $ab['nome'] ), 'codigo_fc' => (string) ( $ab['codigo_fc'] ?? '' ),
+                        'excipiente_id' => null, 'is_qsp' => false, 'dose' => 1.0, 'dose_unit' => 'g', 'equiv' => 1.0,
+                        'multiplicador' => $forma_vol ?? 1, 'qtde_potes' => 1, 'n_caps_por_dose' => 1,
+                        'capsula_tipo' => null, 'capsula_numero' => null, 'diluicao' => 1.0, 'teor' => 100.0, 'fp' => 1.0,
+                        'densidade' => (float) ( $ab['densidade'] ?? 1 ) ?: 1.0, 'concentracao' => 0.0,
+                        'qtd_total_g' => 0.0, 'volapa_ul' => 0.0,
+                        'custo_por_unidade' => (float) ( $ab['custo_por_unidade'] ?? 0 ),
+                        'preco_venda' => (float) ( $ab['preco_venda'] ?? 0 ),
+                        'unid_padrao' => $ab['unidade_padrao'] ?? 'g', 'subtotal' => 0.0,
+                    ];
                 }
             }
         }
