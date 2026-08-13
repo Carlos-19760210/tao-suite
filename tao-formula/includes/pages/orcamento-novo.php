@@ -548,6 +548,17 @@ function tao_formula_page_orcamento_novo() {
         <button type="submit" class="button button-primary button-large" id="taof-orc-salvar">
             <?php echo $edit_data ? '💾 Atualizar Orçamento' : '💾 Salvar Orçamento'; ?>
         </button>
+        <?php
+        // Aprovação parte DESTA tela (fluxo do card: abrir → revisar → aprovar). Salva o que
+        // está na tela e aprova na sequência — o que se vê é o que vira OM.
+        $st_orc = $edit_data['status'] ?? '';
+        if ( $edit_data && ! in_array( $st_orc, [ 'aprovado_farma', 'aceito_paciente', 'rejeitado' ], true ) ) : ?>
+        <button type="button" class="button button-large" id="taof-orc-aprovar-btn"
+                style="background:#16a34a;border-color:#15803d;color:#fff"
+                title="Salva o orçamento como está na tela e aprova (vira OM)">
+            ✅ Aprovar orçamento
+        </button>
+        <?php endif; ?>
         <?php if ( $is_modal ) : ?>
         <button type="button" class="button button-large" id="taof-cancel-btn">✕ Fechar</button>
         <?php else : ?>
@@ -863,6 +874,7 @@ function tao_formula_page_orcamento_novo() {
     window.taofCapsulas     = <?php echo wp_json_encode( array_values( $capsulas ) ); ?>;
     window.taofOrcListUrl   = <?php echo wp_json_encode( $url_lista ); ?>;
     window.taofIsModal      = <?php echo $is_modal ? 'true' : 'false'; ?>;
+    window.taofAprovarFlag  = <?php echo ! empty( $_GET['aprovar'] ) ? 'true' : 'false'; ?>;
     window.taofCardId       = <?php echo wp_json_encode( $card_id ); ?>;
     window.taofEditOrcId    = <?php echo wp_json_encode( $orc_id ); ?>;
     window.taofEditData     = <?php echo $edit_data ? wp_json_encode( $edit_data ) : 'null'; ?>;

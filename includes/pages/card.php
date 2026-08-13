@@ -476,11 +476,11 @@ function tao_crm_page_card() {
                                         title="Re-tenta associar ativos pendentes usando sinônimos atuais">
                                     &#x1F504; Reprocessar
                                 </button>
-                                <button type="button" id="crm-formula-aprovar-sel-btn"
+                                <button type="button" id="crm-formula-estornar-sel-btn"
                                         class="button button-small"
-                                        style="font-size:11px;display:none;color:#16a34a;border-color:#86efac"
-                                        title="Aprovar orçamentos selecionados (cada um vira OM)">
-                                    &#x2705; Aprovar selecionados
+                                        style="font-size:11px;display:none;color:#b45309;border-color:#fcd34d"
+                                        title="Estornar (voltar p/ pendente) os orçamentos aprovados selecionados">
+                                    &#x21A9; Estornar selecionados
                                 </button>
                                 <button type="button" id="crm-formula-excluir-sel-btn"
                                         class="button button-small"
@@ -1858,7 +1858,7 @@ function tao_crm_page_card() {
         var reprocessarBtn= document.getElementById('crm-formula-reprocessar-btn');
         var associarBtn   = document.getElementById('crm-formula-associar-btn');
         var exclSelBtn    = document.getElementById('crm-formula-excluir-sel-btn');
-        var aprovSelBtn   = document.getElementById('crm-formula-aprovar-sel-btn');
+        var estornSelBtn  = document.getElementById('crm-formula-estornar-sel-btn');
         var listDiv       = document.getElementById('crm-formulas-list');
         var cardId   = window.taofCrmCardId;
         var baseUrl  = window.taofNovoUrl;
@@ -2142,10 +2142,12 @@ function tao_crm_page_card() {
         }
 
         // Botões de aprovação do orçamento (só o APROVADO vira OM). Aprovado/rejeitado → botão reabrir.
-        function aprovBtns(o){
+        // Aprovar NÃO aprova daqui: abre o orçamento e a aprovação parte da tela dele (revisão
+        // obrigatória — decisão Carlos 13/08). Um por vez; o estorno é que pode ser em lote.
+        function aprovBtns(o, editUrl){
             if (o.status==='aprovado_farma' || o.status==='aceito_paciente' || o.status==='rejeitado')
                 return '<button class="button button-small taof-orc-reabrir" data-id="'+o.id+'" style="font-size:10px;padding:2px 6px" title="Voltar para pendente">↩</button> ';
-            return '<button class="button button-small taof-orc-aprovar" data-id="'+o.id+'" style="font-size:10px;padding:2px 6px;color:#16a34a;border-color:#86efac" title="Aprovar — vira OM">✅</button> '
+            return '<button class="button button-small taof-orc-aprovar" data-id="'+o.id+'" data-url="'+editUrl+'" style="font-size:10px;padding:2px 6px;color:#16a34a;border-color:#86efac" title="Abrir o orçamento para revisar e aprovar">✅</button> '
                  + '<button class="button button-small taof-orc-rejeitar" data-id="'+o.id+'" style="font-size:10px;padding:2px 6px;color:#dc2626;border-color:#fca5a5" title="Rejeitar — não vira OM">✕</button> ';
         }
         // orcAcao no escopo externo: acessível tanto pelos botões unitários (dentro de
@@ -2236,7 +2238,7 @@ function tao_crm_page_card() {
                             + '</td>'
                             + '<td style="padding:5px 2px;color:#94a3b8">' + dt + '</td>'
                             + '<td style="padding:5px 2px;white-space:nowrap">'
-                            + (!window.taofCrmFechado ? aprovBtns(o) : '')
+                            + (!window.taofCrmFechado ? aprovBtns(o, editUrl) : '')
                             // Aprovado (OM gerada) = imutável: sem editar/excluir — para alterar, estornar a aprovação
                             + (!window.taofCrmFechado && !(o.status==='aprovado_farma'||o.status==='aceito_paciente')
                                 ? '<button class="button button-small taof-orc-editar" data-url="' + editUrl + '" style="font-size:10px;padding:2px 6px">✏</button> ' : '')
@@ -2262,19 +2264,19 @@ function tao_crm_page_card() {
                     if (reprocessarBtn) reprocessarBtn.style.display = anyPendente ? 'inline-block' : 'none';
                     if (associarBtn)    associarBtn.style.display    = anyPendente ? 'inline-block' : 'none';
                     if (exclSelBtn)     exclSelBtn.style.display     = 'none'; // visível só quando há checks marcados
-                    if (aprovSelBtn)    aprovSelBtn.style.display    = 'none';
+                    if (estornSelBtn)   estornSelBtn.style.display   = 'none';
 
-                    // Atualizar visibilidade do Excluir/Aprovar selecionados ao marcar/desmarcar
+                    // Atualizar visibilidade do Excluir/Estornar selecionados ao marcar/desmarcar
                     listDiv.querySelectorAll('.taof-orc-check').forEach(function(cb) {
                         cb.addEventListener('change', function() {
                             var algum = listDiv.querySelectorAll('.taof-orc-check:checked').length > 0;
                             if (exclSelBtn)  exclSelBtn.style.display  = algum ? 'inline-block' : 'none';
-                            // Aprovar em lote: só faz sentido se algum SELECIONADO ainda não está aprovado
-                            var temPendente = Array.from(listDiv.querySelectorAll('.taof-orc-check:checked')).some(function(c){
+                            // Estornar em lote: só faz sentido se algum SELECIONADO está aprovado
+                            var temAprovado = Array.from(listDiv.querySelectorAll('.taof-orc-check:checked')).some(function(c){
                                 var st = c.getAttribute('data-status') || '';
-                                return st !== 'aprovado_farma' && st !== 'aceito_paciente';
+                                return st === 'aprovado_farma' || st === 'aceito_paciente';
                             });
-                            if (aprovSelBtn) aprovSelBtn.style.display = (algum && temPendente) ? 'inline-block' : 'none';
+                            if (estornSelBtn) estornSelBtn.style.display = (algum && temAprovado) ? 'inline-block' : 'none';
                         });
                     });
 
@@ -2301,9 +2303,11 @@ function tao_crm_page_card() {
                     });
 
                     // Botões aprovar / rejeitar / reabrir o ORÇAMENTO (orcAcao vem do escopo externo)
+                    // Aprovar: abre o orçamento no modal — a aprovação acontece DENTRO da tela do
+                    // orçamento (botão "Aprovar orçamento" do editor), um por vez.
                     listDiv.querySelectorAll('.taof-orc-aprovar').forEach(function(b){
                         b.addEventListener('click', function(){
-                            orcAcao('tao_formula_orc_aprovar', this.dataset.id).then(function(r){ if(r.success){ var av=r.data&&r.data.avisos_controlado; if(av&&av.length) alert('⚠ Controlado (RDC 344/98) — pendências:\n\n• '+av.join('\n• ')+'\n\nAprovado; regularize os itens acima.'); carregarFormulas(); window.postMessage({taofSaved:true},'*'); } else alert((r.data&&r.data.message)||'Erro ao aprovar'); });
+                            abrirModal(this.dataset.url + '&aprovar=1');
                         });
                     });
                     listDiv.querySelectorAll('.taof-orc-rejeitar').forEach(function(b){
@@ -2645,30 +2649,30 @@ function tao_crm_page_card() {
             });
         }
 
-        // ── Aprovar orçamentos selecionados EM LOTE (cada um vira OM) ──────────
-        if (aprovSelBtn) {
-            aprovSelBtn.addEventListener('click', function () {
+        // ── Estornar orçamentos selecionados EM LOTE (volta p/ pendente; desfaz a OM) ──
+        // Aprovação em lote foi REMOVIDA (decisão Carlos 13/08): aprovar é um por vez,
+        // abrindo o orçamento e aprovando de dentro da tela dele. Estorno pode ser em lote.
+        if (estornSelBtn) {
+            estornSelBtn.addEventListener('click', function () {
                 var checks = Array.from(listDiv.querySelectorAll('.taof-orc-check:checked')).filter(function(c){
                     var st = c.getAttribute('data-status') || '';
-                    return st !== 'aprovado_farma' && st !== 'aceito_paciente';   // só os ainda não aprovados
+                    return st === 'aprovado_farma' || st === 'aceito_paciente';   // só os aprovados
                 });
                 if (!checks.length) return;
-                if (!confirm('Aprovar ' + checks.length + ' orçamento(s) selecionado(s)? Cada um vira uma OM.')) return;
-                aprovSelBtn.disabled = true; aprovSelBtn.textContent = 'Aprovando...';
+                if (!confirm('Estornar ' + checks.length + ' orçamento(s) aprovado(s)? Cada um volta para pendente (a OM é desfeita).')) return;
+                estornSelBtn.disabled = true; estornSelBtn.textContent = 'Estornando...';
                 var ids = checks.map(function(c){ return c.value; });
-                // sequencial (cada aprovação gera OM/baixa; evita corrida no fluxo de OM)
-                var falhas = [], avisosCtl = [];
+                // sequencial (cada estorno desfaz OM/baixa; evita corrida no fluxo de OM)
+                var falhas = [];
                 (function proximo(i){
                     if (i >= ids.length) {
-                        aprovSelBtn.disabled = false; aprovSelBtn.textContent = '✅ Aprovar selecionados';
+                        estornSelBtn.disabled = false; estornSelBtn.textContent = '↩ Estornar selecionados';
                         carregarFormulas(); window.postMessage({taofSaved:true},'*');
-                        if (avisosCtl.length) alert('⚠ Controlado (RDC 344/98) — pendências em aprovado(s):\n\n• ' + avisosCtl.join('\n• '));
-                        if (falhas.length) alert('Não aprovados: ' + falhas.length + ' (verifique se você é o farmacêutico responsável).');
+                        if (falhas.length) alert('Não estornados: ' + falhas.length + ' (verifique a trava do card / permissões).');
                         return;
                     }
-                    orcAcao('tao_formula_orc_aprovar', ids[i]).then(function(r){
+                    orcAcao('tao_formula_orc_reabrir', ids[i]).then(function(r){
                         if (!r || !r.success) falhas.push(ids[i]);
-                        else if (r.data && r.data.avisos_controlado && r.data.avisos_controlado.length) avisosCtl.push.apply(avisosCtl, r.data.avisos_controlado);
                         proximo(i+1);
                     }).catch(function(){ falhas.push(ids[i]); proximo(i+1); });
                 })(0);

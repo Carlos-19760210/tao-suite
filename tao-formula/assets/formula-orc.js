@@ -1816,6 +1816,12 @@
             $sp.css('visibility', 'hidden');
             $btn.prop('disabled', false);
             if (resp.success) {
+                // Fluxo "Aprovar orçamento": salvou o que está na tela → aprova na sequência
+                if (_aprovarAposSalvar) {
+                    _aprovarAposSalvar = false;
+                    aprovarOrcAposSave((resp.data && resp.data.id) || EDIT_ORC_ID);
+                    return;
+                }
                 if (IS_MODAL) {
                     window.parent.postMessage({
                         taofSaved: true,
@@ -1837,6 +1843,46 @@
             $msg.text('Falha na requisição (' + det + ')' + (body ? ': ' + body : '')).addClass('err').show();
         });
     });
+
+    // ── Aprovar orçamento a partir DESTA tela (fluxo do card: abrir → revisar → aprovar) ──
+    // Salva o que está na tela e aprova na sequência: o que se vê é o que vira OM.
+    var _aprovarAposSalvar = false;
+    $('#taof-orc-aprovar-btn').on('click', function () {
+        if (!EDIT_ORC_ID) return;
+        if (!confirm('Aprovar este orçamento? Ele vira OM e fica travado para edição.')) return;
+        _aprovarAposSalvar = true;
+        $('#taof-orc-form').trigger('submit');
+    });
+    function aprovarOrcAposSave(orcId) {
+        var fd = new FormData();
+        fd.append('action', 'tao_formula_orc_aprovar');
+        fd.append('nonce', nonce);
+        fd.append('orc_id', orcId);
+        fetch(ajaxUrl, { method: 'POST', body: fd })
+            .then(function (r) { return r.json(); })
+            .then(function (r) {
+                if (!r || !r.success) {
+                    alert((r && r.data && r.data.message) || 'Orçamento SALVO, mas NÃO aprovado — verifique (farmacêutico responsável / trava do card).');
+                } else {
+                    var av = r.data && r.data.avisos_controlado;
+                    if (av && av.length) alert('⚠ Controlado (RDC 344/98) — pendências:\n\n• ' + av.join('\n• ') + '\n\nAprovado; regularize os itens acima.');
+                }
+                if (IS_MODAL) {
+                    window.parent.postMessage({ taofSaved: true, orcId: orcId, isEdit: true }, '*');
+                } else {
+                    window.location.href = window.taofOrcListUrl;
+                }
+            })
+            .catch(function () {
+                alert('Orçamento salvo, mas a comunicação da aprovação falhou — confira o status na lista.');
+                if (IS_MODAL) window.parent.postMessage({ taofSaved: true, orcId: orcId, isEdit: true }, '*');
+            });
+    }
+    // Aberto pelo ✅ do card (&aprovar=1): destaca o botão de aprovação
+    if (window.taofAprovarFlag) {
+        var $apBtn = $('#taof-orc-aprovar-btn');
+        if ($apBtn.length) $apBtn.css('box-shadow', '0 0 0 3px #86efac');
+    }
 
     // ── Análise de Preços ─────────────────────────────────────────────
     var _analiseCompraTotal = 0; // para simulação
