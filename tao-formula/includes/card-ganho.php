@@ -96,8 +96,14 @@ function tao_formula_veto_ganho_ativos( $veto, $card_id, $card ) {
 			$aprovados = 0;
 			foreach ( $orcs as $oo ) if ( tao_formula_orc_aprovado( $oo['status'] ?? '' ) ) $aprovados++;
 			if ( ! $aprovados ) {
-				return [ 'veto' => true, 'code' => 'sem_orc_aprovado',
-					'msg' => 'Decida os orçamentos deste card antes de fechar como ganho: aprove ao menos um (ou rejeite os que não valem). Só os aprovados viram Ordem de Manipulação.' ];
+				// Card com ITEM DE NEGÓCIO vende sem fórmula (Carlos 13/08): a venda pode ser
+				// só do item — não exige orçamento aprovado (os não aprovados só não viram OM).
+				$ri_neg  = tao_formula_api( "/crm_card_itens?card_id=eq.$card_id&select=id&limit=1" );
+				$tem_item = $ri_neg['ok'] && ! empty( $ri_neg['data'] );
+				if ( ! $tem_item ) {
+					return [ 'veto' => true, 'code' => 'sem_orc_aprovado',
+						'msg' => 'Decida os orçamentos deste card antes de fechar como ganho: aprove ao menos um (ou rejeite os que não valem). Só os aprovados viram Ordem de Manipulação.' ];
+				}
 			}
 		}
 		$faltando = tao_formula_card_ativos_faltando( $card_id );
