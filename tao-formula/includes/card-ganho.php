@@ -239,17 +239,22 @@ add_action( 'wp_ajax_tao_formula_orc_aprovar', function () {
 		tao_crm_card_lock_guard( $orc_row['card_id'] );
 
 	// ── Validações OBRIGATÓRIAS de aprovação (Carlos 13/08) — sem elas NÃO aprova ──
+	// Itens 1-3 e 5 DESATIVADOS em 13/08 (Carlos): ficam atrás da chave
+	// tao_formula_valida_aprovacao_full = '1' (default OFF). Item 4 (valores) segue ativo.
+	$valida_full = get_option( 'tao_formula_valida_aprovacao_full' ) === '1';
 	$tem    = function ( $v ) { return is_string( $v ) ? trim( $v ) !== '' : ! empty( $v ); };
 	$faltas = [];
-	// 1. Cliente e paciente
-	if ( ! $tem( $orc_row['nome_cliente'] ?? '' ) ) $faltas[] = 'Nome do CLIENTE não informado';
-	if ( ! $tem( $orc_row['nome_paciente'] ?? '' ) && ! $tem( $orc_row['paciente_nome'] ?? '' ) )
-		$faltas[] = 'Nome do PACIENTE não informado';
-	// 2. Prescritor
-	if ( ! $tem( $orc_row['prescritor'] ?? '' ) && ! $tem( $orc_row['prescritor_id'] ?? '' ) )
-		$faltas[] = 'Prescritor não informado';
-	// 3. Posologia
-	if ( ! $tem( $orc_row['posologia'] ?? '' ) ) $faltas[] = 'Posologia não informada';
+	if ( $valida_full ) {
+		// 1. Cliente e paciente
+		if ( ! $tem( $orc_row['nome_cliente'] ?? '' ) ) $faltas[] = 'Nome do CLIENTE não informado';
+		if ( ! $tem( $orc_row['nome_paciente'] ?? '' ) && ! $tem( $orc_row['paciente_nome'] ?? '' ) )
+			$faltas[] = 'Nome do PACIENTE não informado';
+		// 2. Prescritor
+		if ( ! $tem( $orc_row['prescritor'] ?? '' ) && ! $tem( $orc_row['prescritor_id'] ?? '' ) )
+			$faltas[] = 'Prescritor não informado';
+		// 3. Posologia
+		if ( ! $tem( $orc_row['posologia'] ?? '' ) ) $faltas[] = 'Posologia não informada';
+	}
 	// 4. Todos os itens (fórmula, cápsulas e embalagens) com valores preenchidos
 	$itens_v = $orc_row['itens'] ?? [];
 	if ( is_string( $itens_v ) ) $itens_v = json_decode( $itens_v, true ) ?: [];
@@ -277,14 +282,17 @@ add_action( 'wp_ajax_tao_formula_orc_aprovar', function () {
 		}
 	}
 	// 5. Controlado: CPF/documento e ENDEREÇO do cliente passam de aviso a EXIGÊNCIA
+	//    (só com a chave ligada; desligada, seguem como aviso — comportamento original)
 	$avisos_ctl = function_exists( 'tao_formula_validar_controlado' ) ? tao_formula_validar_controlado( $cid, $orc_row ) : [];
-	foreach ( $avisos_ctl as $k_ctl => $m_ctl ) {
-		if ( stripos( $m_ctl, 'CPF' ) !== false || stripos( $m_ctl, 'Endere' ) !== false ) {
-			$faltas[] = 'Controlado: ' . $m_ctl . ' — preencha no cadastro do cliente (Contatos)';
-			unset( $avisos_ctl[ $k_ctl ] );
+	if ( $valida_full ) {
+		foreach ( $avisos_ctl as $k_ctl => $m_ctl ) {
+			if ( stripos( $m_ctl, 'CPF' ) !== false || stripos( $m_ctl, 'Endere' ) !== false ) {
+				$faltas[] = 'Controlado: ' . $m_ctl . ' — preencha no cadastro do cliente (Contatos)';
+				unset( $avisos_ctl[ $k_ctl ] );
+			}
 		}
+		$avisos_ctl = array_values( $avisos_ctl );
 	}
-	$avisos_ctl = array_values( $avisos_ctl );
 
 	if ( $faltas )
 		wp_send_json_error( [ 'message' => "Não é possível aprovar — estas informações são necessárias para a aprovação:\n\n• " . implode( "\n• ", $faltas ) ], 422 );
