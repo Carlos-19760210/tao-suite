@@ -74,6 +74,8 @@ for o in sb_all(f"/orcamentos?cliente_id=eq.{CID}&numero_orcamento=like.0001-*"
     if len(parts)!=3: continue
     try: key=(int(parts[1]), int(parts[2]))
     except ValueError: continue
+    # Faixa 9990xx = orçamentos de TESTE/simulação (Carlos mantém p/ ensaios) — fora do confronto
+    if 999000 <= key[0] <= 999999: continue
     prev=tao_orc.get(key)
     if prev is None or (o["status"] in APROVADOS) or (prev["status"] not in APROVADOS): tao_orc[key]=o
     ce=str(o.get("criado_em",""))
