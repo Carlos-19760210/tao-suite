@@ -1954,14 +1954,15 @@ function tao_crm_page_card() {
                     moeda(Math.abs(dif)) + ' (' + difPct.toLocaleString('pt-BR', {maximumFractionDigits:1}) + '%) ' + (dif > 0 ? 'ACIMA' : 'ABAIXO') + '</span> do concorrente.</div>';
             }
 
-            // Composição do VALOR CALCULADO (venda) — mesmos números da tela do orçamento;
-            // a soma das parcelas fecha com o Vlr Calculado.
+            // Composição do VALOR CALCULADO (venda) — mesmos números da tela do orçamento.
+            // Fecha com o SUBTOTAL (Insumos+Emb+Cáps+C.Fixo) no lugar do Acréscimo (pedido Carlos 13/08).
             function compTxt(c){
                 if (!c) return '';
-                return '<div title="Composição do Vlr Calculado (igual à tela do orçamento)" ' +
+                var subtotal = (c.ativos || 0) + (c.embalagens || 0) + (c.capsulas || 0) + (c.custo_fixo || 0);
+                return '<div title="Composição do valor (igual à tela do orçamento) — Subtotal = Insumos + Emb + Cáps + C.Fixo" ' +
                     'style="font-size:10px;color:#64748b;font-weight:400;white-space:nowrap;margin-top:2px">' +
                     'Insumos ' + moeda(c.ativos) + ' · Emb ' + moeda(c.embalagens) + ' · Cáps ' + moeda(c.capsulas) +
-                    ' · C.Fixo ' + moeda(c.custo_fixo) + ' · Acrésc ' + moeda(c.acrescimo) + '</div>';
+                    ' · C.Fixo ' + moeda(c.custo_fixo) + ' · <strong>Subtotal ' + moeda(subtotal) + '</strong></div>';
             }
             function renderTabela(d){
                 if (!d.linhas.length) { anBody.innerHTML = '<span style="color:#94a3b8">Nenhum orçamento no card.</span>'; return; }
