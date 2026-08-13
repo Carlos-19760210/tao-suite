@@ -225,15 +225,66 @@ add_action( 'wp_ajax_tao_formula_orc_aprovar', function () {
 	if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
 	$cid = tao_formula_cliente_id(); $orc = sanitize_text_field( $_POST['orc_id'] ?? '' );
 	if ( ! $cid || ! $orc ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+	$ro_full = tao_formula_api( "/orcamentos?id=eq.$orc&cliente_id=eq.$cid&limit=1" );
+	$orc_row = ( $ro_full['ok'] && ! empty( $ro_full['data'] ) ) ? $ro_full['data'][0] : null;
+	if ( ! $orc_row ) wp_send_json_error( [ 'message' => 'Orçamento não encontrado' ] );
 	// LOCK de card: se OUTRO atendente está com o card aberto, bloqueia a aprovação
-	if ( function_exists( 'tao_crm_card_lock_guard' ) ) {
-		$_rcg = tao_formula_api( "/orcamentos?id=eq.$orc&cliente_id=eq.$cid&select=card_id&limit=1" );
-		$_cg  = ( $_rcg['ok'] && ! empty( $_rcg['data'] ) ) ? ( $_rcg['data'][0]['card_id'] ?? '' ) : '';
-		if ( $_cg ) tao_crm_card_lock_guard( $_cg );
+	if ( function_exists( 'tao_crm_card_lock_guard' ) && ! empty( $orc_row['card_id'] ) )
+		tao_crm_card_lock_guard( $orc_row['card_id'] );
+
+	// ── Validações OBRIGATÓRIAS de aprovação (Carlos 13/08) — sem elas NÃO aprova ──
+	$tem    = function ( $v ) { return is_string( $v ) ? trim( $v ) !== '' : ! empty( $v ); };
+	$faltas = [];
+	// 1. Cliente e paciente
+	if ( ! $tem( $orc_row['nome_cliente'] ?? '' ) ) $faltas[] = 'Nome do CLIENTE não informado';
+	if ( ! $tem( $orc_row['nome_paciente'] ?? '' ) && ! $tem( $orc_row['paciente_nome'] ?? '' ) )
+		$faltas[] = 'Nome do PACIENTE não informado';
+	// 2. Prescritor
+	if ( ! $tem( $orc_row['prescritor'] ?? '' ) && ! $tem( $orc_row['prescritor_id'] ?? '' ) )
+		$faltas[] = 'Prescritor não informado';
+	// 3. Posologia
+	if ( ! $tem( $orc_row['posologia'] ?? '' ) ) $faltas[] = 'Posologia não informada';
+	// 4. Todos os itens (fórmula, cápsulas e embalagens) com valores preenchidos
+	$itens_v = $orc_row['itens'] ?? [];
+	if ( is_string( $itens_v ) ) $itens_v = json_decode( $itens_v, true ) ?: [];
+	foreach ( (array) $itens_v as $iv ) {
+		$nm = trim( (string) ( $iv['nome_prescricao'] ?? $iv['nome'] ?? 'item' ) );
+		if ( ( $iv['tipo'] ?? 'mp' ) === 'mp' ) {
+			if ( ! $tem( $iv['ativo_id'] ?? '' ) )              $faltas[] = "Item \"$nm\": sem ativo associado";
+			elseif ( (float) ( $iv['preco_venda'] ?? 0 ) <= 0 ) $faltas[] = "Item \"$nm\": sem preço de venda";
+			elseif ( (float) ( $iv['qtd_total_g'] ?? 0 ) <= 0 ) $faltas[] = "Item \"$nm\": sem quantidade calculada";
+		} elseif ( ( $iv['tipo'] ?? '' ) === 'emb' ) {
+			if ( (float) ( $iv['subtotal'] ?? 0 ) <= 0 )        $faltas[] = "Embalagem \"$nm\": sem valor";
+		}
 	}
-	// Validações de dispensação de controlado (RDC 344/98) — INFORMATIVO por padrão;
+	// 4b. Forma cápsula exige a cápsula definida (nº "0" é válido — não usar empty)
+	if ( $tem( $orc_row['forma_id'] ?? '' ) ) {
+		$rf_v  = tao_formula_api( "/formas_farmaceuticas?id=eq.{$orc_row['forma_id']}&select=tipo&limit=1" );
+		$ftipo = ( $rf_v['ok'] && ! empty( $rf_v['data'] ) ) ? strtolower( (string) ( $rf_v['data'][0]['tipo'] ?? '' ) ) : '';
+		if ( in_array( $ftipo, [ 'cap', 'duo_cap' ], true ) ) {
+			$tem_cap = false;
+			foreach ( (array) $itens_v as $iv ) {
+				if ( ( $iv['tipo'] ?? '' ) === 'mp'
+				     && isset( $iv['capsula_numero'] ) && $iv['capsula_numero'] !== '' && $iv['capsula_numero'] !== null ) { $tem_cap = true; break; }
+			}
+			if ( ! $tem_cap ) $faltas[] = 'Cápsula não definida (tamanho/nº da cápsula)';
+		}
+	}
+	// 5. Controlado: CPF/documento e ENDEREÇO do cliente passam de aviso a EXIGÊNCIA
+	$avisos_ctl = function_exists( 'tao_formula_validar_controlado' ) ? tao_formula_validar_controlado( $cid, $orc_row ) : [];
+	foreach ( $avisos_ctl as $k_ctl => $m_ctl ) {
+		if ( stripos( $m_ctl, 'CPF' ) !== false || stripos( $m_ctl, 'Endere' ) !== false ) {
+			$faltas[] = 'Controlado: ' . $m_ctl . ' — preencha no cadastro do cliente (Contatos)';
+			unset( $avisos_ctl[ $k_ctl ] );
+		}
+	}
+	$avisos_ctl = array_values( $avisos_ctl );
+
+	if ( $faltas )
+		wp_send_json_error( [ 'message' => "Não é possível aprovar — estas informações são necessárias para a aprovação:\n\n• " . implode( "\n• ", $faltas ) ], 422 );
+
+	// Demais validações de controlado (RDC 344/98) — INFORMATIVO por padrão;
 	// bloqueia só se a option 'tao_formula_valida_ctl_bloqueia' estiver ligada.
-	$avisos_ctl = function_exists( 'tao_formula_validar_controlado' ) ? tao_formula_validar_controlado( $cid, $orc ) : [];
 	if ( $avisos_ctl && get_option( 'tao_formula_valida_ctl_bloqueia' ) === '1' )
 		wp_send_json_error( [ 'message' => 'Controlado — regularize antes de aprovar: ' . implode( '; ', $avisos_ctl ) ], 409 );
 	$r = tao_formula_api( "/orcamentos?id=eq.$orc&cliente_id=eq.$cid", 'PATCH', [
