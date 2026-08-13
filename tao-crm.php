@@ -2583,12 +2583,15 @@ function tao_crm_ajax_card_analise_precos() {
     if ( $need_ativo ) {
         $ra = tao_crm_api( '/ativos?id=in.(' . implode( ',', array_keys( $need_ativo ) ) . ')&select=id,custo_por_unidade,preco_compra' );
         foreach ( ( $ra['ok'] ? ( $ra['data'] ?? [] ) : [] ) as $a ) {
-            $ativo_custo[ $a['id'] ] = (float) ( $a['custo_por_unidade'] ?? 0 ) ?: (float) ( $a['preco_compra'] ?? 0 );
+            // custo NEGATIVO no cadastro é dado corrompido — cai pro preço de compra (nunca soma negativo)
+            $cu_a = (float) ( $a['custo_por_unidade'] ?? 0 );
+            $ativo_custo[ $a['id'] ] = $cu_a > 0 ? $cu_a : max( 0.0, (float) ( $a['preco_compra'] ?? 0 ) );
         }
     }
 
     // Custo unitário da cápsula: tipos_capsula (tipo+numero) → ativo (cdpro_fc) → fallback nome INCOLOR
     $caps_custo = [];
+    $caps_venda = [];
     if ( $need_caps ) {
         $cli = $orcs[0]['cliente_id'] ?? '';
         $rtc = tao_crm_api( "/tipos_capsula?cliente_id=eq.$cli&select=tipo,numero,cdpro_fc" );
@@ -2596,14 +2599,17 @@ function tao_crm_ajax_card_analise_precos() {
         foreach ( ( $rtc['ok'] ? ( $rtc['data'] ?? [] ) : [] ) as $tc ) $tc_map[ strtolower( $tc['tipo'] ) . '|' . $tc['numero'] ] = $tc['cdpro_fc'] ?? '';
         $codes = array_filter( array_map( function ( $k ) use ( $tc_map ) { return $tc_map[ $k ] ?? ''; }, array_keys( $need_caps ) ) );
         $code_price = [];
+        $code_venda = [];
         if ( $codes ) {
             $rca = tao_crm_api( '/ativos?codigo_fc=in.(' . implode( ',', array_unique( $codes ) ) . ')&select=codigo_fc,custo_por_unidade,preco_compra,preco_venda' );
             foreach ( ( $rca['ok'] ? ( $rca['data'] ?? [] ) : [] ) as $a ) {
                 $code_price[ $a['codigo_fc'] ] = (float) ( $a['custo_por_unidade'] ?? 0 ) ?: ( (float) ( $a['preco_compra'] ?? 0 ) ?: (float) ( $a['preco_venda'] ?? 0 ) );
+                $code_venda[ $a['codigo_fc'] ] = (float) ( $a['preco_venda'] ?? 0 );
             }
         }
         $incolor = null;   // lazy: só busca se precisar
         foreach ( array_keys( $need_caps ) as $k ) {
+            $caps_venda[ $k ] = $code_venda[ $tc_map[ $k ] ?? '' ] ?? 0;
             $custo_u = $code_price[ $tc_map[ $k ] ?? '' ] ?? 0;
             if ( $custo_u <= 0 ) {
                 if ( $incolor === null ) {
@@ -2642,15 +2648,18 @@ function tao_crm_ajax_card_analise_precos() {
                 'ativos' => 0.0, 'embalagens' => 0.0, 'capsulas' => 0.0, 'custo_fixo' => 0.0, 'acrescimo' => 0.0 ];
     foreach ( $orcs as $o ) {
         $c_mp = 0.0; $c_emb = 0.0; $c_caps = 0.0; $sem_custo = false;
+        $v_mp = 0.0; $v_emb = 0.0; $v_caps = 0.0;   // composição de VENDA (a mesma do editor/modal)
         $cap_key = ''; $n_per_dose = 1;
         foreach ( $o['_itens'] as $i ) {
             $tipo_i = $i['tipo'] ?? '';
             if ( $tipo_i === 'mp' ) {
                 $cpu = (float) ( $i['custo_por_unidade'] ?? 0 );
                 if ( $cpu <= 0 ) $cpu = $ativo_custo[ $i['ativo_id'] ?? '' ] ?? 0;
+                if ( $cpu < 0 ) $cpu = 0;   // negativo = dado corrompido: não soma, marca sem custo
                 $qtd = (float) ( $i['qtd_total_g'] ?? 0 );
                 if ( $cpu <= 0 && $qtd > 0 ) $sem_custo = true;
                 $c_mp += $qtd * $cpu;
+                $v_mp += (float) ( $i['subtotal'] ?? 0 );
                 if ( ! empty( $i['capsula_tipo'] ) ) {
                     $cap_key    = strtolower( $i['capsula_tipo'] ) . '|' . ( $i['capsula_numero'] ?? '' );
                     $n_per_dose = max( 1, intval( $i['n_caps_por_dose'] ?? 1 ) );
@@ -2659,6 +2668,7 @@ function tao_crm_ajax_card_analise_precos() {
                 $cpu = (float) ( $i['custo_por_unidade'] ?? 0 );
                 $qty = (float) ( $i['quantidade'] ?? 1 );
                 $c_emb += $cpu > 0 ? $qty * $cpu : (float) ( $i['subtotal'] ?? 0 );
+                $v_emb += (float) ( $i['subtotal'] ?? 0 );
             }
         }
         // Cápsulas: total = doses (forma_vol) × potes × cápsulas por dose
@@ -2667,6 +2677,7 @@ function tao_crm_ajax_card_analise_precos() {
             $cap_cu = $caps_custo[ $cap_key ] ?? 0;
             if ( $cap_cu <= 0 && $ncaps > 0 ) $sem_custo = true;
             $c_caps = $ncaps * $cap_cu;
+            $v_caps = $ncaps * ( $caps_venda[ $cap_key ] ?? 0 );
         }
         $c_fixo = (float) ( $o['custo_fixo_aplicado'] ?? 0 );
         if ( $c_fixo <= 0 && ! empty( $forma_cf[ $o['forma_id'] ?? '' ]['valor'] ) ) {
@@ -2675,21 +2686,25 @@ function tao_crm_ajax_card_analise_precos() {
                 ? round( ( $c_mp + $c_emb + $c_caps ) * $fc['valor'] / 100, 2 )
                 : $fc['valor'];   // 'R' (ou legado sem tipo): valor fixo em R$
         }
-        $acresc = (float) ( $o['acrescimo_aplicado'] ?? 0 );
         $custo  = $c_mp + $c_emb + $c_caps + $c_fixo;
         $calculado = (float) ( $o['total_orcamento'] ?? 0 );
         $cobrado   = (float) ( $o['valor_final_fc'] ?? 0 ) ?: $calculado;
+        // Acréscimo RE-ANCORADO como no editor: Vlr Calculado − (insumos+emb+cáps+CF).
+        // O acrescimo_aplicado salvo pode estar defasado (importação antiga) e a linha
+        // não fecharia com o total — a composição exibida SEMPRE soma o Vlr Calculado.
+        $acresc = round( $calculado - ( $v_mp + $v_emb + $v_caps + $c_fixo ), 2 );
         $linhas[]  = [
             'numero'     => $o['numero_orcamento'] ?: '—',
             'calculado'  => round( $calculado, 2 ),
             'cobrado'    => round( $cobrado, 2 ),
             'custo'      => round( $custo, 2 ),
+            // Composição do VALOR (venda) — os mesmos números da tela do orçamento
             'comp'       => [
-                'ativos'     => round( $c_mp, 2 ),
-                'embalagens' => round( $c_emb, 2 ),
-                'capsulas'   => round( $c_caps, 2 ),
+                'ativos'     => round( $v_mp, 2 ),
+                'embalagens' => round( $v_emb, 2 ),
+                'capsulas'   => round( $v_caps, 2 ),
                 'custo_fixo' => round( $c_fixo, 2 ),
-                'acrescimo'  => round( $acresc, 2 ),
+                'acrescimo'  => $acresc,
             ],
             'margem_rs'  => round( $cobrado - $custo, 2 ),
             'margem_pct' => $custo > 0 ? round( ( $cobrado - $custo ) / $custo * 100, 1 ) : null,
@@ -2698,9 +2713,9 @@ function tao_crm_ajax_card_analise_precos() {
         $tot['calculado']  += $calculado;
         $tot['cobrado']    += $cobrado;
         $tot['custo']      += $custo;
-        $tot['ativos']     += $c_mp;
-        $tot['embalagens'] += $c_emb;
-        $tot['capsulas']   += $c_caps;
+        $tot['ativos']     += $v_mp;
+        $tot['embalagens'] += $v_emb;
+        $tot['capsulas']   += $v_caps;
         $tot['custo_fixo'] += $c_fixo;
         $tot['acrescimo']  += $acresc;
     }

@@ -1954,12 +1954,14 @@ function tao_crm_page_card() {
                     moeda(Math.abs(dif)) + ' (' + difPct.toLocaleString('pt-BR', {maximumFractionDigits:1}) + '%) ' + (dif > 0 ? 'ACIMA' : 'ABAIXO') + '</span> do concorrente.</div>';
             }
 
+            // Composição do VALOR CALCULADO (venda) — mesmos números da tela do orçamento;
+            // a soma das parcelas fecha com o Vlr Calculado.
             function compTxt(c){
                 if (!c) return '';
-                return '<div style="font-size:10px;color:#64748b;font-weight:400;white-space:nowrap;margin-top:2px">' +
-                    'Ativos ' + moeda(c.ativos) + ' · Emb ' + moeda(c.embalagens) + ' · Cáps ' + moeda(c.capsulas) +
-                    ' · C.Fixo ' + moeda(c.custo_fixo) +
-                    ' · <span title="Acréscimo compõe o preço cobrado (não soma no custo)">Acrésc ' + moeda(c.acrescimo) + '</span></div>';
+                return '<div title="Composição do Vlr Calculado (igual à tela do orçamento)" ' +
+                    'style="font-size:10px;color:#64748b;font-weight:400;white-space:nowrap;margin-top:2px">' +
+                    'Insumos ' + moeda(c.ativos) + ' · Emb ' + moeda(c.embalagens) + ' · Cáps ' + moeda(c.capsulas) +
+                    ' · C.Fixo ' + moeda(c.custo_fixo) + ' · Acrésc ' + moeda(c.acrescimo) + '</div>';
             }
             function renderTabela(d){
                 if (!d.linhas.length) { anBody.innerHTML = '<span style="color:#94a3b8">Nenhum orçamento no card.</span>'; return; }
@@ -1972,9 +1974,9 @@ function tao_crm_page_card() {
                     h += '<tr style="border-top:1px solid #e2e8f0">' +
                         '<td style="padding:4px 6px;font-weight:600;vertical-align:top">' + l.numero +
                         (l.sem_custo ? ' <span title="Há itens sem custo cadastrado — custo pode estar subestimado" style="color:#d97706;cursor:help">⚠</span>' : '') + '</td>' +
-                        '<td style="padding:4px 6px;vertical-align:top">' + moeda(l.calculado) + '</td>' +
+                        '<td style="padding:4px 6px;vertical-align:top">' + moeda(l.calculado) + compTxt(l.comp) + '</td>' +
                         '<td style="padding:4px 6px;vertical-align:top">' + moeda(l.cobrado) + '</td>' +
-                        '<td style="padding:4px 6px;vertical-align:top">' + moeda(l.custo) + compTxt(l.comp) + '</td>' +
+                        '<td style="padding:4px 6px;vertical-align:top">' + moeda(l.custo) + '</td>' +
                         '<td style="padding:4px 6px;vertical-align:top">' + mrgTxt(l.margem_pct) + '</td>' +
                         '<td style="padding:4px 6px;vertical-align:top;' + corRs(l.margem_rs) + '">' + moeda(l.margem_rs) + '</td></tr>';
                 });
@@ -1982,9 +1984,9 @@ function tao_crm_page_card() {
                 if (t) {
                     h += '<tr style="border-top:2px solid #93c5fd;background:#eff6ff;font-weight:700">' +
                         '<td style="padding:5px 6px;vertical-align:top">TOTAL DO CARD</td>' +
-                        '<td style="padding:5px 6px;vertical-align:top">' + moeda(t.calculado) + '</td>' +
+                        '<td style="padding:5px 6px;vertical-align:top">' + moeda(t.calculado) + compTxt(t.comp) + '</td>' +
                         '<td style="padding:5px 6px;vertical-align:top">' + moeda(t.cobrado) + '</td>' +
-                        '<td style="padding:5px 6px;vertical-align:top">' + moeda(t.custo) + compTxt(t.comp) + '</td>' +
+                        '<td style="padding:5px 6px;vertical-align:top">' + moeda(t.custo) + '</td>' +
                         '<td style="padding:5px 6px;vertical-align:top">' + mrgTxt(t.margem_pct) + '</td>' +
                         '<td style="padding:5px 6px;vertical-align:top;' + corRs(t.margem_rs) + '">' + moeda(t.margem_rs) + '</td></tr>';
                 }
