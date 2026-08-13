@@ -2357,13 +2357,19 @@ function tao_formula_parse_descricao_itens( $descr, $cliente_id ) {
         };
 
         // Tenta extrair "NOME DOSE UNIT"
-        if ( preg_match( '/^(.+?)\s+([\d.,]+)\s*(mg|mcg|g|UI|UFC|BLH|ml|%)\s*$/i', $part, $im ) ) {
+        if ( preg_match( '/^(.+?)\s+([\d.,]+)\s*(mg|mcg|g|UI|UFC|BLH|ml|%|caps?)\s*$/i', $part, $im ) ) {
             $nome      = trim( $im[1] );
             $dose      = $num_br( $im[2] );
             $raw_unit  = $im[3];
             $dose_unit = in_array( strtolower($raw_unit), ['ui','ufc','blh'] )
                          ? strtoupper($raw_unit) : strtolower($raw_unit);
             $unit_explicita = true;
+            // Dose em "cap" (ex.: "TCM LIQUIDO 1 cap") = veículo líquido que ENCHE a cápsula
+            // oleosa — é o QSP da fórmula (FCerta marca INDQSP='S' nesse item).
+            if ( $dose_unit === 'cap' || $dose_unit === 'caps' ) {
+                $dose_unit = 'cap';
+                $is_qsp    = true;
+            }
         } elseif ( preg_match( '/^(.+?)\s+([\d.,]+)\s*$/', $part, $im ) ) {
             // Dose SEM unidade no texto — a unidade vem do cadastro do ativo (resolvida abaixo)
             $nome = trim( $im[1] );
@@ -2416,6 +2422,15 @@ function tao_formula_parse_descricao_itens( $descr, $cliente_id ) {
         // 4) nome CONTÉM — só p/ termos com 5+ caracteres
         if ( ! ( $ra['ok'] && ! empty( $ra['data'] ) ) && mb_strlen( $nome ) >= 5 ) {
             $ra = tao_formula_api( "/ativos?cliente_id=eq.{$cliente_id}&nome=ilike.*{$nome_enc}*&select={$sel_ativo}&order=nome.asc&limit=1" );
+        }
+
+        // 5) Dose em UI/UFC/BLH exige CONCENTRAÇÃO (UI|UFC por g) para virar massa. Se o match
+        //    caiu numa variante sem concentração (ex.: "VIT D3 3000 ui" casando "EXCIPIENTE
+        //    VIT D3"), tenta a variante do MESMO nome que tem concentração cadastrada.
+        if ( $ra['ok'] && ! empty( $ra['data'] ) && in_array( $dose_unit, [ 'UI', 'UFC', 'BLH' ], true )
+             && (float) ( $ra['data'][0]['concentracao'] ?? 0 ) <= 0 ) {
+            $rb = tao_formula_api( "/ativos?cliente_id=eq.{$cliente_id}&nome=ilike.*{$nome_enc}*&concentracao=gt.0&select={$sel_ativo}&order=nome.asc&limit=1" );
+            if ( $rb['ok'] && ! empty( $rb['data'] ) ) $ra = $rb;
         }
 
         $ativo_id    = '';
@@ -2778,7 +2793,8 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
         }
 
         $forma_nome_final = $forma ? $forma['nome'] : ucfirst( strtolower( $forma_nome_raw ) );
-        $mult = ( $forma_vol ?? 1 ) * $qtde_potes;
+        $mult       = ( $forma_vol ?? 1 ) * $qtde_potes;  // caps/env: nº de unidades; líquido dosado: vira nº de DOSES abaixo
+        $mult_total = $mult;                              // volume total × potes — base do ramo % (não muda com as doses)
 
         // ── 2b. Regras de cápsulas ────────────────────────────────────────────────────
         $forma_tipo = strtolower( $forma['tipo'] ?? '' );
@@ -2863,6 +2879,20 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
                 }
                 unset( $it );
             }
+
+            // Nº de DOSES do líquido dosado: o texto traz o volume TOTAL no cabeçalho
+            // ("OUTRAS: 60ML") e a DOSE no item veículo/QSP ("SOLUÇAO ORAL MAGISTAO 2 ml")
+            // → doses = total ÷ dose (modelo FCerta: QTCONT ÷ VOLUME). Sem isto, forma_vol
+            // era usado como nº de doses e a pesagem saía dobro/metade (confronto 12/08).
+            foreach ( $itens_mp as $it ) {
+                if ( ( $it['tipo'] ?? 'mp' ) === 'mp' && ! empty( $it['is_qsp'] )
+                     && (float) ( $it['dose'] ?? 0 ) > 0
+                     && in_array( strtolower( (string) ( $it['dose_unit'] ?? '' ) ), [ 'ml', 'g' ], true )
+                     && $forma_vol && $forma_vol > 0 ) {
+                    $mult = ( $forma_vol / (float) $it['dose'] ) * $qtde_potes;
+                    break;
+                }
+            }
         }
 
         // ── 3. Calcula subtotal de cada MP (replica JS calcularLinha, caso mg/g/mcg) ─
@@ -2900,7 +2930,8 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
             } elseif ( $dose > 0 && $preco > 0 && $dose_unit === '%' ) {
                 // % é DIRETO sobre o volume total (volume × potes), SEM densidade — modelo FCerta.
                 // Sem este ramo, '%' caía no default e era tratado como mg → pesagem 10× menor.
-                $qtd_total_g   = ( $dose / 100 ) * $mult * $equiv * $diluicao / max( 0.001, $teor / 100 ) * $fp;
+                // Usa $mult_total (volume×potes): em líquido dosado o $mult vira nº de doses.
+                $qtd_total_g   = ( $dose / 100 ) * $mult_total * $equiv * $diluicao / max( 0.001, $teor / 100 ) * $fp;
                 $qtd_total_mg  = $qtd_total_g * 1000;
                 $qtd_em_padrao = $unid_pad === 'g' ? $qtd_total_g : $qtd_total_mg;
                 $subtotal      = round( $qtd_em_padrao * $preco, 4 );
@@ -2926,8 +2957,40 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
             $peso_total_g         += $qtd_total_g;
             $dens_i = (float)( $item['densidade'] ?? 1 ) ?: 1.0;
             $vol_ativos_g += $qtd_total_g / $dens_i;   // volume aparente = massa ÷ densidade
+
+            // Dose em UI/UFC/BLH sem concentração cadastrada: não há conversão p/ massa —
+            // a pesagem fica 0 e o atendente PRECISA revisar (nunca tratar UI como mg).
+            if ( $dose > 0 && in_array( $unit_up, [ 'UI', 'UFC', 'BLH' ], true )
+                 && (float) ( $item['concentracao'] ?? 0 ) <= 0 ) {
+                $avisos[] = [
+                    'numero' => $numero, 'origem' => 'ui_sem_concentracao',
+                    'msg'    => "ORC:{$numero}: \"{$item['nome']}\" tem dose em {$unit_up} mas o cadastro não tem concentração ({$unit_up}/g) — pesagem ficou 0, revisar o item.",
+                ];
+            }
         }
         unset( $item );
+
+        // QSP do líquido/semissólido: o veículo COMPLETA o volume total (mesma premissa do
+        // editor — _qspForma). O import marcava is_qsp mas não calculava, e a OM saía com
+        // veículo 0 (confronto 12/08: Pentravan/Água/TCM).
+        if ( $forma && ! in_array( $forma_tipo, [ 'cap', 'duo_cap', 'envelope', 'sublingual' ], true )
+             && $forma_vol && $forma_vol > 0 ) {
+            foreach ( $itens_mp as &$item ) {
+                if ( ( $item['tipo'] ?? 'mp' ) !== 'mp' || empty( $item['is_qsp'] ) ) continue;
+                $dens_q  = (float) ( $item['densidade'] ?? 1 ) ?: 1.0;
+                $total_g = strtolower( (string) $forma_unidade ) === 'ml'
+                           ? $forma_vol * $qtde_potes * $dens_q
+                           : $forma_vol * $qtde_potes;
+                $qsp_g   = max( 0.0, round( $total_g - $peso_total_g, 4 ) );
+                $unid_q  = strtolower( $item['unid_padrao'] ?? 'g' );
+                $qtd_em  = $unid_q === 'mg' ? $qsp_g * 1000 : $qsp_g;
+                $item['qtd_total_g'] = $qsp_g;
+                $item['subtotal']    = round( $qtd_em * (float) ( $item['preco_venda'] ?? 0 ), 4 );
+                $total_insumos      += $item['subtotal'];
+                break;
+            }
+            unset( $item );
+        }
 
         // Excipiente (QSP) entra como insumo
         $total_insumos += $excip_subtotal;

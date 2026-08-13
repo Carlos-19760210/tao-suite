@@ -44,8 +44,11 @@
     function getMultiplicador() { return getVol() * getPotes(); }
     function getCustoFixo() { return parseFloat($('#taof-custo-fixo-inp').val()) || 0; }
 
-    var LIQUID_TIPOS = ['solucao', 'locao', 'shampoo', 'floral'];
-    function isLiquidForm() { return formaAtual && LIQUID_TIPOS.indexOf(formaAtual.tipo) !== -1; }
+    // Forma "dosada por volume" (modelo FCerta): tudo que não é cápsula/envelope/sublingual —
+    // gel, pomada, creme, solução, gotas, "outras"... O campo Vol/dose só tem efeito quando
+    // preenchido (>0); vazio mantém o comportamento antigo (forma_vol = nº de doses).
+    var NAO_LIQUID_TIPOS = ['cap', 'duo_cap', 'envelope', 'sublingual'];
+    function isLiquidForm() { return formaAtual && NAO_LIQUID_TIPOS.indexOf(formaAtual.tipo) === -1; }
 
     // ── Popula Tipo Capsula (somente para cap / duo_cap) ──────────────
     function popularTipoCapsula() {
@@ -1708,8 +1711,12 @@
                 nome_prescricao:  $r.data('nome-prescricao') || $r.data('ativo-nome') || '',
                 codigo_fc:        $r.data('codigo-fc') || '',
                 is_qsp:           isQsp,
-                dose:             isQsp ? null : $r.data('dose'),
-                dose_unit:        $r.data('dose-unit'),
+                // QSP de líquido dosado: persiste o Vol/dose no item (é a DOSE do veículo —
+                // ex.: 2 ml — usada pra rederivar o nº de doses ao reabrir/importar)
+                dose:             isQsp ? (isLiquidForm() && getVolDose() > 0 ? getVolDose() : null) : $r.data('dose'),
+                dose_unit:        (isQsp && isLiquidForm() && getVolDose() > 0)
+                                      ? ($r.data('dose-unit') || (getUnidade() === 'g' ? 'g' : 'ml'))
+                                      : $r.data('dose-unit'),
                 multiplicador:    getMultiplicador(),
                 qtde_potes:       getPotes(),
                 n_caps_por_dose:  cap ? cap.nPerDose : 1,
@@ -2052,6 +2059,17 @@
                 }
                 if (data.forma_unidade)  $('#taof-forma-unidade').val(data.forma_unidade);
                 if (data.qtde_potes)     $('#taof-qtde-potes').val(data.qtde_potes).trigger('input');
+                // Líquido dosado: recupera o Vol/dose do item veículo/QSP importado
+                // (ex.: "SOLUÇAO ORAL MAGISTAO 2 ml" → 2). Sem isso o recálculo do editor
+                // usava forma_vol como nº de doses e a pesagem saía dobro/metade.
+                if (isLiquidForm()) {
+                    var qspImp = (data.itens || []).filter(function (i) {
+                        return i.tipo === 'mp' && i.is_qsp && parseFloat(i.dose) > 0;
+                    })[0];
+                    if (qspImp && !parseFloat($('#taof-vol-dose').val())) {
+                        $('#taof-vol-dose').val(parseFloat(qspImp.dose));
+                    }
+                }
             }, 50);
         }
 
