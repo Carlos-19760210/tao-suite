@@ -2645,7 +2645,8 @@ function tao_crm_ajax_card_analise_precos() {
     // Acréscimo aplicado é exibido na composição, mas NÃO soma (compõe o preço, não o custo).
     $linhas = [];
     $tot    = [ 'calculado' => 0.0, 'cobrado' => 0.0, 'custo' => 0.0,
-                'ativos' => 0.0, 'embalagens' => 0.0, 'capsulas' => 0.0, 'custo_fixo' => 0.0, 'acrescimo' => 0.0 ];
+                'ativos' => 0.0, 'embalagens' => 0.0, 'capsulas' => 0.0,
+                'c_ativos' => 0.0, 'c_emb' => 0.0, 'c_caps' => 0.0, 'custo_fixo' => 0.0 ];
     foreach ( $orcs as $o ) {
         $c_mp = 0.0; $c_emb = 0.0; $c_caps = 0.0; $sem_custo = false;
         $v_mp = 0.0; $v_emb = 0.0; $v_caps = 0.0;   // composição de VENDA (a mesma do editor/modal)
@@ -2698,13 +2699,19 @@ function tao_crm_ajax_card_analise_precos() {
             'calculado'  => round( $calculado, 2 ),
             'cobrado'    => round( $cobrado, 2 ),
             'custo'      => round( $custo, 2 ),
-            // Composição do VALOR (venda) — os mesmos números da tela do orçamento
+            // Composição do VALOR (venda) — mesmos números da tela do orçamento, SEM C.Fixo
+            // (Carlos 14/08: a linha da venda não mistura custo fixo; ele aparece no CUSTO)
             'comp'       => [
                 'ativos'     => round( $v_mp, 2 ),
                 'embalagens' => round( $v_emb, 2 ),
                 'capsulas'   => round( $v_caps, 2 ),
+            ],
+            // Composição do CUSTO — inclui o custo fixo da forma na soma (coluna Custo/Compra)
+            'comp_custo' => [
+                'ativos'     => round( $c_mp, 2 ),
+                'embalagens' => round( $c_emb, 2 ),
+                'capsulas'   => round( $c_caps, 2 ),
                 'custo_fixo' => round( $c_fixo, 2 ),
-                'acrescimo'  => $acresc,
             ],
             'margem_rs'  => round( $cobrado - $custo, 2 ),
             'margem_pct' => $custo > 0 ? round( ( $cobrado - $custo ) / $custo * 100, 1 ) : null,
@@ -2716,8 +2723,10 @@ function tao_crm_ajax_card_analise_precos() {
         $tot['ativos']     += $v_mp;
         $tot['embalagens'] += $v_emb;
         $tot['capsulas']   += $v_caps;
+        $tot['c_ativos']   += $c_mp;
+        $tot['c_emb']      += $c_emb;
+        $tot['c_caps']     += $c_caps;
         $tot['custo_fixo'] += $c_fixo;
-        $tot['acrescimo']  += $acresc;
     }
     $total = [
         'calculado'  => round( $tot['calculado'], 2 ),
@@ -2727,8 +2736,12 @@ function tao_crm_ajax_card_analise_precos() {
             'ativos'     => round( $tot['ativos'], 2 ),
             'embalagens' => round( $tot['embalagens'], 2 ),
             'capsulas'   => round( $tot['capsulas'], 2 ),
+        ],
+        'comp_custo' => [
+            'ativos'     => round( $tot['c_ativos'], 2 ),
+            'embalagens' => round( $tot['c_emb'], 2 ),
+            'capsulas'   => round( $tot['c_caps'], 2 ),
             'custo_fixo' => round( $tot['custo_fixo'], 2 ),
-            'acrescimo'  => round( $tot['acrescimo'], 2 ),
         ],
         'margem_rs'  => round( $tot['cobrado'] - $tot['custo'], 2 ),
         'margem_pct' => $tot['custo'] > 0 ? round( ( $tot['cobrado'] - $tot['custo'] ) / $tot['custo'] * 100, 1 ) : null,

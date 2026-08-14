@@ -1954,15 +1954,22 @@ function tao_crm_page_card() {
                     moeda(Math.abs(dif)) + ' (' + difPct.toLocaleString('pt-BR', {maximumFractionDigits:1}) + '%) ' + (dif > 0 ? 'ACIMA' : 'ABAIXO') + '</span> do concorrente.</div>';
             }
 
-            // Composição do VALOR CALCULADO (venda) — mesmos números da tela do orçamento.
-            // Fecha com o SUBTOTAL (Insumos+Emb+Cáps+C.Fixo) no lugar do Acréscimo (pedido Carlos 13/08).
+            // Sob o Vlr Calculado: composição de VENDA sem C.Fixo (Carlos 14/08).
             function compTxt(c){
                 if (!c) return '';
-                var subtotal = (c.ativos || 0) + (c.embalagens || 0) + (c.capsulas || 0) + (c.custo_fixo || 0);
-                return '<div title="Composição do valor (igual à tela do orçamento) — Subtotal = Insumos + Emb + Cáps + C.Fixo" ' +
+                var subtotal = (c.ativos || 0) + (c.embalagens || 0) + (c.capsulas || 0);
+                return '<div title="Composição do valor de venda (igual à tela do orçamento), sem custo fixo" ' +
                     'style="font-size:10px;color:#64748b;font-weight:400;white-space:nowrap;margin-top:2px">' +
                     'Insumos ' + moeda(c.ativos) + ' · Emb ' + moeda(c.embalagens) + ' · Cáps ' + moeda(c.capsulas) +
-                    ' · C.Fixo ' + moeda(c.custo_fixo) + ' · <strong>Subtotal ' + moeda(subtotal) + '</strong></div>';
+                    ' · <strong>Subtotal ' + moeda(subtotal) + '</strong></div>';
+            }
+            // Sob o Custo/Compra: composição do CUSTO com o C.Fixo explícito na soma.
+            function compCustoTxt(c){
+                if (!c) return '';
+                return '<div title="Composição do custo — o custo fixo da forma entra na soma" ' +
+                    'style="font-size:10px;color:#94a3b8;font-weight:400;white-space:nowrap;margin-top:2px">' +
+                    'MP ' + moeda(c.ativos) + ' · Emb ' + moeda(c.embalagens) + ' · Cáps ' + moeda(c.capsulas) +
+                    ' · C.Fixo ' + moeda(c.custo_fixo) + '</div>';
             }
             function renderTabela(d){
                 if (!d.linhas.length) { anBody.innerHTML = '<span style="color:#94a3b8">Nenhum orçamento no card.</span>'; return; }
@@ -1977,7 +1984,7 @@ function tao_crm_page_card() {
                         (l.sem_custo ? ' <span title="Há itens sem custo cadastrado — custo pode estar subestimado" style="color:#d97706;cursor:help">⚠</span>' : '') + '</td>' +
                         '<td style="padding:4px 6px;vertical-align:top">' + moeda(l.calculado) + compTxt(l.comp) + '</td>' +
                         '<td style="padding:4px 6px;vertical-align:top">' + moeda(l.cobrado) + '</td>' +
-                        '<td style="padding:4px 6px;vertical-align:top">' + moeda(l.custo) + '</td>' +
+                        '<td style="padding:4px 6px;vertical-align:top">' + moeda(l.custo) + compCustoTxt(l.comp_custo) + '</td>' +
                         '<td style="padding:4px 6px;vertical-align:top">' + mrgTxt(l.margem_pct) + '</td>' +
                         '<td style="padding:4px 6px;vertical-align:top;' + corRs(l.margem_rs) + '">' + moeda(l.margem_rs) + '</td></tr>';
                 });
@@ -1987,7 +1994,7 @@ function tao_crm_page_card() {
                         '<td style="padding:5px 6px;vertical-align:top">TOTAL DO CARD</td>' +
                         '<td style="padding:5px 6px;vertical-align:top">' + moeda(t.calculado) + compTxt(t.comp) + '</td>' +
                         '<td style="padding:5px 6px;vertical-align:top">' + moeda(t.cobrado) + '</td>' +
-                        '<td style="padding:5px 6px;vertical-align:top">' + moeda(t.custo) + '</td>' +
+                        '<td style="padding:5px 6px;vertical-align:top">' + moeda(t.custo) + compCustoTxt(t.comp_custo) + '</td>' +
                         '<td style="padding:5px 6px;vertical-align:top">' + mrgTxt(t.margem_pct) + '</td>' +
                         '<td style="padding:5px 6px;vertical-align:top;' + corRs(t.margem_rs) + '">' + moeda(t.margem_rs) + '</td></tr>';
                 }
