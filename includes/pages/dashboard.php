@@ -79,9 +79,9 @@ function tao_crm_page_dashboard() {
         $_mi = new DateTime( 'first day of this month', $_tz_sp ); $_mi->setTime( 0, 0, 0 );
         $_mi_utc = ( clone $_mi )->setTimezone( $_tz_utc )->format( 'c' );
         $_now_sp = new DateTime( 'now', $_tz_sp );
-        $mov_mes = 0.0;
+        $mov_mes = 0.0; $n_vendas_mes = 0;
         $_rm = tao_crm_api( "/caixa_vendas?cliente_id=eq.$_cli&criado_em=gte." . urlencode( $_mi_utc ) . "&select=valor_total&limit=50000" );
-        foreach ( ( $_rm['ok'] ? ( $_rm['data'] ?? [] ) : [] ) as $v ) $mov_mes += (float) ( $v['valor_total'] ?? 0 );
+        foreach ( ( $_rm['ok'] ? ( $_rm['data'] ?? [] ) : [] ) as $v ) { $mov_mes += (float) ( $v['valor_total'] ?? 0 ); $n_vendas_mes++; }
         $d_dec = (int) $_now_sp->format( 'j' );
         $d_tot = (int) $_now_sp->format( 't' );
         $u_dec = 0; $u_tot = 0;
@@ -91,6 +91,8 @@ function tao_crm_page_dashboard() {
         }
         $proj_mes = [
             'mov'      => $mov_mes,
+            'n_vendas' => $n_vendas_mes,
+            'ticket'   => $n_vendas_mes > 0 ? $mov_mes / $n_vendas_mes : 0.0,
             'd_dec'    => $d_dec, 'd_tot' => $d_tot,
             'u_dec'    => $u_dec, 'u_tot' => $u_tot,
             'corridos' => $d_dec > 0 ? $mov_mes / $d_dec * $d_tot : 0.0,
@@ -756,6 +758,11 @@ function tao_crm_page_dashboard() {
                 <span class="kpi-label">Projeção do mês (dias úteis)</span>
                 <span class="kpi-value">R$&nbsp;<?php echo number_format( $proj_mes['uteis'], 0, ',', '.' ); ?></span>
                 <span class="kpi-sub"><?php echo $proj_mes['u_dec']; ?> de <?php echo $proj_mes['u_tot']; ?> dias úteis (seg–sáb) · média/dia útil R$ <?php echo number_format( $proj_mes['mov'] / max( 1, $proj_mes['u_dec'] ), 0, ',', '.' ); ?></span>
+            </div>
+            <div class="crm-dash-kpi-card kpi-amber" title="Ticket médio do MÊS CORRENTE: Movimentado do mês ÷ nº de vendas do mês (Caixa). Independe do filtro de período.">
+                <span class="kpi-label">Ticket médio (mês)</span>
+                <span class="kpi-value">R$&nbsp;<?php echo number_format( $proj_mes['ticket'], 0, ',', '.' ); ?></span>
+                <span class="kpi-sub"><?php echo $proj_mes['n_vendas']; ?> vendas no mês</span>
             </div>
             <?php endif; ?>
             <div class="crm-dash-kpi-card kpi-indigo" title="Tempo Médio de Atendimento: da criação do card até a resolução (ganho ou perdido)">
