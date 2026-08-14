@@ -180,22 +180,23 @@
 
       <div class="produto-destaque-card" style="display:flex;flex-direction:column;justify-content:space-between;">
         <div class="produto-dest-body">
-          <div class="produto-dest-icon"><i data-lucide="bot" aria-label="TAO Neo" role="img"></i></div>
-          <div class="produto-dest-tag">ATENDIMENTO AUTOMÁTICO</div>
+          <div class="produto-dest-icon"><i data-lucide="network" aria-label="TAO Neo" role="img"></i></div>
+          <div class="produto-dest-tag">O ECOSSISTEMA COMPLETO</div>
           <h2>TAO Neo</h2>
-          <p>Atendimento inteligente via WhatsApp. Responde 24/7, qualifica leads e registra tudo automaticamente — com a linguagem do seu negócio.</p>
+          <p>A operação inteira num sistema só: atendimento com IA, orçamentos, produção, estoque com NF e laudos, caixa, entregas — e a parte fiscal (NFC-e) e o SNGPC <strong>homologados</strong>. Tudo conectado pelo CRM, num fluxo sem redigitação.</p>
+          <p style="margin-top:10px;font-size:12.5px;color:var(--color-text-muted);font-family:'JetBrains Mono',monospace;letter-spacing:.02em">atendimento · fórmulas · produção · estoque · caixa · fiscal · SNGPC · entregas · análise</p>
         </div>
         <div class="produto-dest-cta">
-          <a href="/tao-neo/" class="btn-accent">Conhecer o TAO Neo</a>
+          <a href="/tao-neo/" class="btn-accent">Conhecer o ecossistema</a>
         </div>
       </div>
 
       <div class="produto-destaque-card" style="display:flex;flex-direction:column;justify-content:space-between;">
         <div class="produto-dest-body">
           <div class="produto-dest-icon"><i data-lucide="layout-kanban" aria-label="TAO CRM" role="img"></i></div>
-          <div class="produto-dest-tag">CRM CONVERSACIONAL</div>
+          <div class="produto-dest-tag">O CORAÇÃO DA SUÍTE</div>
           <h2>TAO CRM</h2>
-          <p>CRM nativo com kanban, chat WhatsApp integrado e funil de vendas em série. Gestão humana e automação no mesmo lugar, sem plataformas externas.</p>
+          <p>O centro do ecossistema: kanban com a conversa de WhatsApp dentro do card, funis desenhados para o seu processo, automações de recompra e histórico que nunca se perde. Totalmente customizado — o sistema se adapta a você.</p>
         </div>
         <div class="produto-dest-cta">
           <a href="/tao-crm/" class="btn-accent">Conhecer o TAO CRM</a>
@@ -218,7 +219,7 @@
       <div class="case-card-inst section-animate">
         <div class="case-tag">CLIENTE DESDE 2018</div>
         <h3>Magis-TAO</h3>
-        <p>Farmácia de manipulação em Cotia/SP que cresce 25% ao ano aplicando nossos métodos. Estruturação de processos, consultoria estratégica contínua e primeiro case do TAO Neo em produção.</p>
+        <p>Farmácia de manipulação em Cotia/SP que cresce 25% ao ano aplicando nossos métodos — e hoje opera com o ecossistema TAO Neo completo: do atendimento no WhatsApp ao fiscal e SNGPC, migrada do sistema anterior com confronto diário, item a item.</p>
         <a href="/cases/magis-tao/" class="card-link">Ver case completo <i data-lucide="arrow-right" style="width:15px;height:15px"></i></a>
       </div>
 
