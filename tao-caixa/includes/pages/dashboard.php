@@ -71,17 +71,28 @@ function tao_caixa_page_dashboard() {
         $por_origem[ $o ]['n']++; $por_origem[ $o ]['v'] += $vt;
     }
 
-    // Pagamentos por forma + a receber das operadoras por data prevista + lista de recebimentos
+    // "A cair" é visão de FUTURO — considera TODA a base (independe do filtro de período),
+    // senão pagamentos lançados fora do período sumiam e os retroativos confundiam (Carlos 14/08).
+    $a_cair = [];
+    if ( $cid ) {
+        $rfut = tao_caixa_api( "/caixa_pagamentos?cliente_id=eq.$cid&estornado=eq.false&conciliado=eq.false&data_prevista_receb=gte.$hoje&select=valor_liquido,data_prevista_receb&limit=5000" );
+        foreach ( ( $rfut['ok'] ? ( $rfut['data'] ?? [] ) : [] ) as $fp ) {
+            $dpf = $fp['data_prevista_receb'] ?? '';
+            if ( ! $dpf ) continue;
+            if ( ! isset( $a_cair[ $dpf ] ) ) $a_cair[ $dpf ] = 0.0;
+            $a_cair[ $dpf ] += (float) ( $fp['valor_liquido'] ?? 0 );
+        }
+    }
+
+    // Pagamentos por forma + lista de recebimentos (estes sim, do período filtrado)
     $por_forma = []; $tot_bruto = 0.0; $tot_taxa = 0.0; $tot_liq = 0.0;
-    $a_cair = []; $hoje_d = $hoje; $recebimentos = [];
+    $hoje_d = $hoje; $recebimentos = [];
     foreach ( $pagtos as $pg ) {
         $fid = $pg['forma_pagamento_id'] ?? ''; $nome = $formas_map[ $fid ] ?? '—';
         if ( ! isset( $por_forma[ $nome ] ) ) $por_forma[ $nome ] = [ 'n' => 0, 'bruto' => 0.0, 'taxa' => 0.0, 'liq' => 0.0 ];
         $b = (float) ( $pg['valor_bruto'] ?? 0 ); $t = (float) ( $pg['valor_taxa'] ?? 0 ); $l = (float) ( $pg['valor_liquido'] ?? 0 );
         $por_forma[ $nome ]['n']++; $por_forma[ $nome ]['bruto'] += $b; $por_forma[ $nome ]['taxa'] += $t; $por_forma[ $nome ]['liq'] += $l;
         $tot_bruto += $b; $tot_taxa += $t; $tot_liq += $l;
-        $dp = $pg['data_prevista_receb'] ?? '';
-        if ( $dp && $dp >= $hoje_d ) { if ( ! isset( $a_cair[ $dp ] ) ) $a_cair[ $dp ] = 0.0; $a_cair[ $dp ] += $l; }
         $rec = $pg['caixa_recibos'] ?? [];
         $mod = $pg['modalidade'] ?? ''; $par = (int) ( $pg['parcelas'] ?? 1 );
         $mlabel = $mod ? ucfirst( $mod ) : '—';
@@ -280,7 +291,7 @@ function tao_caixa_page_dashboard() {
                     </tbody>
                 </table>
 
-                <h2 style="font-size:15px;margin:0 0 8px">A cair (líquido por data prevista)</h2>
+                <h2 style="font-size:15px;margin:0 0 8px">A cair (líquido por data prevista — toda a base, não conciliados)</h2>
                 <?php if ( empty( $a_cair ) ) : ?>
                 <p style="font-size:13px;color:#94a3b8">Sem recebimentos futuros previstos.</p>
                 <?php else : ?>
