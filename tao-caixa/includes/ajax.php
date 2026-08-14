@@ -445,6 +445,9 @@ add_action( 'wp_ajax_tao_caixa_receber_venda', function() {
                 . ' acima da sua alçada (máximo R$ ' . number_format( $lim_alc, 2, ',', '.' ) . '). Solicite a um gestor.' );
         }
     }
+    // CM: valor ADICIONAL registrado no recebimento (Carlos 14/08) — só registro/auditoria,
+    // não altera o saldo da venda nem entra na distribuição FIFO.
+    $val_cm   = round( max( 0, (float) str_replace( ',', '.', (string) ( $_POST['valor_cm'] ?? 0 ) ) ), 2 );
     $cupom    = ( $_POST['cupom_fiscal'] ?? '0' ) === '1';
     $dt_pag   = sanitize_text_field( $_POST['data_pagamento'] ?? '' );
     if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $dt_pag ) || $dt_pag > wp_date( 'Y-m-d' ) ) $dt_pag = wp_date( 'Y-m-d' );
@@ -470,8 +473,15 @@ add_action( 'wp_ajax_tao_caixa_receber_venda', function() {
         'data_pagamento' => $dt_pag,
         'desconto'       => $desc_ad,
         'cupom_fiscal'   => $cupom,
+        'valor_cm'       => $val_cm,
     ];
     $rr = tao_caixa_api( '/caixa_recibos', 'POST', $recibo_v2 );
+    if ( ! $rr['ok'] && strpos( (string) ( $rr['raw'] ?? '' ), 'valor_cm' ) !== false ) {
+        // migration_caixa_recibo_cm_v1 ainda não rodou — sem CM informado, segue sem o campo
+        if ( $val_cm > 0 ) wp_send_json_error( 'CM no recebimento requer a migration migration_caixa_recibo_cm_v1.sql. Rode-a ou zere o CM.' );
+        unset( $recibo_v2['valor_cm'] );
+        $rr = tao_caixa_api( '/caixa_recibos', 'POST', $recibo_v2 );
+    }
     if ( ! $rr['ok'] && strpos( (string) ( $rr['raw'] ?? '' ), 'column' ) !== false ) {
         // migration_caixa_recibo_campos_v1 ainda não rodou
         if ( $desc_ad > 0 ) wp_send_json_error( 'Desconto no recebimento requer a migration de recibo (migration_caixa_recibo_campos_v1.sql). Rode-a ou zere o desconto.' );
@@ -701,4 +711,100 @@ add_action( 'wp_ajax_tao_caixa_antecipar_pagamento', function() {
     ] );
     if ( ! $r['ok'] ) wp_send_json_error( 'Falha: ' . ( $r['raw'] ?? '' ) );
     wp_send_json_success( [ 'custo_antecip' => $custo, 'novo_liquido' => $novo, 'taxa' => $apct ] );
+} );
+
+// ── Exportação XLSX: vendas com recebimento em aberto — toda a base (Carlos 14/08) ──
+
+/** XLSX mínimo (ZipArchive + inline strings) — sem dependências externas. */
+function tao_caixa_xlsx_stream( $filename, $headers, $rows ) {
+	$esc = function ( $s ) { return htmlspecialchars( (string) $s, ENT_XML1 | ENT_COMPAT, 'UTF-8' ); };
+	$sheet = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+		. '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>';
+	$all = array_merge( [ $headers ], $rows );
+	foreach ( $all as $ri => $row ) {
+		$sheet .= '<row r="' . ( $ri + 1 ) . '">';
+		foreach ( $row as $cell ) {
+			if ( is_int( $cell ) || is_float( $cell ) ) $sheet .= '<c><v>' . $cell . '</v></c>';
+			else $sheet .= '<c t="inlineStr"><is><t xml:space="preserve">' . $esc( $cell ) . '</t></is></c>';
+		}
+		$sheet .= '</row>';
+	}
+	$sheet .= '</sheetData></worksheet>';
+	$files = [
+		'[Content_Types].xml' => '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+			. '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+			. '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+			. '<Default Extension="xml" ContentType="application/xml"/>'
+			. '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+			. '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>',
+		'_rels/.rels' => '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+			. '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+			. '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>',
+		'xl/workbook.xml' => '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+			. '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+			. '<sheets><sheet name="Pendentes" sheetId="1" r:id="rId1"/></sheets></workbook>',
+		'xl/_rels/workbook.xml.rels' => '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+			. '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+			. '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>',
+		'xl/worksheets/sheet1.xml' => $sheet,
+	];
+	$tmp = tempnam( sys_get_temp_dir(), 'taocx' );
+	$zip = new ZipArchive();
+	$zip->open( $tmp, ZipArchive::OVERWRITE );
+	foreach ( $files as $n => $c ) $zip->addFromString( $n, $c );
+	$zip->close();
+	while ( ob_get_level() > 0 ) ob_end_clean();
+	header( 'Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' );
+	header( 'Content-Disposition: attachment; filename="' . $filename . '"' );
+	header( 'Content-Length: ' . filesize( $tmp ) );
+	readfile( $tmp );
+	unlink( $tmp );
+	exit;
+}
+
+add_action( 'wp_ajax_tao_caixa_export_pendentes', function() {
+	$cid = tao_caixa_ajax_guard();
+	$vendas = []; $off = 0;
+	do {
+		$rv = tao_caixa_api( "/caixa_vendas?cliente_id=eq.$cid&status=in.(aberta,parcial)&select=card_id,cliente_nome,whatsapp,valor_total,valor_pago,status,origem,criado_em&order=criado_em.asc&limit=1000&offset=$off" );
+		$page = $rv['ok'] ? ( $rv['data'] ?? [] ) : [];
+		$vendas = array_merge( $vendas, $page ); $off += 1000;
+	} while ( count( $page ) === 1000 );
+	// Nº da Requisição (campo CRM) por card
+	$req_map  = [];
+	$card_ids = array_values( array_filter( array_unique( array_column( $vendas, 'card_id' ) ) ) );
+	if ( $card_ids ) {
+		$rcd = tao_caixa_api( "/crm_campos_definicao?chave=eq.numero_requisicao&select=id" );
+		$campo_ids = $rcd['ok'] ? array_column( $rcd['data'] ?? [], 'id' ) : [];
+		if ( $campo_ids ) {
+			foreach ( array_chunk( $card_ids, 100 ) as $chunk ) {
+				$rvv = tao_caixa_api( "/crm_cards_valores?card_id=in.(" . implode( ',', $chunk ) . ")&campo_id=in.(" . implode( ',', $campo_ids ) . ")&select=card_id,valor" );
+				foreach ( ( $rvv['ok'] ? ( $rvv['data'] ?? [] ) : [] ) as $row )
+					if ( ! empty( $row['valor'] ) ) $req_map[ $row['card_id'] ] = $row['valor'];
+			}
+		}
+	}
+	$rows = []; $tot = 0.0;
+	foreach ( $vendas as $v ) {
+		$sal = round( max( 0, (float) ( $v['valor_total'] ?? 0 ) - (float) ( $v['valor_pago'] ?? 0 ) ), 2 );
+		if ( $sal <= 0.005 ) continue;
+		$tot += $sal;
+		$rows[] = [
+			! empty( $v['criado_em'] ) ? date_i18n( 'd/m/Y', strtotime( $v['criado_em'] ) ) : '',
+			(string) ( $v['cliente_nome'] ?? '' ),
+			(string) ( $req_map[ $v['card_id'] ?? '' ] ?? '' ),
+			(string) ( $v['whatsapp'] ?? '' ),
+			( ( $v['origem'] ?? '' ) === 'avulsa' ) ? 'Avulsa' : 'Funil',
+			( ( $v['status'] ?? '' ) === 'parcial' ) ? 'Parcial' : 'A receber',
+			round( (float) ( $v['valor_total'] ?? 0 ), 2 ),
+			round( (float) ( $v['valor_pago'] ?? 0 ), 2 ),
+			$sal,
+		];
+	}
+	$rows[] = [ '', 'TOTAL EM ABERTO', '', '', '', '', '', '', round( $tot, 2 ) ];
+	tao_caixa_xlsx_stream(
+		'pendentes_recebimento_' . wp_date( 'Y-m-d' ) . '.xlsx',
+		[ 'Data', 'Cliente', 'Nº Req.', 'WhatsApp', 'Origem', 'Status', 'Total', 'Pago', 'Em aberto' ],
+		$rows
+	);
 } );

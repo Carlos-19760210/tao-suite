@@ -8,8 +8,8 @@ function tao_caixa_page_dashboard() {
     $cid = tao_caixa_cliente_id();
     $brl = function ( $v ) { return 'R$ ' . number_format( (float) $v, 2, ',', '.' ); };
 
-    // Período: presets + Mês corrente + Período específico (de/ate)
-    $p      = sanitize_text_field( $_GET['p'] ?? 'mes' );
+    // Período: presets + Mês corrente + Período específico (de/ate). Default = HOJE (Carlos 14/08)
+    $p      = sanitize_text_field( $_GET['p'] ?? 'hoje' );
     $de_g   = sanitize_text_field( $_GET['de']  ?? '' );
     $ate_g  = sanitize_text_field( $_GET['ate'] ?? '' );
     $tz = new DateTimeZone( 'America/Sao_Paulo' );
@@ -27,7 +27,7 @@ function tao_caixa_page_dashboard() {
     $de_iso  = $de    . 'T00:00:00-03:00';
     $ate_iso = $ate_d . 'T23:59:59-03:00';
 
-    $vendas = []; $pagtos = []; $formas_map = [];
+    $vendas = []; $pagtos = []; $formas_map = []; $abertas_glob = []; $req_map = [];
     if ( $cid ) {
         $rv = tao_caixa_api( "/caixa_vendas?cliente_id=eq.$cid&criado_em=gte.$de_iso&criado_em=lte.$ate_iso&select=valor_total,valor_pago,status,origem&limit=2000" );
         $vendas = $rv['ok'] ? ( $rv['data'] ?? [] ) : [];
@@ -35,6 +35,29 @@ function tao_caixa_page_dashboard() {
         $pagtos = $rp['ok'] ? ( $rp['data'] ?? [] ) : [];
         $rf = tao_caixa_api( "/caixa_formas_pagamento?cliente_id=eq.$cid&select=id,nome,canal" );
         foreach ( ( $rf['ok'] ? ( $rf['data'] ?? [] ) : [] ) as $f ) $formas_map[ $f['id'] ] = $f['nome'];
+
+        // EM ABERTO GLOBAL (ignora o filtro de período): toda venda aberta/parcial da base
+        $ra = tao_caixa_api( "/caixa_vendas?cliente_id=eq.$cid&status=in.(aberta,parcial)&select=id,card_id,cliente_nome,whatsapp,valor_total,valor_pago,status,origem,criado_em&order=criado_em.asc&limit=2000" );
+        $abertas_glob = $ra['ok'] ? ( $ra['data'] ?? [] ) : [];
+        // Nº da Requisição (campo CRM) das vendas em aberto
+        $card_ids = array_values( array_filter( array_unique( array_map( function ( $v ) { return $v['card_id'] ?? ''; }, $abertas_glob ) ) ) );
+        if ( $card_ids ) {
+            $rcd = tao_caixa_api( "/crm_campos_definicao?chave=eq.numero_requisicao&select=id" );
+            $campo_ids = $rcd['ok'] ? array_column( $rcd['data'] ?? [], 'id' ) : [];
+            if ( $campo_ids ) {
+                foreach ( array_chunk( $card_ids, 100 ) as $chunk ) {
+                    $rvv = tao_caixa_api( "/crm_cards_valores?card_id=in.(" . implode( ',', $chunk ) . ")&campo_id=in.(" . implode( ',', $campo_ids ) . ")&select=card_id,valor" );
+                    foreach ( ( $rvv['ok'] ? ( $rvv['data'] ?? [] ) : [] ) as $row ) {
+                        if ( ! empty( $row['valor'] ) ) $req_map[ $row['card_id'] ] = $row['valor'];
+                    }
+                }
+            }
+        }
+    }
+    $tot_aberto_glob = 0.0; $n_aberto_glob = 0;
+    foreach ( $abertas_glob as $v ) {
+        $sal = max( 0, (float) ( $v['valor_total'] ?? 0 ) - (float) ( $v['valor_pago'] ?? 0 ) );
+        if ( $sal > 0.005 ) { $tot_aberto_glob += $sal; $n_aberto_glob++; }
     }
 
     // KPIs de vendas
@@ -114,23 +137,76 @@ function tao_caixa_page_dashboard() {
         <div class="notice notice-warning"><p>Cliente não identificado.</p></div>
         <?php else : ?>
 
-        <!-- KPIs -->
+        <!-- KPIs (Carlos 14/08): vendas, vendido, recebido bruto POR TIPO, taxas, líquido, em aberto GLOBAL -->
+        <?php
+        // sub-linha do Recebido bruto: abertura por tipo/forma de recebimento
+        $sub_formas = [];
+        foreach ( $por_forma as $nome_f => $af ) $sub_formas[] = esc_html( $nome_f ) . ' ' . $brl( $af['bruto'] );
+        $sub_origem = 'Funil ' . $brl( $por_origem['funil']['v'] ) . ' · Avulsa ' . $brl( $por_origem['avulsa']['v'] );
+        $kpis = [
+            [ 'Vendas no período', $n_vendas, '#1e293b', 'Vendas que passaram no caixa' ],
+            [ 'Vendido no período', $brl( $tot_vendido ), '#1e293b', $sub_origem ],
+            [ 'Recebido (bruto)', $brl( $tot_bruto ), '#16a34a', $sub_formas ? implode( ' · ', $sub_formas ) : 'Sem recebimentos' ],
+            [ 'Taxas', $brl( $tot_taxa ), '#dc2626', 'Sobre os recebimentos do período' ],
+            [ 'Líquido recebido', $brl( $tot_liq ), '#16a34a', 'Bruto − taxas' ],
+        ];
+        ?>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px;margin-bottom:20px">
-            <?php
-            $kpis = [
-                [ 'Vendas', $n_vendas, '#1e293b' ],
-                [ 'Vendido', $brl( $tot_vendido ), '#1e293b' ],
-                [ 'Recebido (bruto)', $brl( $tot_pago ), '#16a34a' ],
-                [ 'A receber', $brl( $tot_receber ), '#1d4ed8' ],
-                [ 'Taxas no período', $brl( $tot_taxa ), '#dc2626' ],
-                [ 'Líquido', $brl( $tot_liq ), '#16a34a' ],
-            ];
-            foreach ( $kpis as $k ) : ?>
+            <?php foreach ( $kpis as $k ) : ?>
             <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:16px">
                 <div style="font-size:12px;color:#64748b"><?php echo esc_html( $k[0] ); ?></div>
                 <strong style="font-size:21px;color:<?php echo $k[2]; ?>"><?php echo esc_html( $k[1] ); ?></strong>
+                <div style="font-size:10.5px;color:#94a3b8;margin-top:4px;line-height:1.5"><?php echo wp_kses_post( $k[3] ); ?></div>
             </div>
             <?php endforeach; ?>
+            <div onclick="var s=document.getElementById('taoc-abertos-sec');s.style.display=s.style.display==='none'?'block':'none';"
+                 title="Clique para ver os detalhes"
+                 style="background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:16px;cursor:pointer">
+                <div style="font-size:12px;color:#92400e">Em aberto de recebimento (geral)</div>
+                <strong style="font-size:21px;color:#b45309"><?php echo esc_html( $brl( $tot_aberto_glob ) ); ?></strong>
+                <div style="font-size:10.5px;color:#b45309;margin-top:4px"><?php echo (int) $n_aberto_glob; ?> venda(s) · toda a base, fora do filtro · clique p/ detalhes</div>
+            </div>
+        </div>
+
+        <!-- Em aberto de recebimento — detalhe (toda a base) + exportação -->
+        <div id="taoc-abertos-sec" style="display:none;margin-bottom:22px">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+                <h2 style="font-size:15px;margin:0">&#x23F3; Em aberto de recebimento (<?php echo (int) $n_aberto_glob; ?>)</h2>
+                <a class="taoc-btn" href="<?php echo esc_url( admin_url( 'admin-ajax.php' ) . '?action=tao_caixa_export_pendentes&nonce=' . wp_create_nonce( 'tao_caixa_nonce' ) ); ?>">&#x2B07; Exportar XLSX</a>
+            </div>
+            <?php if ( ! $n_aberto_glob ) : ?>
+            <p style="font-size:13px;color:#94a3b8">Nenhuma venda com recebimento em aberto. &#x1F389;</p>
+            <?php else : ?>
+            <div style="max-height:380px;overflow:auto;border:1px solid #fcd34d;border-radius:10px">
+            <table class="taoc-table" style="margin:0">
+                <thead><tr>
+                    <th>Data</th><th>Cliente</th><th>Nº Req.</th><th>WhatsApp</th><th>Origem</th><th>Status</th>
+                    <th style="text-align:right">Total</th><th style="text-align:right">Pago</th><th style="text-align:right">Em aberto</th>
+                </tr></thead>
+                <tbody>
+                <?php foreach ( $abertas_glob as $v ) :
+                    $sal = max( 0, (float) ( $v['valor_total'] ?? 0 ) - (float) ( $v['valor_pago'] ?? 0 ) );
+                    if ( $sal <= 0.005 ) continue; ?>
+                    <tr>
+                        <td style="white-space:nowrap"><?php echo esc_html( ! empty( $v['criado_em'] ) ? date_i18n( 'd/m/Y', strtotime( $v['criado_em'] ) ) : '—' ); ?></td>
+                        <td><strong><?php echo esc_html( $v['cliente_nome'] ?: '—' ); ?></strong></td>
+                        <td><?php echo esc_html( $req_map[ $v['card_id'] ?? '' ] ?? '—' ); ?></td>
+                        <td style="color:#475569"><?php echo esc_html( $v['whatsapp'] ?: '—' ); ?></td>
+                        <td><?php echo ( ( $v['origem'] ?? '' ) === 'avulsa' ) ? 'Avulsa' : 'Funil'; ?></td>
+                        <td><?php echo esc_html( ( $v['status'] ?? '' ) === 'parcial' ? 'Parcial' : 'A receber' ); ?></td>
+                        <td style="text-align:right"><?php echo $brl( $v['valor_total'] ?? 0 ); ?></td>
+                        <td style="text-align:right;color:#16a34a"><?php echo $brl( $v['valor_pago'] ?? 0 ); ?></td>
+                        <td style="text-align:right;color:#b45309;font-weight:700"><?php echo $brl( $sal ); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+                <tfoot><tr style="background:#fffbeb;font-weight:700">
+                    <td colspan="8">Total em aberto (<?php echo (int) $n_aberto_glob; ?>)</td>
+                    <td style="text-align:right;color:#b45309"><?php echo $brl( $tot_aberto_glob ); ?></td>
+                </tr></tfoot>
+            </table>
+            </div>
+            <?php endif; ?>
         </div>
 
         <!-- Recebimentos no período (o que entrou) -->

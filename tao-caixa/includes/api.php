@@ -123,6 +123,45 @@ function tao_caixa_assets() {
     </style>
     <script>
     window.taoCaixa = { ajaxUrl: <?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>, nonce: <?php echo wp_json_encode( $nonce ); ?> };
+    // Ordenação por clique no cabeçalho — todas as tabelas .taoc-table (pedido Carlos 14/08).
+    // Reconhece moeda (R$ 1.234,56), datas dd/mm/aaaa [hh:mm] e texto; ▲/▼ indica a direção.
+    document.addEventListener('DOMContentLoaded', function(){
+        document.querySelectorAll('table.taoc-table').forEach(function(tbl){
+            var tbody = tbl.tBodies[0]; if(!tbody) return;
+            var ths = tbl.querySelectorAll('thead th');
+            ths.forEach(function(th, idx){
+                if(th.querySelector('input')) return;   // coluna de seleção não ordena
+                th.style.cursor = 'pointer';
+                th.title = (th.title ? th.title + ' · ' : '') + 'Clique para ordenar';
+                th.addEventListener('click', function(){
+                    var dir = th.getAttribute('data-dir') === 'asc' ? 'desc' : 'asc';
+                    ths.forEach(function(o){ o.removeAttribute('data-dir'); var s=o.querySelector('.taoc-sort-ind'); if(s) s.remove(); });
+                    th.setAttribute('data-dir', dir);
+                    var ind = document.createElement('span'); ind.className='taoc-sort-ind';
+                    ind.textContent = dir==='asc' ? ' ▲' : ' ▼'; ind.style.fontSize='9px';
+                    th.appendChild(ind);
+                    function key(tr){
+                        var td = tr.cells[idx]; if(!td) return '';
+                        var t = td.textContent.trim();
+                        var m = t.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2}))?/);
+                        if(m) return m[3]+m[2]+m[1]+(m[4]||'00')+(m[5]||'00');
+                        var n = t.replace(/[R$\s\.]/g,'').replace(',','.');
+                        if(n !== '' && !isNaN(n)) return parseFloat(n);
+                        return t.toLowerCase();
+                    }
+                    var rows = Array.prototype.slice.call(tbody.rows);
+                    rows.sort(function(a,b){
+                        var ka = key(a), kb = key(b);
+                        if(typeof ka === 'number' && typeof kb === 'number') return ka - kb;
+                        ka = String(ka); kb = String(kb);
+                        return ka < kb ? -1 : ka > kb ? 1 : 0;
+                    });
+                    if(dir === 'desc') rows.reverse();
+                    rows.forEach(function(r){ tbody.appendChild(r); });
+                });
+            });
+        });
+    });
     (function(){
         var C = window.taoCaixa;
         function post(action, data){

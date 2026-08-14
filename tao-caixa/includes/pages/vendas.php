@@ -36,6 +36,26 @@ function tao_caixa_page_vendas() {
     $card_filtro = sanitize_text_field( $_GET['card'] ?? '' );
     $auto_receber = '';
 
+    // Filtro de período (mesmo conceito do Painel; default HOJE — Carlos 14/08).
+    // Vindo de um card (?card=…) não filtra por data: o atalho de recebimento precisa achar a venda.
+    $p     = sanitize_text_field( $_GET['p'] ?? 'hoje' );
+    $de_g  = sanitize_text_field( $_GET['de']  ?? '' );
+    $ate_g = sanitize_text_field( $_GET['ate'] ?? '' );
+    $tz = new DateTimeZone( 'America/Sao_Paulo' );
+    $now_sp = new DateTime( 'now', $tz );
+    $hoje = $now_sp->format( 'Y-m-d' );
+    $ate_d = $hoje; $de = '';
+    if ( $card_filtro ) { $p = 'todos'; }
+    if ( preg_match( '/^\d{4}-\d{2}-\d{2}$/', $de_g ) && preg_match( '/^\d{4}-\d{2}-\d{2}$/', $ate_g ) ) {
+        $p = 'custom'; $de = $de_g; $ate_d = $ate_g;
+    }
+    elseif ( $p === 'todos' ) { $de = ''; }
+    elseif ( $p === '7d' )    { $de = ( clone $now_sp )->modify( '-6 days'  )->format( 'Y-m-d' ); }
+    elseif ( $p === '30d' )   { $de = ( clone $now_sp )->modify( '-29 days' )->format( 'Y-m-d' ); }
+    elseif ( $p === 'mes' )   { $de = $now_sp->format( 'Y-m-01' ); }
+    else                      { $p = 'hoje'; $de = $hoje; }
+    $flt_data = $de ? ( '&criado_em=gte.' . $de . 'T00:00:00-03:00&criado_em=lte.' . $ate_d . 'T23:59:59-03:00' ) : '';
+
     $vendas      = [];
     $formas      = [];
     $taxas       = [];
@@ -48,7 +68,7 @@ function tao_caixa_page_vendas() {
         $flt .= $origem ? '&origem=eq.' . rawurlencode( $origem ) : '';
         $flt .= $card_filtro ? '&card_id=eq.' . rawurlencode( $card_filtro ) : '';
         $rv = tao_caixa_api(
-            "/caixa_vendas?cliente_id=eq.$cid$flt&order=criado_em.desc&limit=300" .
+            "/caixa_vendas?cliente_id=eq.$cid$flt$flt_data&order=criado_em.desc&limit=300" .
             "&select=id,card_id,cliente_nome,whatsapp,valor_total,valor_pago,status,origem,criado_em"
         );
         $vendas = $rv['ok'] ? ( $rv['data'] ?? [] ) : [];
@@ -98,7 +118,11 @@ function tao_caixa_page_vendas() {
     }
 
     $brl = function ( $v ) { return 'R$ ' . number_format( (float) $v, 2, ',', '.' ); };
-    $url = function ( $params ) { return esc_url( tao_caixa_url( 'caixa-vendas', $params ) ); };
+    // Links de status/origem preservam o período escolhido
+    $purl = [];
+    if ( $p === 'custom' )    $purl = [ 'p' => 'custom', 'de' => $de, 'ate' => $ate_d ];
+    elseif ( $p !== 'hoje' )  $purl = [ 'p' => $p ];
+    $url = function ( $params ) use ( $purl ) { return esc_url( tao_caixa_url( 'caixa-vendas', $params + $purl ) ); };
     ?>
     <div class="wrap taoc-wrap">
         <div class="taoc-bar">
@@ -130,6 +154,36 @@ function tao_caixa_page_vendas() {
 
         <!-- Filtros -->
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;font-size:13px">
+            <span style="color:#64748b;align-self:center">Período:</span>
+            <?php
+            // base p/ troca de período preservando status/origem
+            $pb = []; if ( $status ) $pb['status'] = $status; if ( $origem ) $pb['origem'] = $origem;
+            $_vbu = tao_caixa_url( 'caixa-vendas', $pb ); $_vsep = ( strpos( $_vbu, '?' ) !== false ) ? '&' : '?';
+            ?>
+            <select onchange="taocVPeriodo(this)" style="padding:5px 8px;border:1px solid #cbd5e1;border-radius:5px;font-size:13px">
+                <option value="hoje"  <?php selected( $p, 'hoje' ); ?>>Hoje</option>
+                <option value="7d"    <?php selected( $p, '7d' ); ?>>7 dias</option>
+                <option value="30d"   <?php selected( $p, '30d' ); ?>>30 dias</option>
+                <option value="mes"   <?php selected( $p, 'mes' ); ?>>Mês corrente</option>
+                <option value="todos" <?php selected( $p, 'todos' ); ?>>Todas (300 últimas)</option>
+                <option value="custom" <?php selected( $p, 'custom' ); ?>>Período específico…</option>
+            </select>
+            <span id="taoc-v-range" style="align-items:center;gap:4px;display:<?php echo $p === 'custom' ? 'inline-flex' : 'none'; ?>">
+                <input type="date" id="taoc-v-de"  value="<?php echo esc_attr( $p === 'custom' ? $de : '' ); ?>"    style="padding:4px 6px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px">
+                <span style="color:#94a3b8;font-size:12px">até</span>
+                <input type="date" id="taoc-v-ate" value="<?php echo esc_attr( $p === 'custom' ? $ate_d : '' ); ?>" style="padding:4px 6px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px">
+                <a class="taoc-btn taoc-btn-primary" href="#" onclick="taocVApply();return false">Aplicar</a>
+            </span>
+            <script>
+            var TAOC_VBASE = <?php echo wp_json_encode( $_vbu . $_vsep ); ?>;
+            function taocVPeriodo(sel){ var v=sel.value, r=document.getElementById('taoc-v-range');
+                if(v==='custom'){ if(r) r.style.display='inline-flex'; return; }
+                window.location = TAOC_VBASE + 'p=' + v; }
+            function taocVApply(){ var de=document.getElementById('taoc-v-de').value, ate=document.getElementById('taoc-v-ate').value;
+                if(!de||!ate){ alert('Informe as duas datas.'); return; }
+                window.location = TAOC_VBASE + 'p=custom&de=' + de + '&ate=' + ate; }
+            </script>
+            <span style="width:1px;background:#e2e8f0;margin:0 4px"></span>
             <span style="color:#64748b;align-self:center">Status:</span>
             <a class="taoc-btn<?php echo $status===''?' taoc-btn-primary':''; ?>" href="<?php echo $url( $origem?[ 'origem'=>$origem ]:[] ); ?>">Todos</a>
             <?php foreach ( [ 'aberta'=>'A receber', 'parcial'=>'Parcial', 'quitada'=>'Quitada', 'cancelada'=>'Cancelada' ] as $sk => $sl ) :
@@ -241,6 +295,11 @@ function tao_caixa_page_vendas() {
                 <div style="width:110px">
                     <label style="font-size:11px;color:#64748b;display:block">Desconto (R$)</label>
                     <input type="number" id="taoc-rec-desc" min="0" step="0.01" value="0"
+                           style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:4px;text-align:right">
+                </div>
+                <div style="width:100px">
+                    <label style="font-size:11px;color:#64748b;display:block" title="Valor adicional do recebimento">CM (R$)</label>
+                    <input type="number" id="taoc-rec-cm" min="0" step="0.01" value="0"
                            style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:4px;text-align:right">
                 </div>
                 <div style="width:100px">
@@ -378,9 +437,11 @@ function tao_caixa_page_vendas() {
             }
             soma = Math.round(soma*100)/100;
             var descAd = parseFloat((document.getElementById('taoc-rec-desc')||{}).value||'0')||0;
+            var cmVal  = parseFloat((document.getElementById('taoc-rec-cm')||{}).value||'0')||0;
             var falta = Math.round((saldo-soma-descAd)*100)/100;
             resumo.innerHTML = 'Saldo: <strong>'+brl(saldo)+'</strong> &nbsp;&middot;&nbsp; Pagamentos: <strong>'+brl(soma)+'</strong>'
                 + (descAd>0 ? ' &nbsp;&middot;&nbsp; Desconto: <strong style="color:#0369a1">'+brl(descAd)+'</strong>' : '')
+                + (cmVal>0 ? ' &nbsp;&middot;&nbsp; CM: <strong style="color:#7c3aed">'+brl(cmVal)+'</strong>' : '')
                 + ' &nbsp;&middot;&nbsp; '
                 + (falta < -0.005
                     ? 'Excede: <strong style="color:#dc2626">'+brl(-falta)+'</strong>'
@@ -415,6 +476,7 @@ function tao_caixa_page_vendas() {
             box.innerHTML=''; msg.style.display='none';
             var _c=document.getElementById('taoc-rec-cpf');   if(_c) _c.value='';
             var _d=document.getElementById('taoc-rec-desc');  if(_d) _d.value='0';
+            var _cm=document.getElementById('taoc-rec-cm');   if(_cm) _cm.value='0';
             var _dt=document.getElementById('taoc-rec-data'); if(_dt) _dt.value=_dt.getAttribute('max');
             var _cf=document.getElementById('taoc-rec-cupom');if(_cf) _cf.value='0';
             addLinha(saldo);
@@ -422,6 +484,8 @@ function tao_caixa_page_vendas() {
         }
         var _descInp=document.getElementById('taoc-rec-desc');
         if(_descInp) _descInp.addEventListener('input', function(){ recalc(); });
+        var _cmInp=document.getElementById('taoc-rec-cm');
+        if(_cmInp) _cmInp.addEventListener('input', function(){ recalc(); });
         var btns = document.querySelectorAll('.taoc-receber');
         for(var i=0;i<btns.length;i++){
             btns[i].addEventListener('click', function(){
@@ -514,6 +578,7 @@ function tao_caixa_page_vendas() {
             fd.append('cpf_pagador',(document.getElementById('taoc-rec-cpf')||{}).value||'');
             fd.append('data_pagamento',dtPag);
             fd.append('desconto_adicional',descAd);
+            fd.append('valor_cm',(document.getElementById('taoc-rec-cm')||{}).value||'0');
             fd.append('cupom_fiscal',(document.getElementById('taoc-rec-cupom')||{}).value||'0');
             fetch(C.ajaxUrl,{method:'POST',body:fd,credentials:'same-origin'})
                 .then(function(r){ return r.json(); })
