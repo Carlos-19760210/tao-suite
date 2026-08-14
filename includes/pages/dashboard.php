@@ -71,6 +71,33 @@ function tao_crm_page_dashboard() {
         foreach ( ( $_rp['ok'] ? ( $_rp['data'] ?? [] ) : [] ) as $p ) { $cx_receb_bruto += (float) ( $p['valor_bruto'] ?? 0 ); $cx_receb_liq += (float) ( $p['valor_liquido'] ?? 0 ); }
     }
 
+    // ── Projeção do MÊS CORRENTE (Carlos 14/08): Movimentado do mês projetado por
+    //    dias corridos e por dias ÚTEIS = seg–sáb (domingo não vende — dado real da
+    //    operação). Independe do filtro de período escolhido no painel.
+    $proj_mes = null;
+    if ( $_cli ) {
+        $_mi = new DateTime( 'first day of this month', $_tz_sp ); $_mi->setTime( 0, 0, 0 );
+        $_mi_utc = ( clone $_mi )->setTimezone( $_tz_utc )->format( 'c' );
+        $_now_sp = new DateTime( 'now', $_tz_sp );
+        $mov_mes = 0.0;
+        $_rm = tao_crm_api( "/caixa_vendas?cliente_id=eq.$_cli&criado_em=gte." . urlencode( $_mi_utc ) . "&select=valor_total&limit=50000" );
+        foreach ( ( $_rm['ok'] ? ( $_rm['data'] ?? [] ) : [] ) as $v ) $mov_mes += (float) ( $v['valor_total'] ?? 0 );
+        $d_dec = (int) $_now_sp->format( 'j' );
+        $d_tot = (int) $_now_sp->format( 't' );
+        $u_dec = 0; $u_tot = 0;
+        for ( $d = 1; $d <= $d_tot; $d++ ) {
+            $dw = (int) ( new DateTime( $_now_sp->format( 'Y-m-' ) . str_pad( (string) $d, 2, '0', STR_PAD_LEFT ), $_tz_sp ) )->format( 'N' );
+            if ( $dw <= 6 ) { $u_tot++; if ( $d <= $d_dec ) $u_dec++; }
+        }
+        $proj_mes = [
+            'mov'      => $mov_mes,
+            'd_dec'    => $d_dec, 'd_tot' => $d_tot,
+            'u_dec'    => $u_dec, 'u_tot' => $u_tot,
+            'corridos' => $d_dec > 0 ? $mov_mes / $d_dec * $d_tot : 0.0,
+            'uteis'    => $u_dec > 0 ? $mov_mes / $u_dec * $u_tot : 0.0,
+        ];
+    }
+
     // ── Buscar cards ──────────────────────────────────────────────────────────
     // PostgREST corta a resposta em 1000 linhas SEM erro — paginar com Range
     // (workspace Magis passou de 1000 cards em jul/2026 e o painel truncava).
@@ -719,6 +746,18 @@ function tao_crm_page_dashboard() {
                 <span class="kpi-value">R$&nbsp;<?php echo number_format( $receita_per, 0, ',', '.' ); ?></span>
                 <span class="kpi-sub"><?php echo $n_ganhos_per; ?> negócios ganhos (<?php echo $dias; ?>d)</span>
             </div>
+            <?php if ( $proj_mes && $proj_mes['mov'] > 0 ) : ?>
+            <div class="crm-dash-kpi-card kpi-amber" title="Projeção do faturamento (Movimentado) do MÊS CORRENTE pelo ritmo dos dias corridos: realizado ÷ dias decorridos × dias do mês. Independe do filtro de período.">
+                <span class="kpi-label">Projeção do mês (dias corridos)</span>
+                <span class="kpi-value">R$&nbsp;<?php echo number_format( $proj_mes['corridos'], 0, ',', '.' ); ?></span>
+                <span class="kpi-sub">realizado R$ <?php echo number_format( $proj_mes['mov'], 0, ',', '.' ); ?> em <?php echo $proj_mes['d_dec']; ?> de <?php echo $proj_mes['d_tot']; ?> dias</span>
+            </div>
+            <div class="crm-dash-kpi-card kpi-amber" title="Projeção do faturamento (Movimentado) do MÊS CORRENTE pelo ritmo dos dias ÚTEIS (seg–sáb; domingo não vende): realizado ÷ úteis decorridos × úteis do mês. Independe do filtro de período.">
+                <span class="kpi-label">Projeção do mês (dias úteis)</span>
+                <span class="kpi-value">R$&nbsp;<?php echo number_format( $proj_mes['uteis'], 0, ',', '.' ); ?></span>
+                <span class="kpi-sub"><?php echo $proj_mes['u_dec']; ?> de <?php echo $proj_mes['u_tot']; ?> dias úteis (seg–sáb)</span>
+            </div>
+            <?php endif; ?>
             <div class="crm-dash-kpi-card kpi-indigo" title="Tempo Médio de Atendimento: da criação do card até a resolução (ganho ou perdido)">
                 <span class="kpi-label">TMA</span>
                 <span class="kpi-value"><?php echo esc_html( $fmt_dur( $tma_med ) ); ?></span>
