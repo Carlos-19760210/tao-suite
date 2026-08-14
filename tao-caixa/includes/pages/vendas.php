@@ -438,10 +438,12 @@ function tao_caixa_page_vendas() {
             soma = Math.round(soma*100)/100;
             var descAd = parseFloat((document.getElementById('taoc-rec-desc')||{}).value||'0')||0;
             var cmVal  = parseFloat((document.getElementById('taoc-rec-cm')||{}).value||'0')||0;
-            var falta = Math.round((saldo-soma-descAd)*100)/100;
-            resumo.innerHTML = 'Saldo: <strong>'+brl(saldo)+'</strong> &nbsp;&middot;&nbsp; Pagamentos: <strong>'+brl(soma)+'</strong>'
+            // CM = ACRÉSCIMO manual: o total a receber passa a ser saldo + CM
+            var falta = Math.round((saldo+cmVal-soma-descAd)*100)/100;
+            resumo.innerHTML = 'Saldo: <strong>'+brl(saldo)+'</strong>'
+                + (cmVal>0 ? ' &nbsp;+&nbsp; CM: <strong style="color:#7c3aed">'+brl(cmVal)+'</strong> &nbsp;=&nbsp; A receber: <strong>'+brl(Math.round((saldo+cmVal)*100)/100)+'</strong>' : '')
+                + ' &nbsp;&middot;&nbsp; Pagamentos: <strong>'+brl(soma)+'</strong>'
                 + (descAd>0 ? ' &nbsp;&middot;&nbsp; Desconto: <strong style="color:#0369a1">'+brl(descAd)+'</strong>' : '')
-                + (cmVal>0 ? ' &nbsp;&middot;&nbsp; CM: <strong style="color:#7c3aed">'+brl(cmVal)+'</strong>' : '')
                 + ' &nbsp;&middot;&nbsp; '
                 + (falta < -0.005
                     ? 'Excede: <strong style="color:#dc2626">'+brl(-falta)+'</strong>'
@@ -569,7 +571,9 @@ function tao_caixa_page_vendas() {
             if(_cpfEl) _cpfEl.style.borderColor = '#cbd5e1';
             var soma = 0; pags.forEach(function(p){ soma += p.valor; });
             var descAd = parseFloat((document.getElementById('taoc-rec-desc')||{}).value||'0')||0;
-            if(soma + descAd > saldo + 0.005){ alert('Pagamentos + desconto ('+brl(soma+descAd)+') excedem o saldo ('+brl(saldo)+').'); return; }
+            var cmConf = parseFloat((document.getElementById('taoc-rec-cm')||{}).value||'0')||0;
+            // CM (acréscimo manual) amplia o teto: pagamentos + desconto ≤ saldo + CM
+            if(soma + descAd > saldo + cmConf + 0.005){ alert('Pagamentos + desconto ('+brl(soma+descAd)+') excedem o saldo + CM ('+brl(saldo+cmConf)+').'); return; }
             var dtPag = (document.getElementById('taoc-rec-data')||{}).value||'';
             var cb = document.getElementById('taoc-rec-confirm'); cb.disabled=true; cb.textContent='Processando...';
             var fd = new FormData();

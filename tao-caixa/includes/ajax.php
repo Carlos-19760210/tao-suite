@@ -445,16 +445,19 @@ add_action( 'wp_ajax_tao_caixa_receber_venda', function() {
                 . ' acima da sua alçada (máximo R$ ' . number_format( $lim_alc, 2, ',', '.' ) . '). Solicite a um gestor.' );
         }
     }
-    // CM: valor ADICIONAL registrado no recebimento (Carlos 14/08) — só registro/auditoria,
-    // não altera o saldo da venda nem entra na distribuição FIFO.
+    // CM: ACRÉSCIMO manual do recebimento (Carlos 14/08 — "chamo CM p/ não chamar de acréscimo").
+    // Amplia o teto (saldo + CM) e fica registrado no recibo (valor_cm); as vendas continuam
+    // sendo baixadas só até o saldo delas (o excedente é o próprio CM, que entra no bruto/caixa).
     $val_cm   = round( max( 0, (float) str_replace( ',', '.', (string) ( $_POST['valor_cm'] ?? 0 ) ) ), 2 );
     $cupom    = ( $_POST['cupom_fiscal'] ?? '0' ) === '1';
     $dt_pag   = sanitize_text_field( $_POST['data_pagamento'] ?? '' );
     if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $dt_pag ) || $dt_pag > wp_date( 'Y-m-d' ) ) $dt_pag = wp_date( 'Y-m-d' );
     $base_ts  = strtotime( $dt_pag . ' 12:00:00' ) ?: time();
 
-    if ( $soma + $desc_ad > $saldo_total + 0.005 ) {
-        wp_send_json_error( 'Pagamentos + desconto acima do saldo (R$ ' . number_format( $saldo_total, 2, ',', '.' ) . ')' );
+    // CM = ACRÉSCIMO manual (Carlos 14/08): o teto do recebimento é saldo + CM. A distribuição
+    // FIFO continua limitada ao saldo das vendas — o excedente (CM) fica no recibo (valor_cm).
+    if ( $soma + $desc_ad > $saldo_total + $val_cm + 0.005 ) {
+        wp_send_json_error( 'Pagamentos + desconto acima do saldo + CM (R$ ' . number_format( $saldo_total + $val_cm, 2, ',', '.' ) . ')' );
     }
 
     $uid = get_current_user_id();
