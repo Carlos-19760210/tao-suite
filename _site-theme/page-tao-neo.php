@@ -129,6 +129,7 @@
 .tn-caixa.tn-core p{color:#C7D2DC}
 .tn-pulso{width:11px;height:11px;border-radius:50%;background:#B38E6C;margin:0 auto 10px;box-shadow:0 0 0 6px rgba(179,142,108,.25)}
 .tn-selo-mini{position:absolute;top:12px;right:12px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.06em;background:#E7F4EC;color:#1E7F4F;border:1px solid #BBDCC8;border-radius:10px;padding:2px 8px}
+.tn-selo-mini.tn-roxo{background:#EDE9FE;color:#6D28D9;border-color:#DDD6FE}
 .tn-eco-legenda{text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;color:#6B7280;margin-top:22px;letter-spacing:.05em}
 
 /* fluxo */
@@ -305,7 +306,7 @@
         <a class="tn-caixa" href="/tao-crm/"><span class="tn-ic">🫀</span><h3>CRM</h3><p>O coração operacional: card, conversa, funil e histórico — onde tudo se encontra.</p><span class="tn-ver">VER POR DENTRO →</span></a>
         <a class="tn-caixa" href="#atendimento"><span class="tn-ic">📣</span><h3>Campanhas</h3><p>Disparos segmentados no WhatsApp — e cada resposta vira card no funil, pronta pro atendimento.</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
 
-        <a class="tn-caixa" href="#formulas"><span class="tn-selo-mini">✓ LEGISLAÇÃO</span><span class="tn-ic">🧪</span><h3>Fórmulas Farmacêuticas</h3><p>Orçamento calculado no card, produção com ficha de pesagem — aderente à legislação vigente (RDC 67, SNGPC homologado).</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
+        <a class="tn-caixa" href="#formulas"><span class="tn-selo-mini tn-roxo">MANIPULAÇÃO</span><span class="tn-ic">🧪</span><h3>Fórmulas Farmacêuticas</h3><p>Orçamento calculado no card, produção com ficha de pesagem — aderente à legislação vigente (RDC 67, SNGPC homologado).</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
         <div class="tn-caixa tn-core" role="presentation">
           <div class="tn-pulso"></div>
           <h3>TAO Neo</h3>
@@ -318,6 +319,7 @@
         <a class="tn-caixa" href="#operacao"><span class="tn-ic">🤝</span><h3>Cotações</h3><p>Compra com cotação a fornecedores, comparativo lado a lado e último preço pago.</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
       </div>
       <p class="tn-eco-legenda">— todas as caixas se ligam: cadastro único de cliente, card único, fluxo único · o CRM é o coração; a suíte é o organismo —</p>
+      <p style="text-align:center;font-size:13px;color:#6B7280;margin-top:14px;max-width:74ch;margin-inline:auto">A suíte nasceu na <strong>farmácia de manipulação</strong> — por isso os módulos de Fórmulas Farmacêuticas e SNGPC, específicos desse universo. Todas as demais frentes atendem <strong>qualquer operação</strong> de venda e atendimento: comércio, serviços, clínicas.</p>
     </div>
   </div>
 </section>

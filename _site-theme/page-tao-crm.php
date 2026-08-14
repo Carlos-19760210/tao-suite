@@ -128,7 +128,8 @@
 
 /* suite strip */
 .tn-suite{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
-.tn-mini{background:#fff;border:1px solid #E2E0DC;border-radius:10px;padding:14px;text-align:center;text-decoration:none;color:#1A1A1A;transition:transform .18s,border-color .18s}
+.tn-mini{background:#fff;border:1px solid #E2E0DC;border-radius:10px;padding:14px;text-align:center;text-decoration:none;color:#1A1A1A;transition:transform .18s,border-color .18s;position:relative}
+.tn-badge{position:absolute;top:8px;right:8px;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.08em;background:#EDE9FE;color:#6D28D9;border:1px solid #DDD6FE;border-radius:9px;padding:2px 7px}
 .tn-mini:hover{transform:translateY(-2px);border-color:#B38E6C;color:#1A1A1A}
 .tn-mini .tn-ic{font-size:19px}
 .tn-mini strong{display:block;font-size:12.5px;margin-top:6px}
@@ -247,6 +248,7 @@
     <ul class="tn-abas">
       <li class="tn-aba">💬 Conversa<small>WhatsApp completo</small></li>
       <li class="tn-aba">🧪 Orçamentos<small>calculados e aprovados</small></li>
+      <li class="tn-aba">🤝 Negociação<small>valores, descontos com alçada</small></li>
       <li class="tn-aba">⚗️ Produção<small>a ordem e o andamento</small></li>
       <li class="tn-aba">💰 Pagamento<small>recebido no caixa</small></li>
       <li class="tn-aba">🛵 Entrega<small>até a porta, com NPS</small></li>
@@ -324,13 +326,15 @@
       <p class="tn-lead" style="margin-inline:auto">O TAO CRM funciona sozinho — e cada frente do TAO Neo se conecta ao mesmo card quando você quiser dar o próximo passo.</p>
     </div>
     <div class="tn-suite">
-      <a class="tn-mini" href="/tao-neo/#formulas"><span class="tn-ic">🧪</span><strong>Fórmulas</strong><span>orçamento no card</span></a>
-      <a class="tn-mini" href="/tao-neo/#operacao"><span class="tn-ic">⚗️</span><strong>Produção</strong><span>OM e pesagem</span></a>
+      <a class="tn-mini" href="/tao-neo/#operacao"><span class="tn-ic">💰</span><strong>Caixa</strong><span>PDV, recebíveis e NFC-e</span></a>
+      <a class="tn-mini" href="/tao-neo/#operacao"><span class="tn-ic">🛵</span><strong>Pós Vendas</strong><span>entregas e NPS</span></a>
       <a class="tn-mini" href="/tao-neo/#operacao"><span class="tn-ic">📦</span><strong>Estoque</strong><span>NF e laudos</span></a>
-      <a class="tn-mini" href="/tao-neo/#operacao"><span class="tn-ic">💰</span><strong>Caixa</strong><span>PDV e recebíveis</span></a>
-      <a class="tn-mini" href="/tao-neo/#fiscal"><span class="tn-ic">🧾</span><strong>Fiscal &amp; SNGPC</strong><span>homologados</span></a>
+      <a class="tn-mini" href="/tao-neo/#operacao"><span class="tn-ic">🤝</span><strong>Cotações</strong><span>compras e comparativos</span></a>
       <a class="tn-mini" href="/tao-neo/#analise"><span class="tn-ic">📊</span><strong>Análise</strong><span>painel e projeções</span></a>
+      <a class="tn-mini" href="/tao-neo/#formulas"><span class="tn-badge">MANIPULAÇÃO</span><span class="tn-ic">🧪</span><strong>Fórmulas Farmacêuticas</strong><span>orçamento e produção</span></a>
+      <a class="tn-mini" href="/tao-neo/#fiscal"><span class="tn-badge">MANIPULAÇÃO</span><span class="tn-ic">🧾</span><strong>SNGPC</strong><span>homologado</span></a>
     </div>
+    <p style="text-align:center;font-size:13px;color:#6B7280;margin-top:18px;max-width:70ch;margin-inline:auto">Os módulos de <strong>Fórmulas Farmacêuticas</strong> e <strong>SNGPC</strong> são específicos para farmácias de manipulação. As demais frentes atendem qualquer operação de venda e atendimento — comércio, serviços, clínicas.</p>
   </div>
 </section>
 
