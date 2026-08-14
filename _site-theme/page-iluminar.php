@@ -4,16 +4,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Case Magis-TAO — Soluções &amp; TAO</title>
-<meta name="description" content="Seis anos acompanhando uma farmácia de manipulação crescer 25% ao ano. O desafio não foi crescer — foi organizar o que cresceu.">
+<title>Case Projeto Iluminar — Soluções &amp; TAO</title>
+<meta name="description" content="Arquitetura de um mecanismo de multiplicação de conhecimento com rastreabilidade. Um modelo criado do zero — replicável para campanhas sociais e corporativas.">
 <meta name="robots" content="index, follow">
-<link rel="canonical" href="https://solucoesetao.com.br/cases/magis-tao/">
+<link rel="canonical" href="https://solucoesetao.com.br/cases/iluminar/">
 <link rel="icon" type="image/x-icon" href="https://solucoesetao.com.br/favicon.ico">
-<meta property="og:title" content="Case Magis-TAO — Soluções &amp; TAO">
-<meta property="og:description" content="Seis anos acompanhando uma farmácia de manipulação crescer 25% ao ano sem perder o controle.">
-<meta property="og:url" content="https://solucoesetao.com.br/cases/magis-tao/">
-<meta property="og:type" content="website">
-<meta property="og:image" content="https://solucoesetao.com.br/wp-content/themes/solucoesetao/assets/og-image.png">
 <?php wp_head(); ?>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -61,16 +56,16 @@
 <section class="case-hero-section">
   <div class="container">
     <div class="case-hero-inner section-animate">
-      <div class="case-breadcrumb"><a href="/cases/">Cases</a> <span>/</span> Magis-TAO</div>
+      <div class="case-breadcrumb"><a href="/cases/">Cases</a> <span>/</span> Projeto Iluminar</div>
       <div class="case-meta-line">
-        <span>Farmácia de manipulação</span>
+        <span>Arquitetura de sistema</span>
         <span class="sep">·</span>
-        <span>Cliente desde 2018</span>
+        <span>Iniciativa social</span>
         <span class="sep">·</span>
-        <span>Cotia, SP</span>
+        <span>Modelo original</span>
       </div>
-      <h1>Crescer sem estrutura<br>é só trabalho dobrado.</h1>
-      <p class="case-hero-sub">Seis anos acompanhando um negócio crescer em média 25% ao ano. O desafio não foi o crescimento — foi organizar o que cresceu sem perder o ritmo.</p>
+      <h1>Um mecanismo de multiplicação criado do zero.</h1>
+      <p class="case-hero-sub">O Projeto Iluminar não é só uma iniciativa de distribuição de livros. É a prova de que é possível desenhar um sistema de propagação com rastreabilidade, intenção e escala — e que esse modelo pode ser replicado em outros contextos.</p>
     </div>
   </div>
 </section>
@@ -80,9 +75,9 @@
   <div class="container case-content">
     <div class="section-animate">
       <h2>O contexto</h2>
-      <p>Em 2018, a Magis-TAO era uma farmácia nova tentando se estabelecer em um mercado competitivo. O trabalho inicial foi montar uma base: processos de atendimento, organização interna, posicionamento de produto.</p>
-      <p>Com o tempo, o negócio cresceu. Em média 25% ao ano, por seis anos consecutivos. Isso que parece uma boa notícia trouxe junto um problema real: a operação não cresceu no mesmo ritmo. O que funcionava com volume menor começou a travar com volume maior.</p>
-      <p>A relação com a Soluções &amp; TAO foi se aprofundando nesse processo — não como uma intervenção pontual, mas como acompanhamento contínuo. Cada estágio de crescimento trouxe um conjunto diferente de problemas para organizar.</p>
+      <p>Conhecimento que não circula não cumpre nenhum propósito. O livro <em>"O Conhecimento (como você nunca conheceu)"</em> existia — mas um livro sem um mecanismo de distribuição intencional chega a quem já está procurando, não a quem precisa.</p>
+      <p>O desafio não era publicar. Era criar um sistema onde o conhecimento se propagasse por escolha, não por acaso — e onde cada movimento fosse rastreável, de forma que o impacto real pudesse ser medido.</p>
+      <p>Não havia modelo pronto para isso. Foi preciso criar.</p>
     </div>
   </div>
 </section>
@@ -91,14 +86,13 @@
 <section class="section section-alt">
   <div class="container case-content">
     <div class="section-animate">
-      <h2>O que travava a operação</h2>
+      <h2>O problema que o modelo resolve</h2>
       <ul class="case-list">
-        <li>Processos dependiam da memória e da presença do gestor</li>
-        <li>Atendimento via WhatsApp sem registro nem rastreabilidade</li>
-        <li>Crescimento de demanda sem aumento proporcional de estrutura</li>
-        <li>Falta de padrão no atendimento ao cliente</li>
-        <li>Decisões operacionais centralizadas em uma pessoa</li>
-        <li>Dificuldade de escalar sem que a qualidade caísse</li>
+        <li>Iniciativas sociais escalam por volume, não por intenção — chegam a muitos, impactam poucos</li>
+        <li>Distribuição gratuita sem rastreabilidade não permite medir impacto real</li>
+        <li>Quem recebe não tem contexto de por que recebeu — o gesto se perde</li>
+        <li>Quem patrocina não sabe o que aconteceu com o que financiou</li>
+        <li>Não existe mecanismo natural de propagação — cada receptor é um ponto final</li>
       </ul>
     </div>
   </div>
@@ -108,48 +102,34 @@
 <section class="section section-white">
   <div class="container case-content">
     <div class="section-animate">
-      <h2>O que foi feito</h2>
+      <h2>O que foi desenhado</h2>
       <div class="case-actions">
         <div class="case-action-item">
           <div class="case-action-num">01</div>
           <div>
-            <h3>Estruturação dos processos de atendimento</h3>
-            <p>Mapeamento do fluxo atual, identificação de gargalos e redesenho do processo de atendimento ao cliente — do primeiro contato até a entrega.</p>
+            <h3>Arquitetura do mecanismo</h3>
+            <p>Criação do modelo em três papéis: Irradiador (quem patrocina), Herdeiro da Luz (quem recebe) e a Corrente da Luz (a cadeia que se forma). Cada papel tem uma função clara e uma jornada própria dentro do sistema.</p>
           </div>
         </div>
         <div class="case-action-item">
           <div class="case-action-num">02</div>
           <div>
-            <h3>Redução da dependência do gestor</h3>
-            <p>Definição de fluxos internos, critérios de decisão e padrões de atendimento que permitissem a equipe operar sem precisar escalar tudo para o gestor.</p>
+            <h3>Rastreabilidade completa</h3>
+            <p>Cada livro tem origem registrada. Cada Herdeiro sabe de qual Irradiador veio. Cada geração da corrente é visível. Não é só distribuição — é um grafo de propagação auditável.</p>
           </div>
         </div>
         <div class="case-action-item">
           <div class="case-action-num">03</div>
           <div>
-            <h3>Atendimento inteligente no WhatsApp</h3>
-            <p>Primeiro passo do TAO Neo: o chatbot com a voz da farmácia passou a qualificar clientes 24/7, transcrever áudios e acionar a equipe no momento certo — com toda conversa registrada.</p>
+            <h3>Propagação por escolha</h3>
+            <p>Herdeiros podem tornar-se Irradiadores — mas por decisão própria, não por obrigação. Isso preserva a intenção do gesto e filtra a propagação por genuíno interesse, não por pressão social.</p>
           </div>
         </div>
         <div class="case-action-item">
           <div class="case-action-num">04</div>
           <div>
-            <h3>TAO CRM — o coração da operação</h3>
-            <p>Implantação do <a href="/tao-crm/">TAO CRM</a>, desenvolvido nativamente pela Soluções &amp; TAO e desenhado sobre o processo da Magis-TAO: kanban com o WhatsApp dentro do card, funis de venda e pós-venda, automações de renovação de tratamento e resgate de orçamento, perfis e alçadas por pessoa.</p>
-          </div>
-        </div>
-        <div class="case-action-item">
-          <div class="case-action-num">05</div>
-          <div>
-            <h3>O ecossistema completo — do orçamento ao fiscal</h3>
-            <p>A operação inteira passou para o <a href="/tao-neo/">TAO Neo</a>: orçamentos de manipulação calculados dentro do card, ordens de produção com ficha de pesagem, estoque com NF e laudos por lote, caixa com recebíveis das operadoras, entregas com NPS — e a parte fiscal (NFC-e) e o SNGPC <strong>homologados em modo sombra</strong>: o novo sistema rodou em paralelo ao antigo, com confronto diário item a item, até bater 100%.</p>
-          </div>
-        </div>
-        <div class="case-action-item">
-          <div class="case-action-num">06</div>
-          <div>
-            <h3>Acompanhamento estratégico contínuo</h3>
-            <p>Revisões periódicas de posicionamento, oferta e operação ao longo de seis anos. Não foi uma consultoria de 90 dias — foi uma presença que acompanhou cada fase do crescimento.</p>
+            <h3>Portal e infraestrutura</h3>
+            <p>Desenvolvimento do portal <a href="https://iluminar.social.br" target="_blank" rel="noopener" style="color:var(--color-accent)">iluminar.social.br</a> para operacionalizar o mecanismo — cadastro de Herdeiros, gestão de Irradiadores e visualização da corrente.</p>
           </div>
         </div>
       </div>
@@ -161,13 +141,12 @@
 <section class="section section-alt">
   <div class="container case-content">
     <div class="section-animate">
-      <h2>O que mudou</h2>
+      <h2>O que o modelo entregou</h2>
       <ul class="case-list case-list-check">
-        <li>Crescimento médio de 25% ao ano mantido por seis anos consecutivos</li>
-        <li>Atendimento funcionando fora do horário comercial sem equipe extra</li>
-        <li>Operação com menos dependência da presença do gestor no dia a dia</li>
-        <li>Processos documentados, replicáveis e auditáveis</li>
-        <li>Histórico completo de conversas e leads registrado automaticamente</li>
+        <li>Sistema operacional com mecanismo de propagação rastreável</li>
+        <li>Cada livro distribuído com origem, destino e histórico registrados</li>
+        <li>Modelo validado em ambiente real — não é conceito, é operação ativa</li>
+        <li>Arquitetura documentada e replicável com adaptações mínimas</li>
       </ul>
     </div>
   </div>
@@ -178,7 +157,23 @@
   <div class="container">
     <div class="case-learning-block section-animate">
       <i data-lucide="quote" aria-hidden="true"></i>
-      <blockquote>Processo não é burocracia. É o que permite que o negócio funcione quando você não está olhando. Sem isso, crescimento é só mais pressão sobre as mesmas pessoas.</blockquote>
+      <blockquote>Qualquer iniciativa pode escalar por volume. Escalar com rastreabilidade e intenção exige arquitetura. A diferença entre um gesto e um movimento é o sistema que existe por trás.</blockquote>
+    </div>
+  </div>
+</section>
+
+<!-- REPLICABILIDADE -->
+<section class="section section-alt">
+  <div class="container">
+    <div class="section-animate">
+      <span class="section-tag">APLICAÇÃO DO MODELO</span>
+      <div class="consult-case-ref" style="margin-top:20px;">
+        <div class="consult-case-ref-body">
+          <h3>Onde esse modelo pode ser aplicado</h3>
+          <p>O mecanismo criado para o Iluminar — patrocinador, receptor, cadeia rastreável — não é exclusivo de projetos de livro. Com poucas adaptações, funciona para: programas de capacitação corporativa onde colaboradores treinam outros colaboradores; campanhas de saúde com propagação por indicação rastreada; iniciativas de responsabilidade social com impacto auditável; ou qualquer projeto que precise escalar com intenção e medir o que realmente chegou.</p>
+        </div>
+        <a href="https://wa.me/5511939342091?text=Ol%C3%A1!%20Tenho%20interesse%20em%20conversar%20sobre%20o%20modelo%20Iluminar." target="_blank" class="btn-ghost consult-case-ref-btn">Quero conversar sobre isso</a>
+      </div>
     </div>
   </div>
 </section>
@@ -186,8 +181,8 @@
 <!-- CTA -->
 <section class="section section-dark">
   <div class="container cta-final-inner section-animate">
-    <h2>Seu negócio está crescendo mas a operação não acompanha?</h2>
-    <p class="cta-sub">É o problema mais comum em negócios que crescem rápido. Uma conversa de 30 minutos mostra onde estão os gargalos.</p>
+    <h2>Precisa criar um sistema que não existe ainda?</h2>
+    <p class="cta-sub">Às vezes o problema não é organizar o que existe — é desenhar o que precisa ser criado. Uma conversa de 30 minutos mostra se é o caso.</p>
     <a href="https://wa.me/5511939342091?text=Ol%C3%A1!%20Gostaria%20de%20agendar%20minha%20conversa%20estrat%C3%A9gica%20gratuita%20de%2030%20min%20com%20a%20Solu%C3%A7%C3%B5es%20%26%20TAO." target="_blank" class="btn-primary btn-large">Quero minha conversa de 30 min</a>
     <p class="cta-no-friction">Sem compromisso. Sem formulário longo.</p>
   </div>
@@ -213,6 +208,7 @@
         <li><a href="/sobre/fundador/">Sobre o Fundador</a></li>
         <li><a href="/cases/">Cases</a></li>
         <li><a href="/tao-neo/">TAO Neo</a></li>
+        <li><a href="/projeto-iluminar/">Projeto Iluminar</a></li>
       </ul>
     </div>
     <div class="footer-col">
@@ -229,18 +225,10 @@
 </footer>
 
 <script>
-window.addEventListener('scroll', function() {
-  document.getElementById('stao-nav').classList.toggle('scrolled', window.scrollY > 60);
-});
-const observer = new IntersectionObserver((entries) => {
-  entries.forEach(entry => { if (entry.isIntersecting) entry.target.classList.add('visible'); });
-}, { threshold: 0.1 });
+window.addEventListener('scroll', function() { document.getElementById('stao-nav').classList.toggle('scrolled', window.scrollY > 60); });
+const observer = new IntersectionObserver((entries) => { entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); }); }, { threshold: 0.1 });
 document.querySelectorAll('.section-animate').forEach(el => observer.observe(el));
-document.querySelectorAll('.has-dropdown > a').forEach(function(link) {
-  link.addEventListener('click', function(e) {
-    if (window.innerWidth <= 768) { e.preventDefault(); this.parentElement.classList.toggle('dropdown-open'); }
-  });
-});
+document.querySelectorAll('.has-dropdown > a').forEach(function(l) { l.addEventListener('click', function(e) { if (window.innerWidth <= 768) { e.preventDefault(); this.parentElement.classList.toggle('dropdown-open'); } }); });
 </script>
 <?php wp_footer(); ?>
 <script src="https://unpkg.com/lucide@0.263.1/dist/umd/lucide.min.js"></script>

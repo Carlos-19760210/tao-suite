@@ -168,7 +168,6 @@
       </ul>
     </li>
     <li><a href="/tao-neo/">TAO Neo</a></li>
-    <li><a href="/tao-crm/" class="nav-active">TAO CRM</a></li>
     <li><a href="/cases/">Cases</a></li>
     <li class="has-dropdown">
       <a href="/sobre/fundador/">Sobre <i data-lucide="chevron-down" class="nav-chevron"></i></a>
@@ -369,7 +368,6 @@
         <li><a href="/cases/">Cases</a></li>
         <li><a href="/contato/">Fale Conosco</a></li>
         <li><a href="/tao-neo/">TAO Neo</a></li>
-        <li><a href="/tao-crm/">TAO CRM</a></li>
       </ul>
     </div>
     <div class="footer-col">

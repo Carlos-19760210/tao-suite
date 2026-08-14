@@ -4,16 +4,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Case Magis-TAO — Soluções &amp; TAO</title>
-<meta name="description" content="Seis anos acompanhando uma farmácia de manipulação crescer 25% ao ano. O desafio não foi crescer — foi organizar o que cresceu.">
+<title>Case Industrialização de Demandas — Soluções &amp; TAO</title>
+<meta name="description" content="40% de aumento de produção sem contratar nenhuma pessoa. Como um modelo de industrialização de demandas transformou a capacidade de uma operação em uma grande consultoria prestando serviços para um banco.">
 <meta name="robots" content="index, follow">
-<link rel="canonical" href="https://solucoesetao.com.br/cases/magis-tao/">
+<link rel="canonical" href="https://solucoesetao.com.br/cases/industrializacao/">
 <link rel="icon" type="image/x-icon" href="https://solucoesetao.com.br/favicon.ico">
-<meta property="og:title" content="Case Magis-TAO — Soluções &amp; TAO">
-<meta property="og:description" content="Seis anos acompanhando uma farmácia de manipulação crescer 25% ao ano sem perder o controle.">
-<meta property="og:url" content="https://solucoesetao.com.br/cases/magis-tao/">
-<meta property="og:type" content="website">
-<meta property="og:image" content="https://solucoesetao.com.br/wp-content/themes/solucoesetao/assets/og-image.png">
 <?php wp_head(); ?>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -61,16 +56,16 @@
 <section class="case-hero-section">
   <div class="container">
     <div class="case-hero-inner section-animate">
-      <div class="case-breadcrumb"><a href="/cases/">Cases</a> <span>/</span> Magis-TAO</div>
+      <div class="case-breadcrumb"><a href="/cases/">Cases</a> <span>/</span> Industrialização de Demandas</div>
       <div class="case-meta-line">
-        <span>Farmácia de manipulação</span>
+        <span>Grande consultoria</span>
         <span class="sep">·</span>
-        <span>Cliente desde 2018</span>
+        <span>Setor bancário</span>
         <span class="sep">·</span>
-        <span>Cotia, SP</span>
+        <span>Modelo replicável</span>
       </div>
-      <h1>Crescer sem estrutura<br>é só trabalho dobrado.</h1>
-      <p class="case-hero-sub">Seis anos acompanhando um negócio crescer em média 25% ao ano. O desafio não foi o crescimento — foi organizar o que cresceu sem perder o ritmo.</p>
+      <h1>40% mais produção.<br>Mesma equipe.<br>Zero contratações.</h1>
+      <p class="case-hero-sub">Uma grande consultoria prestando serviços para um dos maiores bancos do Brasil. Operação em gargalo, equipe no limite, demandas acumulando. A resposta óbvia seria contratar. A resposta certa foi rever como o trabalho estava organizado.</p>
     </div>
   </div>
 </section>
@@ -80,9 +75,9 @@
   <div class="container case-content">
     <div class="section-animate">
       <h2>O contexto</h2>
-      <p>Em 2018, a Magis-TAO era uma farmácia nova tentando se estabelecer em um mercado competitivo. O trabalho inicial foi montar uma base: processos de atendimento, organização interna, posicionamento de produto.</p>
-      <p>Com o tempo, o negócio cresceu. Em média 25% ao ano, por seis anos consecutivos. Isso que parece uma boa notícia trouxe junto um problema real: a operação não cresceu no mesmo ritmo. O que funcionava com volume menor começou a travar com volume maior.</p>
-      <p>A relação com a Soluções &amp; TAO foi se aprofundando nesse processo — não como uma intervenção pontual, mas como acompanhamento contínuo. Cada estágio de crescimento trouxe um conjunto diferente de problemas para organizar.</p>
+      <p>O volume de demandas crescia. A equipe trabalhava no limite. A pressão para entregar mais era constante. Em contextos assim, a solução padrão é contratar mais pessoas.</p>
+      <p>O problema é que contratar não resolve gargalo de processo — só dilui o problema. Se a forma de trabalhar está errada, mais pessoas fazendo a mesma coisa errada apenas aumenta o custo.</p>
+      <p>O diagnóstico foi diferente: o gargalo não estava na capacidade da equipe — estava em como as demandas chegavam, eram distribuídas e executadas. Cada demanda era tratada como única, mesmo quando estruturalmente idêntica a dezenas de outras.</p>
     </div>
   </div>
 </section>
@@ -91,14 +86,14 @@
 <section class="section section-alt">
   <div class="container case-content">
     <div class="section-animate">
-      <h2>O que travava a operação</h2>
+      <h2>O que travava a produção</h2>
       <ul class="case-list">
-        <li>Processos dependiam da memória e da presença do gestor</li>
-        <li>Atendimento via WhatsApp sem registro nem rastreabilidade</li>
-        <li>Crescimento de demanda sem aumento proporcional de estrutura</li>
-        <li>Falta de padrão no atendimento ao cliente</li>
-        <li>Decisões operacionais centralizadas em uma pessoa</li>
-        <li>Dificuldade de escalar sem que a qualidade caísse</li>
+        <li>Sem classificação de demandas — cada entrada era tratada como caso único</li>
+        <li>Tempo desperdiçado reinventando soluções para problemas já resolvidos antes</li>
+        <li>Trabalho serializado: uma pessoa do início ao fim, sem paralelização possível</li>
+        <li>Sem separação entre análise e execução — o mesmo recurso fazia as duas coisas</li>
+        <li>Backlog crescendo sem previsibilidade de entrega</li>
+        <li>Equipe sobrecarregada, mas a causa real era invisível para a gestão</li>
       </ul>
     </div>
   </div>
@@ -113,43 +108,29 @@
         <div class="case-action-item">
           <div class="case-action-num">01</div>
           <div>
-            <h3>Estruturação dos processos de atendimento</h3>
-            <p>Mapeamento do fluxo atual, identificação de gargalos e redesenho do processo de atendimento ao cliente — do primeiro contato até a entrega.</p>
+            <h3>Revisão e mapeamento do fluxo real</h3>
+            <p>Levantamento de todas as demandas por tipo, frequência e complexidade. Não como deveriam ser — como realmente chegavam e como eram tratadas. A maioria do volume era estruturalmente similar.</p>
           </div>
         </div>
         <div class="case-action-item">
           <div class="case-action-num">02</div>
           <div>
-            <h3>Redução da dependência do gestor</h3>
-            <p>Definição de fluxos internos, critérios de decisão e padrões de atendimento que permitissem a equipe operar sem precisar escalar tudo para o gestor.</p>
+            <h3>Classificação e triagem na entrada</h3>
+            <p>Criação de um modelo de classificação na entrada do fluxo. Demandas similares agrupadas — não mais tratadas individualmente do zero. O que antes era decisão individual virou critério definido.</p>
           </div>
         </div>
         <div class="case-action-item">
           <div class="case-action-num">03</div>
           <div>
-            <h3>Atendimento inteligente no WhatsApp</h3>
-            <p>Primeiro passo do TAO Neo: o chatbot com a voz da farmácia passou a qualificar clientes 24/7, transcrever áudios e acionar a equipe no momento certo — com toda conversa registrada.</p>
+            <h3>Pool de industrialização</h3>
+            <p>Desenho do modelo de pool: separação entre análise e execução, templates reutilizáveis para tipos recorrentes, execução paralela para demandas do mesmo tipo. A equipe parou de trabalhar em série e passou a trabalhar em fluxo.</p>
           </div>
         </div>
         <div class="case-action-item">
           <div class="case-action-num">04</div>
           <div>
-            <h3>TAO CRM — o coração da operação</h3>
-            <p>Implantação do <a href="/tao-crm/">TAO CRM</a>, desenvolvido nativamente pela Soluções &amp; TAO e desenhado sobre o processo da Magis-TAO: kanban com o WhatsApp dentro do card, funis de venda e pós-venda, automações de renovação de tratamento e resgate de orçamento, perfis e alçadas por pessoa.</p>
-          </div>
-        </div>
-        <div class="case-action-item">
-          <div class="case-action-num">05</div>
-          <div>
-            <h3>O ecossistema completo — do orçamento ao fiscal</h3>
-            <p>A operação inteira passou para o <a href="/tao-neo/">TAO Neo</a>: orçamentos de manipulação calculados dentro do card, ordens de produção com ficha de pesagem, estoque com NF e laudos por lote, caixa com recebíveis das operadoras, entregas com NPS — e a parte fiscal (NFC-e) e o SNGPC <strong>homologados em modo sombra</strong>: o novo sistema rodou em paralelo ao antigo, com confronto diário item a item, até bater 100%.</p>
-          </div>
-        </div>
-        <div class="case-action-item">
-          <div class="case-action-num">06</div>
-          <div>
-            <h3>Acompanhamento estratégico contínuo</h3>
-            <p>Revisões periódicas de posicionamento, oferta e operação ao longo de seis anos. Não foi uma consultoria de 90 dias — foi uma presença que acompanhou cada fase do crescimento.</p>
+            <h3>Controle e pontos de qualidade</h3>
+            <p>Implantação de checkpoints para garantir que a velocidade não comprometesse a entrega. Rastreabilidade do que estava em andamento, tempo médio por tipo e previsibilidade de backlog.</p>
           </div>
         </div>
       </div>
@@ -163,11 +144,12 @@
     <div class="section-animate">
       <h2>O que mudou</h2>
       <ul class="case-list case-list-check">
-        <li>Crescimento médio de 25% ao ano mantido por seis anos consecutivos</li>
-        <li>Atendimento funcionando fora do horário comercial sem equipe extra</li>
-        <li>Operação com menos dependência da presença do gestor no dia a dia</li>
-        <li>Processos documentados, replicáveis e auditáveis</li>
-        <li>Histórico completo de conversas e leads registrado automaticamente</li>
+        <li>40% de aumento no volume de produção — com a mesma equipe</li>
+        <li>Zero contratações adicionais</li>
+        <li>Redução do backlog e previsibilidade de entrega</li>
+        <li>Separação clara de papéis: quem analisa e quem executa</li>
+        <li>Qualidade mantida — o aumento de velocidade não gerou retrabalho</li>
+        <li>Modelo documentado e replicável para outras células da operação</li>
       </ul>
     </div>
   </div>
@@ -178,7 +160,24 @@
   <div class="container">
     <div class="case-learning-block section-animate">
       <i data-lucide="quote" aria-hidden="true"></i>
-      <blockquote>Processo não é burocracia. É o que permite que o negócio funcione quando você não está olhando. Sem isso, crescimento é só mais pressão sobre as mesmas pessoas.</blockquote>
+      <blockquote>O gargalo raramente é falta de gente. Quase sempre é a forma como o trabalho está organizado. Antes de contratar, vale entender o que a equipe atual está perdendo por falta de processo.</blockquote>
+    </div>
+  </div>
+</section>
+
+<!-- REPLICABILIDADE -->
+<section class="section section-alt">
+  <div class="container">
+    <div class="section-animate">
+      <span class="section-tag">ONDE ESSE MODELO SE APLICA</span>
+      <div class="consult-case-ref" style="margin-top:20px;">
+        <div class="consult-case-ref-body">
+          <h3>Qualquer operação com volume repetitivo</h3>
+          <p>O modelo de industrialização de demandas não tem nada de específico do setor bancário ou de tecnologia. Foi construído em grande escala, mas o princípio é simples: classificar o que entra, padronizar o que é recorrente, paralelizar o que pode ser paralelizado e separar quem pensa de quem executa.</p>
+          <p style="margin-top:12px;margin-bottom:0;">Funciona para equipes de atendimento, times de manutenção, operações administrativas, centrais de serviço, times de produção — qualquer lugar onde o volume de demandas similares cria gargalo invisível.</p>
+        </div>
+        <a href="https://wa.me/5511939342091?text=Ol%C3%A1!%20Tenho%20interesse%20em%20conversar%20sobre%20industrializa%C3%A7%C3%A3o%20de%20demandas." target="_blank" class="btn-ghost consult-case-ref-btn">Quero conversar sobre isso</a>
+      </div>
     </div>
   </div>
 </section>
@@ -186,8 +185,8 @@
 <!-- CTA -->
 <section class="section section-dark">
   <div class="container cta-final-inner section-animate">
-    <h2>Seu negócio está crescendo mas a operação não acompanha?</h2>
-    <p class="cta-sub">É o problema mais comum em negócios que crescem rápido. Uma conversa de 30 minutos mostra onde estão os gargalos.</p>
+    <h2>Sua equipe está no limite mas a entrega não acompanha?</h2>
+    <p class="cta-sub">Antes de contratar, vale entender se o problema é capacidade ou processo. Uma conversa de 30 minutos mostra a diferença.</p>
     <a href="https://wa.me/5511939342091?text=Ol%C3%A1!%20Gostaria%20de%20agendar%20minha%20conversa%20estrat%C3%A9gica%20gratuita%20de%2030%20min%20com%20a%20Solu%C3%A7%C3%B5es%20%26%20TAO." target="_blank" class="btn-primary btn-large">Quero minha conversa de 30 min</a>
     <p class="cta-no-friction">Sem compromisso. Sem formulário longo.</p>
   </div>
@@ -213,6 +212,7 @@
         <li><a href="/sobre/fundador/">Sobre o Fundador</a></li>
         <li><a href="/cases/">Cases</a></li>
         <li><a href="/tao-neo/">TAO Neo</a></li>
+        <li><a href="/projeto-iluminar/">Projeto Iluminar</a></li>
       </ul>
     </div>
     <div class="footer-col">
@@ -229,18 +229,10 @@
 </footer>
 
 <script>
-window.addEventListener('scroll', function() {
-  document.getElementById('stao-nav').classList.toggle('scrolled', window.scrollY > 60);
-});
-const observer = new IntersectionObserver((entries) => {
-  entries.forEach(entry => { if (entry.isIntersecting) entry.target.classList.add('visible'); });
-}, { threshold: 0.1 });
+window.addEventListener('scroll', function() { document.getElementById('stao-nav').classList.toggle('scrolled', window.scrollY > 60); });
+const observer = new IntersectionObserver((entries) => { entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); }); }, { threshold: 0.1 });
 document.querySelectorAll('.section-animate').forEach(el => observer.observe(el));
-document.querySelectorAll('.has-dropdown > a').forEach(function(link) {
-  link.addEventListener('click', function(e) {
-    if (window.innerWidth <= 768) { e.preventDefault(); this.parentElement.classList.toggle('dropdown-open'); }
-  });
-});
+document.querySelectorAll('.has-dropdown > a').forEach(function(l) { l.addEventListener('click', function(e) { if (window.innerWidth <= 768) { e.preventDefault(); this.parentElement.classList.toggle('dropdown-open'); } }); });
 </script>
 <?php wp_footer(); ?>
 <script src="https://unpkg.com/lucide@0.263.1/dist/umd/lucide.min.js"></script>

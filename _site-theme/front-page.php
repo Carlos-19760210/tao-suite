@@ -85,7 +85,6 @@
       </ul>
     </li>
     <li><a href="/tao-neo/">TAO Neo</a></li>
-    <li><a href="/tao-crm/">TAO CRM</a></li>
     <li><a href="/cases/">Cases</a></li>
     <li class="has-dropdown">
       <a href="/sobre/fundador/">Sobre <i data-lucide="chevron-down" class="nav-chevron"></i></a>
@@ -176,30 +175,22 @@
       <span class="section-tag">NOSSOS PRODUTOS</span>
       <h2>Tecnologia que resolve problema real</h2>
     </div>
-    <div class="produtos-grid section-animate" style="display:grid;grid-template-columns:1fr 1fr;gap:2rem;margin-top:2rem;">
+    <div class="produtos-grid section-animate" style="display:grid;grid-template-columns:1fr;gap:2rem;margin-top:2rem;">
 
       <div class="produto-destaque-card" style="display:flex;flex-direction:column;justify-content:space-between;">
         <div class="produto-dest-body">
           <div class="produto-dest-icon"><i data-lucide="network" aria-label="TAO Neo" role="img"></i></div>
-          <div class="produto-dest-tag">O ECOSSISTEMA COMPLETO</div>
+          <div class="produto-dest-tag">A SUÍTE COMPLETA DE OPERAÇÃO</div>
           <h2>TAO Neo</h2>
-          <p>A operação inteira num sistema só: atendimento com IA, orçamentos, produção, estoque com NF e laudos, caixa, entregas — e a parte fiscal (NFC-e) e o SNGPC <strong>homologados</strong>. Tudo conectado pelo CRM, num fluxo sem redigitação.</p>
-          <p style="margin-top:10px;font-size:12.5px;color:var(--color-text-muted);font-family:'JetBrains Mono',monospace;letter-spacing:.02em">atendimento · fórmulas · produção · estoque · caixa · fiscal · SNGPC · entregas · análise</p>
+          <p>A operação inteira num ecossistema só, com o CRM como coração: cada frente é um módulo completo, todas conversam entre si, e nada se redigita. A parte fiscal (NFC-e) e o SNGPC estão <strong>homologados</strong> — validados lado a lado com a operação real.</p>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:16px">
+            <?php foreach ( [ 'Agente', 'CRM', 'Campanhas', 'Caixa', 'Pós Vendas', 'Estoque', 'Cotações', 'Fórmulas Farmacêuticas' ] as $fr ) : ?>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:11.5px;padding:5px 12px;border-radius:16px;background:var(--color-bg-alt);border:1px solid var(--color-border);color:var(--color-secondary)"><?php echo esc_html( $fr ); ?></span>
+            <?php endforeach; ?>
+          </div>
         </div>
-        <div class="produto-dest-cta">
-          <a href="/tao-neo/" class="btn-accent">Conhecer o ecossistema</a>
-        </div>
-      </div>
-
-      <div class="produto-destaque-card" style="display:flex;flex-direction:column;justify-content:space-between;">
-        <div class="produto-dest-body">
-          <div class="produto-dest-icon"><i data-lucide="layout-kanban" aria-label="TAO CRM" role="img"></i></div>
-          <div class="produto-dest-tag">O CORAÇÃO DA SUÍTE</div>
-          <h2>TAO CRM</h2>
-          <p>O centro do ecossistema: kanban com a conversa de WhatsApp dentro do card, funis desenhados para o seu processo, automações de recompra e histórico que nunca se perde. Totalmente customizado — o sistema se adapta a você.</p>
-        </div>
-        <div class="produto-dest-cta">
-          <a href="/tao-crm/" class="btn-accent">Conhecer o TAO CRM</a>
+        <div class="produto-dest-cta" style="margin-top:18px">
+          <a href="/tao-neo/" class="btn-accent">Conhecer o ecossistema TAO Neo</a>
         </div>
       </div>
 
@@ -317,7 +308,6 @@
         <li><a href="/sobre/fundador/">Sobre o Fundador</a></li>
         <li><a href="/cases/">Cases</a></li>
         <li><a href="/tao-neo/">TAO Neo</a></li>
-    <li><a href="/tao-crm/">TAO CRM</a></li>
         <li><a href="/projeto-iluminar/">Projeto Iluminar</a></li>
       </ul>
     </div>

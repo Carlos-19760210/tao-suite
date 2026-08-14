@@ -212,7 +212,6 @@
       </ul>
     </li>
     <li><a href="/tao-neo/" class="nav-active">TAO Neo</a></li>
-    <li><a href="/tao-crm/">TAO CRM</a></li>
     <li><a href="/cases/">Cases</a></li>
     <li class="has-dropdown">
       <a href="/sobre/fundador/">Sobre <i data-lucide="chevron-down" class="nav-chevron"></i></a>
@@ -291,8 +290,8 @@
   <div class="tn-wrap">
     <div class="tn-sec-head" style="text-align:center;margin-inline:auto">
       <span class="tn-eyebrow">O ecossistema</span>
-      <h2>Nove frentes, um coração.</h2>
-      <p class="tn-lead" style="margin-inline:auto">Cada caixa é um módulo completo — e todas conversam com o CRM no centro. Clique em qualquer uma para ver como funciona por dentro.</p>
+      <h2>Oito frentes, uma suíte.</h2>
+      <p class="tn-lead" style="margin-inline:auto">Cada caixa é um módulo completo — e todas se ligam pela suíte TAO Neo, no centro. Clique em qualquer uma para ver como funciona por dentro.</p>
     </div>
 
     <div class="tn-eco">
@@ -302,23 +301,23 @@
         <line x1="50" y1="50" x2="16" y2="87"/><line x1="50" y1="50" x2="50" y2="87"/><line x1="50" y1="50" x2="84" y2="87"/>
       </svg>
       <div class="tn-eco-grid">
-        <a class="tn-caixa" href="#atendimento"><span class="tn-ic">💬</span><h3>Atendimento &amp; IA</h3><p>Chatbot com a sua voz, áudio transcrito, humano assume sem o cliente recomeçar.</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
-        <a class="tn-caixa" href="#formulas"><span class="tn-ic">🧪</span><h3>Fórmulas &amp; Orçamentos</h3><p>Da foto da receita ao orçamento calculado — dentro do card.</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
-        <a class="tn-caixa" href="#operacao"><span class="tn-ic">⚗️</span><h3>Produção</h3><p>Ordem de manipulação, ficha de pesagem, rótulo e livro — sem redigitar.</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
+        <a class="tn-caixa" href="#atendimento"><span class="tn-ic">💬</span><h3>Agente</h3><p>Atendimento com IA e a voz do seu negócio, 24/7 — áudio transcrito, humano assume sem o cliente recomeçar.</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
+        <a class="tn-caixa" href="/tao-crm/"><span class="tn-ic">🫀</span><h3>CRM</h3><p>O coração operacional: card, conversa, funil e histórico — onde tudo se encontra.</p><span class="tn-ver">VER POR DENTRO →</span></a>
+        <a class="tn-caixa" href="#atendimento"><span class="tn-ic">📣</span><h3>Campanhas</h3><p>Disparos segmentados no WhatsApp — e cada resposta vira card no funil, pronta pro atendimento.</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
 
-        <a class="tn-caixa" href="#operacao"><span class="tn-ic">📦</span><h3>Estoque · NF &amp; Laudos</h3><p>Nota entra por XML; laudo acompanha o lote, do jeito que a RDC 67 pede.</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
+        <a class="tn-caixa" href="#formulas"><span class="tn-selo-mini">✓ LEGISLAÇÃO</span><span class="tn-ic">🧪</span><h3>Fórmulas Farmacêuticas</h3><p>Orçamento calculado no card, produção com ficha de pesagem — aderente à legislação vigente (RDC 67, SNGPC homologado).</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
         <div class="tn-caixa tn-core" role="presentation">
           <div class="tn-pulso"></div>
-          <h3>TAO CRM</h3>
-          <p>O coração. Card, conversa, histórico e funil — tudo nasce aqui e volta pra cá.</p>
+          <h3>TAO Neo</h3>
+          <p>A suíte. Oito frentes ligadas num organismo só — os dados fluem, nada se redigita.</p>
         </div>
-        <a class="tn-caixa" href="#operacao"><span class="tn-ic">💰</span><h3>Caixa · PDV</h3><p>Recebimento com split, taxas reais das operadoras e agenda do que vai cair.</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
+        <a class="tn-caixa" href="#operacao"><span class="tn-selo-mini">✓ NFC-E</span><span class="tn-ic">💰</span><h3>Caixa</h3><p>PDV com split, taxas reais das operadoras, recebíveis dia a dia — e a NFC-e homologada saindo da própria venda.</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
 
-        <a class="tn-caixa" href="#fiscal"><span class="tn-selo-mini">✓ HOMOLOGADO</span><span class="tn-ic">🧾</span><h3>Fiscal &amp; SNGPC</h3><p>NFC-e emitida e controlados escriturados a partir da própria venda.</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
-        <a class="tn-caixa" href="#operacao"><span class="tn-ic">🛵</span><h3>Entregas</h3><p>Da aprovação à porta do cliente, com travas de segurança e NPS no fim.</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
-        <a class="tn-caixa" href="#analise"><span class="tn-ic">📊</span><h3>Dashboard &amp; Análise</h3><p>O dia em números claros — e o mês projetado antes de acabar.</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
+        <a class="tn-caixa" href="#operacao"><span class="tn-ic">🛵</span><h3>Pós Vendas</h3><p>Entrega até a porta do cliente, travas de endereço e pagamento, e o NPS fechando o ciclo.</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
+        <a class="tn-caixa" href="#operacao"><span class="tn-ic">📦</span><h3>Estoque</h3><p>Nota do fornecedor entra por XML; laudo acompanha o lote; kardex de cada item.</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
+        <a class="tn-caixa" href="#operacao"><span class="tn-ic">🤝</span><h3>Cotações</h3><p>Compra com cotação a fornecedores, comparativo lado a lado e último preço pago.</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
       </div>
-      <p class="tn-eco-legenda">— todas as linhas passam pelo CRM: um cadastro único de cliente, um histórico único, nenhuma redigitação —</p>
+      <p class="tn-eco-legenda">— todas as caixas se ligam: cadastro único de cliente, card único, fluxo único · o CRM é o coração; a suíte é o organismo —</p>
     </div>
   </div>
 </section>
@@ -545,7 +544,6 @@
         <li><a href="/cases/">Cases</a></li>
         <li><a href="/contato/">Fale Conosco</a></li>
         <li><a href="/tao-neo/">TAO Neo</a></li>
-        <li><a href="/tao-crm/">TAO CRM</a></li>
       </ul>
     </div>
     <div class="footer-col">
