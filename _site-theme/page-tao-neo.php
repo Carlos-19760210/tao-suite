@@ -92,7 +92,7 @@
 .tn-hero h1 em{font-style:normal;color:#B38E6C}
 .tn-hero p.tn-sub{color:#C7D2DC;font-size:17.5px;max-width:54ch;margin-bottom:28px}
 .tn-ctas{display:flex;gap:14px;flex-wrap:wrap}
-.tn-selos{display:flex;gap:10px;flex-wrap:wrap;margin-top:30px;list-style:none}
+.tn ul.tn-selos{display:flex;gap:10px;flex-wrap:wrap;margin-top:30px;list-style:none}
 .tn-selo{font-family:'JetBrains Mono',monospace;font-size:11.5px;letter-spacing:.04em;padding:6px 12px;border-radius:20px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);color:#DCE5EC}
 .tn-selo.tn-ok{background:rgba(30,127,79,.25);border-color:rgba(110,200,150,.45);color:#BFE8CF}
 
@@ -132,7 +132,7 @@
 .tn-eco-legenda{text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;color:#6B7280;margin-top:22px;letter-spacing:.05em}
 
 /* fluxo */
-.tn-fita{display:flex;align-items:center;flex-wrap:wrap;justify-content:center;margin-top:8px;list-style:none;gap:0}
+.tn ul.tn-fita{display:flex;align-items:center;flex-wrap:wrap;justify-content:center;margin-top:8px;list-style:none;gap:0}
 .tn-passo{background:#fff;border:1px solid #E2E0DC;border-radius:10px;padding:10px 16px;font-size:13px;font-weight:600;color:#152C42}
 .tn-passo small{display:block;font-weight:400;color:#6B7280;font-size:11px}
 .tn-seta{color:#B38E6C;font-size:18px;padding:0 10px;font-weight:700}
