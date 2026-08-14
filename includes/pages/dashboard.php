@@ -750,12 +750,12 @@ function tao_crm_page_dashboard() {
             <div class="crm-dash-kpi-card kpi-amber" title="Projeção do faturamento (Movimentado) do MÊS CORRENTE pelo ritmo dos dias corridos: realizado ÷ dias decorridos × dias do mês. Independe do filtro de período.">
                 <span class="kpi-label">Projeção do mês (dias corridos)</span>
                 <span class="kpi-value">R$&nbsp;<?php echo number_format( $proj_mes['corridos'], 0, ',', '.' ); ?></span>
-                <span class="kpi-sub">realizado R$ <?php echo number_format( $proj_mes['mov'], 0, ',', '.' ); ?> em <?php echo $proj_mes['d_dec']; ?> de <?php echo $proj_mes['d_tot']; ?> dias</span>
+                <span class="kpi-sub">realizado R$ <?php echo number_format( $proj_mes['mov'], 0, ',', '.' ); ?> em <?php echo $proj_mes['d_dec']; ?> de <?php echo $proj_mes['d_tot']; ?> dias · média/dia R$ <?php echo number_format( $proj_mes['mov'] / max( 1, $proj_mes['d_dec'] ), 0, ',', '.' ); ?></span>
             </div>
             <div class="crm-dash-kpi-card kpi-amber" title="Projeção do faturamento (Movimentado) do MÊS CORRENTE pelo ritmo dos dias ÚTEIS (seg–sáb; domingo não vende): realizado ÷ úteis decorridos × úteis do mês. Independe do filtro de período.">
                 <span class="kpi-label">Projeção do mês (dias úteis)</span>
                 <span class="kpi-value">R$&nbsp;<?php echo number_format( $proj_mes['uteis'], 0, ',', '.' ); ?></span>
-                <span class="kpi-sub"><?php echo $proj_mes['u_dec']; ?> de <?php echo $proj_mes['u_tot']; ?> dias úteis (seg–sáb)</span>
+                <span class="kpi-sub"><?php echo $proj_mes['u_dec']; ?> de <?php echo $proj_mes['u_tot']; ?> dias úteis (seg–sáb) · média/dia útil R$ <?php echo number_format( $proj_mes['mov'] / max( 1, $proj_mes['u_dec'] ), 0, ',', '.' ); ?></span>
             </div>
             <?php endif; ?>
             <div class="crm-dash-kpi-card kpi-indigo" title="Tempo Médio de Atendimento: da criação do card até a resolução (ganho ou perdido)">
