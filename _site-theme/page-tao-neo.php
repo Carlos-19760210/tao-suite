@@ -130,14 +130,14 @@
 .tn-pulso{width:11px;height:11px;border-radius:50%;background:#B38E6C;margin:0 auto 10px;box-shadow:0 0 0 6px rgba(179,142,108,.25)}
 .tn-selo-mini{position:absolute;top:12px;right:12px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.06em;background:#E7F4EC;color:#1E7F4F;border:1px solid #BBDCC8;border-radius:10px;padding:2px 8px}
 .tn-selo-mini.tn-roxo{background:#EDE9FE;color:#6D28D9;border-color:#DDD6FE}
-.tn-eco-legenda{text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;color:#6B7280;margin-top:22px;letter-spacing:.05em}
+.tn p.tn-eco-legenda{text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;color:#6B7280;margin-top:22px;letter-spacing:.05em}
 
 /* fluxo */
 .tn ul.tn-fita{display:flex;align-items:center;flex-wrap:wrap;justify-content:center;margin-top:8px;list-style:none;gap:0}
 .tn-passo{background:#fff;border:1px solid #E2E0DC;border-radius:10px;padding:10px 16px;font-size:13px;font-weight:600;color:#152C42}
 .tn-passo small{display:block;font-weight:400;color:#6B7280;font-size:11px}
 .tn-seta{color:#B38E6C;font-size:18px;padding:0 10px;font-weight:700}
-.tn-fita-obs{text-align:center;color:#6B7280;font-size:13.5px;margin-top:18px}
+.tn p.tn-fita-obs{text-align:center;color:#6B7280;font-size:13.5px;margin-top:18px}
 
 /* detalhes */
 .tn-det{display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:start}

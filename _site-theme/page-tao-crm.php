@@ -124,7 +124,7 @@
 .tn ul.tn-abas{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:8px;list-style:none}
 .tn-aba{background:#fff;border:1px solid #E2E0DC;border-radius:20px;padding:9px 18px;font-size:13px;font-weight:600;color:#152C42}
 .tn-aba small{font-weight:400;color:#6B7280;display:block;font-size:11px}
-.tn-abas-obs{text-align:center;color:#6B7280;font-size:13.5px;margin-top:18px;max-width:70ch;margin-inline:auto}
+.tn p.tn-abas-obs{text-align:center;color:#6B7280;font-size:13.5px;margin-top:18px;max-width:70ch;margin-inline:auto}
 
 /* suite strip */
 .tn-suite{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
