@@ -4201,6 +4201,13 @@ function tao_formula_conv_unid( $qtd, $de, $para ) {
     $de   = strtoupper( trim( (string) $de ) );
     $para = strtoupper( trim( (string) $para ) );
     if ( $de === '' || $para === '' ) return null;
+    // uCom COMPOSTO ("5 G", "500G", "2 KG", "1 MIL"): a EMBALAGEM vem embutida na unidade da
+    // NF — a quantidade real é qCom × conteúdo. Sem isto "5 G" era unidade desconhecida e o
+    // preço ficava por FRASCO (ex.: Vit D3 R$ 135 no lugar de R$ 27/g). Carlos 14/08.
+    if ( preg_match( '/^([\d.,]+)\s*([A-Z]+)$/', $de, $m ) ) {
+        $mult = (float) str_replace( ',', '.', $m[1] );
+        if ( $mult > 0 ) { $qtd = (float) $qtd * $mult; $de = $m[2]; }
+    }
     if ( $de === $para ) return (float) $qtd;
     $map = tao_formula_unidades_map();
     if ( isset( $map[$de], $map[$para] ) && $map[$de]['dim'] === $map[$para]['dim'] && $map[$para]['f'] != 0.0 )

@@ -156,7 +156,11 @@ function tao_formula_page_estoque_nf() {
         // fallback embutido se a tabela ainda estiver vazia. Espelha a PHP tao_formula_conv_unid.
         function convUnid(q,de,pa){
             de=(de||'').toUpperCase().trim(); pa=(pa||'').toUpperCase().trim();
-            if(!de||!pa) return null; if(de===pa) return q;
+            if(!de||!pa) return null;
+            // uCom composto ("5 G", "500G", "2 KG", "1 MIL"): embalagem embutida na unidade da NF
+            var cm=de.match(/^([\d.,]+)\s*([A-Z]+)$/);
+            if(cm){ var mu=parseFloat(cm[1].replace(',','.')); if(mu>0){ q=q*mu; de=cm[2]; } }
+            if(de===pa) return q;
             var M=(NF&&NF.unidades)||null;
             if(M&&M[de]&&M[pa]) return (M[de].dim===M[pa].dim && M[pa].f)? q*M[de].f/M[pa].f : null;
             var dims=[{KG:1000,G:1,GR:1,MG:.001,MCG:1e-6},{L:1000,LT:1000,ML:1},{MIL:1000,MILHEIRO:1000,MI:1000,MILH:1000,UN:1,UND:1,UNID:1,CAP:1,CAPS:1,CPR:1,COMP:1,PC:1}];
