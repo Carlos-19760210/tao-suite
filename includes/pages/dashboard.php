@@ -190,13 +190,25 @@ function tao_crm_page_dashboard() {
 
     if ( ! empty( $para_in ) ) {
         $in_list = implode( ',', $para_in );
-        $rh = tao_crm_api(
-            "/crm_cards_historico?para_estagio_id=in.($in_list)" .
-            "&criado_em=gte." . urlencode( $hist_desde ) .
-            "&select=card_id,de_estagio_id,para_estagio_id,criado_em,motivo" .
-            "&order=criado_em.desc&limit=5000"
-        );
-        foreach ( ( $rh['ok'] ? ( $rh['data'] ?? [] ) : [] ) as $h ) {
+        // PAGINADO com Range: o PostgREST corta em 1000 linhas SEM erro mesmo com limit=5000.
+        // Sem isto, ganhos mais antigos do período sumiam da conta (15/08: 137 exibidos vs
+        // 161 reais no mês — 24 cards ganhos perdidos, ex.: req 47467).
+        $_hist = [];
+        $_hp   = 0;
+        do {
+            $rh = tao_crm_api(
+                "/crm_cards_historico?para_estagio_id=in.($in_list)" .
+                "&criado_em=gte." . urlencode( $hist_desde ) .
+                "&select=card_id,de_estagio_id,para_estagio_id,criado_em,motivo" .
+                "&order=criado_em.desc",
+                'GET', null,
+                [ 'Range-Unit' => 'items', 'Range' => ( $_hp * 1000 ) . '-' . ( $_hp * 1000 + 999 ) ]
+            );
+            $_hch  = $rh['ok'] ? ( $rh['data'] ?? [] ) : [];
+            $_hist = array_merge( $_hist, $_hch );
+            $_hp++;
+        } while ( count( $_hch ) === 1000 && $_hp < 30 );
+        foreach ( $_hist as $h ) {
             $para = $h['para_estagio_id'] ?? '';
             $de   = $h['de_estagio_id']   ?? '';
             $cid  = $h['card_id']         ?? '';
