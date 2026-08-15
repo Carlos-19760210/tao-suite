@@ -45,7 +45,7 @@
     <li><a href="/contato/">Contato</a></li>
   </ul>
   <div class="header-cta">
-    <a href="https://wa.me/5511939342091?text=Ol%C3%A1!%20Gostaria%20de%20agendar%20minha%20conversa%20estrat%C3%A9gica%20gratuita%20de%2030%20min%20com%20a%20Solu%C3%A7%C3%B5es%20%26%20TAO." target="_blank" class="btn-primary">Conversa gratuita</a>
+    <a href="https://wa.me/5511994604521?text=Ol%C3%A1!%20Gostaria%20de%20agendar%20minha%20conversa%20estrat%C3%A9gica%20gratuita%20de%2030%20min%20com%20a%20Solu%C3%A7%C3%B5es%20%26%20TAO." target="_blank" class="btn-primary">Conversa gratuita</a>
   </div>
   <div class="nav-toggle" id="navToggle" onclick="document.getElementById('navMenu').classList.toggle('open')">
     <span></span><span></span><span></span>
@@ -172,7 +172,7 @@
           <h3>Onde esse modelo pode ser aplicado</h3>
           <p>O mecanismo criado para o Iluminar — patrocinador, receptor, cadeia rastreável — não é exclusivo de projetos de livro. Com poucas adaptações, funciona para: programas de capacitação corporativa onde colaboradores treinam outros colaboradores; campanhas de saúde com propagação por indicação rastreada; iniciativas de responsabilidade social com impacto auditável; ou qualquer projeto que precise escalar com intenção e medir o que realmente chegou.</p>
         </div>
-        <a href="https://wa.me/5511939342091?text=Ol%C3%A1!%20Tenho%20interesse%20em%20conversar%20sobre%20o%20modelo%20Iluminar." target="_blank" class="btn-ghost consult-case-ref-btn">Quero conversar sobre isso</a>
+        <a href="https://wa.me/5511994604521?text=Ol%C3%A1!%20Tenho%20interesse%20em%20conversar%20sobre%20o%20modelo%20Iluminar." target="_blank" class="btn-ghost consult-case-ref-btn">Quero conversar sobre isso</a>
       </div>
     </div>
   </div>
@@ -183,7 +183,7 @@
   <div class="container cta-final-inner section-animate">
     <h2>Precisa criar um sistema que não existe ainda?</h2>
     <p class="cta-sub">Às vezes o problema não é organizar o que existe — é desenhar o que precisa ser criado. Uma conversa de 30 minutos mostra se é o caso.</p>
-    <a href="https://wa.me/5511939342091?text=Ol%C3%A1!%20Gostaria%20de%20agendar%20minha%20conversa%20estrat%C3%A9gica%20gratuita%20de%2030%20min%20com%20a%20Solu%C3%A7%C3%B5es%20%26%20TAO." target="_blank" class="btn-primary btn-large">Quero minha conversa de 30 min</a>
+    <a href="https://wa.me/5511994604521?text=Ol%C3%A1!%20Gostaria%20de%20agendar%20minha%20conversa%20estrat%C3%A9gica%20gratuita%20de%2030%20min%20com%20a%20Solu%C3%A7%C3%B5es%20%26%20TAO." target="_blank" class="btn-primary btn-large">Quero minha conversa de 30 min</a>
     <p class="cta-no-friction">Sem compromisso. Sem formulário longo.</p>
   </div>
 </section>
@@ -214,7 +214,7 @@
     <div class="footer-col">
       <h4>Contato</h4>
       <ul>
-        <li><a href="https://wa.me/5511939342091" target="_blank">+55 11 93934-2091</a></li>
+        <li><a href="https://wa.me/5511994604521" target="_blank">+55 11 99460-4521</a></li>
         <li><a href="mailto:contato@solucoesetao.com.br">contato@solucoesetao.com.br</a></li>
       </ul>
     </div>

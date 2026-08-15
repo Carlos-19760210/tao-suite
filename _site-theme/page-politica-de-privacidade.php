@@ -194,7 +194,7 @@
         ? 'Portal &rarr;' : 'Entrar';
     ?>
     <a href="<?php echo esc_url($portal_url); ?>" class="btn-entrar"><?php echo $portal_txt; ?></a>
-    <a href="https://wa.me/5511939342091?text=Ol%C3%A1%2C%20tenho%20interesse%20no%20TAO%20CRM." target="_blank" class="btn-primary">Conversa gratuita</a>
+    <a href="https://wa.me/5511994604521?text=Ol%C3%A1%2C%20tenho%20interesse%20no%20TAO%20CRM." target="_blank" class="btn-primary">Conversa gratuita</a>
   </div>
   <div class="nav-toggle" id="navToggle" onclick="document.getElementById('navMenu').classList.toggle('open')">
     <span></span><span></span><span></span>
@@ -226,7 +226,7 @@
       <li><strong>Nome Fantasia:</strong> Soluções &amp; TAO / solucoesetao.com.br</li>
       <li><strong>CNPJ:</strong> Não divulgado publicamente neste documento. Disponível mediante solicitação formal.</li>
       <li><strong>Endereço eletrônico:</strong> <a href="mailto:contato@solucoesetao.com.br">contato@solucoesetao.com.br</a></li>
-      <li><strong>WhatsApp:</strong> <a href="https://wa.me/5511939342091" target="_blank">+55 11 93934-2091</a></li>
+      <li><strong>WhatsApp:</strong> <a href="https://wa.me/5511994604521" target="_blank">+55 11 99460-4521</a></li>
       <li><strong>Site:</strong> <a href="https://solucoesetao.com.br" target="_blank">solucoesetao.com.br</a></li>
     </ul>
 
@@ -385,7 +385,7 @@
     <div class="legal-highlight">
       <p>
         <strong>E-mail:</strong> <a href="mailto:contato@solucoesetao.com.br">contato@solucoesetao.com.br</a><br>
-        <strong>WhatsApp:</strong> <a href="https://wa.me/5511939342091" target="_blank">+55 11 93934-2091</a><br>
+        <strong>WhatsApp:</strong> <a href="https://wa.me/5511994604521" target="_blank">+55 11 99460-4521</a><br>
         <strong>Assunto da mensagem:</strong> "LGPD — [tipo de solicitação]" (ex.: "LGPD — Acesso aos meus dados")
       </p>
     </div>
@@ -441,7 +441,7 @@
 
     <div class="legal-highlight" style="margin-top:48px;">
       <p><strong>Data de vigência desta versão:</strong> 29 de maio de 2026<br>
-      Para dúvidas: <a href="mailto:contato@solucoesetao.com.br">contato@solucoesetao.com.br</a> &nbsp;|&nbsp; <a href="https://wa.me/5511939342091" target="_blank">+55 11 93934-2091</a></p>
+      Para dúvidas: <a href="mailto:contato@solucoesetao.com.br">contato@solucoesetao.com.br</a> &nbsp;|&nbsp; <a href="https://wa.me/5511994604521" target="_blank">+55 11 99460-4521</a></p>
     </div>
 
   </div>
@@ -479,7 +479,7 @@
     <div class="footer-col">
       <h4>Contato</h4>
       <ul>
-        <li><a href="https://wa.me/5511939342091" target="_blank">+55 11 93934-2091</a></li>
+        <li><a href="https://wa.me/5511994604521" target="_blank">+55 11 99460-4521</a></li>
         <li><a href="mailto:contato@solucoesetao.com.br">contato@solucoesetao.com.br</a></li>
         <li><a href="/contato/">Fale Conosco</a></li>
       </ul>

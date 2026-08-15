@@ -45,7 +45,7 @@
     <li><a href="/contato/">Contato</a></li>
   </ul>
   <div class="header-cta">
-    <a href="https://wa.me/5511939342091?text=Ol%C3%A1!%20Gostaria%20de%20agendar%20minha%20conversa%20estrat%C3%A9gica%20gratuita%20de%2030%20min%20com%20a%20Solu%C3%A7%C3%B5es%20%26%20TAO." target="_blank" class="btn-primary">Conversa gratuita</a>
+    <a href="https://wa.me/5511994604521?text=Ol%C3%A1!%20Gostaria%20de%20agendar%20minha%20conversa%20estrat%C3%A9gica%20gratuita%20de%2030%20min%20com%20a%20Solu%C3%A7%C3%B5es%20%26%20TAO." target="_blank" class="btn-primary">Conversa gratuita</a>
   </div>
   <div class="nav-toggle" id="navToggle" onclick="document.getElementById('navMenu').classList.toggle('open')">
     <span></span><span></span><span></span>
@@ -61,7 +61,7 @@
       <h1>Seu negócio precisa de clareza antes de crescer.</h1>
       <p class="case-hero-sub">Crescimento sem direção é esforço desperdiçado. O trabalho começa com diagnóstico — entender onde o negócio está, o que funciona e o que trava antes de decidir o próximo passo.</p>
       <div class="hero-btns" style="margin-top:32px;">
-        <a href="https://wa.me/5511939342091?text=Ol%C3%A1!%20Gostaria%20de%20agendar%20minha%20conversa%20estrat%C3%A9gica%20gratuita%20de%2030%20min%20com%20a%20Solu%C3%A7%C3%B5es%20%26%20TAO." target="_blank" class="btn-primary">Conversa estratégica de 30 min</a>
+        <a href="https://wa.me/5511994604521?text=Ol%C3%A1!%20Gostaria%20de%20agendar%20minha%20conversa%20estrat%C3%A9gica%20gratuita%20de%2030%20min%20com%20a%20Solu%C3%A7%C3%B5es%20%26%20TAO." target="_blank" class="btn-primary">Conversa estratégica de 30 min</a>
       </div>
     </div>
   </div>
@@ -168,7 +168,7 @@
   <div class="container cta-final-inner section-animate">
     <h2>Pronto para ter clareza sobre o próximo passo?</h2>
     <p class="cta-sub">30 minutos são suficientes para entender onde está o problema e se faz sentido trabalharmos juntos.</p>
-    <a href="https://wa.me/5511939342091?text=Ol%C3%A1!%20Gostaria%20de%20agendar%20minha%20conversa%20estrat%C3%A9gica%20gratuita%20de%2030%20min%20com%20a%20Solu%C3%A7%C3%B5es%20%26%20TAO." target="_blank" class="btn-primary btn-large">Quero minha conversa de 30 min</a>
+    <a href="https://wa.me/5511994604521?text=Ol%C3%A1!%20Gostaria%20de%20agendar%20minha%20conversa%20estrat%C3%A9gica%20gratuita%20de%2030%20min%20com%20a%20Solu%C3%A7%C3%B5es%20%26%20TAO." target="_blank" class="btn-primary btn-large">Quero minha conversa de 30 min</a>
     <p class="cta-no-friction">Sem compromisso. Sem formulário longo.</p>
   </div>
 </section>
@@ -198,7 +198,7 @@
     <div class="footer-col">
       <h4>Contato</h4>
       <ul>
-        <li><a href="https://wa.me/5511939342091" target="_blank">+55 11 93934-2091</a></li>
+        <li><a href="https://wa.me/5511994604521" target="_blank">+55 11 99460-4521</a></li>
         <li><a href="mailto:contato@solucoesetao.com.br">contato@solucoesetao.com.br</a></li>
       </ul>
     </div>

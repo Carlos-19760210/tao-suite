@@ -50,7 +50,7 @@
     <li><a href="/contato/">Contato</a></li>
   </ul>
   <div class="header-cta">
-    <a href="https://wa.me/5511939342091?text=Ol%C3%A1!%20Gostaria%20de%20agendar%20minha%20conversa%20estrat%C3%A9gica%20gratuita%20de%2030%20min%20com%20a%20Solu%C3%A7%C3%B5es%20%26%20TAO." target="_blank" class="btn-primary">Conversa gratuita</a>
+    <a href="https://wa.me/5511994604521?text=Ol%C3%A1!%20Gostaria%20de%20agendar%20minha%20conversa%20estrat%C3%A9gica%20gratuita%20de%2030%20min%20com%20a%20Solu%C3%A7%C3%B5es%20%26%20TAO." target="_blank" class="btn-primary">Conversa gratuita</a>
   </div>
   <div class="nav-toggle" id="navToggle" onclick="document.getElementById('navMenu').classList.toggle('open')">
     <span></span><span></span><span></span>
@@ -182,7 +182,7 @@
   <div class="container cta-final-inner section-animate">
     <h2>Sua operação depende de alguém lembrar de tudo?</h2>
     <p class="cta-sub">Quando o controle está na cabeça das pessoas e não nos processos, qualquer mudança de equipe vira crise. Uma conversa de 30 minutos mostra onde está o problema.</p>
-    <a href="https://wa.me/5511939342091?text=Ol%C3%A1!%20Gostaria%20de%20agendar%20minha%20conversa%20estrat%C3%A9gica%20gratuita%20de%2030%20min%20com%20a%20Solu%C3%A7%C3%B5es%20%26%20TAO." target="_blank" class="btn-primary btn-large">Quero minha conversa de 30 min</a>
+    <a href="https://wa.me/5511994604521?text=Ol%C3%A1!%20Gostaria%20de%20agendar%20minha%20conversa%20estrat%C3%A9gica%20gratuita%20de%2030%20min%20com%20a%20Solu%C3%A7%C3%B5es%20%26%20TAO." target="_blank" class="btn-primary btn-large">Quero minha conversa de 30 min</a>
     <p class="cta-no-friction">Sem compromisso. Sem formulário longo.</p>
   </div>
 </section>
@@ -212,7 +212,7 @@
     <div class="footer-col">
       <h4>Contato</h4>
       <ul>
-        <li><a href="https://wa.me/5511939342091" target="_blank">+55 11 93934-2091</a></li>
+        <li><a href="https://wa.me/5511994604521" target="_blank">+55 11 99460-4521</a></li>
         <li><a href="mailto:contato@solucoesetao.com.br">contato@solucoesetao.com.br</a></li>
       </ul>
     </div>

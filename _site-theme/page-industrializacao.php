@@ -45,7 +45,7 @@
     <li><a href="/contato/">Contato</a></li>
   </ul>
   <div class="header-cta">
-    <a href="https://wa.me/5511939342091?text=Ol%C3%A1!%20Gostaria%20de%20agendar%20minha%20conversa%20estrat%C3%A9gica%20gratuita%20de%2030%20min%20com%20a%20Solu%C3%A7%C3%B5es%20%26%20TAO." target="_blank" class="btn-primary">Conversa gratuita</a>
+    <a href="https://wa.me/5511994604521?text=Ol%C3%A1!%20Gostaria%20de%20agendar%20minha%20conversa%20estrat%C3%A9gica%20gratuita%20de%2030%20min%20com%20a%20Solu%C3%A7%C3%B5es%20%26%20TAO." target="_blank" class="btn-primary">Conversa gratuita</a>
   </div>
   <div class="nav-toggle" id="navToggle" onclick="document.getElementById('navMenu').classList.toggle('open')">
     <span></span><span></span><span></span>
@@ -176,7 +176,7 @@
           <p>O modelo de industrialização de demandas não tem nada de específico do setor bancário ou de tecnologia. Foi construído em grande escala, mas o princípio é simples: classificar o que entra, padronizar o que é recorrente, paralelizar o que pode ser paralelizado e separar quem pensa de quem executa.</p>
           <p style="margin-top:12px;margin-bottom:0;">Funciona para equipes de atendimento, times de manutenção, operações administrativas, centrais de serviço, times de produção — qualquer lugar onde o volume de demandas similares cria gargalo invisível.</p>
         </div>
-        <a href="https://wa.me/5511939342091?text=Ol%C3%A1!%20Tenho%20interesse%20em%20conversar%20sobre%20industrializa%C3%A7%C3%A3o%20de%20demandas." target="_blank" class="btn-ghost consult-case-ref-btn">Quero conversar sobre isso</a>
+        <a href="https://wa.me/5511994604521?text=Ol%C3%A1!%20Tenho%20interesse%20em%20conversar%20sobre%20industrializa%C3%A7%C3%A3o%20de%20demandas." target="_blank" class="btn-ghost consult-case-ref-btn">Quero conversar sobre isso</a>
       </div>
     </div>
   </div>
@@ -187,7 +187,7 @@
   <div class="container cta-final-inner section-animate">
     <h2>Sua equipe está no limite mas a entrega não acompanha?</h2>
     <p class="cta-sub">Antes de contratar, vale entender se o problema é capacidade ou processo. Uma conversa de 30 minutos mostra a diferença.</p>
-    <a href="https://wa.me/5511939342091?text=Ol%C3%A1!%20Gostaria%20de%20agendar%20minha%20conversa%20estrat%C3%A9gica%20gratuita%20de%2030%20min%20com%20a%20Solu%C3%A7%C3%B5es%20%26%20TAO." target="_blank" class="btn-primary btn-large">Quero minha conversa de 30 min</a>
+    <a href="https://wa.me/5511994604521?text=Ol%C3%A1!%20Gostaria%20de%20agendar%20minha%20conversa%20estrat%C3%A9gica%20gratuita%20de%2030%20min%20com%20a%20Solu%C3%A7%C3%B5es%20%26%20TAO." target="_blank" class="btn-primary btn-large">Quero minha conversa de 30 min</a>
     <p class="cta-no-friction">Sem compromisso. Sem formulário longo.</p>
   </div>
 </section>
@@ -218,7 +218,7 @@
     <div class="footer-col">
       <h4>Contato</h4>
       <ul>
-        <li><a href="https://wa.me/5511939342091" target="_blank">+55 11 93934-2091</a></li>
+        <li><a href="https://wa.me/5511994604521" target="_blank">+55 11 99460-4521</a></li>
         <li><a href="mailto:contato@solucoesetao.com.br">contato@solucoesetao.com.br</a></li>
       </ul>
     </div>

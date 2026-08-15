@@ -203,7 +203,7 @@
         ? 'Portal &rarr;' : 'Entrar';
     ?>
     <a href="<?php echo esc_url($portal_url); ?>" class="btn-entrar"><?php echo $portal_txt; ?></a>
-    <a href="https://wa.me/5511939342091?text=Ol%C3%A1%2C%20tenho%20interesse%20no%20TAO%20CRM." target="_blank" class="btn-primary">Conversa gratuita</a>
+    <a href="https://wa.me/5511994604521?text=Ol%C3%A1%2C%20tenho%20interesse%20no%20TAO%20CRM." target="_blank" class="btn-primary">Conversa gratuita</a>
   </div>
   <div class="nav-toggle" id="navToggle" onclick="document.getElementById('navMenu').classList.toggle('open')">
     <span></span><span></span><span></span>
@@ -447,12 +447,12 @@
       <li><strong>Separabilidade:</strong> se qualquer cláusula destes Termos for considerada inválida ou inexequível, as demais permanecem em pleno vigor.</li>
       <li><strong>Não-renúncia:</strong> o não exercício de qualquer direito previsto nestes Termos não constitui renúncia a esse direito.</li>
       <li><strong>Cessão:</strong> o Contratante não pode ceder seus direitos e obrigações decorrentes destes Termos sem o consentimento prévio por escrito da Soluções &amp; TAO.</li>
-      <li><strong>Comunicações:</strong> todas as comunicações formais entre as partes serão feitas por e-mail (<a href="mailto:contato@solucoesetao.com.br">contato@solucoesetao.com.br</a>) ou via WhatsApp (<a href="https://wa.me/5511939342091" target="_blank">+55 11 93934-2091</a>).</li>
+      <li><strong>Comunicações:</strong> todas as comunicações formais entre as partes serão feitas por e-mail (<a href="mailto:contato@solucoesetao.com.br">contato@solucoesetao.com.br</a>) ou via WhatsApp (<a href="https://wa.me/5511994604521" target="_blank">+55 11 99460-4521</a>).</li>
     </ul>
 
     <div class="legal-highlight" style="margin-top:48px;">
       <p><strong>Data de vigência desta versão:</strong> 29 de maio de 2026<br>
-      Para dúvidas ou esclarecimentos: <a href="mailto:contato@solucoesetao.com.br">contato@solucoesetao.com.br</a> &nbsp;|&nbsp; <a href="https://wa.me/5511939342091" target="_blank">+55 11 93934-2091</a><br>
+      Para dúvidas ou esclarecimentos: <a href="mailto:contato@solucoesetao.com.br">contato@solucoesetao.com.br</a> &nbsp;|&nbsp; <a href="https://wa.me/5511994604521" target="_blank">+55 11 99460-4521</a><br>
       Ver também: <a href="/politica-de-privacidade/">Política de Privacidade</a></p>
     </div>
 
@@ -491,7 +491,7 @@
     <div class="footer-col">
       <h4>Contato</h4>
       <ul>
-        <li><a href="https://wa.me/5511939342091" target="_blank">+55 11 93934-2091</a></li>
+        <li><a href="https://wa.me/5511994604521" target="_blank">+55 11 99460-4521</a></li>
         <li><a href="mailto:contato@solucoesetao.com.br">contato@solucoesetao.com.br</a></li>
         <li><a href="/contato/">Fale Conosco</a></li>
       </ul>
