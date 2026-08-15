@@ -5,20 +5,20 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TAO Neo — A suíte que opera sua empresa inteira · Soluções &amp; TAO</title>
-<meta name="description" content="TAO Neo é o ecossistema da Soluções &amp; TAO: atendimento com IA, orçamentos, produção, estoque, caixa, fiscal (NFC-e) e SNGPC homologados — tudo conectado ao CRM, num fluxo só.">
+<meta name="description" content="TAO Neo: plataforma universal de atendimento, CRM, campanhas, caixa, pós-vendas, estoque e cotações — e a camada específica para farmácias de manipulação, com Fórmulas e SNGPC homologados.">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="https://solucoesetao.com.br/tao-neo/">
 <link rel="icon" type="image/x-icon" href="https://solucoesetao.com.br/favicon.ico">
 <link rel="shortcut icon" type="image/x-icon" href="https://solucoesetao.com.br/favicon.ico">
 <meta property="og:title" content="TAO Neo — A suíte que opera sua empresa inteira">
-<meta property="og:description" content="Atendimento, orçamento, produção, estoque, caixa, fiscal e entrega num ecossistema só, com o CRM no centro. Fiscal e SNGPC homologados.">
+<meta property="og:description" content="Plataforma universal com o CRM no coração — e a camada de manipulação com Fórmulas e SNGPC homologados.">
 <meta property="og:url" content="https://solucoesetao.com.br/tao-neo/">
 <meta property="og:type" content="website">
 <meta property="og:image" content="https://solucoesetao.com.br/wp-content/themes/solucoesetao/assets/og-image.png">
 <meta property="og:locale" content="pt_BR">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="TAO Neo — A suíte que opera sua empresa inteira">
-<meta name="twitter:description" content="Do WhatsApp ao SNGPC: um ecossistema conectado pelo CRM. Migração em espelho, sem salto no escuro.">
+<meta name="twitter:description" content="Do WhatsApp à nota fiscal: um ecossistema conectado pelo CRM. Migração em espelho, sem salto no escuro.">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -34,11 +34,16 @@
       "name": "TAO Neo",
       "applicationCategory": "BusinessApplication",
       "operatingSystem": "Web",
-      "description": "Suíte de operação completa: CRM conversacional, orçamentos de manipulação, produção, estoque com NF e laudos, caixa/PDV, fiscal NFC-e e SNGPC homologados, entregas e análise."
+      "description": "Suíte de operação completa: agente de IA, CRM conversacional, campanhas, caixa/PDV com NFC-e, pós-vendas, estoque e cotações — e módulos específicos para farmácia de manipulação (Fórmulas e SNGPC homologados)."
     },
     {
       "@type": "FAQPage",
       "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "O TAO Neo é só para farmácia de manipulação?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Não. A plataforma — agente de IA, CRM, campanhas, caixa, pós-vendas, estoque e cotações — atende qualquer operação de venda e atendimento. Os módulos de Fórmulas Farmacêuticas e SNGPC são a camada específica para farmácias de manipulação." }
+        },
         {
           "@type": "Question",
           "name": "O TAO Neo substitui o meu sistema atual?",
@@ -48,11 +53,6 @@
           "@type": "Question",
           "name": "A parte fiscal e o SNGPC estão prontos?",
           "acceptedAnswer": { "@type": "Answer", "text": "Sim. A emissão de NFC-e e a escrituração/transmissão do SNGPC estão homologadas — validadas contra a operação real, em modo sombra, movimento a movimento." }
-        },
-        {
-          "@type": "Question",
-          "name": "Preciso adotar tudo de uma vez?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Não. O ecossistema é modular: dá para começar pelo atendimento e CRM e ligar as demais frentes — orçamentos, produção, caixa, fiscal — no ritmo da sua operação." }
         },
         {
           "@type": "Question",
@@ -105,7 +105,7 @@
 .tn-msg{max-width:84%;padding:8px 12px;border-radius:10px;line-height:1.45}
 .tn-msg.tn-in{background:#EEF1F4;border-top-left-radius:2px}
 .tn-msg.tn-out{background:#DCEAE0;align-self:flex-end;border-top-right-radius:2px}
-.tn-msg .tn-quem{font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#6B7280;display:block;margin-bottom:2px;letter-spacing:.06em}
+.tn-msg .tn-quemq{font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#6B7280;display:block;margin-bottom:2px;letter-spacing:.06em}
 .tn-orc{border-top:1px solid #E2E0DC;padding:12px 16px}
 .tn-orc .tn-linha{display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:11.5px;padding:3px 0;color:#374151}
 .tn-orc .tn-linha.tn-total{border-top:1px dashed #E2E0DC;margin-top:6px;padding-top:8px;font-weight:700;color:#1A1A1A}
@@ -124,6 +124,8 @@
 .tn-caixa h3{font-size:15.5px;margin:8px 0 4px;font-family:'Inter',sans-serif;font-weight:700}
 .tn-caixa p{font-size:12.8px;color:#6B7280;line-height:1.5}
 .tn-caixa .tn-ver{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.1em;color:#8F6E4F;display:block;margin-top:10px}
+.tn-caixa.tn-manip{background:#F7F4FC;border-color:#DDD6FE}
+.tn-caixa.tn-manip:hover{border-color:#6D28D9}
 .tn-caixa.tn-core{background:#152C42;color:#fff;border-color:#152C42;box-shadow:0 16px 40px rgba(14,34,51,.35);text-align:center;padding:26px 20px}
 .tn-caixa.tn-core h3{font-family:'Playfair Display',Georgia,serif;font-size:21px;color:#fff}
 .tn-caixa.tn-core p{color:#C7D2DC}
@@ -131,6 +133,18 @@
 .tn-selo-mini{position:absolute;top:12px;right:12px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.06em;background:#E7F4EC;color:#1E7F4F;border:1px solid #BBDCC8;border-radius:10px;padding:2px 8px}
 .tn-selo-mini.tn-roxo{background:#EDE9FE;color:#6D28D9;border-color:#DDD6FE}
 .tn p.tn-eco-legenda{text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;color:#6B7280;margin-top:22px;letter-spacing:.05em}
+.tn-legenda2{display:flex;gap:26px;justify-content:center;flex-wrap:wrap;margin-top:16px;font-size:13px;color:#4B5563}
+.tn-legenda2 span{display:inline-flex;align-items:center;gap:8px}
+.tn-sw{display:inline-block;width:14px;height:14px;border-radius:4px;border:1px solid #E2E0DC;background:#fff}
+.tn-sw.tn-sw-man{background:#F7F4FC;border-color:#C4B5FD}
+
+/* bandas divisórias */
+.tn section.tn-band{padding:40px 0}
+.tn-band-inner{border-left:4px solid #B38E6C;padding-left:20px}
+.tn-band.tn-band-manip .tn-band-inner{border-left-color:#7C3AED}
+.tn-band h2{font-size:clamp(22px,2.8vw,30px);margin:8px 0 6px}
+.tn-band p{color:#6B7280;font-size:15px;max-width:70ch}
+.tn-band .tn-eyebrow-roxo{color:#7C3AED}
 
 /* fluxo */
 .tn ul.tn-fita{display:flex;align-items:center;flex-wrap:wrap;justify-content:center;margin-top:8px;list-style:none;gap:0}
@@ -176,18 +190,30 @@
 .tn-seg h3{font-size:15.5px;margin:10px 0 6px;font-family:'Inter',sans-serif}
 .tn-seg p{font-size:13.5px;color:#6B7280}
 
+/* para quem é */
+.tn-quem{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+.tn-quem-card{background:#fff;border:1px solid #E2E0DC;border-radius:14px;padding:28px}
+.tn-quem-card.tn-manipq{background:#F7F4FC;border-color:#DDD6FE}
+.tn-quem-card .tn-ic{font-size:24px}
+.tn-quem-card h3{font-family:'Playfair Display',Georgia,serif;font-size:21px;margin:10px 0 8px}
+.tn-quem-card p{font-size:14.5px;color:#4B5563;margin-bottom:16px}
+.tn-quem-card ul{list-style:none;display:flex;flex-direction:column;gap:8px;margin-bottom:20px}
+.tn-quem-card li{font-size:13.5px;color:#374151;padding-left:20px;position:relative}
+.tn-quem-card li::before{content:"✓";position:absolute;left:0;color:#1E7F4F;font-weight:700}
+.tn-quem-card.tn-manipq li::before{color:#6D28D9}
+
 .tn-fim{text-align:center;padding:84px 0}
 .tn-fim h2{font-size:clamp(25px,3.2vw,36px);margin:12px 0 16px}
 .tn-fim p{color:#6B7280;max-width:56ch;margin:0 auto 28px}
 
 @media (max-width:860px){
-  .tn-hero .tn-wrap,.tn-det{grid-template-columns:1fr}
+  .tn-hero .tn-wrap,.tn-det,.tn-quem{grid-template-columns:1fr}
   .tn-det.tn-inv > .tn-tela{order:0}
   .tn-eco-grid{grid-template-columns:1fr 1fr}
   .tn-eco svg.tn-fios{display:none}
   .tn section{padding:54px 0}
   .tn-seta{display:none}
-  .tn-fita{gap:8px}
+  .tn ul.tn-fita{gap:8px}
 }
 @media (prefers-reduced-motion:reduce){.tn-caixa{transition:none}}
 </style>
@@ -255,7 +281,7 @@
     <div>
       <span class="tn-eyebrow">TAO Neo · o ecossistema</span>
       <h1>Um ambiente onde a sua operação <em>flui inteira</em> — e você está no controle.</h1>
-      <p class="tn-sub">Atendimento, orçamento, produção, estoque, caixa, fiscal e entrega trabalhando como um organismo só, com o CRM no centro. Nada se redigita, nada se perde — e cada passo fica registrado.</p>
+      <p class="tn-sub">Uma plataforma universal de atendimento, vendas e operação — e, para farmácias de manipulação, a camada completa de Fórmulas e SNGPC. Nada se redigita, nada se perde, cada passo fica registrado.</p>
       <div class="tn-ctas">
         <a class="tn-btn tn-btn-bronze" href="#ecossistema">Conhecer o ecossistema</a>
         <a class="tn-btn tn-btn-ghost2" href="#seguranca">Por que é seguro migrar</a>
@@ -270,8 +296,8 @@
     <div class="tn-cardzao" aria-label="Exemplo de card do TAO Neo">
       <div class="tn-topo"><strong>Maria P. · (11) 9····-5398</strong><span class="tn-estagio">Orçamento enviado</span></div>
       <div class="tn-zap">
-        <div class="tn-msg tn-in"><span class="tn-quem">CLIENTE · 09:41</span>Bom dia! Tenho uma receita nova, consigo orçamento hoje?</div>
-        <div class="tn-msg tn-out"><span class="tn-quem">ATENDENTE · 09:43</span>Bom dia, Maria! Recebi a foto da receita — já preparei seu orçamento, segue 👇</div>
+        <div class="tn-msg tn-in"><span class="tn-quemq">CLIENTE · 09:41</span>Bom dia! Consigo um orçamento hoje?</div>
+        <div class="tn-msg tn-out"><span class="tn-quemq">ATENDENTE · 09:43</span>Bom dia, Maria! Já preparei o seu orçamento, segue 👇</div>
       </div>
       <div class="tn-orc">
         <div class="tn-linha"><span>MAGNÉSIO TREONATO 400mg · 60 cáps</span><span>R$ 109,00</span></div>
@@ -279,7 +305,7 @@
         <div class="tn-linha tn-total"><span>Total</span><span>R$ 203,20</span></div>
       </div>
       <div class="tn-trilha">
-        <span class="tn-tag tn-on">✓ receita lida por IA</span><span class="tn-tag tn-on">✓ orçamento no card</span>
+        <span class="tn-tag tn-on">✓ pedido no card</span><span class="tn-tag tn-on">✓ orçamento enviado</span>
         <span class="tn-tag">produção</span><span class="tn-tag">fiscal</span><span class="tn-tag">caixa</span><span class="tn-tag">entrega</span>
       </div>
     </div>
@@ -292,7 +318,7 @@
     <div class="tn-sec-head" style="text-align:center;margin-inline:auto">
       <span class="tn-eyebrow">O ecossistema</span>
       <h2>Oito frentes, uma suíte.</h2>
-      <p class="tn-lead" style="margin-inline:auto">Cada caixa é um módulo completo — e todas se ligam pela suíte TAO Neo, no centro. Clique em qualquer uma para ver como funciona por dentro.</p>
+      <p class="tn-lead" style="margin-inline:auto">Cada caixa é um módulo completo — e todas se ligam pela suíte TAO Neo, no centro. As claras atendem qualquer segmento; as lilás são o mergulho específico da manipulação.</p>
     </div>
 
     <div class="tn-eco">
@@ -306,7 +332,7 @@
         <a class="tn-caixa" href="/tao-crm/"><span class="tn-ic">🫀</span><h3>CRM</h3><p>O coração operacional: card, conversa, funil e histórico — onde tudo se encontra.</p><span class="tn-ver">VER POR DENTRO →</span></a>
         <a class="tn-caixa" href="#atendimento"><span class="tn-ic">📣</span><h3>Campanhas</h3><p>Disparos segmentados no WhatsApp — e cada resposta vira card no funil, pronta pro atendimento.</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
 
-        <a class="tn-caixa" href="#formulas"><span class="tn-selo-mini tn-roxo">MANIPULAÇÃO</span><span class="tn-ic">🧪</span><h3>Fórmulas Farmacêuticas</h3><p>Orçamento calculado no card, produção com ficha de pesagem — aderente à legislação vigente (RDC 67, SNGPC homologado).</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
+        <a class="tn-caixa tn-manip" href="#formulas"><span class="tn-selo-mini tn-roxo">MANIPULAÇÃO</span><span class="tn-ic">🧪</span><h3>Fórmulas Farmacêuticas</h3><p>Orçamento calculado no card, produção com ficha de pesagem — aderente à legislação vigente (RDC 67, SNGPC homologado).</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
         <div class="tn-caixa tn-core" role="presentation">
           <div class="tn-pulso"></div>
           <h3>TAO Neo</h3>
@@ -315,17 +341,31 @@
         <a class="tn-caixa" href="#operacao"><span class="tn-selo-mini">✓ NFC-E</span><span class="tn-ic">💰</span><h3>Caixa</h3><p>PDV com split, taxas reais das operadoras, recebíveis dia a dia — e a NFC-e homologada saindo da própria venda.</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
 
         <a class="tn-caixa" href="#operacao"><span class="tn-ic">🛵</span><h3>Pós Vendas</h3><p>Entrega até a porta do cliente, travas de endereço e pagamento, e o NPS fechando o ciclo.</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
-        <a class="tn-caixa" href="#operacao"><span class="tn-ic">📦</span><h3>Estoque</h3><p>Nota do fornecedor entra por XML; laudo acompanha o lote; kardex de cada item.</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
+        <a class="tn-caixa" href="#operacao"><span class="tn-ic">📦</span><h3>Estoque</h3><p>Nota do fornecedor entra por XML; documentos do lote junto; kardex de cada item.</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
         <a class="tn-caixa" href="#operacao"><span class="tn-ic">🤝</span><h3>Cotações</h3><p>Compra com cotação a fornecedores, comparativo lado a lado e último preço pago.</p><span class="tn-ver">VER POR DENTRO ↓</span></a>
       </div>
       <p class="tn-eco-legenda">— todas as caixas se ligam: cadastro único de cliente, card único, fluxo único · o CRM é o coração; a suíte é o organismo —</p>
-      <p style="text-align:center;font-size:13px;color:#6B7280;margin-top:14px;max-width:74ch;margin-inline:auto">A suíte nasceu na <strong>farmácia de manipulação</strong> — por isso os módulos de Fórmulas Farmacêuticas e SNGPC, específicos desse universo. Todas as demais frentes atendem <strong>qualquer operação</strong> de venda e atendimento: comércio, serviços, clínicas.</p>
+      <div class="tn-legenda2">
+        <span><i class="tn-sw"></i> Plataforma universal — qualquer operação de venda e atendimento</span>
+        <span><i class="tn-sw tn-sw-man"></i> Específico para farmácia de manipulação</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ PARTE 1 · QUALQUER SEGMENTO ═════════════ -->
+<section class="tn-band tn-alt">
+  <div class="tn-wrap">
+    <div class="tn-band-inner">
+      <span class="tn-eyebrow">Parte 1 · A plataforma universal</span>
+      <h2>Para qualquer segmento.</h2>
+      <p>Comércio, serviços, clínicas, indústria leve — se o seu negócio atende, vende e entrega, esta parte é pra você.</p>
     </div>
   </div>
 </section>
 
 <!-- ===== FLUXO ===== -->
-<section class="tn-alt" id="atendimento">
+<section id="atendimento">
   <div class="tn-wrap">
     <div class="tn-sec-head" style="text-align:center;margin-inline:auto">
       <span class="tn-eyebrow">A ligação entre as frentes</span>
@@ -333,18 +373,18 @@
     </div>
     <ul class="tn-fita">
       <li class="tn-passo">Mensagem<small>vira card</small></li><li class="tn-seta" aria-hidden="true">→</li>
-      <li class="tn-passo">Receita<small>vira orçamento</small></li><li class="tn-seta" aria-hidden="true">→</li>
+      <li class="tn-passo">Pedido<small>vira orçamento</small></li><li class="tn-seta" aria-hidden="true">→</li>
       <li class="tn-passo">Aprovação<small>vira ordem de produção</small></li><li class="tn-seta" aria-hidden="true">→</li>
-      <li class="tn-passo">Venda<small>vira NFC-e + SNGPC</small></li><li class="tn-seta" aria-hidden="true">→</li>
+      <li class="tn-passo">Venda<small>vira nota fiscal</small></li><li class="tn-seta" aria-hidden="true">→</li>
       <li class="tn-passo">Pagamento<small>vira recebível no caixa</small></li><li class="tn-seta" aria-hidden="true">→</li>
       <li class="tn-passo">Entrega<small>vira NPS e recompra</small></li>
     </ul>
-    <p class="tn-fita-obs">Em cada passagem, o sistema carrega os dados adiante e <strong>trava o que não pode seguir</strong> — pedido sem endereço não sai, controlado sem receita não fecha, orçamento sem revisão não aprova. É a segurança embutida no fluxo, não uma conferência no fim.</p>
+    <p class="tn-fita-obs">Em cada passagem, o sistema carrega os dados adiante e <strong>trava o que não pode seguir</strong> — pedido sem endereço não sai, pagamento pendente não conclui, orçamento sem revisão não aprova. É a segurança embutida no fluxo, não uma conferência no fim.</p>
   </div>
 </section>
 
 <!-- ===== DASHBOARD ===== -->
-<section id="dashboard">
+<section class="tn-alt" id="dashboard">
   <div class="tn-wrap tn-det">
     <div>
       <span class="tn-eyebrow">Painel do dia</span>
@@ -373,8 +413,80 @@
   </div>
 </section>
 
+<!-- ===== OPERAÇÃO ===== -->
+<section id="operacao">
+  <div class="tn-wrap tn-det">
+    <div>
+      <span class="tn-eyebrow">Menu Operação</span>
+      <h2>A rotina da casa, organizada em um só lugar.</h2>
+      <p class="tn-lead">Produção, estoque, caixa e entregas são o menu Operação — a bancada digital de quem toca o dia a dia. Cada tela mostra a fila do jeito que a equipe trabalha.</p>
+      <ul>
+        <li><strong>Produção:</strong> a fila de ordens com os itens e quantidades já calculados, lote e validade. Concluiu, o estoque baixa sozinho.</li>
+        <li><strong>Estoque:</strong> entrada de mercadoria pelo XML da NF do fornecedor, com lote e documentos do fabricante vinculados desde a chegada. Kardex de cada item.</li>
+        <li><strong>Caixa:</strong> sessão com abertura e fechamento, aportes e sangrias auditados, recebimento com split de formas e cupom que cobre várias vendas. Estorno só com motivo — nada se apaga.</li>
+        <li><strong>Recebíveis:</strong> o contrato real de cada operadora (taxa por modalidade, bandeira e parcela) e a agenda do que vai cair, dia a dia, com conciliação.</li>
+        <li><strong>Entregas:</strong> etapas do pedido até a porta do cliente, com travas de endereço e pagamento — e o NPS fechando o ciclo.</li>
+        <li><strong>Cotações:</strong> compra com cotação a fornecedores, comparativo e último preço pago — no mesmo ambiente.</li>
+      </ul>
+      <div class="tn-tranquilo">🕊️ As travas cuidam da equipe: o sistema segura o passo errado na hora, em vez de cobrar a correção depois.</div>
+    </div>
+    <div class="tn-tela" aria-label="Ilustração da fila de operação">
+      <div class="tn-barra">Operação · o dia correndo</div>
+      <div class="tn-pilha">
+        <div class="tn-item"><span>Pedido 4789 · produção · 60un</span><span class="tn-chip">itens conferidos</span></div>
+        <div class="tn-item"><span>Pedido 4791 · produção · 30ml</span><span class="tn-chip tn-espera">em produção</span></div>
+        <div class="tn-item"><span>NF 12.408 · fornecedor Insumos SP</span><span class="tn-chip">docs do lote ok</span></div>
+        <div class="tn-item"><span>Caixa · sessão aberta 08:02</span><span class="tn-chip">R$ 6.925 líquido</span></div>
+        <div class="tn-item"><span>Entrega · Maria P. · motoboy</span><span class="tn-chip tn-espera">saiu p/ entrega</span></div>
+        <div class="tn-item"><span>A cair amanhã · operadora</span><span class="tn-chip">R$ 2.310</span></div>
+      </div>
+      <div class="tn-rodape">cada linha abre no card do pedido — contexto completo a um clique</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ANÁLISE ===== -->
+<section class="tn-alt" id="analise">
+  <div class="tn-wrap tn-det">
+    <div>
+      <span class="tn-eyebrow">Menu Análise</span>
+      <h2>Perguntas do dono, respondidas em dois cliques.</h2>
+      <p class="tn-lead">Dois modos, um princípio: o dinheiro vem do caixa — o que você vê é o que aconteceu de verdade, não uma estimativa.</p>
+      <ul>
+        <li><strong>Modo simples:</strong> as perguntas prontas do dia a dia — quanto vendi, quanto recebi, por atendente, por forma de pagamento, por período. Sem configurar nada.</li>
+        <li><strong>Modo avançado:</strong> um cubo dinâmico em português, de arrastar e soltar — cruze produto × atendente × mês, taxas por operadora, o que a pergunta pedir.</li>
+        <li><strong>Financeiro e operação juntos:</strong> faturado por fechamento, recebido bruto e líquido por recebimento, consumo por produção.</li>
+        <li><strong>Exportação a um clique:</strong> qualquer visão vira planilha — inclusive a lista do que está em aberto pra receber.</li>
+      </ul>
+      <div class="tn-tranquilo">🕊️ A mesma régua em todas as telas: painel, caixa e análise batem entre si — porque bebem da mesma fonte.</div>
+    </div>
+    <div class="tn-tela" aria-label="Ilustração do menu de análise">
+      <div class="tn-barra">Análise · modo simples</div>
+      <div class="tn-pilha">
+        <div class="tn-item"><span>Quanto vendi este mês?</span><span class="tn-chip">R$ 96.400</span></div>
+        <div class="tn-item"><span>Quanto recebi, líquido de taxas?</span><span class="tn-chip">R$ 81.720</span></div>
+        <div class="tn-item"><span>Quem mais converteu no mês?</span><span class="tn-chip">Paula · 47%</span></div>
+        <div class="tn-item"><span>Qual forma de pagamento cresce?</span><span class="tn-chip">Pix · +18%</span></div>
+        <div class="tn-item"><span>O que está em aberto pra receber?</span><span class="tn-chip tn-espera">exportar planilha</span></div>
+      </div>
+      <div class="tn-rodape">modo avançado: cubo dinâmico de arrastar e soltar, em português</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ PARTE 2 · MANIPULAÇÃO ═════════════ -->
+<section class="tn-band tn-band-manip">
+  <div class="tn-wrap">
+    <div class="tn-band-inner">
+      <span class="tn-eyebrow tn-eyebrow-roxo">Parte 2 · A camada de manipulação</span>
+      <h2>Para farmácia de manipulação.</h2>
+      <p>Aqui a suíte mergulha no universo magistral: o conhecimento da bancada, a legislação e a homologação fiscal — o berço onde o TAO Neo nasceu e opera todos os dias.</p>
+    </div>
+  </div>
+</section>
+
 <!-- ===== FÓRMULAS ===== -->
-<section class="tn-alt" id="formulas">
+<section id="formulas">
   <div class="tn-wrap tn-det tn-inv">
     <div class="tn-tela" aria-label="Ilustração do orçamento de fórmula">
       <div class="tn-barra">Fórmula · Orçamento no card</div>
@@ -390,49 +502,18 @@
       <div class="tn-rodape">cápsula ideal sugerida · excipiente automático · validações antes de aprovar</div>
     </div>
     <div>
-      <span class="tn-eyebrow">Fórmulas &amp; Orçamentos</span>
+      <span class="tn-eyebrow tn-eyebrow-roxo" style="color:#7C3AED">Fórmulas &amp; Orçamentos</span>
       <h2>O conhecimento da bancada, embutido no orçamento.</h2>
       <p class="tn-lead">O atendente não faz conta: o motor de cálculo faz o trabalho técnico enquanto a conversa acontece — e o farmacêutico revisa e aprova com tudo na tela.</p>
       <ul>
         <li><strong>Receita por foto:</strong> a IA lê a prescrição e monta a fórmula — o atendente só confere.</li>
         <li><strong>Cálculo farmacêutico completo:</strong> doses, veículo (qsp), diluições 1:N, equivalências de sais, unidades UI/UFC, cápsula ideal e excipiente — as regras da manipulação, aplicadas sozinhas.</li>
         <li><strong>Cadastro técnico vivo:</strong> ativos com sinônimos, fatores de equivalência, densidades e restrições — o sistema avisa quando algo falta.</li>
-        <li><strong>Aprovação consciente:</strong> o farmacêutico abre o orçamento, revisa item a item e aprova — só então vira ordem de produção.</li>
+        <li><strong>Aprovação consciente:</strong> o farmacêutico abre o orçamento, revisa item a item e aprova — só então vira Ordem de Manipulação, com ficha de pesagem, rótulo e livro de registro.</li>
+        <li><strong>Laudos por lote:</strong> a NF do fornecedor entra com o laudo do fabricante amarrado ao lote — a rastreabilidade da RDC 67 no caminho natural.</li>
         <li><strong>Histórico do cliente:</strong> repetir uma fórmula antiga é um clique; a recompra no fim do tratamento é automática.</li>
-        <li><strong>Compras conectadas:</strong> cotações com fornecedores, comparativo e último preço pago, no mesmo ambiente.</li>
       </ul>
       <div class="tn-tranquilo">🕊️ O gate da RDC 67 acompanha o fluxo: ativo sem cadastro completo não avança — e ninguém precisa lembrar disso.</div>
-    </div>
-  </div>
-</section>
-
-<!-- ===== OPERAÇÃO ===== -->
-<section id="operacao">
-  <div class="tn-wrap tn-det">
-    <div>
-      <span class="tn-eyebrow">Menu Operação</span>
-      <h2>A rotina da casa, organizada em um só lugar.</h2>
-      <p class="tn-lead">Produção, estoque, caixa e entregas são o menu Operação — a bancada digital de quem toca o dia a dia. Cada tela mostra a fila do jeito que a equipe trabalha.</p>
-      <ul>
-        <li><strong>Produção:</strong> a fila de ordens de manipulação com ficha de pesagem calculada, lote, validade, rótulo e livro de registro. Concluiu, o estoque baixa sozinho.</li>
-        <li><strong>Estoque:</strong> entrada de mercadoria pelo XML da NF do fornecedor, com lote e laudo do fabricante vinculados desde a chegada. Kardex de cada item.</li>
-        <li><strong>Caixa:</strong> sessão com abertura e fechamento, aportes e sangrias auditados, recebimento com split de formas e cupom que cobre várias vendas. Estorno só com motivo — nada se apaga.</li>
-        <li><strong>Recebíveis:</strong> o contrato real de cada operadora (taxa por modalidade, bandeira e parcela) e a agenda do que vai cair, dia a dia, com conciliação.</li>
-        <li><strong>Entregas:</strong> etapas do pedido até a porta do cliente, com travas de endereço e pagamento — e o NPS fechando o ciclo.</li>
-      </ul>
-      <div class="tn-tranquilo">🕊️ As travas cuidam da equipe: o sistema segura o passo errado na hora, em vez de cobrar a correção depois.</div>
-    </div>
-    <div class="tn-tela" aria-label="Ilustração da fila de operação">
-      <div class="tn-barra">Operação · o dia correndo</div>
-      <div class="tn-pilha">
-        <div class="tn-item"><span>OM 047789 · cápsulas · 60un</span><span class="tn-chip">pesagem ok</span></div>
-        <div class="tn-item"><span>OM 047791 · solução oral · 30ml</span><span class="tn-chip tn-espera">em produção</span></div>
-        <div class="tn-item"><span>NF 12.408 · fornecedor Insumos SP</span><span class="tn-chip">laudo vinculado</span></div>
-        <div class="tn-item"><span>Caixa · sessão aberta 08:02</span><span class="tn-chip">R$ 6.925 líquido</span></div>
-        <div class="tn-item"><span>Entrega · Maria P. · motoboy</span><span class="tn-chip tn-espera">saiu p/ entrega</span></div>
-        <div class="tn-item"><span>A cair amanhã · operadora</span><span class="tn-chip">R$ 2.310</span></div>
-      </div>
-      <div class="tn-rodape">cada linha abre no card do pedido — contexto completo a um clique</div>
     </div>
   </div>
 </section>
@@ -454,7 +535,7 @@
       <div class="tn-rodape">relatório gerado todos os dias durante a implantação — você acompanha cada linha</div>
     </div>
     <div>
-      <span class="tn-eyebrow">Fiscal &amp; SNGPC · homologados</span>
+      <span class="tn-eyebrow" style="color:#7C3AED">Fiscal &amp; SNGPC · homologados</span>
       <h2>A parte que não pode falhar — provada antes de assumir.</h2>
       <p class="tn-lead">Emissão de NFC-e e escrituração do SNGPC integradas à venda — e homologadas do jeito mais exigente que existe: rodando em paralelo com a operação real.</p>
       <ul>
@@ -467,37 +548,8 @@
   </div>
 </section>
 
-<!-- ===== ANÁLISE ===== -->
-<section id="analise">
-  <div class="tn-wrap tn-det">
-    <div>
-      <span class="tn-eyebrow">Menu Análise</span>
-      <h2>Perguntas do dono, respondidas em dois cliques.</h2>
-      <p class="tn-lead">Dois modos, um princípio: o dinheiro vem do caixa — o que você vê é o que aconteceu de verdade, não uma estimativa.</p>
-      <ul>
-        <li><strong>Modo simples:</strong> as perguntas prontas do dia a dia — quanto vendi, quanto recebi, por atendente, por forma de pagamento, por período. Sem configurar nada.</li>
-        <li><strong>Modo avançado:</strong> um cubo dinâmico em português, de arrastar e soltar — cruze produto × atendente × mês, taxas por operadora, o que a pergunta pedir.</li>
-        <li><strong>Financeiro e operação juntos:</strong> faturado por fechamento, recebido bruto e líquido por recebimento, consumo de insumos por produção.</li>
-        <li><strong>Exportação a um clique:</strong> qualquer visão vira planilha — inclusive a lista do que está em aberto pra receber.</li>
-      </ul>
-      <div class="tn-tranquilo">🕊️ A mesma régua em todas as telas: painel, caixa e análise batem entre si — porque bebem da mesma fonte.</div>
-    </div>
-    <div class="tn-tela" aria-label="Ilustração do menu de análise">
-      <div class="tn-barra">Análise · modo simples</div>
-      <div class="tn-pilha">
-        <div class="tn-item"><span>Quanto vendi este mês?</span><span class="tn-chip">R$ 96.400</span></div>
-        <div class="tn-item"><span>Quanto recebi, líquido de taxas?</span><span class="tn-chip">R$ 81.720</span></div>
-        <div class="tn-item"><span>Quem mais converteu no mês?</span><span class="tn-chip">Paula · 47%</span></div>
-        <div class="tn-item"><span>Qual forma de pagamento cresce?</span><span class="tn-chip">Pix · +18%</span></div>
-        <div class="tn-item"><span>O que está em aberto pra receber?</span><span class="tn-chip tn-espera">exportar planilha</span></div>
-      </div>
-      <div class="tn-rodape">modo avançado: cubo dinâmico de arrastar e soltar, em português</div>
-    </div>
-  </div>
-</section>
-
 <!-- ===== SEGURANÇA ===== -->
-<section class="tn-alt" id="seguranca">
+<section id="seguranca">
   <div class="tn-wrap">
     <div class="tn-sec-head">
       <span class="tn-eyebrow">Pra você ficar tranquilo</span>
@@ -508,6 +560,42 @@
       <div class="tn-seg"><span class="tn-ic">📜</span><h3>Nada se apaga</h3><p>Estorno com motivo e autor, movimentos de caixa auditados, histórico de conversa permanente. O sistema lembra — para proteger quem opera.</p></div>
       <div class="tn-seg"><span class="tn-ic">🔐</span><h3>Cada um no seu quadrado</h3><p>Perfis de acesso por tela, alçadas de desconto por pessoa, card em atendimento travado para um atendente por vez.</p></div>
       <div class="tn-seg"><span class="tn-ic">🤝</span><h3>Gente por perto</h3><p>Implantação acompanhada de quem conhece o seu processo — a suíte se adapta ao seu jeito de operar, não o contrário.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== PARA QUEM É ===== -->
+<section class="tn-alt" id="quem">
+  <div class="tn-wrap">
+    <div class="tn-sec-head" style="text-align:center;margin-inline:auto">
+      <span class="tn-eyebrow">Onde você se encaixa</span>
+      <h2>Dois caminhos, o mesmo coração.</h2>
+    </div>
+    <div class="tn-quem">
+      <div class="tn-quem-card tn-manipq">
+        <span class="tn-ic">💊</span>
+        <h3>Sou farmácia de manipulação</h3>
+        <p>A suíte completa, do WhatsApp ao SNGPC — nascida e validada dentro de uma farmácia real.</p>
+        <ul>
+          <li>Orçamento de fórmula calculado no card</li>
+          <li>Produção com ficha de pesagem e laudos por lote</li>
+          <li>Fiscal NFC-e e SNGPC homologados</li>
+          <li>Migração em espelho, com confronto diário</li>
+        </ul>
+        <a class="tn-btn tn-btn-bronze" href="https://wa.me/5511939342091?text=Ol%C3%A1!%20Tenho%20uma%20farm%C3%A1cia%20de%20manipula%C3%A7%C3%A3o%20e%20quero%20conhecer%20o%20TAO%20Neo." target="_blank" rel="noopener">Quero ver na minha farmácia</a>
+      </div>
+      <div class="tn-quem-card">
+        <span class="tn-ic">🏪</span>
+        <h3>Tenho outro negócio</h3>
+        <p>A plataforma universal — atendimento, vendas, caixa e entrega — desenhada sobre o seu processo.</p>
+        <ul>
+          <li>Agente de IA + CRM com WhatsApp no card</li>
+          <li>Campanhas que viram cards no funil</li>
+          <li>Caixa com NFC-e, recebíveis e conciliação</li>
+          <li>Pós-vendas com entrega e NPS</li>
+        </ul>
+        <a class="tn-btn tn-btn-bronze" href="https://wa.me/5511939342091?text=Ol%C3%A1!%20Quero%20conhecer%20o%20TAO%20Neo%20para%20o%20meu%20neg%C3%B3cio." target="_blank" rel="noopener">Quero ver no meu negócio</a>
+      </div>
     </div>
   </div>
 </section>
