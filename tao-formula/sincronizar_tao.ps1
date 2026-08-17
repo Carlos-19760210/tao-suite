@@ -35,7 +35,7 @@ $unidade_map_mp = @{
     'MCG'  = 'mcg'; 'UG'   = 'mcg'; 'NG'   = 'mcg'
     'UI'   = 'UI';  'IU'   = 'UI';  'U'    = 'UI'
     'UFC'  = 'UFC'; 'BLH'  = 'BLH'
-    'ML'   = 'g';   'UN'   = 'mg';  'CAP'  = 'mg';  'CAPS' = 'mg'
+    'ML'   = 'g';   'UN'   = 'un';  'CAP'  = 'un';  'CAPS' = 'un'
 }
 $unidade_map_emb = @{
     'UN'   = 'un';  'CAP'  = 'un';  'CAPS' = 'un';  'PC'   = 'un'

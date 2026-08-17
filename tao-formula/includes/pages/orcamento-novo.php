@@ -655,7 +655,7 @@ function tao_formula_page_orcamento_novo() {
                        value="0" min="0" step="any">
             </td>
             <td class="col-unid">
-                <select class="taof-orc-dose-unit taof-inp" style="padding:6px 4px">
+                <select class="taof-orc-dose-unit taof-inp" style="padding:6px 4px;min-width:64px">
                     <option value="mg">mg</option>
                     <option value="mcg">mcg</option>
                     <option value="g">g</option>
@@ -664,6 +664,7 @@ function tao_formula_page_orcamento_novo() {
                     <option value="UFC">UFC</option>
                     <option value="BLH">BLH</option>
                     <option value="ml">ml</option>
+                    <option value="un">un</option>
                 </select>
             </td>
             <td class="col-fp">

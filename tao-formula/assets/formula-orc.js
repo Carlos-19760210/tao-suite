@@ -173,6 +173,22 @@
             return;
         }
 
+        // ── un: produto vendido por UNIDADE (ex.: cápsulas prontas — CAPS OMEGA 3) ──
+        // qtde = un por dose × doses × potes; preço de venda é POR UNIDADE.
+        // Sem teor/diluição/equivalência/FP/densidade (produto pronto) e sem massa:
+        // não entra em pesagem nem consome volume de cápsula (separação, não balança).
+        if (doseUnit === 'un') {
+            var qtd_un = dose * mult;
+            var sub_un = qtd_un * vendaUnit;
+            $row.find('.taof-orc-qtd-total').text(fmt(qtd_un, 0) + ' un');
+            $row.find('.taof-orc-subtotal').text('R$ ' + fmt(sub_un));
+            $row.data({ subtotal: sub_un, 'qtd-total-g': 0,
+                'qtd-em-padrao': qtd_un, 'qtd-unit': 'un',
+                dose: dose, 'dose-unit': 'un', 'volapa-ul': 0 });
+            calcularTotais();
+            return;
+        }
+
         if (isSpecial) {
             // BLH: dose em bilhoes — converte para UFC antes de dividir pela concentracao (UFC/g)
             var dose_ufc       = (doseUnit === 'BLH') ? dose * 1e9 : dose;
@@ -1016,7 +1032,8 @@
             : '—';
         $row.find('.taof-orc-preco-venda').text(vendaLabel);
         var u = a.unidade_padrao;
-        if (['mg', 'mcg', 'g', 'UI', 'UFC', 'BLH', 'ml'].indexOf(u) === -1) u = 'mg';
+        if (u === 'UN') u = 'un';   // cadastro por unidade → dose em 'un'
+        if (['mg', 'mcg', 'g', 'UI', 'UFC', 'BLH', 'ml', 'un'].indexOf(u) === -1) u = 'mg';
         if (u === 'g') u = 'mg';
         if (u === 'UFC' || u === 'BLH') u = 'BLH';
         $row.find('.taof-orc-dose-unit').val(u);

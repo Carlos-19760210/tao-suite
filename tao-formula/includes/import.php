@@ -19,7 +19,7 @@ function taof_imp_unid_map( $grupo ) {
     return [
         'G'=>'g','GR'=>'g','KG'=>'g','L'=>'g','MG'=>'mg','MEQ'=>'mg',
         'MCG'=>'mcg','UG'=>'mcg','NG'=>'mcg','UI'=>'UI','IU'=>'UI','U'=>'UI',
-        'UFC'=>'UFC','BLH'=>'BLH','ML'=>'g','UN'=>'mg','CAP'=>'mg','CAPS'=>'mg',
+        'UFC'=>'UFC','BLH'=>'BLH','ML'=>'g','UN'=>'un','CAP'=>'un','CAPS'=>'un',
     ];
 }
 

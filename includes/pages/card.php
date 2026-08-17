@@ -2262,8 +2262,11 @@ function tao_crm_page_card() {
                     html += '</table>';
                     listDiv.innerHTML = html;
 
-                    // Soma total das fórmulas e atualiza campo Valor
+                    // Soma total das fórmulas e atualiza campo Valor.
+                    // Só orçamentos APROVADOS entram no subtotal do card (decisão Carlos 17/08):
+                    // pendente/rejeitado não é negócio fechado e não pode inflar o valor.
                     var formulasTotal = resp.data.reduce(function(s, o) {
+                        if (o.status !== 'aprovado_farma' && o.status !== 'aceito_paciente') return s;
                         return s + parseFloat(o.total_orcamento || 0);
                     }, 0);
                     window._crmFormulasTotal = formulasTotal;

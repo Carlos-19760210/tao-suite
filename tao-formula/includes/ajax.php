@@ -2469,9 +2469,9 @@ function tao_formula_parse_descricao_itens( $descr, $cliente_id ) {
             // salvo se o texto disse explicitamente outra unidade de massa (g/mcg/ml/%).
             // Corrige o caso "VIT D em mg" (dose sem unidade ou mg default → UI do cadastro).
             $upad_up = strtoupper( (string) $unid_padrao );
-            if ( $dose !== null && in_array( $upad_up, [ 'UI', 'UFC', 'BLH' ], true )
+            if ( $dose !== null && in_array( $upad_up, [ 'UI', 'UFC', 'BLH', 'UN' ], true )
                  && ( ! $unit_explicita || $dose_unit === 'mg' ) ) {
-                $dose_unit = $upad_up;
+                $dose_unit = $upad_up === 'UN' ? 'un' : $upad_up;   // UN = venda por unidade
             }
         }
 
@@ -2984,6 +2984,11 @@ add_action( 'wp_ajax_tao_formula_importar_orc_texto', function() {
                 $qtd_total_mg  = $qtd_total_g * 1000;
                 $qtd_em_padrao = $unid_pad === 'g' ? $qtd_total_g : $qtd_total_mg;
                 $subtotal      = round( $qtd_em_padrao * $preco, 4 );
+            } elseif ( $dose > 0 && $preco > 0 && $dose_unit === 'un' ) {
+                // Produto vendido por UNIDADE (ex.: cápsulas prontas): qtde = un/dose × doses × potes;
+                // preço é POR UNIDADE; sem massa — não entra em pesagem, QSP nem tamanho de sachê.
+                $qtd_total_g = 0.0;
+                $subtotal    = round( $dose * $mult * $preco, 4 );
             } elseif ( $dose > 0 && $preco > 0 ) {
                 switch ( $dose_unit ) {
                     case 'g':   $dose_mg = $dose * 1000; break;
@@ -3418,7 +3423,7 @@ add_action( 'wp_ajax_tao_formula_hist_repetir', function () {
     $potes    = max( 1, (int) ( $form['qt_potes'] ?? 1 ) );
     $mult     = $vol * $potes;
     $unit_map = [ 'MG' => 'mg', 'G' => 'g', 'MCG' => 'mcg', 'ML' => 'ml', '%' => '%',
-                  'UI' => 'UI', 'UFC' => 'UFC', 'BLH' => 'BLH' ];
+                  'UI' => 'UI', 'UFC' => 'UFC', 'BLH' => 'BLH', 'UN' => 'un' ];
 
     $itens           = [];
     $nao_encontrados = [];
@@ -3438,7 +3443,10 @@ add_action( 'wp_ajax_tao_formula_hist_repetir', function () {
         // Subtotal preliminar (unidades de massa) — o editor recalcula na revisão
         $qtd_tot_g = 0.0;
         $subtotal  = 0.0;
-        if ( ! $is_qsp && $dose > 0 && $preco > 0 && in_array( $dose_unit, [ 'mg', 'g', 'mcg' ], true ) ) {
+        if ( ! $is_qsp && $dose > 0 && $preco > 0 && $dose_unit === 'un' ) {
+            // Por unidade (cápsulas prontas): preço POR UNIDADE, sem massa
+            $subtotal = round( $dose * $mult * $preco, 4 );
+        } elseif ( ! $is_qsp && $dose > 0 && $preco > 0 && in_array( $dose_unit, [ 'mg', 'g', 'mcg' ], true ) ) {
             $dose_mg = $dose_unit === 'g' ? $dose * 1000 : ( $dose_unit === 'mcg' ? $dose / 1000 : $dose );
             $dose_mg_real = $dose_mg * $diluicao / max( 0.001, $teor / 100 );
             $qtd_total_mg = $dose_mg_real * $fp * $mult;
