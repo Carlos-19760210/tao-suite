@@ -1,4 +1,4 @@
--- TAO Neo — Habilitar RLS em todas as tabelas public (projeto Robos gclayesytzzpzkjvgede)
+-- TAO Neo — Habilitar RLS em todas as tabelas public (v2 18/08: +contas_categorias/contas_recorrencias) (projeto Robos gclayesytzzpzkjvgede)
 -- Executar no SQL Editor do Supabase APÓS as 18h. O backend usa a chave SECRET
 -- (service_role) que BYPASSA o RLS, e o N8N usa credencial service_role tambem —
 -- entao ligar RLS SEM policies bloqueia so o acesso anonimo/publico (nada usa hoje).
@@ -36,6 +36,8 @@ ALTER TABLE public."clientes" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public."conectores_saida" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public."contas_a_pagar" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public."contas_pagar" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public."contas_categorias" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public."contas_recorrencias" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public."contato_enderecos" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public."conteudo_dinamico" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public."cotacao_fornecedores" ENABLE ROW LEVEL SECURITY;
