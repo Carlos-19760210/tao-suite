@@ -4578,14 +4578,21 @@ add_action( 'wp_ajax_tao_formula_nf_efetivar', function () {
         }
     }
 
-    // contas a pagar (duplicatas)
+    // contas a pagar (duplicatas) — categoria automática "Insumos" (v2; ignorada sem a migration)
     $cp = 0;
+    $cat_insumos = '';
+    if ( function_exists( 'tao_formula_cp_categorias' ) ) {
+        foreach ( tao_formula_cp_categorias( $cliente_id ) as $ct )
+            if ( $ct['nome'] === 'Insumos' ) { $cat_insumos = $ct['id']; break; }
+    }
     foreach ( ( $payload['duplicatas'] ?? [] ) as $d ) {
-        $rc = tao_formula_api( '/contas_pagar', 'POST', [
+        $row = [
             'cliente_id' => $cliente_id, 'fornecedor_id' => $forn_id, 'entrada_nf_id' => $entrada_id,
             'numero_dup' => $d['numero_dup'] ?? null, 'vencimento' => $d['vencimento'] ?: null,
             'valor' => (float) ( $d['valor'] ?? 0 ), 'status' => 'aberto',
-        ] );
+        ];
+        if ( $cat_insumos ) $row['categoria_id'] = $cat_insumos;
+        $rc = tao_formula_api( '/contas_pagar', 'POST', $row );
         if ( $rc['ok'] ) $cp++;
     }
 
