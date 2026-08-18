@@ -1400,6 +1400,9 @@ function tao_crm_page_card() {
             var _sub = (window._crmItensTotal || 0) + (window._crmFormulasTotal || 0);
             var _sd  = document.getElementById('crm-subtotal');
             if ( _sd ) _sd.textContent = 'R$ ' + _sub.toFixed(2).replace('.', ',');
+            // Subtotal zerado (nenhum aprovado/item): mantém desconto e Valor Final
+            // ARMAZENADOS e NÃO grava — senão apaga o valor do card em negociação.
+            if ( _sub <= 0 ) return;
             var _rs = _sub > 0 ? window._crmDescReais( _sub ) : 0;
             var _p  = document.getElementById('crm-desconto-pct');
             var _v  = document.getElementById('crm-desconto-valor');
