@@ -6773,6 +6773,20 @@ add_action( 'wp_ajax_tao_formula_prod_livro', function () {
 // FINANCEIRO — Contas a Pagar (duplicatas das NFs) + relatório ao contador
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Categorias financeiras — lista (e semeia o plano padrão na 1ª vez; idempotente)
+function tao_formula_cp_categorias( $cliente_id ) {
+    $r = tao_formula_api( "/contas_categorias?cliente_id=eq.$cliente_id&ativo=eq.true&select=id,nome,ordem&order=ordem.asc,nome.asc" );
+    if ( ! $r['ok'] ) return [];   // migration v2 não rodou — front esconde o que depende dela
+    if ( ! empty( $r['data'] ) ) return $r['data'];
+    $padrao = [ 'Insumos', 'Embalagens', 'Aluguel', 'Energia / Água / Telefone', 'Folha de Pagamento',
+                'Impostos e Taxas', 'Marketing', 'Manutenção', 'Software e Serviços', 'Outros' ];
+    foreach ( $padrao as $i => $nome ) {
+        tao_formula_api( '/contas_categorias', 'POST', [ 'cliente_id' => $cliente_id, 'nome' => $nome, 'ordem' => $i ] );
+    }
+    $r = tao_formula_api( "/contas_categorias?cliente_id=eq.$cliente_id&ativo=eq.true&select=id,nome,ordem&order=ordem.asc,nome.asc" );
+    return $r['ok'] ? ( $r['data'] ?? [] ) : [];
+}
+
 add_action( 'wp_ajax_tao_formula_cp_lista', function () {
     while ( ob_get_level() > 0 ) ob_end_clean();
     check_ajax_referer( 'tao_formula_nonce', 'nonce' );
@@ -6784,48 +6798,214 @@ add_action( 'wp_ajax_tao_formula_cp_lista', function () {
     $ate = sanitize_text_field( $_GET['ate'] ?? '' );
     $size   = in_array( intval( $_GET['size'] ?? 30 ), [ 20, 30, 50 ], true ) ? intval( $_GET['size'] ) : 30;
     $offset = max( 0, intval( $_GET['offset'] ?? 0 ) );
+    $cat    = sanitize_text_field( $_GET['categoria'] ?? '' );
     $f = '';
     if ( in_array( $status, [ 'aberto', 'pago', 'cancelado' ], true ) ) $f .= "&status=eq.$status";
     if ( $de )  $f .= "&vencimento=gte.$de";
     if ( $ate ) $f .= "&vencimento=lte.$ate";
+    if ( $cat ) $f .= "&categoria_id=eq.$cat";
 
-    $r = tao_formula_api(
-        "/contas_pagar?cliente_id=eq.$cliente_id$f" .
-        "&select=id,fornecedor_id,numero_dup,vencimento,valor,status,dt_pagamento&order=vencimento.asc&limit=500"
-    );
+    // Tenta o select v2 (migration contas_pagar_v2); sem ela, degrada pro legado
+    $sel_v2 = 'id,fornecedor_id,numero_dup,vencimento,valor,status,dt_pagamento,'
+            . 'origem,descricao,credor,categoria_id,parcela_n,parcelas_total,valor_pago,confirmar_valor';
+    $r  = tao_formula_api( "/contas_pagar?cliente_id=eq.$cliente_id$f&select=$sel_v2&order=vencimento.asc&limit=1000" );
+    $v2 = $r['ok'];
+    if ( ! $v2 ) {
+        $f  = str_replace( "&categoria_id=eq.$cat", '', $f );
+        $r  = tao_formula_api( "/contas_pagar?cliente_id=eq.$cliente_id$f" .
+              "&select=id,fornecedor_id,numero_dup,vencimento,valor,status,dt_pagamento&order=vencimento.asc&limit=1000" );
+    }
     $cp = $r['ok'] ? ( $r['data'] ?? [] ) : [];
-    // nomes dos fornecedores
+
+    // nomes dos fornecedores + categorias
     $fids = array_values( array_unique( array_filter( array_column( $cp, 'fornecedor_id' ) ) ) );
     $nomes = [];
     if ( $fids ) {
         $rf = tao_formula_api( "/fornecedores?id=in.(" . implode( ',', $fids ) . ")&select=id,nome&limit=" . count( $fids ) );
         foreach ( ( $rf['ok'] ? $rf['data'] : [] ) as $x ) $nomes[ $x['id'] ] = $x['nome'];
     }
+    $cats     = $v2 ? tao_formula_cp_categorias( $cliente_id ) : [];
+    $cat_nome = array_column( $cats, 'nome', 'id' );
+
     $tot_aberto = 0; $tot_pago = 0;
     foreach ( $cp as &$c ) {
-        $c['fornecedor'] = $c['fornecedor_id'] ? ( $nomes[ $c['fornecedor_id'] ] ?? '—' ) : '—';
+        $c['fornecedor'] = $c['fornecedor_id'] ? ( $nomes[ $c['fornecedor_id'] ] ?? '—' )
+                                               : ( $c['credor'] ?? '—' );
+        $c['categoria']  = $cat_nome[ $c['categoria_id'] ?? '' ] ?? '';
         if ( $c['status'] === 'aberto' ) $tot_aberto += (float) $c['valor'];
-        if ( $c['status'] === 'pago' )   $tot_pago   += (float) $c['valor'];
+        if ( $c['status'] === 'pago' )   $tot_pago   += (float) ( $c['valor_pago'] ?? $c['valor'] );
     }
     unset( $c );
+
+    // Formas de pagamento do Caixa (p/ modal de baixa)
+    $rfp = tao_formula_api( "/caixa_formas_pagamento?cliente_id=eq.$cliente_id&ativo=eq.true&select=id,nome,conta_no_dinheiro&order=ordem.asc" );
+    $formas = $rfp['ok'] ? ( $rfp['data'] ?? [] ) : [];
+
     $total   = count( $cp );
     $cp_page = array_slice( $cp, $offset, $size );
-    wp_send_json_success( [ 'items' => $cp_page, 'total' => $total, 'total_aberto' => $tot_aberto, 'total_pago' => $tot_pago ] );
+    wp_send_json_success( [ 'items' => $cp_page, 'total' => $total, 'total_aberto' => $tot_aberto,
+                            'total_pago' => $tot_pago, 'v2' => $v2, 'categorias' => $cats, 'formas' => $formas ] );
 } );
 
-add_action( 'wp_ajax_tao_formula_cp_pagar', function () {
+// ── Nova conta MANUAL (com parcelamento: valor É POR PARCELA, vencimentos mensais) ──
+add_action( 'wp_ajax_tao_formula_cp_nova', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $desc  = sanitize_text_field( $_POST['descricao'] ?? '' );
+    $cred  = sanitize_text_field( $_POST['credor'] ?? '' );
+    $catid = sanitize_text_field( $_POST['categoria_id'] ?? '' );
+    $valor = round( (float) str_replace( ',', '.', (string) ( $_POST['valor'] ?? 0 ) ), 2 );
+    $venc  = sanitize_text_field( $_POST['vencimento'] ?? '' );
+    $parc  = min( 60, max( 1, intval( $_POST['parcelas'] ?? 1 ) ) );
+    if ( ! $cliente_id || $desc === '' || $valor <= 0 || ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $venc ) )
+        wp_send_json_error( [ 'message' => 'Preencha descrição, valor e vencimento.' ] );
+    $criadas = 0;
+    for ( $i = 1; $i <= $parc; $i++ ) {
+        $v = ( $i === 1 ) ? $venc
+           : date( 'Y-m-d', strtotime( $venc . ' +' . ( $i - 1 ) . ' month' ) );
+        $row = [
+            'cliente_id' => $cliente_id, 'origem' => 'manual', 'status' => 'aberto',
+            'descricao'  => $desc, 'credor' => $cred ?: null,
+            'categoria_id' => $catid ?: null, 'valor' => $valor, 'vencimento' => $v,
+            'criado_por' => get_current_user_id(),
+        ];
+        if ( $parc > 1 ) { $row['parcela_n'] = $i; $row['parcelas_total'] = $parc; $row['numero_dup'] = "$i/$parc"; }
+        if ( tao_formula_api( '/contas_pagar', 'POST', $row )['ok'] ) $criadas++;
+    }
+    $criadas ? wp_send_json_success( [ 'criadas' => $criadas ] )
+             : wp_send_json_error( [ 'message' => 'Falha ao criar (a migration contas_pagar_v2 já rodou?)' ] );
+} );
+
+// ── Editar / excluir conta manual (só origem manual|recorrencia e ainda aberta) ──
+function tao_formula_cp_manual_aberta( $cliente_id, $id ) {
+    $r = tao_formula_api( "/contas_pagar?id=eq.$id&cliente_id=eq.$cliente_id&select=id,origem,status&limit=1" );
+    $c = ( $r['ok'] && ! empty( $r['data'] ) ) ? $r['data'][0] : null;
+    if ( ! $c ) return 'Conta não encontrada.';
+    if ( ! in_array( (string) ( $c['origem'] ?? 'nf' ), [ 'manual', 'recorrencia' ], true ) )
+        return 'Conta de NF não pode ser alterada aqui (o valor vem do XML).';
+    if ( $c['status'] !== 'aberto' ) return 'Só contas em aberto podem ser alteradas — reabra antes.';
+    return null;
+}
+add_action( 'wp_ajax_tao_formula_cp_editar', function () {
     while ( ob_get_level() > 0 ) ob_end_clean();
     check_ajax_referer( 'tao_formula_nonce', 'nonce' );
     if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
     $cliente_id = tao_formula_cliente_id();
     $id = sanitize_text_field( $_POST['id'] ?? '' );
-    $acao = sanitize_text_field( $_POST['acao'] ?? 'pagar' ); // pagar|reabrir
-    if ( ! $cliente_id || ! $id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
-    $patch = $acao === 'reabrir'
-        ? [ 'status' => 'aberto', 'dt_pagamento' => null ]
-        : [ 'status' => 'pago', 'dt_pagamento' => gmdate( 'Y-m-d' ) ];
+    if ( $err = tao_formula_cp_manual_aberta( $cliente_id, $id ) ) wp_send_json_error( [ 'message' => $err ] );
+    $patch = [];
+    if ( isset( $_POST['descricao'] ) )    $patch['descricao']    = sanitize_text_field( $_POST['descricao'] );
+    if ( isset( $_POST['credor'] ) )       $patch['credor']       = sanitize_text_field( $_POST['credor'] ) ?: null;
+    if ( isset( $_POST['categoria_id'] ) ) $patch['categoria_id'] = sanitize_text_field( $_POST['categoria_id'] ) ?: null;
+    if ( isset( $_POST['vencimento'] ) && preg_match( '/^\d{4}-\d{2}-\d{2}$/', $_POST['vencimento'] ) )
+        $patch['vencimento'] = $_POST['vencimento'];
+    if ( isset( $_POST['valor'] ) ) {
+        $v = round( (float) str_replace( ',', '.', (string) $_POST['valor'] ), 2 );
+        if ( $v > 0 ) { $patch['valor'] = $v; $patch['confirmar_valor'] = false; }
+    }
+    if ( ! $patch ) wp_send_json_error( [ 'message' => 'Nada para alterar.' ] );
     $r = tao_formula_api( "/contas_pagar?id=eq.$id&cliente_id=eq.$cliente_id", 'PATCH', $patch );
     $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => mb_substr( (string) $r['raw'], 0, 200 ) ] );
+} );
+add_action( 'wp_ajax_tao_formula_cp_excluir', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $id = sanitize_text_field( $_POST['id'] ?? '' );
+    if ( $err = tao_formula_cp_manual_aberta( $cliente_id, $id ) ) wp_send_json_error( [ 'message' => $err ] );
+    $r = tao_formula_api( "/contas_pagar?id=eq.$id&cliente_id=eq.$cliente_id", 'DELETE' );
+    $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => mb_substr( (string) $r['raw'], 0, 200 ) ] );
+} );
+
+// ── Baixa completa: data + forma + valor pago; dinheiro em sessão aberta → SANGRIA
+//    automática no Caixa (trava de gaveta igual à do módulo). Reabrir lança o APORTE
+//    inverso (política do Caixa: sem apagar movimento — auditável).
+add_action( 'wp_ajax_tao_formula_cp_pagar', function () {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_formula_nonce', 'nonce' );
+    if ( ! tao_formula_can_access() ) wp_send_json_error( [ 'message' => 'Acesso negado' ], 403 );
+    $cliente_id = tao_formula_cliente_id();
+    $id   = sanitize_text_field( $_POST['id'] ?? '' );
+    $acao = sanitize_text_field( $_POST['acao'] ?? 'pagar' ); // pagar|reabrir
+    if ( ! $cliente_id || ! $id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+
+    $rc = tao_formula_api( "/contas_pagar?id=eq.$id&cliente_id=eq.$cliente_id&select=*&limit=1" );
+    $conta = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? $rc['data'][0] : null;
+    if ( ! $conta ) wp_send_json_error( [ 'message' => 'Conta não encontrada.' ] );
+    $rotulo = trim( ( $conta['descricao'] ?? '' ) ?: ( 'dup. ' . ( $conta['numero_dup'] ?? '' ) ) );
+
+    if ( $acao === 'reabrir' ) {
+        $patch = [ 'status' => 'aberto', 'dt_pagamento' => null ];
+        // Colunas v2 (se existirem): zera baixa e lança aporte inverso da sangria
+        if ( array_key_exists( 'valor_pago', $conta ) ) {
+            $patch += [ 'forma_pagamento_id' => null, 'valor_pago' => null, 'pago_por' => null, 'caixa_movimento_id' => null ];
+            if ( ! empty( $conta['caixa_movimento_id'] ) && function_exists( 'tao_caixa_sessao_aberta' ) ) {
+                $sess = tao_caixa_sessao_aberta( $cliente_id );
+                if ( $sess ) tao_formula_api( '/caixa_movimentos', 'POST', [
+                    'cliente_id' => $cliente_id, 'sessao_id' => $sess['id'], 'tipo' => 'aporte',
+                    'valor' => (float) ( $conta['valor_pago'] ?? $conta['valor'] ),
+                    'motivo' => 'Estorno de baixa — conta a pagar: ' . $rotulo,
+                    'operador_id' => get_current_user_id(),
+                ] );
+            }
+        }
+        $r = tao_formula_api( "/contas_pagar?id=eq.$id&cliente_id=eq.$cliente_id", 'PATCH', $patch );
+        $r['ok'] ? wp_send_json_success() : wp_send_json_error( [ 'message' => mb_substr( (string) $r['raw'], 0, 200 ) ] );
+    }
+
+    // pagar
+    $data  = sanitize_text_field( $_POST['data'] ?? '' );
+    if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $data ) ) $data = gmdate( 'Y-m-d' );
+    $vpago = round( (float) str_replace( ',', '.', (string) ( $_POST['valor_pago'] ?? 0 ) ), 2 );
+    if ( $vpago <= 0 ) $vpago = (float) $conta['valor'];
+    $forma_id = sanitize_text_field( $_POST['forma_id'] ?? '' );
+
+    $patch = [ 'status' => 'pago', 'dt_pagamento' => $data ];
+    $aviso = ''; $mov_id = null;
+
+    if ( array_key_exists( 'valor_pago', $conta ) ) {   // migration v2 rodou
+        $patch += [ 'valor_pago' => $vpago, 'pago_por' => get_current_user_id(),
+                    'forma_pagamento_id' => $forma_id ?: null ];
+        // Sangria automática quando a forma é "conta no dinheiro" e há sessão aberta
+        $eh_dinheiro = false;
+        if ( $forma_id ) {
+            $rf = tao_formula_api( "/caixa_formas_pagamento?id=eq.$forma_id&select=conta_no_dinheiro&limit=1" );
+            $eh_dinheiro = $rf['ok'] && ! empty( $rf['data'][0]['conta_no_dinheiro'] );
+        }
+        if ( $eh_dinheiro && function_exists( 'tao_caixa_sessao_aberta' ) ) {
+            $sess = tao_caixa_sessao_aberta( $cliente_id );
+            if ( $sess ) {
+                $gaveta = round( (float) $sess['saldo_inicial']
+                        + ( function_exists( 'tao_caixa_dinheiro_da_sessao' )   ? tao_caixa_dinheiro_da_sessao( $cliente_id, $sess['id'] )   : 0 )
+                        + ( function_exists( 'tao_caixa_movimentos_da_sessao' ) ? tao_caixa_movimentos_da_sessao( $cliente_id, $sess['id'] ) : 0 ), 2 );
+                if ( $vpago > $gaveta )
+                    wp_send_json_error( [ 'message' => 'Pagamento em dinheiro maior que o esperado na gaveta (R$ '
+                        . number_format( $gaveta, 2, ',', '.' ) . '). Faça um aporte ou escolha outra forma.' ] );
+                $rm = tao_formula_api( '/caixa_movimentos', 'POST', [
+                    'cliente_id' => $cliente_id, 'sessao_id' => $sess['id'], 'tipo' => 'sangria',
+                    'valor' => $vpago, 'motivo' => 'Conta a pagar: ' . $rotulo
+                        . ( ! empty( $conta['credor'] ) ? ' — ' . $conta['credor'] : '' ),
+                    'operador_id' => get_current_user_id(),
+                ], [ 'Prefer' => 'return=representation' ] );
+                if ( $rm['ok'] && ! empty( $rm['data'][0]['id'] ) ) {
+                    $mov_id = $rm['data'][0]['id'];
+                    $patch['caixa_movimento_id'] = $mov_id;
+                }
+            } else {
+                $aviso = 'Sem sessão de caixa aberta — pago em dinheiro SEM sangria na gaveta.';
+            }
+        }
+    }
+    $r = tao_formula_api( "/contas_pagar?id=eq.$id&cliente_id=eq.$cliente_id", 'PATCH', $patch );
+    if ( ! $r['ok'] ) {
+        // desfaz a sangria se a baixa falhou
+        if ( $mov_id ) tao_formula_api( "/caixa_movimentos?id=eq.$mov_id", 'DELETE' );
+        wp_send_json_error( [ 'message' => mb_substr( (string) $r['raw'], 0, 200 ) ] );
+    }
+    wp_send_json_success( [ 'sangria' => (bool) $mov_id, 'aviso' => $aviso ] );
 } );
 
 // ═══════════════════════════════════════════════════════════════════════════
