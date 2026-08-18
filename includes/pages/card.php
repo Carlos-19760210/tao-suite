@@ -2658,15 +2658,20 @@ function tao_crm_page_card() {
                     fd.append('orc_id',  id);
                     return fetch(ajaxUrl, { method: 'POST', body: fd }).then(function(r){ return r.json(); });
                 });
-                Promise.all(promessas).then(function() {
+                // Após o lote: recarrega lista E análise de preços (faltava — a análise
+                // ficava com os excluídos), e reporta falhas (ex.: aprovado não exclui).
+                var fimLote = function (resps) {
                     exclSelBtn.disabled = false;
                     exclSelBtn.textContent = '🗑 Excluir selecionados';
                     carregarFormulas();
-                }).catch(function() {
-                    exclSelBtn.disabled = false;
-                    exclSelBtn.textContent = '🗑 Excluir selecionados';
-                    carregarFormulas();
-                });
+                    if (window.taofRefreshAnalise) window.taofRefreshAnalise();
+                    var falhas = (resps || []).filter(function(r){ return !r || !r.success; });
+                    if (falhas.length) {
+                        var msg = (falhas[0] && falhas[0].data && falhas[0].data.message) || '';
+                        alert('Não excluídos: ' + falhas.length + (msg ? '\n' + msg : ''));
+                    }
+                };
+                Promise.all(promessas).then(fimLote).catch(function(){ fimLote([{success:false}]); });
             });
         }
 
