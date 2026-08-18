@@ -862,6 +862,9 @@ function tao_crm_page_card() {
             window.taofCrmNome     = <?php echo wp_json_encode( $card['contato_nome'] ?? '' ); ?>;
             window.taofCrmWa       = <?php echo wp_json_encode( $card['contato_whatsapp'] ?? '' ); ?>;
             window.taofCrmFechado  = <?php echo empty( $card['fechado'] ) ? 'false' : 'true'; ?>;
+            // Card no pipeline de PÓS-VENDAS: subtotal considera SÓ orçamentos aprovados;
+            // em NEGOCIAÇÃO (funil de vendas) soma todos (regra Carlos 18/08 = espelho do servidor)
+            window.taofCrmGanho    = <?php echo $is_pos_vendas ? 'true' : 'false'; ?>;
             </script>
             <?php endif; ?>
 
@@ -2265,11 +2268,13 @@ function tao_crm_page_card() {
                     html += '</table>';
                     listDiv.innerHTML = html;
 
-                    // Soma total das fórmulas e atualiza campo Valor.
-                    // Só orçamentos APROVADOS entram no subtotal do card (decisão Carlos 17/08):
-                    // pendente/rejeitado não é negócio fechado e não pode inflar o valor.
+                    // Soma total das fórmulas e atualiza campo Valor (regra Carlos 18/08):
+                    // FUNIL DE VENDAS (negociação) soma TODOS os orçamentos não-rejeitados;
+                    // PÓS-VENDAS (ganho) soma só os APROVADOS (o que virou OM de fato).
                     var formulasTotal = resp.data.reduce(function(s, o) {
-                        if (o.status !== 'aprovado_farma' && o.status !== 'aceito_paciente') return s;
+                        if (window.taofCrmGanho) {
+                            if (o.status !== 'aprovado_farma' && o.status !== 'aceito_paciente') return s;
+                        } else if (o.status === 'rejeitado') { return s; }
                         return s + parseFloat(o.total_orcamento || 0);
                     }, 0);
                     window._crmFormulasTotal = formulasTotal;
