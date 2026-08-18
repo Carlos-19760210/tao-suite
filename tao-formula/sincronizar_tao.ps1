@@ -127,6 +127,20 @@ function Build-Ativo($c, $grupo, $agora, $unidade_map, $concMap) {
     $cdpro_str        = $c[0].Trim()
     $concentracao_val = if ($concMap.ContainsKey($cdpro_str)) { $concMap[$cdpro_str] } else { $null }
 
+    # Custo por unidade: PRCOMCTB (FC03100) e o custo CONTABIL e em alguns itens
+    # (dermocosmeticos/embalagens) vem por EMBALAGEM, nao por unidade — ex. CREME OIL
+    # FREE 89,60 vs PRCOM 0,1605/g (caso 18/08, orc 047784-5 com custo R$ 2.553).
+    # Regra: usa PRCOMCTB so quando coerente (<= venda); senao cai no PRCOM;
+    # se ambos incoerentes/ausentes, venda/5 (regra do Carlos 13/08).
+    $v_prcom = if ($c[5] -match '^\d') { [double]$c[5] } else { 0 }
+    $v_prctb = if ($c[6] -match '^\d') { [double]$c[6] } else { 0 }
+    $v_prven = if ($c[7] -match '^\d') { [double]$c[7] } else { 0 }
+    $v_custo = 0
+    if     ($v_prctb -gt 0 -and ($v_prven -le 0 -or $v_prctb -le $v_prven)) { $v_custo = $v_prctb }
+    elseif ($v_prcom -gt 0 -and ($v_prven -le 0 -or $v_prcom -le 2 * $v_prven)) { $v_custo = $v_prcom }
+    elseif ($v_prven -gt 0) { $v_custo = [math]::Round($v_prven / 5, 6) }
+    elseif ($v_prctb -gt 0) { $v_custo = $v_prctb }
+
     return @{
         cliente_id         = $script:CLIENTE_ID
         codigo_fc          = $c[0].Trim()
@@ -140,7 +154,7 @@ function Build-Ativo($c, $grupo, $agora, $unidade_map, $concMap) {
         em_estoque         = ($c[4] -match '^\d') -and ([double]$c[4] -gt 0)
         preco_compra       = if ($c[5] -match '^\d') { [double]$c[5] } else { $null }
         preco_custo        = if ($c[6] -match '^\d') { [double]$c[6] } else { $null }
-        custo_por_unidade  = if ($c[6] -match '^\d') { [double]$c[6] } else { 0 }
+        custo_por_unidade  = $v_custo
         preco_venda        = if ($c[7] -match '^\d') { [double]$c[7] } else { 0 }
         margem_padrao      = $null
         categoria          = $c[8].Trim()
