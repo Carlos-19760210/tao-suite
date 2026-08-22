@@ -270,6 +270,8 @@ function tao_crm_page_dashboard() {
             $m = '(sem motivo)';
         } elseif ( stripos( $m, 'falta de insumo' ) === 0 ) {
             $m = 'Falta de Insumo';   // "Falta de Insumo: MAGNÉSIO" → agrupa; insumo fica no card
+        } elseif ( stripos( $m, 'drogaria' ) === 0 ) {
+            $m = 'Drogaria';          // "Drogaria: DIPIRONA" → agrupa (Carlos 22/08); item fica no card
         } elseif ( stripos( $m, 'automação' ) === 0 || stripos( $m, 'automacao' ) === 0 ) {
             $m = 'Fechado por automação (sem resposta)';
         }
