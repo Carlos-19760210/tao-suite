@@ -3694,6 +3694,7 @@ function tao_crm_page_settings() {
             <form id="crm-renov-form">
             <table class="form-table">
                 <tr><th>Ativo</th><td><label><input type="checkbox" name="ativo" id="crm-renov-ativo" <?php checked( $rnv_ativo ); ?>> Habilitar lembrete de renovação</label></td></tr>
+                <tr><th style="white-space:normal">Trava de reabertura</th><td><label><input type="checkbox" id="crm-renov-trava" <?php checked( get_option( 'tao_crm_trava_pos_entrega_' . $ws_id_sel, 1 ) ); ?>> Card com produto <strong>entregue</strong> não volta ao funil de vendas nem recebe orçamento novo — renovação cria <strong>card novo</strong> (botão "Renovar" no card)</label></td></tr>
                 <tr><th>Mensagem do lembrete</th><td>
                     <textarea name="mensagem" id="crm-renov-msg" rows="5" class="large-text"><?php echo esc_textarea( $rnv_msg ); ?></textarea>
                 </td></tr>
@@ -3708,7 +3709,7 @@ function tao_crm_page_settings() {
             (function($){
                 $('#crm-renov-form').on('submit', function(e){
                     e.preventDefault();
-                    crmPost({action:'tao_crm_save_renov', nonce:taoCrm.nonce, ws_id:<?php echo wp_json_encode($ws_id_sel); ?>, ativo:$('#crm-renov-ativo').is(':checked')?'1':'', mensagem:$('#crm-renov-msg').val(), snooze:$('#crm-renov-snooze').val(), semresp:$('#crm-renov-semr').val(), antecip:$('#crm-renov-antecip').val()}, function(r){
+                    crmPost({action:'tao_crm_save_renov', nonce:taoCrm.nonce, ws_id:<?php echo wp_json_encode($ws_id_sel); ?>, ativo:$('#crm-renov-ativo').is(':checked')?'1':'', trava_pos_entrega:$('#crm-renov-trava').is(':checked')?'1':'0', mensagem:$('#crm-renov-msg').val(), snooze:$('#crm-renov-snooze').val(), semresp:$('#crm-renov-semr').val(), antecip:$('#crm-renov-antecip').val()}, function(r){
                         $('#crm-renov-status').text(r.success?'✔ Salvo':'✘ Erro').css('color', r.success?'#16a34a':'#dc2626');
                         setTimeout(function(){ $('#crm-renov-status').text(''); }, 2500);
                     });

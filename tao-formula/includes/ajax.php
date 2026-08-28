@@ -612,6 +612,11 @@ add_action( 'wp_ajax_tao_formula_save_orcamento', function() {
     if ( ! is_array( $itens ) ) $itens = [];
 
     $card_id = sanitize_text_field( $_POST['card_id'] ?? '' ) ?: null;
+    // TRAVA (28/08/26): card pós-entrega não recebe orçamento novo (renovação = novo card)
+    if ( $card_id && function_exists( 'tao_crm_trava_reabertura_card_id' ) ) {
+        $_trava = tao_crm_trava_reabertura_card_id( $card_id );
+        if ( $_trava ) wp_send_json_error( $_trava );
+    }
     $numero  = tao_formula_gerar_numero( $cliente_id, $card_id );
 
     $data = array_merge( tao_formula_orc_payload( $itens ), [
@@ -1069,6 +1074,11 @@ function tao_formula_criar_orc_ia_core( $args ) {
     if ( ! $cliente_id ) return [ 'ok' => false, 'message' => 'cliente_id não configurado' ];
 
     $card_id    = $args['card_id']          ?? null;
+    // TRAVA (28/08/26): card pós-entrega não recebe orçamento novo (renovação = novo card)
+    if ( $card_id && function_exists( 'tao_crm_trava_reabertura_card_id' ) ) {
+        $_trava = tao_crm_trava_reabertura_card_id( $card_id );
+        if ( $_trava ) return [ 'ok' => false, 'message' => $_trava ];
+    }
     $nome_pac   = $args['nome_paciente']    ?? '';
     $whatsapp   = $args['whatsapp']         ?? '';
     $forma_txt  = $args['forma_farmaceutica'] ?? '';
@@ -3395,6 +3405,11 @@ add_action( 'wp_ajax_tao_formula_hist_repetir', function () {
     $fid        = sanitize_text_field( $_POST['formula_id'] ?? '' );
     $card_id    = sanitize_text_field( $_POST['card_id'] ?? '' ) ?: null;   // repetir DENTRO de um card
     if ( ! $cliente_id || ! $fid ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+    // TRAVA (28/08/26): card pós-entrega não recebe orçamento novo (renovação = novo card)
+    if ( $card_id && function_exists( 'tao_crm_trava_reabertura_card_id' ) ) {
+        $_trava = tao_crm_trava_reabertura_card_id( $card_id );
+        if ( $_trava ) wp_send_json_error( [ 'message' => $_trava ] );
+    }
 
     $rf = tao_formula_api( "/hist_formulas?id=eq.$fid&cliente_id=eq.$cliente_id&limit=1" );
     if ( ! $rf['ok'] || empty( $rf['data'] ) ) wp_send_json_error( [ 'message' => 'Fórmula não encontrada' ] );
@@ -3578,6 +3593,11 @@ add_action( 'wp_ajax_tao_formula_orc_repetir', function () {
     $src_id     = sanitize_text_field( $_POST['orc_id'] ?? '' );
     $card_id    = sanitize_text_field( $_POST['card_id'] ?? '' ) ?: null;
     if ( ! $cliente_id || ! $src_id || ! $card_id ) wp_send_json_error( [ 'message' => 'Parâmetros inválidos' ] );
+    // TRAVA (28/08/26): card pós-entrega não recebe orçamento novo (renovação = novo card)
+    if ( function_exists( 'tao_crm_trava_reabertura_card_id' ) ) {
+        $_trava = tao_crm_trava_reabertura_card_id( $card_id );
+        if ( $_trava ) wp_send_json_error( [ 'message' => $_trava ] );
+    }
 
     $rs = tao_formula_api( "/orcamentos?id=eq.$src_id&cliente_id=eq.$cliente_id&limit=1" );
     if ( ! $rs['ok'] || empty( $rs['data'] ) ) wp_send_json_error( [ 'message' => 'Orçamento de origem não encontrado' ] );

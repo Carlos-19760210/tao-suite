@@ -394,18 +394,10 @@ function tao_crm_page_kanban() {
                 if ( count( $_np ) >= 2 && $_np[1] !== '' ) $req_orc_map[ $cid ] = $_np[1];
             }
         }
-        // Descobre o campo_id de "Número Requisição" por nome direto — independe de
-        // quais campos têm valores nos cards da view atual.
-        // Exclui campos de pergunta (nome com '?') para não confundir com
-        // "Número da Requisição está correto?" ou similares.
-        $rcd_req = tao_crm_api( '/crm_campos_definicao?nome=ilike.*Requisi*&select=id,nome&limit=10' );
-        foreach ( ( $rcd_req['ok'] ? ( $rcd_req['data'] ?? [] ) : [] ) as $cd ) {
-            if ( mb_strpos( $cd['nome'], '?' ) !== false ) continue;
-            if ( mb_stripos( $cd['nome'], 'Requisi' ) !== false ) {
-                $req_num_campo_id = $cd['id'];
-                break;
-            }
-        }
+        // Campo "Número Requisição": resolvido pelo helper central — filtrado pelo
+        // WORKSPACE atual e determinístico (definição mais antiga vence). A busca por
+        // nome sem filtro de ws pegava a definição homônima de outro workspace.
+        $req_num_campo_id = tao_crm_campo_requisicao_id( $ws_id );
         ?>
 
         <div class="tao-crm-board-wrap">

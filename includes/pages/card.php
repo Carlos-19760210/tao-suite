@@ -152,7 +152,7 @@ function tao_crm_page_card() {
     // ── Número Requisição: DERIVADO do orçamento (segmento do meio, sem o sequencial).
     //    Garante o valor a partir do orçamento e mantém sincronizado o gravado (o Kanban
     //    busca por ele). Campo fica read-only quando há orçamento (não é mais input manual).
-    $req_campo_id = tao_crm_campo_requisicao_id();
+    $req_campo_id = tao_crm_campo_requisicao_id( $card['workspace_id'] ?? '' );
     if ( $req_campo_id ) {
         $req_deriv = tao_crm_requisicao_orcamento( $card_id );
         if ( $req_deriv !== '' ) {
@@ -517,6 +517,18 @@ function tao_crm_page_card() {
                                         title="Atendimentos anteriores do cliente — repetir orçamento ou item para este card">
                                     &#x1F550; Histórico do cliente
                                 </button>
+                                <?php
+                                // Card pós-entrega: reabertura travada — o caminho é criar o card NOVO de renovação
+                                $_pe_ids = function_exists( 'tao_crm_estagios_pos_entrega' )
+                                    ? tao_crm_estagios_pos_entrega( $card['workspace_id'] ?? '' ) : [];
+                                if ( $_pe_ids && in_array( $card['estagio_id'] ?? '', $_pe_ids, true ) ) : ?>
+                                <button type="button" id="crm-renovar-novo-card-btn"
+                                        class="button button-small"
+                                        style="font-size:11px;color:#166534;border-color:#86efac;font-weight:600"
+                                        title="Renovação é uma nova manipulação: cria um card novo no Funil de Vendas referenciando este (que permanece como Renovado)">
+                                    &#x1F504; Renovar (novo card)
+                                </button>
+                                <?php endif; ?>
                             </div>
                         </div>
                         <div id="crm-formulas-list" style="font-size:12px;color:#94a3b8;padding:4px 0;max-height:280px;overflow-y:auto;overflow-x:auto">
@@ -1905,6 +1917,29 @@ function tao_crm_page_card() {
                     + '&card_id=' + encodeURIComponent(cardId)
                     + '&q='       + encodeURIComponent(window.taofCrmNome || '');
                 abrirModal(src);
+            });
+        }
+
+        // Botão Renovar (novo card) — card pós-entrega não reabre; renovação = novo card
+        var renovarBtn = document.getElementById('crm-renovar-novo-card-btn');
+        if (renovarBtn) {
+            renovarBtn.addEventListener('click', function () {
+                if (!confirm('Criar um NOVO card de renovação no Funil de Vendas?\n\nEste card permanece como Renovado (o produto dele já foi entregue); o novo card nasce em "Aguardando Atendimento" com os orçamentos copiados como pendentes e número novo.')) return;
+                renovarBtn.disabled = true;
+                var url = (window.taoCrm && taoCrm.ajaxUrl) || window.ajaxurl || '';
+                jQuery.post(url, {
+                    action: 'tao_crm_renovar_manual',
+                    nonce: (window.taoCrm && taoCrm.nonce) || '',
+                    card_id: cardId
+                }, function (r) {
+                    if (r && r.success) {
+                        alert('✅ Card de renovação criado no Funil de Vendas (Aguardando Atendimento).');
+                        location.reload();
+                    } else {
+                        alert('❌ ' + ((r && r.data && (r.data.msg || r.data)) || 'Não foi possível renovar.'));
+                        renovarBtn.disabled = false;
+                    }
+                }).fail(function(){ alert('❌ Falha de comunicação.'); renovarBtn.disabled = false; });
             });
         }
 

@@ -729,6 +729,10 @@ function tao_crm_executar_automacao_item( $auto, $card_id ) {
             if ( empty( $auto['para_estagio_id'] ) ) return [ 'ok' => false, 'detalhe' => 'Fase destino não definida' ];
             $de = $card['estagio_id'];
             if ( $de === $auto['para_estagio_id'] ) return [ 'ok' => true, 'detalhe' => 'Já no estágio' ];
+            // TRAVA: automação também não reabre card pós-entrega (renovação = novo card)
+            if ( function_exists( 'tao_crm_trava_reabertura' ) && tao_crm_trava_reabertura( $card, $auto['para_estagio_id'] ) ) {
+                return [ 'ok' => false, 'detalhe' => 'Bloqueado: card pós-entrega não reabre (renovação = novo card)' ];
+            }
             $r = tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [
                 'estagio_id' => $auto['para_estagio_id'],
                 'movido_em'  => gmdate( 'c' ),
@@ -1097,6 +1101,10 @@ function tao_crm_ajax_move_card() {
     $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=estagio_id,pipeline_id,workspace_id" );
     $card_atual  = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? $rc['data'][0] : [];
     $de_estagio  = $card_atual['estagio_id'] ?? null;
+
+    // ── TRAVA: card pós-entrega não volta ao funil (renovação = novo card) ──
+    $_trava = tao_crm_trava_reabertura( $card_atual, $estagio_id );
+    if ( $_trava ) wp_send_json_error( [ 'code' => 'pos_entrega', 'msg' => $_trava ] );
 
     // Persiste JÁ os valores preenchidos no modal — se a validação abaixo bloquear o move,
     // o que o usuário digitou não se perde (antes, era descartado e a crítica se repetia).
@@ -1967,19 +1975,26 @@ function tao_crm_salvar_campos_card( $card_id, $valores ) {
     }
 }
 
-// Resolve o campo "Número Requisição" (mesma regra do Kanban: nome contém "Requisi",
-// exclui perguntas com "?"). Cacheado por request.
-function tao_crm_campo_requisicao_id() {
-    static $cache = null;
-    if ( $cache !== null ) return $cache;
-    $cache = '';
-    $r = tao_crm_api( '/crm_campos_definicao?nome=ilike.*Requisi*&select=id,nome&limit=10' );
+// Resolve o campo "Número Requisição". SEMPRE filtrado por workspace quando informado
+// e com ordenação determinística (definição mais antiga vence) — sem isso, uma
+// definição homônima de OUTRO workspace (ex.: seed da Farmácia Modelo, 24/08) podia
+// ser sorteada e o valor da REQ era gravado/lido no campo errado. Cacheado por request.
+function tao_crm_campo_requisicao_id( $ws_id = '' ) {
+    static $cache = [];
+    $k = $ws_id ?: '_';
+    if ( isset( $cache[ $k ] ) ) return $cache[ $k ];
+    $cache[ $k ] = '';
+    $fw = $ws_id ? 'workspace_id=eq.' . rawurlencode( $ws_id ) . '&' : '';
+    // 1º pela chave canônica; fallback por nome (excluindo perguntas com "?")
+    $r = tao_crm_api( "/crm_campos_definicao?{$fw}chave=eq.numero_requisicao&select=id&order=criado_em.asc&limit=1" );
+    if ( $r['ok'] && ! empty( $r['data'] ) ) return $cache[ $k ] = $r['data'][0]['id'];
+    $r = tao_crm_api( "/crm_campos_definicao?{$fw}nome=ilike.*Requisi*&select=id,nome&order=criado_em.asc&limit=10" );
     foreach ( ( $r['ok'] ? ( $r['data'] ?? [] ) : [] ) as $c ) {
         $n = $c['nome'] ?? '';
         if ( mb_strpos( $n, '?' ) !== false ) continue;
-        if ( mb_stripos( $n, 'Requisi' ) !== false ) { $cache = $c['id']; break; }
+        if ( mb_stripos( $n, 'Requisi' ) !== false ) { $cache[ $k ] = $c['id']; break; }
     }
-    return $cache;
+    return $cache[ $k ];
 }
 
 // Requisição = segmento do meio do numero_orcamento do orçamento mais recente do card
@@ -2431,6 +2446,85 @@ function tao_crm_renov_abrir_tratamento( $card, $rsd ) {
 }
 
 // Cron horário: envia o lembrete (abertura + formula_dias) e move p/ Sem Resposta após 15 dias
+// ─── TRAVA DE REABERTURA (regra Carlos 28/08/26): renovação = SEMPRE card novo ────
+// Card cujo produto já foi entregue (estágios pós-entrega do Pós-Vendas) não volta
+// ao funil de vendas nem recebe orçamento novo — o caminho é "Renovar (novo card)".
+// Toggle por workspace: tao_crm_trava_pos_entrega_<ws> (default LIGADO).
+function tao_crm_estagios_pos_entrega( $ws_id ) {
+    static $cache = [];
+    if ( isset( $cache[ $ws_id ] ) ) return $cache[ $ws_id ];
+    $ids = [];
+    $rsd = tao_crm_renov_stages( $ws_id );
+    if ( ! empty( $rsd['pos'] ) ) {
+        $re = tao_crm_api( "/crm_estagios?pipeline_id=eq.{$rsd['pos']}&select=id,nome" );
+        foreach ( ( $re['ok'] ? ( $re['data'] ?? [] ) : [] ) as $e ) {
+            $n = mb_strtoupper( remove_accents( $e['nome'] ?? '' ) );
+            if ( strpos( $n, 'NAO ENTREGUE' ) !== false ) continue;   // reentrega em andamento — NÃO trava
+            foreach ( [ 'ENTREGUE', 'NPS', 'RENOVA', 'SEM RESPOSTA', 'ENCERRAD' ] as $alvo ) {
+                if ( strpos( $n, $alvo ) !== false ) { $ids[] = $e['id']; break; }
+            }
+        }
+    }
+    return $cache[ $ws_id ] = $ids;
+}
+
+// Mensagem de bloqueio ('' = permitido). $destino_estagio_id null → criação de orçamento.
+function tao_crm_trava_reabertura( $card, $destino_estagio_id = null ) {
+    $ws = $card['workspace_id'] ?? '';
+    if ( ! $ws || ! get_option( 'tao_crm_trava_pos_entrega_' . $ws, 1 ) ) return '';
+    $pe = tao_crm_estagios_pos_entrega( $ws );
+    if ( ! $pe || ! in_array( $card['estagio_id'] ?? '', $pe, true ) ) return '';
+    if ( $destino_estagio_id !== null && in_array( $destino_estagio_id, $pe, true ) ) return '';
+    return 'Este card já teve o produto entregue e não pode ser reaberto'
+         . ( $destino_estagio_id !== null ? ' (movido de volta ao funil de vendas)' : ' com um novo orçamento' )
+         . '. Renovação é uma NOVA manipulação: use o botão "Renovar (novo card)" no card.';
+}
+
+// Wrapper por card_id — p/ outros plugins (tao-formula) validarem criação de orçamento.
+function tao_crm_trava_reabertura_card_id( $card_id, $destino_estagio_id = null ) {
+    if ( ! $card_id ) return '';
+    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=estagio_id,workspace_id&limit=1" );
+    $card = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? $rc['data'][0] : null;
+    return $card ? tao_crm_trava_reabertura( $card, $destino_estagio_id ) : '';
+}
+
+// ─── AJAX: RENOVAR MANUALMENTE (novo card) — caminho certo p/ o atendente ────────
+add_action( 'wp_ajax_tao_crm_renovar_manual', 'tao_crm_ajax_renovar_manual' );
+function tao_crm_ajax_renovar_manual() {
+    while ( ob_get_level() > 0 ) ob_end_clean();
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+    if ( ! function_exists( 'cbpm_can_access' ) || ! cbpm_can_access() ) wp_send_json_error( 'Acesso negado' );
+    $card_id = sanitize_text_field( $_POST['card_id'] ?? '' );
+    if ( ! $card_id ) wp_send_json_error( 'card_id obrigatório' );
+    $rc = tao_crm_api( "/crm_cards?id=eq.$card_id&select=*&limit=1" );
+    $card = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? $rc['data'][0] : null;
+    if ( ! $card ) wp_send_json_error( 'Card não encontrado' );
+    $ws  = $card['workspace_id'];
+    $pe  = tao_crm_estagios_pos_entrega( $ws );
+    if ( ! in_array( $card['estagio_id'], $pe, true ) ) {
+        wp_send_json_error( '"Renovar (novo card)" é só para cards já entregues — este ainda está em andamento.' );
+    }
+    $rsd     = tao_crm_renov_stages( $ws );
+    $novo_id = tao_crm_renov_clonar_card( $card, $rsd, 'RENOVACAO' );
+    if ( ! $novo_id ) wp_send_json_error( 'Não foi possível criar o card de renovação (funil/estágio "Aguardando Atendimento" não localizado).' );
+    if ( ! empty( $rsd['renovado'] ) && $card['estagio_id'] !== $rsd['renovado'] ) {
+        tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [ 'estagio_id' => $rsd['renovado'], 'movido_em' => gmdate( 'c' ) ] );
+    }
+    tao_crm_api( '/crm_cards_historico', 'POST', [
+        'card_id' => $card_id, 'de_estagio_id' => $card['estagio_id'],
+        'para_estagio_id' => $rsd['renovado'] ?: $card['estagio_id'],
+        'usuario_id' => get_current_user_id(), 'motivo' => 'Renovação aceita',
+        'obs' => 'Renovação manual: novo card ' . $novo_id,
+    ] );
+    tao_crm_api( '/crm_cards_historico', 'POST', [
+        'card_id' => $novo_id, 'para_estagio_id' => $rsd['aguardando'] ?: null,
+        'usuario_id' => get_current_user_id(), 'motivo' => 'Card criado por renovação',
+        'obs' => 'Originado da renovação do card ' . $card_id,
+    ] );
+    tao_crm_log_error( 'renovacao', 'renovacao MANUAL: novo card=' . substr( (string) $novo_id, 0, 8 ) . ' de=' . substr( $card_id, 0, 8 ), [] );
+    wp_send_json_success( [ 'novo_id' => $novo_id ] );
+}
+
 add_action( 'tao_crm_renovacao_check', 'tao_crm_renovacao_cron' );
 function tao_crm_renovacao_cron() {
     $rws = tao_crm_api( "/crm_workspaces?select=id&limit=200" );
@@ -3682,6 +3776,10 @@ function tao_crm_ajax_save_renov() {
     $ws_id = sanitize_text_field( $_POST['ws_id'] ?? '' );
     if ( ! $ws_id ) wp_send_json_error( 'Workspace inválido' );
     update_option( 'tao_crm_renov_ativo_' . $ws_id, ! empty( $_POST['ativo'] ) ? 1 : 0, false );
+    // Trava de reabertura pós-entrega (regra 28/08/26: renovação = sempre card novo)
+    if ( isset( $_POST['trava_pos_entrega'] ) ) {
+        update_option( 'tao_crm_trava_pos_entrega_' . $ws_id, ! empty( $_POST['trava_pos_entrega'] ) ? 1 : 0, false );
+    }
     $msg = sanitize_textarea_field( $_POST['mensagem'] ?? '' );
     if ( $msg ) update_option( 'tao_crm_renov_msg_' . $ws_id, $msg, false );
     $snooze  = max( 1, min( 60, intval( $_POST['snooze']  ?? 5 ) ) );
