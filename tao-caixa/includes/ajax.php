@@ -867,6 +867,84 @@ function tao_caixa_xlsx_stream( $filename, $headers, $rows ) {
 	exit;
 }
 
+// ── Export XLSX da tela de Vendas — respeita os filtros aplicados (período/status/origem/card) ──
+add_action( 'wp_ajax_tao_caixa_export_vendas', function() {
+	$cid = tao_caixa_ajax_guard();
+
+	// Mesma lógica de filtros da tela (vendas.php)
+	$status = sanitize_text_field( $_GET['status'] ?? '' );
+	$origem = sanitize_text_field( $_GET['origem'] ?? '' );
+	$card   = sanitize_text_field( $_GET['card'] ?? '' );
+	$p      = sanitize_text_field( $_GET['p'] ?? 'hoje' );
+	$de_g   = sanitize_text_field( $_GET['de']  ?? '' );
+	$ate_g  = sanitize_text_field( $_GET['ate'] ?? '' );
+	$tz = new DateTimeZone( 'America/Sao_Paulo' );
+	$now_sp = new DateTime( 'now', $tz );
+	$hoje = $now_sp->format( 'Y-m-d' );
+	$ate_d = $hoje; $de = '';
+	if ( $card ) { $p = 'todos'; }
+	if ( preg_match( '/^\d{4}-\d{2}-\d{2}$/', $de_g ) && preg_match( '/^\d{4}-\d{2}-\d{2}$/', $ate_g ) ) {
+		$p = 'custom'; $de = $de_g; $ate_d = $ate_g;
+	}
+	elseif ( $p === 'todos' ) { $de = ''; }
+	elseif ( $p === '7d' )    { $de = ( clone $now_sp )->modify( '-6 days'  )->format( 'Y-m-d' ); }
+	elseif ( $p === '30d' )   { $de = ( clone $now_sp )->modify( '-29 days' )->format( 'Y-m-d' ); }
+	elseif ( $p === 'mes' )   { $de = $now_sp->format( 'Y-m-01' ); }
+	else                      { $de = $hoje; }
+	$flt  = $status ? '&status=eq.' . rawurlencode( $status ) : '';
+	$flt .= $origem ? '&origem=eq.' . rawurlencode( $origem ) : '';
+	$flt .= $card   ? '&card_id=eq.' . rawurlencode( $card ) : '';
+	$flt .= $de ? ( '&criado_em=gte.' . $de . 'T00:00:00-03:00&criado_em=lte.' . $ate_d . 'T23:59:59-03:00' ) : '';
+
+	$vendas = []; $off = 0;
+	do {
+		$rv = tao_caixa_api( "/caixa_vendas?cliente_id=eq.$cid$flt&select=card_id,cliente_nome,whatsapp,valor_total,valor_pago,status,origem,criado_em&order=criado_em.desc&limit=1000&offset=$off" );
+		$page = $rv['ok'] ? ( $rv['data'] ?? [] ) : [];
+		$vendas = array_merge( $vendas, $page ); $off += 1000;
+	} while ( count( $page ) === 1000 );
+
+	// Nº da Requisição (campo CRM) por card
+	$req_map  = [];
+	$card_ids = array_values( array_filter( array_unique( array_column( $vendas, 'card_id' ) ) ) );
+	if ( $card_ids ) {
+		$rcd = tao_caixa_api( "/crm_campos_definicao?chave=eq.numero_requisicao&select=id" );
+		$campo_ids = $rcd['ok'] ? array_column( $rcd['data'] ?? [], 'id' ) : [];
+		if ( $campo_ids ) {
+			foreach ( array_chunk( $card_ids, 100 ) as $chunk ) {
+				$rvv = tao_caixa_api( "/crm_cards_valores?card_id=in.(" . implode( ',', $chunk ) . ")&campo_id=in.(" . implode( ',', $campo_ids ) . ")&select=card_id,valor" );
+				foreach ( ( $rvv['ok'] ? ( $rvv['data'] ?? [] ) : [] ) as $row )
+					if ( ! empty( $row['valor'] ) ) $req_map[ $row['card_id'] ] = $row['valor'];
+			}
+		}
+	}
+
+	$st_lbl = [ 'aberta' => 'A receber', 'parcial' => 'Parcial', 'quitada' => 'Quitada', 'cancelada' => 'Cancelada', 'estornada' => 'Estornada' ];
+	$rows = []; $tot = 0.0; $tot_pago = 0.0; $tot_aberto = 0.0;
+	foreach ( $vendas as $v ) {
+		$vt  = round( (float) ( $v['valor_total'] ?? 0 ), 2 );
+		$vp  = round( (float) ( $v['valor_pago'] ?? 0 ), 2 );
+		$sal = round( max( 0, $vt - $vp ), 2 );
+		$tot += $vt; $tot_pago += $vp; $tot_aberto += $sal;
+		$rows[] = [
+			! empty( $v['criado_em'] ) ? date_i18n( 'd/m/Y H:i', strtotime( $v['criado_em'] ) ) : '',
+			(string) ( $v['cliente_nome'] ?? '' ),
+			(string) ( $req_map[ $v['card_id'] ?? '' ] ?? '' ),
+			(string) ( $v['whatsapp'] ?? '' ),
+			( ( $v['origem'] ?? '' ) === 'avulsa' ) ? 'Avulsa' : 'Funil',
+			$st_lbl[ $v['status'] ?? '' ] ?? (string) ( $v['status'] ?? '' ),
+			$vt,
+			$vp,
+			$sal,
+		];
+	}
+	$rows[] = [ '', 'TOTAL (' . count( $vendas ) . ' vendas)', '', '', '', '', round( $tot, 2 ), round( $tot_pago, 2 ), round( $tot_aberto, 2 ) ];
+	tao_caixa_xlsx_stream(
+		'vendas_caixa_' . ( $de ?: 'todas' ) . '_a_' . $ate_d . '.xlsx',
+		[ 'Data', 'Cliente', 'Nº Req.', 'WhatsApp', 'Origem', 'Status', 'Total', 'Pago', 'Em aberto' ],
+		$rows
+	);
+} );
+
 add_action( 'wp_ajax_tao_caixa_export_pendentes', function() {
 	$cid = tao_caixa_ajax_guard();
 	$vendas = []; $off = 0;

@@ -56,6 +56,18 @@ function tao_caixa_page_vendas() {
     else                      { $p = 'hoje'; $de = $hoje; }
     $flt_data = $de ? ( '&criado_em=gte.' . $de . 'T00:00:00-03:00&criado_em=lte.' . $ate_d . 'T23:59:59-03:00' ) : '';
 
+    // URL do export XLSX com os MESMOS filtros da tela (capturada aqui, antes de $p ser reutilizada)
+    $export_url = admin_url( 'admin-ajax.php' ) . '?' . http_build_query( array_filter( [
+        'action' => 'tao_caixa_export_vendas',
+        'nonce'  => wp_create_nonce( 'tao_caixa_nonce' ),
+        'p'      => $p,
+        'de'     => $p === 'custom' ? $de : '',
+        'ate'    => $p === 'custom' ? $ate_d : '',
+        'status' => $status,
+        'origem' => $origem,
+        'card'   => $card_filtro,
+    ] ) );
+
     $vendas      = [];
     $formas      = [];
     $taxas       = [];
@@ -201,6 +213,8 @@ function tao_caixa_page_vendas() {
                 $p = [ 'origem' => $ok ]; if ( $status ) $p['status'] = $status; ?>
             <a class="taoc-btn<?php echo $origem===$ok?' taoc-btn-primary':''; ?>" href="<?php echo $url( $p ); ?>"><?php echo esc_html( $ol ); ?></a>
             <?php endforeach; ?>
+            <span style="width:1px;background:#e2e8f0;margin:0 4px"></span>
+            <a class="taoc-btn" href="<?php echo esc_url( $export_url ); ?>" title="Baixa em XLSX exatamente o que está filtrado na tela">&#x2B07; Exportar XLSX</a>
         </div>
 
         <div id="taoc-sel-bar" style="display:none;align-items:center;gap:12px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px">
