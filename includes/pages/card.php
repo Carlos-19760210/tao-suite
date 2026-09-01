@@ -386,7 +386,29 @@ function tao_crm_page_card() {
                         </select>
                     </div>
 
-                    <!-- Subtotal (itens + orçamentos) -->
+                    <!-- Acréscimo: % e R$ ligados — soma ao Subtotal (regra 01/09: Subtotal = itens+orçamentos+Acréscimo) -->
+                    <?php
+                        $_apct = ( ( $card['acrescimo_tipo'] ?? 'valor' ) === 'pct'   && floatval( $card['acrescimo'] ?? 0 ) > 0 ) ? $card['acrescimo'] : '';
+                        $_aval = ( ( $card['acrescimo_tipo'] ?? 'valor' ) === 'valor' && floatval( $card['acrescimo'] ?? 0 ) > 0 ) ? $card['acrescimo'] : '';
+                    ?>
+                    <?php if ( empty( $card['fechado'] ) ) : ?>
+                    <div class="info-row crm-info-row" style="align-items:center">
+                        <span class="info-label">Acréscimo</span>
+                        <span style="display:flex;align-items:center;gap:5px;margin-left:auto">
+                            <input type="number" id="crm-acrescimo-pct" step="0.01" min="0" value="<?php echo esc_attr( $_apct ); ?>"
+                                   placeholder="0" title="Acréscimo em %"
+                                   style="width:74px;font-size:12px;padding:3px 6px;border:1px solid #d1d5db;border-radius:4px;text-align:right">
+                            <span style="font-size:12px;color:#64748b">%</span>
+                            <input type="number" id="crm-acrescimo-valor" step="0.01" min="0" value="<?php echo esc_attr( $_aval ); ?>"
+                                   placeholder="0,00" title="Acréscimo em R$"
+                                   style="width:84px;font-size:12px;padding:3px 6px;border:1px solid #d1d5db;border-radius:4px;text-align:right">
+                            <span style="font-size:12px;color:#64748b">R$</span>
+                            <span id="crm-acrescimo-status" style="display:none;font-size:11px;color:#16a34a">&#x2714;</span>
+                        </span>
+                    </div>
+                    <?php endif; ?>
+
+                    <!-- Subtotal (itens + orçamentos + acréscimo) -->
                     <div class="info-row crm-info-row" style="align-items:center;gap:6px">
                         <span class="info-label">Subtotal (R$)</span>
                         <span id="crm-subtotal" style="font-size:12px;color:#475569">R$ 0,00</span>
@@ -1405,19 +1427,32 @@ function tao_crm_page_card() {
     window._crmFormulasTotal = 0;
     window._crmDesconto      = <?php echo floatval( $card['desconto'] ?? 0 ); ?>;
     window._crmDescTipo      = <?php echo wp_json_encode( $card['desconto_tipo'] ?? 'valor' ); ?>;
+    window._crmAcrescimo     = <?php echo floatval( $card['acrescimo'] ?? 0 ); ?>;
+    window._crmAcrTipo       = <?php echo wp_json_encode( $card['acrescimo_tipo'] ?? 'valor' ); ?>;
     window._crmDescReais = function ( sub ) {
         var d = window._crmDesconto || 0;
         return window._crmDescTipo === 'pct' ? ( sub * d / 100 ) : d;
     };
+    window._crmAcrReais = function ( base ) {
+        var a = window._crmAcrescimo || 0;
+        return window._crmAcrTipo === 'pct' ? ( base * a / 100 ) : a;
+    };
     window.atualizarOportunidade = (function () {
         var _timer;
         return function () {
-            var _sub = (window._crmItensTotal || 0) + (window._crmFormulasTotal || 0);
+            // Regra 01/09: Subtotal = itens + orçamentos + Acréscimo; Valor Final = Subtotal − Desconto
+            var _base = (window._crmItensTotal || 0) + (window._crmFormulasTotal || 0);
+            var _acr  = _base > 0 ? Math.max( 0, window._crmAcrReais( _base ) ) : 0;
+            var _sub  = _base + _acr;
             var _sd  = document.getElementById('crm-subtotal');
             if ( _sd ) _sd.textContent = 'R$ ' + _sub.toFixed(2).replace('.', ',');
-            // Subtotal zerado (nenhum aprovado/item): mantém desconto e Valor Final
+            // Base zerada (nenhum aprovado/item): mantém desconto e Valor Final
             // ARMAZENADOS e NÃO grava — senão apaga o valor do card em negociação.
-            if ( _sub <= 0 ) return;
+            if ( _base <= 0 ) return;
+            var _ap = document.getElementById('crm-acrescimo-pct');
+            var _av = document.getElementById('crm-acrescimo-valor');
+            if ( _ap && document.activeElement !== _ap ) _ap.value = ( _base > 0 && _acr > 0 ) ? ( _acr / _base * 100 ).toFixed(2) : '';
+            if ( _av && document.activeElement !== _av ) _av.value = ( _acr > 0 ) ? _acr.toFixed(2) : '';
             var _rs = _sub > 0 ? window._crmDescReais( _sub ) : 0;
             var _p  = document.getElementById('crm-desconto-pct');
             var _v  = document.getElementById('crm-desconto-valor');
@@ -1554,6 +1589,48 @@ function tao_crm_page_card() {
             });
             if ( dPct ) dPct.addEventListener('change', salvarDesc);
             if ( dVal ) dVal.addEventListener('change', salvarDesc);
+        }
+
+        // ── Acréscimo: % ↔ R$ (ligados) — espelho do desconto ─────────────
+        var aPct = document.getElementById('crm-acrescimo-pct');
+        var aVal = document.getElementById('crm-acrescimo-valor');
+        if ( ( aPct || aVal ) && window.taoCrm ) {
+            var salvarAcr = function () {
+                var st = document.getElementById('crm-acrescimo-status');
+                fetch( taoCrm.ajax_url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({
+                        action:         'tao_crm_save_acrescimo',
+                        card_id:        taoCrmCardId,
+                        acrescimo:      window._crmAcrescimo || 0,
+                        acrescimo_tipo: window._crmAcrTipo || 'valor',
+                        nonce:          taoCrm.nonce
+                    })
+                }).then(function(r){ return r.json(); }).then(function(d){
+                    if ( d.success ) {
+                        if ( d.data && typeof d.data.valor !== 'undefined' ) {
+                            var vi = document.getElementById('crm-valor-oportunidade');
+                            if ( vi ) vi.value = parseFloat( d.data.valor ) > 0 ? parseFloat( d.data.valor ).toFixed(2) : '';
+                        }
+                        if ( st ) { st.style.display = 'inline'; setTimeout(function(){ st.style.display='none'; }, 2000); }
+                    } else {
+                        alert( 'Erro ao salvar acréscimo: ' + ( d.data || '' ) );
+                    }
+                });
+            };
+            if ( aPct ) aPct.addEventListener('input', function () {
+                window._crmAcrescimo = parseFloat( aPct.value ) || 0;
+                window._crmAcrTipo   = 'pct';
+                if ( window.atualizarOportunidade ) window.atualizarOportunidade();
+            });
+            if ( aVal ) aVal.addEventListener('input', function () {
+                window._crmAcrescimo = parseFloat( aVal.value ) || 0;
+                window._crmAcrTipo   = 'valor';
+                if ( window.atualizarOportunidade ) window.atualizarOportunidade();
+            });
+            if ( aPct ) aPct.addEventListener('change', salvarAcr);
+            if ( aVal ) aVal.addEventListener('change', salvarAcr);
         }
 
         // ── Etiquetas (tags) ─────────────────────────────────────────────

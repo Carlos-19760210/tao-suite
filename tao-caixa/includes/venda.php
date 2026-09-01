@@ -31,8 +31,8 @@ function tao_caixa_criar_venda_do_card( $card_id, $workspace_id ) {
         $rex = tao_caixa_api( "/caixa_vendas?card_id=eq.$card_id&select=id&limit=1" );
         if ( $rex['ok'] && ! empty( $rex['data'] ) ) return;
 
-        // Dados do card (cliente / whatsapp)
-        $rc   = tao_caixa_api( "/crm_cards?id=eq.$card_id&select=contato_nome,contato_whatsapp&limit=1" );
+        // Dados do card (cliente / whatsapp / Valor Final)
+        $rc   = tao_caixa_api( "/crm_cards?id=eq.$card_id&select=contato_nome,contato_whatsapp,valor_oportunidade&limit=1" );
         $card = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? $rc['data'][0] : [];
 
         // Itens do negócio (+ orçamentos do módulo Fórmula, quando o cliente tiver) → itens da venda
@@ -51,7 +51,9 @@ function tao_caixa_criar_venda_do_card( $card_id, $workspace_id ) {
             $total += $vt;
         }
 
-        $ro = tao_caixa_api( "/orcamentos?card_id=eq.$card_id&select=id,numero_orcamento,forma_nome,total_orcamento,valor_final_fc" );
+        // Regra 01/09 (Carlos): no ganho/pós-vendas só os orçamentos APROVADOS compõem a venda
+        // (antes somava todos — venda nascia maior que o Valor Final do card).
+        $ro = tao_caixa_api( "/orcamentos?card_id=eq.$card_id&status=in.(aprovado_farma,aceito_paciente)&select=id,numero_orcamento,forma_nome,total_orcamento,valor_final_fc" );
         foreach ( ( $ro['ok'] ? ( $ro['data'] ?? [] ) : [] ) as $o ) {
             // Régua do card/Kanban: quando o orçamento veio de IMPORTAÇÃO (FCerta), valor_final_fc > 0
             // é o valor que o cliente aprovou — é ELE que vai ao Caixa, não o total_orcamento (que o
@@ -66,6 +68,20 @@ function tao_caixa_criar_venda_do_card( $card_id, $workspace_id ) {
                 'valor_total'    => $vt,
             ];
             $total += $vt;
+        }
+
+        // O Valor Final do card (itens + orçamentos aprovados + acréscimo − descontos) é a
+        // fonte da verdade da venda; a diferença p/ a soma dos itens vira linha de ajuste.
+        $vf = round( floatval( $card['valor_oportunidade'] ?? 0 ), 2 );
+        if ( $vf > 0 && abs( $vf - $total ) > 0.005 ) {
+            $dif = round( $vf - $total, 2 );
+            $itens[] = [
+                'descricao'      => $dif > 0 ? 'Acréscimo (card)' : 'Desconto (card)',
+                'quantidade'     => 1,
+                'valor_unitario' => $dif,
+                'valor_total'    => $dif,
+            ];
+            $total = $vf;
         }
 
         // Cria a venda (status aberta)
@@ -94,6 +110,51 @@ function tao_caixa_criar_venda_do_card( $card_id, $workspace_id ) {
     } catch ( \Throwable $e ) {
         error_log( '[tao-caixa] criar venda do card ganho falhou: ' . $e->getMessage() );
     }
+}
+
+/**
+ * Re-sincroniza vendas ABERTAS/PARCIAIS de origem card com o Valor Final atual do card
+ * (regra 01/09: o caixa recebe o Valor Final do card, não o valor congelado no ganho).
+ * Recebe as linhas da listagem ($vendas com id, card_id, valor_total, valor_pago, status)
+ * e devolve o array com valor_total corrigido. Guarda: nunca deixa total < valor_pago
+ * (nesse caso não mexe — a divergência aparece na tela para tratamento manual).
+ */
+function tao_caixa_sync_vendas_com_cards( $cid, array $vendas ): array {
+    try {
+        $card_ids = [];
+        foreach ( $vendas as $v ) {
+            if ( ! empty( $v['card_id'] ) && in_array( $v['status'] ?? '', [ 'aberta', 'parcial' ], true ) ) {
+                $card_ids[] = $v['card_id'];
+            }
+        }
+        $card_ids = array_values( array_unique( $card_ids ) );
+        if ( ! $card_ids ) return $vendas;
+        $vals = [];
+        foreach ( array_chunk( $card_ids, 100 ) as $chunk ) {
+            $rc = tao_caixa_api( '/crm_cards?id=in.(' . implode( ',', $chunk ) . ')&select=id,valor_oportunidade' );
+            foreach ( ( $rc['ok'] ? ( $rc['data'] ?? [] ) : [] ) as $c ) {
+                $vals[ $c['id'] ] = round( floatval( $c['valor_oportunidade'] ?? 0 ), 2 );
+            }
+        }
+        foreach ( $vendas as $i => $v ) {
+            $cdid = $v['card_id'] ?? '';
+            if ( ! $cdid || ! isset( $vals[ $cdid ] ) ) continue;
+            if ( ! in_array( $v['status'] ?? '', [ 'aberta', 'parcial' ], true ) ) continue;
+            $novo = $vals[ $cdid ];
+            $atual = round( floatval( $v['valor_total'] ?? 0 ), 2 );
+            $pago  = round( floatval( $v['valor_pago'] ?? 0 ), 2 );
+            if ( $novo <= 0 || abs( $novo - $atual ) <= 0.005 ) continue;
+            if ( $novo < $pago - 0.005 ) continue;   // card ficou menor que o já pago → não mexe
+            $up = [ 'valor_total' => $novo, 'atualizado_em' => gmdate( 'c' ) ];
+            if ( $novo <= $pago + 0.005 && $pago > 0 ) $up['status'] = 'quitada';
+            tao_caixa_api( "/caixa_vendas?id=eq.{$v['id']}&cliente_id=eq.$cid", 'PATCH', $up );
+            $vendas[ $i ]['valor_total'] = $novo;
+            if ( isset( $up['status'] ) ) $vendas[ $i ]['status'] = $up['status'];
+        }
+    } catch ( \Throwable $e ) {
+        error_log( '[tao-caixa] sync venda x card falhou: ' . $e->getMessage() );
+    }
+    return $vendas;
 }
 
 /**

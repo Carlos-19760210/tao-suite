@@ -1076,7 +1076,7 @@ function tao_crm_assumir_responsavel( $card_id ) {
 foreach ( [
     'move_card', 'save_valor', 'fechar_card', 'reabrir_card', 'save_nota', 'update_card_info',
     'set_card_tags', 'save_lembrete', 'complete_lembrete', 'delete_lembrete',
-    'save_valor_oportunidade', 'save_desconto', 'save_comentario', 'delete_comentario',
+    'save_valor_oportunidade', 'save_desconto', 'save_acrescimo', 'save_comentario', 'delete_comentario',
     'save_card_item', 'delete_card_item', 'save_msg_agendada', 'enviar_orcamento_formula',
 ] as $_acao_card ) {
     add_action( "wp_ajax_tao_crm_$_acao_card", function () {
@@ -5312,6 +5312,36 @@ add_action( 'wp_ajax_tao_crm_save_desconto', function () {
     wp_send_json_success( [ 'valor' => $valor ] );
 } );
 
+// ── Salvar acréscimo do card (recalcula valor de oportunidade) ────────────────
+add_action( 'wp_ajax_tao_crm_save_acrescimo', function () {
+    check_ajax_referer( 'tao_crm_nonce', 'nonce' );
+    if ( ! function_exists( 'cbpm_can_access' ) || ! cbpm_can_access() ) wp_send_json_error( 'Acesso negado' );
+    $card_id = sanitize_text_field( $_POST['card_id'] ?? '' );
+    $acr     = floatval( $_POST['acrescimo'] ?? 0 );
+    if ( $acr < 0 ) $acr = 0;
+    $atipo   = ( ( $_POST['acrescimo_tipo'] ?? 'valor' ) === 'pct' ) ? 'pct' : 'valor';
+    if ( ! $card_id ) wp_send_json_error( 'card_id obrigatório' );
+    $r = tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [ 'acrescimo' => $acr, 'acrescimo_tipo' => $atipo ] );
+    if ( ! $r['ok'] ) {
+        if ( strpos( (string) ( $r['error'] ?? '' ) . (string) ( $r['raw'] ?? '' ), 'acrescimo' ) !== false ) {
+            wp_send_json_error( 'Acréscimo requer a migration migration_card_acrescimo_v1.sql — rode-a no Supabase.' );
+        }
+        wp_send_json_error( $r['error'] ?? 'Erro ao salvar acréscimo' );
+    }
+    // Recalcula o valor apenas se houver itens/orçamentos (card manual mantém o valor digitado)
+    $tem = false;
+    $ri  = tao_crm_api( "/crm_card_itens?card_id=eq.$card_id&select=id&limit=1" );
+    if ( $ri['ok'] && ! empty( $ri['data'] ) ) $tem = true;
+    if ( ! $tem ) {
+        $ro = tao_crm_api( "/orcamentos?card_id=eq.$card_id&select=id&limit=1" );
+        if ( $ro['ok'] && ! empty( $ro['data'] ) ) $tem = true;
+    }
+    if ( $tem ) tao_crm_sync_valor_oportunidade( $card_id );
+    $rc    = tao_crm_api( "/crm_cards?id=eq.$card_id&select=valor_oportunidade&limit=1" );
+    $valor = ( $rc['ok'] && ! empty( $rc['data'] ) ) ? floatval( $rc['data'][0]['valor_oportunidade'] ?? 0 ) : 0;
+    wp_send_json_success( [ 'valor' => $valor ] );
+} );
+
 // ── Billing / Planos ──────────────────────────────────────────────────────────
 
 function tao_crm_get_plano_limites( string $plano ): array {
@@ -6078,7 +6108,9 @@ function tao_crm_calcular_item_total( float $qtd, float $preco, string $tipo, fl
 }
 
 /**
- * Recalcula valor_oportunidade do card = soma dos itens do negócio + soma dos orçamentos de fórmula.
+ * Recalcula valor_oportunidade do card (regra Carlos 01/09/2026):
+ *   Subtotal    = itens do negócio + orçamentos (vendas: todos | pós-vendas: só aprovados) + Acréscimo
+ *   Valor Final = Subtotal − Descontos
  */
 function tao_crm_sync_valor_oportunidade( string $card_id ): void {
     if ( ! $card_id ) return;
@@ -6117,15 +6149,22 @@ function tao_crm_sync_valor_oportunidade( string $card_id ): void {
         }
     }
 
-    // Desconto concedido no card (R$ ou %) — subtraído do subtotal (sem limite; valor mínimo 0)
-    $rd    = tao_crm_api( "/crm_cards?id=eq.$card_id&select=desconto,desconto_tipo&limit=1" );
-    $dval  = 0.0; $dtipo = 'valor';
+    // Acréscimo (R$ ou %) somado à base itens+orçamentos → Subtotal; Desconto (R$ ou %)
+    // aplicado sobre o Subtotal → Valor Final. Fallback: coluna acrescimo pode não existir
+    // antes da migration_card_acrescimo_v1 — refaz o GET sem ela.
+    $rd = tao_crm_api( "/crm_cards?id=eq.$card_id&select=desconto,desconto_tipo,acrescimo,acrescimo_tipo&limit=1" );
+    if ( ! $rd['ok'] ) $rd = tao_crm_api( "/crm_cards?id=eq.$card_id&select=desconto,desconto_tipo&limit=1" );
+    $dval = 0.0; $dtipo = 'valor'; $aval = 0.0; $atipo = 'valor';
     if ( $rd['ok'] && ! empty( $rd['data'] ) ) {
         $dval  = floatval( $rd['data'][0]['desconto'] ?? 0 );
         $dtipo = $rd['data'][0]['desconto_tipo'] ?? 'valor';
+        $aval  = floatval( $rd['data'][0]['acrescimo'] ?? 0 );
+        $atipo = $rd['data'][0]['acrescimo_tipo'] ?? 'valor';
     }
-    $desc_reais = ( $dtipo === 'pct' ) ? ( $total * $dval / 100 ) : $dval;
-    $total = max( 0, $total - $desc_reais );
+    $acr_reais  = ( $atipo === 'pct' ) ? ( $total * $aval / 100 ) : $aval;
+    $subtotal   = $total + max( 0, $acr_reais );
+    $desc_reais = ( $dtipo === 'pct' ) ? ( $subtotal * $dval / 100 ) : $dval;
+    $total = max( 0, $subtotal - $desc_reais );
 
     tao_crm_api( "/crm_cards?id=eq.$card_id", 'PATCH', [ 'valor_oportunidade' => round( $total, 2 ) ] );
 }

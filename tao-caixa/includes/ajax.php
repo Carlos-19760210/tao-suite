@@ -14,6 +14,64 @@ function tao_caixa_ajax_guard() {
     return $cid;
 }
 
+/**
+ * Valida CPF (11 díg.) ou CNPJ (14 díg.) pelos dígitos verificadores. '' = válido (opcional).
+ */
+function tao_caixa_doc_valido( string $doc ): bool {
+    $d = preg_replace( '/\D/', '', $doc );
+    if ( $d === '' ) return true;
+    if ( strlen( $d ) === 11 ) {
+        if ( preg_match( '/^(\d)\1{10}$/', $d ) ) return false;
+        for ( $t = 9; $t < 11; $t++ ) {
+            $s = 0;
+            for ( $i = 0; $i < $t; $i++ ) $s += (int) $d[ $i ] * ( $t + 1 - $i );
+            $dv = ( $s * 10 ) % 11 % 10;
+            if ( $dv !== (int) $d[ $t ] ) return false;
+        }
+        return true;
+    }
+    if ( strlen( $d ) === 14 ) {
+        if ( preg_match( '/^(\d)\1{13}$/', $d ) ) return false;
+        $p1 = [ 5,4,3,2,9,8,7,6,5,4,3,2 ]; $p2 = array_merge( [ 6 ], $p1 );
+        foreach ( [ [ $p1, 12 ], [ $p2, 13 ] ] as [ $pesos, $pos ] ) {
+            $s = 0;
+            foreach ( $pesos as $i => $p ) $s += (int) $d[ $i ] * $p;
+            $dv = $s % 11; $dv = $dv < 2 ? 0 : 11 - $dv;
+            if ( $dv !== (int) $d[ $pos ] ) return false;
+        }
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Workspace do CRM correspondente ao cliente do caixa (p/ cadastro único de contatos).
+ */
+function tao_caixa_workspace_id( $cid ) {
+    $rw = tao_caixa_api( "/crm_workspaces?cliente_id=eq.$cid&ativo=eq.true&select=id&limit=1" );
+    return ( $rw['ok'] && ! empty( $rw['data'] ) ) ? ( $rw['data'][0]['id'] ?? '' ) : '';
+}
+
+// ── Busca de contato (cadastro único) — Nome ↔ CPF no Receber pagamento ──────
+add_action( 'wp_ajax_tao_caixa_buscar_contato', function() {
+    $cid = tao_caixa_ajax_guard();
+    $ws  = tao_caixa_workspace_id( $cid );
+    if ( ! $ws ) wp_send_json_success( [] );
+    $cpf = preg_replace( '/\D/', '', sanitize_text_field( $_POST['cpf'] ?? '' ) );
+    $q   = trim( sanitize_text_field( $_POST['q'] ?? '' ) );
+    $out = [];
+    if ( $cpf !== '' ) {
+        $rc = tao_caixa_api( "/crm_contatos?workspace_id=eq.$ws&cpf=eq.$cpf&select=id,nome,cpf&limit=5" );
+        $out = $rc['ok'] ? ( $rc['data'] ?? [] ) : [];
+    } elseif ( strlen( $q ) >= 3 ) {
+        $rc = tao_caixa_api( "/crm_contatos?workspace_id=eq.$ws&nome=ilike.*" . rawurlencode( $q ) . "*&select=id,nome,cpf&order=nome.asc&limit=8" );
+        $out = $rc['ok'] ? ( $rc['data'] ?? [] ) : [];
+    }
+    wp_send_json_success( array_map( function ( $c ) {
+        return [ 'id' => $c['id'], 'nome' => $c['nome'] ?? '', 'cpf' => $c['cpf'] ?? '' ];
+    }, $out ) );
+} );
+
 // ── Adquirentes ──────────────────────────────────────────────────────────────
 
 add_action( 'wp_ajax_tao_caixa_save_adquirente', function() {
@@ -436,6 +494,12 @@ add_action( 'wp_ajax_tao_caixa_receber_venda', function() {
 
     // Campos do recebimento (PDV): CPF, data do pagamento (hoje ou passada), desconto adicional, cupom fiscal
     $cpf_pag  = sanitize_text_field( $_POST['cpf_pagador'] ?? '' );
+    $nome_pag = trim( sanitize_text_field( $_POST['nome_pagador'] ?? '' ) );
+    // Regra 01/09 (Carlos): CPF/CNPJ validado pelos dígitos; sendo válido e informado,
+    // o nome do cliente é obrigatório e o par nome+CPF é gravado no cadastro único (crm_contatos).
+    if ( ! tao_caixa_doc_valido( $cpf_pag ) ) wp_send_json_error( 'CPF/CNPJ inválido — confira os dígitos.' );
+    $cpf_dig = preg_replace( '/\D/', '', $cpf_pag );
+    if ( $cpf_dig !== '' && $nome_pag === '' ) wp_send_json_error( 'Informe o nome do cliente (CPF válido informado).' );
     $desc_ad  = round( max( 0, (float) str_replace( ',', '.', (string) ( $_POST['desconto_adicional'] ?? 0 ) ) ), 2 );
     // Alçada (etapa 1): desconto adicional acima do limite do perfil → bloqueia
     if ( $desc_ad > 0 && function_exists( 'tao_crm_alcada' ) ) {
@@ -457,11 +521,49 @@ add_action( 'wp_ajax_tao_caixa_receber_venda', function() {
     // CM = ACRÉSCIMO manual (Carlos 14/08): o teto do recebimento é saldo + CM. A distribuição
     // FIFO continua limitada ao saldo das vendas — o excedente (CM) fica no recibo (valor_cm).
     if ( $soma + $desc_ad > $saldo_total + $val_cm + 0.005 ) {
-        wp_send_json_error( 'Pagamentos + desconto acima do saldo + CM (R$ ' . number_format( $saldo_total + $val_cm, 2, ',', '.' ) . ')' );
+        wp_send_json_error( 'Pagamentos acima do valor a receber — Valor final + CM − desconto = R$ '
+            . number_format( max( 0, $saldo_total + $val_cm - $desc_ad ), 2, ',', '.' ) );
     }
 
     $uid = get_current_user_id();
-    $pagador = ( $vendas[0]['cliente_nome'] ?? '' ) . ( count( $vendas ) > 1 ? ' +' . ( count( $vendas ) - 1 ) : '' );
+    $pagador = $nome_pag !== ''
+        ? $nome_pag . ( count( $vendas ) > 1 ? ' +' . ( count( $vendas ) - 1 ) : '' )
+        : ( $vendas[0]['cliente_nome'] ?? '' ) . ( count( $vendas ) > 1 ? ' +' . ( count( $vendas ) - 1 ) : '' );
+
+    // Grava nome+CPF no cadastro único (crm_contatos) — best-effort, nunca trava o recebimento.
+    if ( $cpf_dig !== '' && $nome_pag !== '' ) {
+        try {
+            $ws = tao_caixa_workspace_id( $cid );
+            if ( $ws ) {
+                $rex = tao_caixa_api( "/crm_contatos?workspace_id=eq.$ws&cpf=eq.$cpf_dig&select=id,nome&limit=1" );
+                if ( $rex['ok'] && ! empty( $rex['data'] ) ) {
+                    // CPF já cadastrado: completa o nome se estiver vazio (não sobrescreve)
+                    if ( trim( (string) ( $rex['data'][0]['nome'] ?? '' ) ) === '' ) {
+                        tao_caixa_api( "/crm_contatos?id=eq.{$rex['data'][0]['id']}", 'PATCH',
+                            [ 'nome' => $nome_pag, 'atualizado_em' => gmdate( 'c' ) ] );
+                    }
+                } else {
+                    // CPF novo: grava no contato do card da 1ª venda (se ele ainda não tem CPF)
+                    $card_ref = '';
+                    foreach ( $vendas as $v ) { if ( ! empty( $v['card_id'] ) ) { $card_ref = $v['card_id']; break; } }
+                    if ( $card_ref ) {
+                        $rcc = tao_caixa_api( "/crm_cards?id=eq.$card_ref&select=contato_id&limit=1" );
+                        $ct_id = ( $rcc['ok'] && ! empty( $rcc['data'] ) ) ? ( $rcc['data'][0]['contato_id'] ?? '' ) : '';
+                        if ( $ct_id ) {
+                            $rct = tao_caixa_api( "/crm_contatos?id=eq.$ct_id&select=id,nome,cpf&limit=1" );
+                            if ( $rct['ok'] && ! empty( $rct['data'] ) && trim( (string) ( $rct['data'][0]['cpf'] ?? '' ) ) === '' ) {
+                                $up = [ 'cpf' => $cpf_dig, 'atualizado_em' => gmdate( 'c' ) ];
+                                if ( trim( (string) ( $rct['data'][0]['nome'] ?? '' ) ) === '' ) $up['nome'] = $nome_pag;
+                                tao_caixa_api( "/crm_contatos?id=eq.$ct_id", 'PATCH', $up );
+                            }
+                        }
+                    }
+                }
+            }
+        } catch ( \Throwable $e ) {
+            error_log( '[tao-caixa] gravar CPF/nome no contato falhou: ' . $e->getMessage() );
+        }
+    }
 
     // Recibo (cupom) — carimba a sessão de caixa aberta (Fase 2), se houver
     $sess_ab = tao_caixa_sessao_aberta( $cid );

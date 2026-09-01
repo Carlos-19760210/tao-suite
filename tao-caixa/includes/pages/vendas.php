@@ -72,6 +72,10 @@ function tao_caixa_page_vendas() {
             "&select=id,card_id,cliente_nome,whatsapp,valor_total,valor_pago,status,origem,criado_em"
         );
         $vendas = $rv['ok'] ? ( $rv['data'] ?? [] ) : [];
+        // Regra 01/09: venda aberta/parcial de card acompanha o Valor Final ATUAL do card
+        if ( function_exists( 'tao_caixa_sync_vendas_com_cards' ) ) {
+            $vendas = tao_caixa_sync_vendas_com_cards( $cid, $vendas );
+        }
         foreach ( $vendas as $v ) {
             $tot_geral += floatval( $v['valor_total'] ?? 0 );
             if ( in_array( $v['status'] ?? '', [ 'aberta', 'parcial' ], true ) ) {
@@ -281,9 +285,15 @@ function tao_caixa_page_vendas() {
             <p id="taoc-rec-info" style="font-size:13px;color:#475569;margin:0 0 12px"></p>
             <input type="hidden" id="taoc-rec-venda">
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-                <div style="flex:1;min-width:150px">
+                <div style="flex:2;min-width:180px;position:relative">
+                    <label style="font-size:11px;color:#64748b;display:block">Nome do cliente</label>
+                    <input type="text" id="taoc-rec-nome" placeholder="Nome completo" autocomplete="off"
+                           style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:4px">
+                    <div id="taoc-rec-nome-sug" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #cbd5e1;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.12);max-height:180px;overflow:auto;z-index:50"></div>
+                </div>
+                <div style="flex:1;min-width:140px">
                     <label style="font-size:11px;color:#64748b;display:block">CPF/CNPJ do cliente</label>
-                    <input type="text" id="taoc-rec-cpf" placeholder="CPF ou CNPJ" maxlength="18"
+                    <input type="text" id="taoc-rec-cpf" placeholder="CPF ou CNPJ" maxlength="18" autocomplete="off"
                            style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:4px">
                 </div>
                 <div style="width:140px">
@@ -292,15 +302,29 @@ function tao_caixa_page_vendas() {
                            value="<?php echo esc_attr( wp_date( 'Y-m-d' ) ); ?>"
                            style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:4px">
                 </div>
-                <div style="width:110px">
-                    <label style="font-size:11px;color:#64748b;display:block">Desconto (R$)</label>
-                    <input type="number" id="taoc-rec-desc" min="0" step="0.01" value="0"
-                           style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:4px;text-align:right">
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+                <div style="width:170px">
+                    <label style="font-size:11px;color:#64748b;display:block">Desconto adicional</label>
+                    <span style="display:flex;gap:4px">
+                        <input type="number" id="taoc-rec-desc" min="0" step="0.01" value="0"
+                               style="flex:1;min-width:0;padding:5px;border:1px solid #cbd5e1;border-radius:4px;text-align:right">
+                        <select id="taoc-rec-desc-tipo" style="width:52px;padding:5px;border:1px solid #cbd5e1;border-radius:4px">
+                            <option value="valor">R$</option>
+                            <option value="pct">%</option>
+                        </select>
+                    </span>
                 </div>
-                <div style="width:100px">
-                    <label style="font-size:11px;color:#64748b;display:block" title="Valor adicional do recebimento">CM (R$)</label>
-                    <input type="number" id="taoc-rec-cm" min="0" step="0.01" value="0"
-                           style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:4px;text-align:right">
+                <div style="width:170px">
+                    <label style="font-size:11px;color:#64748b;display:block" title="Acréscimo do recebimento">CM</label>
+                    <span style="display:flex;gap:4px">
+                        <input type="number" id="taoc-rec-cm" min="0" step="0.01" value="0"
+                               style="flex:1;min-width:0;padding:5px;border:1px solid #cbd5e1;border-radius:4px;text-align:right">
+                        <select id="taoc-rec-cm-tipo" style="width:52px;padding:5px;border:1px solid #cbd5e1;border-radius:4px">
+                            <option value="valor">R$</option>
+                            <option value="pct">%</option>
+                        </select>
+                    </span>
                 </div>
                 <div style="width:100px">
                     <label style="font-size:11px;color:#64748b;display:block">Taxas</label>
@@ -417,6 +441,15 @@ function tao_caixa_page_vendas() {
             if(fx){ taxa=parseFloat(fx.taxa_pct); prazo=parseInt(fx.prazo_recebimento_dias); }
             return { taxa:taxa, prazo:prazo };
         }
+        // Desconto adicional e CM aceitam R$ ou % (percentual calculado sobre o Valor final/saldo)
+        function _valTipo(inpId, selId){
+            var v = parseFloat((document.getElementById(inpId)||{}).value||'0')||0;
+            var t = (document.getElementById(selId)||{}).value||'valor';
+            var r = t==='pct' ? saldo*v/100 : v;
+            return Math.round(Math.max(0,r)*100)/100;
+        }
+        function descReais(){ return _valTipo('taoc-rec-desc','taoc-rec-desc-tipo'); }
+        function cmReais(){   return _valTipo('taoc-rec-cm','taoc-rec-cm-tipo'); }
         function recalc(){
             var soma = 0;
             var linhas = box.querySelectorAll('.taoc-pag-linha');
@@ -436,14 +469,16 @@ function tao_caixa_page_vendas() {
                 else prev.innerHTML = '';
             }
             soma = Math.round(soma*100)/100;
-            var descAd = parseFloat((document.getElementById('taoc-rec-desc')||{}).value||'0')||0;
-            var cmVal  = parseFloat((document.getElementById('taoc-rec-cm')||{}).value||'0')||0;
-            // CM = ACRÉSCIMO manual: o total a receber passa a ser saldo + CM
-            var falta = Math.round((saldo+cmVal-soma-descAd)*100)/100;
-            resumo.innerHTML = 'Saldo: <strong>'+brl(saldo)+'</strong>'
-                + (cmVal>0 ? ' &nbsp;+&nbsp; CM: <strong style="color:#7c3aed">'+brl(cmVal)+'</strong> &nbsp;=&nbsp; A receber: <strong>'+brl(Math.round((saldo+cmVal)*100)/100)+'</strong>' : '')
+            var descAd = descReais();
+            var cmVal  = cmReais();
+            // Regra 01/09: A receber = Valor final (saldo) + CM − Desconto adicional
+            var aReceber = Math.round((saldo+cmVal-descAd)*100)/100;
+            var falta = Math.round((aReceber-soma)*100)/100;
+            resumo.innerHTML = 'Valor final: <strong>'+brl(saldo)+'</strong>'
+                + (cmVal>0 ? ' &nbsp;+&nbsp; CM: <strong style="color:#7c3aed">'+brl(cmVal)+'</strong>' : '')
+                + (descAd>0 ? ' &nbsp;&minus;&nbsp; Desconto: <strong style="color:#0369a1">'+brl(descAd)+'</strong>' : '')
+                + ' &nbsp;=&nbsp; A receber: <strong>'+brl(aReceber)+'</strong>'
                 + ' &nbsp;&middot;&nbsp; Pagamentos: <strong>'+brl(soma)+'</strong>'
-                + (descAd>0 ? ' &nbsp;&middot;&nbsp; Desconto: <strong style="color:#0369a1">'+brl(descAd)+'</strong>' : '')
                 + ' &nbsp;&middot;&nbsp; '
                 + (falta < -0.005
                     ? 'Excede: <strong style="color:#dc2626">'+brl(-falta)+'</strong>'
@@ -476,18 +511,91 @@ function tao_caixa_page_vendas() {
             selVendas = ids; saldo = Math.round(saldoTotal*100)/100;
             info.innerHTML = label;
             box.innerHTML=''; msg.style.display='none';
+            var _n=document.getElementById('taoc-rec-nome');  if(_n) _n.value='';
+            var _ns=document.getElementById('taoc-rec-nome-sug'); if(_ns) _ns.style.display='none';
             var _c=document.getElementById('taoc-rec-cpf');   if(_c) _c.value='';
             var _d=document.getElementById('taoc-rec-desc');  if(_d) _d.value='0';
+            var _dtp=document.getElementById('taoc-rec-desc-tipo'); if(_dtp) _dtp.value='valor';
             var _cm=document.getElementById('taoc-rec-cm');   if(_cm) _cm.value='0';
+            var _cmt=document.getElementById('taoc-rec-cm-tipo'); if(_cmt) _cmt.value='valor';
             var _dt=document.getElementById('taoc-rec-data'); if(_dt) _dt.value=_dt.getAttribute('max');
             var _cf=document.getElementById('taoc-rec-cupom');if(_cf) _cf.value='0';
             addLinha(saldo);
             modal.style.display='block';
         }
-        var _descInp=document.getElementById('taoc-rec-desc');
-        if(_descInp) _descInp.addEventListener('input', function(){ recalc(); });
-        var _cmInp=document.getElementById('taoc-rec-cm');
-        if(_cmInp) _cmInp.addEventListener('input', function(){ recalc(); });
+        ['taoc-rec-desc','taoc-rec-desc-tipo','taoc-rec-cm','taoc-rec-cm-tipo'].forEach(function(id){
+            var el=document.getElementById(id);
+            if(el) el.addEventListener(el.tagName==='SELECT'?'change':'input', function(){ recalc(); });
+        });
+
+        // ── Nome ↔ CPF (busca no cadastro único de contatos) ──
+        var nomeInp = document.getElementById('taoc-rec-nome');
+        var cpfInp  = document.getElementById('taoc-rec-cpf');
+        var sugBox  = document.getElementById('taoc-rec-nome-sug');
+        var sugSel  = -1, sugItens = [], buscaTimer;
+        function fecharSug(){ if(sugBox){ sugBox.style.display='none'; sugBox.innerHTML=''; } sugSel=-1; sugItens=[]; }
+        function pintarSug(){
+            var divs = sugBox ? sugBox.querySelectorAll('.taoc-sug-item') : [];
+            for(var i=0;i<divs.length;i++) divs[i].style.background = (i===sugSel)?'#eef2ff':'#fff';
+        }
+        function aplicarContato(c){
+            if(nomeInp && c.nome) nomeInp.value = c.nome;
+            if(cpfInp  && c.cpf)  cpfInp.value  = c.cpf;
+            fecharSug();
+        }
+        function buscarContato(q, porCpf){
+            var fd = new FormData();
+            fd.append('action','tao_caixa_buscar_contato'); fd.append('nonce',C.nonce);
+            fd.append(porCpf?'cpf':'q', q);
+            return fetch(C.ajaxUrl,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){ return r.json(); });
+        }
+        if(nomeInp && sugBox){
+            nomeInp.addEventListener('input', function(){
+                clearTimeout(buscaTimer);
+                var q = nomeInp.value.trim();
+                if(q.length < 3){ fecharSug(); return; }
+                buscaTimer = setTimeout(function(){
+                    buscarContato(q, false).then(function(resp){
+                        if(!resp || !resp.success || !resp.data || !resp.data.length){ fecharSug(); return; }
+                        sugItens = resp.data; sugSel = -1;
+                        sugBox.innerHTML = '';
+                        resp.data.forEach(function(c, i){
+                            var d = document.createElement('div');
+                            d.className = 'taoc-sug-item';
+                            d.style.cssText = 'padding:6px 10px;font-size:13px;cursor:pointer;border-bottom:1px solid #f1f5f9';
+                            d.innerHTML = '<strong>'+c.nome+'</strong>'+(c.cpf?' <span style="color:#64748b">· '+c.cpf+'</span>':'');
+                            d.addEventListener('mousedown', function(ev){ ev.preventDefault(); aplicarContato(c); });
+                            d.addEventListener('mouseenter', function(){ sugSel=i; pintarSug(); });
+                            sugBox.appendChild(d);
+                        });
+                        sugBox.style.display='block';
+                    }).catch(function(){ fecharSug(); });
+                }, 250);
+            });
+            // Navegação por teclado: ↑/↓ + Enter/Esc
+            nomeInp.addEventListener('keydown', function(ev){
+                if(sugBox.style.display==='none' || !sugItens.length) return;
+                if(ev.key==='ArrowDown'){ ev.preventDefault(); sugSel=Math.min(sugSel+1,sugItens.length-1); pintarSug(); }
+                else if(ev.key==='ArrowUp'){ ev.preventDefault(); sugSel=Math.max(sugSel-1,0); pintarSug(); }
+                else if(ev.key==='Enter'){ ev.preventDefault(); if(sugSel>=0) aplicarContato(sugItens[sugSel]); }
+                else if(ev.key==='Escape'){ fecharSug(); }
+            });
+            nomeInp.addEventListener('blur', function(){ setTimeout(fecharSug, 150); });
+        }
+        if(cpfInp){
+            cpfInp.addEventListener('input', function(){
+                clearTimeout(buscaTimer);
+                var dig = (cpfInp.value||'').replace(/\D/g,'');
+                if(!(dig.length===11||dig.length===14) || !docValido(cpfInp.value)) return;
+                buscaTimer = setTimeout(function(){
+                    buscarContato(dig, true).then(function(resp){
+                        if(resp && resp.success && resp.data && resp.data.length && nomeInp && !nomeInp.value.trim()){
+                            nomeInp.value = resp.data[0].nome || '';
+                        }
+                    }).catch(function(){});
+                }, 250);
+            });
+        }
         var btns = document.querySelectorAll('.taoc-receber');
         for(var i=0;i<btns.length;i++){
             btns[i].addEventListener('click', function(){
@@ -563,26 +671,34 @@ function tao_caixa_page_vendas() {
                 if(fid && val>0) pags.push({ forma_pagamento_id:fid, parcelas:parc, valor:val, bandeira:band });
             }
             if(!pags.length){ alert('Informe ao menos uma forma com valor.'); return; }
-            var _cpfEl = document.getElementById('taoc-rec-cpf');
+            var _cpfEl  = document.getElementById('taoc-rec-cpf');
+            var _nomeEl = document.getElementById('taoc-rec-nome');
             if(_cpfEl && !docValido(_cpfEl.value)){
                 alert('CPF/CNPJ inválido — confira os dígitos.');
                 _cpfEl.style.borderColor = '#dc2626'; _cpfEl.focus(); return;
             }
             if(_cpfEl) _cpfEl.style.borderColor = '#cbd5e1';
+            // CPF válido informado → nome do cliente é obrigatório (grava no cadastro único)
+            if(_cpfEl && (_cpfEl.value||'').replace(/\D/g,'').length>0 && _nomeEl && !_nomeEl.value.trim()){
+                alert('Informe o nome do cliente (CPF válido informado).');
+                _nomeEl.style.borderColor = '#dc2626'; _nomeEl.focus(); return;
+            }
+            if(_nomeEl) _nomeEl.style.borderColor = '#cbd5e1';
             var soma = 0; pags.forEach(function(p){ soma += p.valor; });
-            var descAd = parseFloat((document.getElementById('taoc-rec-desc')||{}).value||'0')||0;
-            var cmConf = parseFloat((document.getElementById('taoc-rec-cm')||{}).value||'0')||0;
-            // CM (acréscimo manual) amplia o teto: pagamentos + desconto ≤ saldo + CM
-            if(soma + descAd > saldo + cmConf + 0.005){ alert('Pagamentos + desconto ('+brl(soma+descAd)+') excedem o saldo + CM ('+brl(saldo+cmConf)+').'); return; }
+            var descAd = descReais();
+            var cmConf = cmReais();
+            // Regra 01/09: pagamentos não podem exceder A receber = Valor final + CM − desconto
+            if(soma > saldo + cmConf - descAd + 0.005){ alert('Pagamentos ('+brl(soma)+') excedem o valor a receber ('+brl(Math.round((saldo+cmConf-descAd)*100)/100)+').'); return; }
             var dtPag = (document.getElementById('taoc-rec-data')||{}).value||'';
             var cb = document.getElementById('taoc-rec-confirm'); cb.disabled=true; cb.textContent='Processando...';
             var fd = new FormData();
             fd.append('action','tao_caixa_receber_venda'); fd.append('nonce',C.nonce);
             fd.append('venda_ids',JSON.stringify(selVendas)); fd.append('pagamentos',JSON.stringify(pags));
             fd.append('cpf_pagador',(document.getElementById('taoc-rec-cpf')||{}).value||'');
+            fd.append('nome_pagador',(_nomeEl||{}).value||'');
             fd.append('data_pagamento',dtPag);
             fd.append('desconto_adicional',descAd);
-            fd.append('valor_cm',(document.getElementById('taoc-rec-cm')||{}).value||'0');
+            fd.append('valor_cm',cmConf);
             fd.append('cupom_fiscal',(document.getElementById('taoc-rec-cupom')||{}).value||'0');
             fetch(C.ajaxUrl,{method:'POST',body:fd,credentials:'same-origin'})
                 .then(function(r){ return r.json(); })
